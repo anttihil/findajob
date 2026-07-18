@@ -1,0 +1,42 @@
+# Job Search Automation Configuration
+
+# Path to the directory containing markdown resumes (relative to backend/)
+resumes_dir: "../resumes"
+
+# Target countries for job search
+# Supported: US (United States), SE (Sweden), NO (Norway), DK (Denmark), FI (Finland)
+countries:
+  - "US"
+  - "SE"
+  - "NO"
+  - "DK"
+  - "FI"
+
+# Search queries/job titles to look for
+search_queries:
+  - "Software Engineer"
+  - "Full Stack Developer"
+  - "DevOps Engineer"
+  - "AI Engineer"
+  - "Product Manager"
+  - "Technical Program Manager"
+
+# Active job sources
+sources:
+  gmail_imap: true
+
+# Gmail IMAP Ingestion Configuration
+gmail_imap:
+  enabled: true
+  email: ""
+  password_env_var: "GMAIL_APP_PASSWORD"
+  imap_server: "imap.gmail.com"
+  imap_port: 993
+
+# Digest Configuration
+digest:
+  enabled: true
+  min_score_for_digest: 40
+
+# Minimum match score to display in the dashboard (0-100)
+min_match_score: 15
