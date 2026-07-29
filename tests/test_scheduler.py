@@ -1,0 +1,599 @@
+"""Scheduler and circuit-breaker tests.
+
+Two invariants get simulation tests rather than single-call assertions, because both fail
+silently in production and would be invisible in a spot check:
+
+  Eventual coverage -- a rotating scheduler that permanently starves some cells produces a
+  dashboard where "no Kubernetes roles in Helsinki" and "my Helsinki query broke" look
+  identical.
+
+  hours_old >= 1.5x the revisit gap -- if violated, postings existed inside the unobserved
+  gap, and the resulting flow estimate is too low with no downstream symptom.
+"""
+
+import os
+import sys
+import unittest
+from datetime import datetime, timedelta, timezone
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from backend.roles import load_roles  # noqa: E402
+from backend.scheduler import (  # noqa: E402
+    CellState,
+    adaptive_hours_old,
+    cell_priority,
+    estimate_units,
+    is_eligible,
+    is_saturated,
+    overdue_cells,
+    select_cells,
+    starved_cells,
+    update_ewma,
+)
+from backend.scraper_guard import (  # noqa: E402
+    ERROR_BLOCKED,
+    ERROR_FATAL,
+    ERROR_RATE_LIMIT,
+    ERROR_TRANSIENT,
+    SourceCircuit,
+    SourceTripped,
+    classify_error,
+)
+
+NOW = datetime(2026, 7, 29, 12, 0, tzinfo=timezone.utc)
+
+CONFIG = {
+    "page_size": {"indeed": 15, "linkedin": 25},
+    "cadence_hours": {"core": 24, "adjacent": 72, "breadth": 168},
+    "hours_old_floor": {"core": 72, "adjacent": 168, "breadth": 336},
+    "max_hours_old": 336,
+    "backfill_hours_old": 336,
+    "max_staleness_hours": 72,
+    "budgets": {
+        "indeed": {"searches_per_run": 20, "request_units": 200,
+                   "results_wanted_default": 75, "max_results_wanted": 200,
+                   "fetch_descriptions": True},
+        "linkedin": {"searches_per_run": 6, "request_units": 60,
+                     "results_wanted_default": 50, "max_results_wanted": 75,
+                     "max_pages_per_run": 14, "fetch_descriptions": "budgeted"},
+    },
+    "locations": {
+        "us_remote": {"weight": 1.0}, "la": {"weight": 1.0}, "us_nat": {"weight": 0.55},
+        "fi": {"weight": 0.85}, "se": {"weight": 0.85},
+        "no": {"weight": 0.65}, "dk": {"weight": 0.65},
+    },
+    "circuit_breaker": {
+        "consecutive_errors_to_trip": 3,
+        "http_429_trips_immediately": True,
+        "source_backoff_minutes": [15, 60, 240, 1440],
+        "cell_backoff_minutes": [60, 360, 1440],
+    },
+}
+
+
+def make_cells(source="indeed", roles=None):
+    """Build the real cell matrix for one source."""
+    roles = roles or load_roles()
+    cells = []
+    for index, spec in enumerate(roles.cell_specs(sources=(source,)), start=1):
+        cells.append(CellState(
+            id=index, source=spec["source"], role_family=spec["role_family"],
+            location_id=spec["location_id"], query=spec["query"], tier=spec["tier"],
+        ))
+    return cells
+
+
+class EligibilityTests(unittest.TestCase):
+    def test_disabled_cell_is_ineligible(self):
+        cell = CellState(1, "indeed", "x", "la", "q", enabled=0)
+        self.assertFalse(is_eligible(cell, NOW))
+
+    def test_cell_in_backoff_is_ineligible(self):
+        cell = CellState(1, "indeed", "x", "la", "q",
+                         backoff_until=(NOW + timedelta(hours=2)).isoformat())
+        self.assertFalse(is_eligible(cell, NOW))
+
+    def test_expired_backoff_is_eligible_again(self):
+        cell = CellState(1, "indeed", "x", "la", "q",
+                         backoff_until=(NOW - timedelta(hours=1)).isoformat())
+        self.assertTrue(is_eligible(cell, NOW))
+
+
+class PriorityTests(unittest.TestCase):
+    def test_staleness_raises_priority(self):
+        fresh = CellState(1, "indeed", "x", "la", "q", tier="core",
+                          last_scraped_at=NOW.isoformat(), total_scrapes=5)
+        stale = CellState(2, "indeed", "x", "la", "q", tier="core", total_scrapes=5,
+                          last_scraped_at=(NOW - timedelta(days=5)).isoformat())
+        self.assertGreater(
+            cell_priority(stale, CONFIG, NOW), cell_priority(fresh, CONFIG, NOW)
+        )
+
+    def test_core_tier_outranks_breadth_at_equal_staleness(self):
+        base = dict(last_scraped_at=(NOW - timedelta(days=10)).isoformat(),
+                    total_scrapes=5)
+        core = CellState(1, "indeed", "x", "la", "q", tier="core", **base)
+        breadth = CellState(2, "indeed", "x", "la", "q", tier="breadth", **base)
+        self.assertGreater(
+            cell_priority(core, CONFIG, NOW), cell_priority(breadth, CONFIG, NOW)
+        )
+
+    def test_location_weight_matters(self):
+        base = dict(tier="core", total_scrapes=5,
+                    last_scraped_at=(NOW - timedelta(days=3)).isoformat())
+        high = CellState(1, "indeed", "x", "us_remote", "q", **base)
+        low = CellState(2, "indeed", "x", "us_nat", "q", **base)
+        self.assertGreater(
+            cell_priority(high, CONFIG, NOW), cell_priority(low, CONFIG, NOW)
+        )
+
+    def test_never_scraped_cell_gets_a_novelty_boost(self):
+        base = dict(tier="core", last_scraped_at=(NOW - timedelta(days=3)).isoformat())
+        fresh = CellState(1, "indeed", "x", "la", "q", total_scrapes=0, **base)
+        seen = CellState(2, "indeed", "x", "la", "q", total_scrapes=10, **base)
+        self.assertGreater(
+            cell_priority(fresh, CONFIG, NOW), cell_priority(seen, CONFIG, NOW)
+        )
+
+    def test_saturated_cell_is_revisited_sooner(self):
+        base = dict(tier="core", total_scrapes=5,
+                    last_scraped_at=(NOW - timedelta(days=3)).isoformat())
+        saturated = CellState(1, "indeed", "x", "la", "q", last_saturated=1, **base)
+        normal = CellState(2, "indeed", "x", "la", "q", last_saturated=0, **base)
+        self.assertGreater(
+            cell_priority(saturated, CONFIG, NOW), cell_priority(normal, CONFIG, NOW)
+        )
+
+    def test_repeatedly_empty_cell_is_deprioritised_but_never_zeroed(self):
+        base = dict(tier="core", total_scrapes=5,
+                    last_scraped_at=(NOW - timedelta(days=3)).isoformat())
+        empty = CellState(1, "indeed", "x", "la", "q", consecutive_empty=8, **base)
+        normal = CellState(2, "indeed", "x", "la", "q", consecutive_empty=0, **base)
+        self.assertLess(
+            cell_priority(empty, CONFIG, NOW), cell_priority(normal, CONFIG, NOW)
+        )
+        # Must stay strictly positive, so a quiet family is still probed occasionally.
+        self.assertGreater(cell_priority(empty, CONFIG, NOW), 0)
+
+
+class AdaptiveHoursOldTests(unittest.TestCase):
+    def test_meets_the_one_point_five_times_gap_invariant(self):
+        """The core correctness property: never leave an unobserved gap."""
+        for gap_hours in (12, 24, 48, 72, 100, 150):
+            cell = CellState(
+                1, "indeed", "x", "la", "q", tier="core",
+                last_success_at=(NOW - timedelta(hours=gap_hours)).isoformat(),
+            )
+            hours_old = adaptive_hours_old(cell, CONFIG, NOW)
+            self.assertGreaterEqual(
+                hours_old, min(1.5 * gap_hours, CONFIG["max_hours_old"]),
+                f"gap={gap_hours}h produced hours_old={hours_old}",
+            )
+
+    def test_respects_the_tier_floor(self):
+        cell = CellState(1, "indeed", "x", "la", "q", tier="core",
+                         last_success_at=(NOW - timedelta(hours=1)).isoformat())
+        self.assertGreaterEqual(adaptive_hours_old(cell, CONFIG, NOW), 72)
+
+    def test_is_capped(self):
+        cell = CellState(1, "indeed", "x", "la", "q", tier="breadth",
+                         last_success_at=(NOW - timedelta(days=90)).isoformat())
+        self.assertLessEqual(adaptive_hours_old(cell, CONFIG, NOW), 336)
+
+    def test_never_succeeded_cell_uses_the_backfill_window(self):
+        cell = CellState(1, "indeed", "x", "la", "q", tier="core")
+        self.assertEqual(adaptive_hours_old(cell, CONFIG, NOW), 336)
+
+
+class BudgetTests(unittest.TestCase):
+    def setUp(self):
+        self.roles = load_roles()
+
+    def test_respects_searches_per_run(self):
+        cells = make_cells("indeed", self.roles)
+        tasks = select_cells(cells, CONFIG, self.roles, "indeed", NOW)
+        self.assertLessEqual(tasks and len(tasks) or 0,
+                             CONFIG["budgets"]["indeed"]["searches_per_run"])
+
+    def test_respects_linkedin_page_ceiling(self):
+        cells = make_cells("linkedin", self.roles)
+        tasks = select_cells(cells, CONFIG, self.roles, "linkedin", NOW)
+        page_size = CONFIG["page_size"]["linkedin"]
+        pages = sum(-(-t.results_wanted // page_size) for t in tasks)
+        self.assertLessEqual(pages, CONFIG["budgets"]["linkedin"]["max_pages_per_run"])
+
+    def test_respects_request_unit_budget(self):
+        cells = make_cells("indeed", self.roles)
+        tasks = select_cells(cells, CONFIG, self.roles, "indeed", NOW)
+        total = sum(t.est_request_units for t in tasks)
+        self.assertLessEqual(total, CONFIG["budgets"]["indeed"]["request_units"])
+
+    def test_linkedin_is_budgeted_far_below_indeed(self):
+        """The whole point of the source asymmetry."""
+        indeed = select_cells(make_cells("indeed", self.roles), CONFIG, self.roles,
+                              "indeed", NOW)
+        linkedin = select_cells(make_cells("linkedin", self.roles), CONFIG, self.roles,
+                                "linkedin", NOW)
+        self.assertLess(len(linkedin), len(indeed))
+
+    def test_indeed_tasks_request_a_description_census(self):
+        tasks = select_cells(make_cells("indeed", self.roles), CONFIG, self.roles,
+                             "indeed", NOW)
+        self.assertTrue(all(t.desc_selection == "census" for t in tasks))
+        self.assertTrue(all(t.fetch_description for t in tasks))
+
+    def test_linkedin_tasks_are_marked_top_k_not_census(self):
+        """LinkedIn descriptions are pre-score selected, so they must never be pooled into
+        skill-demand denominators."""
+        tasks = select_cells(make_cells("linkedin", self.roles), CONFIG, self.roles,
+                             "linkedin", NOW)
+        self.assertTrue(tasks)
+        self.assertTrue(all(t.desc_selection == "top_k" for t in tasks))
+        self.assertTrue(all(not t.fetch_description for t in tasks))
+
+    def test_backfill_maximises_results_and_window(self):
+        tasks = select_cells(make_cells("indeed", self.roles), CONFIG, self.roles,
+                             "indeed", NOW, backfill=True)
+        self.assertTrue(all(t.hours_old == 336 for t in tasks))
+        self.assertTrue(all(t.results_wanted == 200 for t in tasks))
+
+    def test_tasks_carry_location_and_country_from_the_query(self):
+        tasks = select_cells(make_cells("indeed", self.roles), CONFIG, self.roles,
+                             "indeed", NOW)
+        for task in tasks:
+            self.assertTrue(task.country)
+            self.assertTrue(task.indeed_country)
+            self.assertTrue(task.location_label)
+
+
+class StalenessFloorTests(unittest.TestCase):
+    def setUp(self):
+        self.roles = load_roles()
+
+    def test_overdue_core_cell_is_forced_into_the_run(self):
+        cells = make_cells("indeed", self.roles)
+        # Make everything look fresh except one overdue core cell in a weight-1.0 location.
+        for cell in cells:
+            cell.last_scraped_at = NOW.isoformat()
+            cell.last_success_at = NOW.isoformat()
+            cell.total_scrapes = 5
+        target = next(c for c in cells
+                      if c.tier == "core" and c.location_id == "us_remote")
+        target.last_success_at = (NOW - timedelta(days=10)).isoformat()
+        target.last_scraped_at = NOW.isoformat()  # attempted recently, never succeeded
+
+        tasks = select_cells(cells, CONFIG, self.roles, "indeed", NOW)
+        self.assertIn(target.id, {t.cell_id for t in tasks})
+
+    def test_overdue_keys_on_success_not_attempt(self):
+        """A cell that keeps failing must still read as overdue.
+
+        If the floor keyed on last_scraped_at, a persistently broken cell would look fresh
+        and the dashboard would report coverage of data never collected.
+        """
+        cells = [CellState(
+            1, "indeed", "ai_engineer", "us_remote", "q", tier="core",
+            last_scraped_at=NOW.isoformat(),
+            last_success_at=(NOW - timedelta(days=5)).isoformat(),
+        )]
+        self.assertEqual(len(overdue_cells(cells, CONFIG, NOW)), 1)
+
+    def test_fresh_cells_are_not_overdue(self):
+        cells = [CellState(
+            1, "indeed", "ai_engineer", "us_remote", "q", tier="core",
+            last_scraped_at=NOW.isoformat(), last_success_at=NOW.isoformat(),
+        )]
+        self.assertEqual(overdue_cells(cells, CONFIG, NOW), [])
+
+    def test_low_weight_locations_are_not_floor_guaranteed(self):
+        cells = [CellState(
+            1, "indeed", "ai_engineer", "us_nat", "q", tier="core",
+            last_success_at=(NOW - timedelta(days=30)).isoformat(),
+        )]
+        self.assertEqual(overdue_cells(cells, CONFIG, NOW), [])
+
+
+class StarvationDeadlineTests(unittest.TestCase):
+    """The explicit per-tier coverage guarantee.
+
+    Priority alone is not trusted for coverage: an earlier version capped `urgency`, which
+    made tier_weight an absolute ordering once cells saturated the cap and starved every
+    breadth cell across 200 simulated runs.
+    """
+
+    def setUp(self):
+        self.roles = load_roles()
+        self.config = dict(CONFIG, starvation_multiple=4)
+
+    def _cell(self, tier, hours_stale, **kwargs):
+        return CellState(
+            1, "indeed", "ai_engineer", "us_remote", "q", tier=tier,
+            last_scraped_at=(NOW - timedelta(hours=hours_stale)).isoformat(),
+            **kwargs,
+        )
+
+    def test_deadline_scales_with_tier_cadence(self):
+        # core cadence 24h x 4 = 96h; breadth 168h x 4 = 672h.
+        self.assertEqual(starved_cells([self._cell("core", 97)], self.config, NOW),
+                         starved_cells([self._cell("core", 97)], self.config, NOW))
+        self.assertTrue(starved_cells([self._cell("core", 97)], self.config, NOW))
+        self.assertFalse(starved_cells([self._cell("core", 95)], self.config, NOW))
+        self.assertTrue(starved_cells([self._cell("breadth", 700)], self.config, NOW))
+        self.assertFalse(starved_cells([self._cell("breadth", 600)], self.config, NOW))
+
+    def test_starved_cells_ignore_backoff(self):
+        cell = self._cell("core", 500,
+                          backoff_until=(NOW + timedelta(hours=5)).isoformat())
+        self.assertEqual(starved_cells([cell], self.config, NOW), [])
+
+    def test_starved_cells_are_scheduled_ahead_of_priority(self):
+        cells = make_cells("indeed", self.roles)
+        for cell in cells:
+            cell.last_scraped_at = NOW.isoformat()
+            cell.last_success_at = NOW.isoformat()
+            cell.total_scrapes = 20
+            cell.ewma_new_per_scrape = 30.0     # very productive, so high priority
+        # One low-tier, low-yield, repeatedly-empty cell past its deadline: the exact
+        # profile that the priority formula alone pushes to the back forever.
+        starving = next(c for c in cells if c.tier == "breadth")
+        starving.last_scraped_at = (NOW - timedelta(days=40)).isoformat()
+        starving.consecutive_empty = 5
+        starving.ewma_new_per_scrape = 0.0
+
+        tasks = select_cells(cells, self.config, self.roles, "indeed", NOW)
+        self.assertIn(starving.id, {t.cell_id for t in tasks})
+
+    def test_most_overdue_relative_to_its_own_deadline_comes_first(self):
+        core = self._cell("core", 480)          # 5x its 96h deadline
+        core.id = 1
+        breadth = CellState(2, "indeed", "devrel", "us_remote", "q", tier="breadth",
+                            last_scraped_at=(NOW - timedelta(hours=700)).isoformat())
+        order = starved_cells([breadth, core], self.config, NOW)
+        self.assertEqual(order[0].id, core.id)
+
+
+class EventualCoverageSimulationTests(unittest.TestCase):
+    """Simulate many runs and assert the rotation actually covers the matrix."""
+
+    def setUp(self):
+        self.roles = load_roles()
+
+    def _simulate(self, runs, source="indeed", runs_per_day=2, empties=()):
+        cells = make_cells(source, self.roles)
+        by_id = {c.id: c for c in cells}
+        visits = {c.id: 0 for c in cells}
+        clock = NOW
+
+        for _ in range(runs):
+            tasks = select_cells(cells, CONFIG, self.roles, source, clock)
+            for task in tasks:
+                cell = by_id[task.cell_id]
+                visits[cell.id] += 1
+                cell.last_scraped_at = clock.isoformat()
+                cell.total_scrapes += 1
+                if cell.role_family in empties:
+                    cell.consecutive_empty += 1
+                    cell.last_result_count = 0
+                else:
+                    cell.consecutive_empty = 0
+                    cell.last_success_at = clock.isoformat()
+                    cell.last_result_count = 30
+                    cell.ewma_new_per_scrape = update_ewma(
+                        cell.ewma_new_per_scrape, 5
+                    )
+            clock += timedelta(hours=24 / runs_per_day)
+
+        return visits, cells
+
+    def test_every_cell_is_visited_within_a_month_of_runs(self):
+        visits, _ = self._simulate(runs=60)  # 30 days at 2 runs/day
+        unvisited = [cid for cid, count in visits.items() if count == 0]
+        self.assertEqual(unvisited, [], f"{len(unvisited)} cells never visited")
+
+    def test_every_cell_is_visited_repeatedly_over_a_long_horizon(self):
+        visits, _ = self._simulate(runs=200)
+        starved = [cid for cid, count in visits.items() if count < 3]
+        self.assertEqual(starved, [], f"{len(starved)} cells visited fewer than 3 times")
+
+    def test_core_cells_are_visited_more_often_than_breadth(self):
+        visits, cells = self._simulate(runs=120)
+        by_id = {c.id: c for c in cells}
+        core = [v for cid, v in visits.items() if by_id[cid].tier == "core"]
+        breadth = [v for cid, v in visits.items() if by_id[cid].tier == "breadth"]
+        self.assertGreater(sum(core) / len(core), sum(breadth) / len(breadth))
+
+    def test_full_matrix_cycle_completes_in_about_five_days(self):
+        """The derived constraint behind analytics.min_window_days = 30."""
+        cells = make_cells("indeed", self.roles)
+        by_id = {c.id: c for c in cells}
+        seen = set()
+        clock = NOW
+        runs = 0
+        while len(seen) < len(cells) and runs < 100:
+            for task in select_cells(cells, CONFIG, self.roles, "indeed", clock):
+                seen.add(task.cell_id)
+                cell = by_id[task.cell_id]
+                cell.last_scraped_at = clock.isoformat()
+                cell.last_success_at = clock.isoformat()
+                cell.total_scrapes += 1
+            clock += timedelta(hours=12)
+            runs += 1
+        days = (clock - NOW).total_seconds() / 86400
+        self.assertLessEqual(days, 8, f"full cycle took {days:.1f} days")
+
+    def test_persistently_empty_family_is_still_probed(self):
+        """Otherwise "the market moved" and "my query broke" look the same."""
+        visits, cells = self._simulate(runs=200, empties={"devrel"})
+        by_id = {c.id: c for c in cells}
+        devrel_visits = [v for cid, v in visits.items()
+                         if by_id[cid].role_family == "devrel"]
+        self.assertTrue(devrel_visits)
+        self.assertTrue(all(v >= 2 for v in devrel_visits), devrel_visits)
+
+
+class SaturationTests(unittest.TestCase):
+    def test_saturation_detected_at_the_threshold(self):
+        self.assertTrue(is_saturated(75, 75))
+        self.assertTrue(is_saturated(72, 75))     # within 95%
+        self.assertFalse(is_saturated(37, 75))
+        self.assertFalse(is_saturated(0, 75))
+
+    def test_zero_requested_is_not_saturated(self):
+        self.assertFalse(is_saturated(0, 0))
+
+
+class EwmaTests(unittest.TestCase):
+    def test_first_observation_seeds_the_average(self):
+        self.assertEqual(update_ewma(None, 10), 10.0)
+
+    def test_subsequent_observations_are_smoothed(self):
+        self.assertAlmostEqual(update_ewma(10, 0, alpha=0.4), 6.0)
+
+
+class UnitCostTests(unittest.TestCase):
+    def test_indeed_pages_are_denser_than_linkedin(self):
+        self.assertGreater(
+            estimate_units("linkedin", 75, CONFIG), 0
+        )
+        # 75 results: Indeed 5 pages of 15, LinkedIn 3 pages of 25.
+        self.assertEqual(estimate_units("indeed", 75, CONFIG), 5)
+        self.assertEqual(estimate_units("linkedin", 75, CONFIG), 3)
+
+
+class ErrorClassificationTests(unittest.TestCase):
+    def test_rate_limit_is_recognised(self):
+        for exc in [Exception("HTTP 429 Too Many Requests"),
+                    Exception("rate limited by server"),
+                    Exception("Response 429")]:
+            self.assertEqual(classify_error(exc), ERROR_RATE_LIMIT, str(exc))
+
+    def test_blocking_is_recognised(self):
+        for exc in [Exception("403 Forbidden"), Exception("captcha challenge issued"),
+                    Exception("unusual traffic detected")]:
+            self.assertEqual(classify_error(exc), ERROR_BLOCKED, str(exc))
+
+    def test_transient_is_recognised(self):
+        for exc in [Exception("503 Service Unavailable"),
+                    Exception("read timeout"),
+                    Exception("connection reset by peer")]:
+            self.assertEqual(classify_error(exc), ERROR_TRANSIENT, str(exc))
+
+    def test_unknown_is_fatal(self):
+        self.assertEqual(classify_error(ValueError("bad shape")), ERROR_FATAL)
+
+
+class FakeDb:
+    def __init__(self):
+        self.backoff = {}
+        self.trips = {}
+        self.reasons = {}
+
+    def get_source_backoff(self, source):
+        return self.backoff.get(source)
+
+    def get_source_trips(self, source):
+        return self.trips.get(source, 0)
+
+    def set_source_backoff(self, source, until, reason=None, escalate=False):
+        self.backoff[source] = until
+        self.reasons[source] = reason
+        if escalate:
+            self.trips[source] = self.trips.get(source, 0) + 1
+
+    def reset_source_trips(self, source):
+        self.trips[source] = 0
+
+
+class CircuitBreakerTests(unittest.TestCase):
+    def _circuit(self, db=None):
+        return SourceCircuit(
+            "linkedin", CONFIG, db=db, now=lambda: NOW, sleep=lambda _s: None
+        )
+
+    def test_429_trips_immediately_and_is_not_retried(self):
+        """Departs from http_client.py on purpose: a 429 means the IP is flagged."""
+        db = FakeDb()
+        circuit = self._circuit(db)
+        error_class = circuit.on_error(Exception("HTTP 429 Too Many Requests"))
+        self.assertEqual(error_class, ERROR_RATE_LIMIT)
+        self.assertTrue(circuit.is_open)
+        self.assertIn("linkedin", db.backoff)
+
+    def test_open_circuit_refuses_further_requests(self):
+        circuit = self._circuit(FakeDb())
+        circuit.on_error(Exception("429"))
+        with self.assertRaises(SourceTripped):
+            circuit.before_request()
+
+    def test_transient_errors_trip_only_after_the_threshold(self):
+        circuit = self._circuit(FakeDb())
+        circuit.on_error(Exception("timeout"))
+        self.assertFalse(circuit.is_open)
+        circuit.on_error(Exception("timeout"))
+        self.assertFalse(circuit.is_open)
+        circuit.on_error(Exception("timeout"))
+        self.assertTrue(circuit.is_open)
+
+    def test_success_resets_the_consecutive_error_count(self):
+        circuit = self._circuit(FakeDb())
+        circuit.on_error(Exception("timeout"))
+        circuit.on_error(Exception("timeout"))
+        circuit.on_success(10)
+        circuit.on_error(Exception("timeout"))
+        self.assertFalse(circuit.is_open)
+
+    def test_empty_result_is_not_an_error(self):
+        circuit = self._circuit(FakeDb())
+        for _ in range(5):
+            circuit.on_empty()
+        self.assertFalse(circuit.is_open)
+
+    def test_backoff_escalates_across_trips(self):
+        db = FakeDb()
+        first = self._circuit(db)
+        first.on_error(Exception("429"))
+        first_until = db.backoff["linkedin"]
+
+        second = self._circuit(db)
+        second.on_error(Exception("429"))
+        second_until = db.backoff["linkedin"]
+        self.assertGreater(second_until, first_until)
+
+    def test_persisted_backoff_blocks_a_later_run(self):
+        db = FakeDb()
+        db.backoff["linkedin"] = (NOW + timedelta(hours=1)).isoformat()
+        self.assertTrue(self._circuit(db).persisted_backoff_active())
+
+    def test_expired_persisted_backoff_does_not_block(self):
+        db = FakeDb()
+        db.backoff["linkedin"] = (NOW - timedelta(hours=1)).isoformat()
+        self.assertFalse(self._circuit(db).persisted_backoff_active())
+
+    def test_clean_run_decays_the_escalation_counter(self):
+        """Otherwise one bad afternoon pins the source at a 24h backoff forever."""
+        db = FakeDb()
+        db.trips["linkedin"] = 3
+        circuit = self._circuit(db)
+        for _ in range(5):
+            circuit.on_success(10)
+        circuit.note_clean_run()
+        self.assertEqual(db.trips["linkedin"], 0)
+
+    def test_cell_backoff_escalates(self):
+        circuit = self._circuit(FakeDb())
+        first = circuit.cell_backoff(1)
+        third = circuit.cell_backoff(3)
+        self.assertLess(first, third)
+
+    def test_summary_reports_state(self):
+        circuit = self._circuit(FakeDb())
+        circuit.on_error(Exception("429 rate limited"))
+        summary = circuit.summary()
+        self.assertTrue(summary["tripped"])
+        self.assertEqual(summary["source"], "linkedin")
+        self.assertEqual(summary["rate_limit_hits"], 1)
+
+
+if __name__ == "__main__":
+    unittest.main()

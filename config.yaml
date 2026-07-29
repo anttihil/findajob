@@ -1,42 +1,214 @@
-# Job Search Automation Configuration
+# Job Search Automation Configuration ("CareerRadar")
 
-# Path to the directory containing markdown resumes (relative to backend/)
+# Path to the directory containing markdown resumes (relative to the project root)
 resumes_dir: "../resumes"
 
-# Target countries for job search
-# Supported: US (United States), SE (Sweden), NO (Norway), DK (Denmark), FI (Finland)
-countries:
-  - "US"
-  - "SE"
-  - "NO"
-  - "DK"
-  - "FI"
+# ---------------------------------------------------------------------------------------
+# Scraping
+#
+# The cell matrix is ~252 cells (126 per source). LinkedIn rate-limits around the 10th page
+# on a single IP, so the matrix is rotated across runs rather than swept -- see
+# backend/scheduler.py. At these budgets a full matrix cycle takes roughly 5 days, which is
+# what makes the 30-day minimum analysis window meaningful.
+# ---------------------------------------------------------------------------------------
+scraper:
+  sources:
+    indeed: true
+    linkedin: true
 
-# Search queries/job titles to look for
-search_queries:
-  - "Software Engineer"
-  - "Full Stack Developer"
-  - "DevOps Engineer"
-  - "AI Engineer"
-  - "Product Manager"
-  - "Technical Program Manager"
+  page_size:
+    indeed: 15        # results per GraphQL page
+    linkedin: 25      # results per guest-API page
 
-# Active job sources
-sources:
-  gmail_imap: true
+  # How often a cell in each tier should be revisited.
+  cadence_hours:
+    core: 24
+    adjacent: 72
+    breadth: 168
 
-# Gmail IMAP Ingestion Configuration
-gmail_imap:
-  enabled: true
-  email: ""
-  password_env_var: "GMAIL_APP_PASSWORD"
-  imap_server: "imap.gmail.com"
-  imap_port: 993
+  # Lower bound on hours_old per tier. The effective value is derived per cell from the
+  # actual revisit gap (>= 1.5x), so a missed run self-heals rather than leaving a hole.
+  hours_old_floor:
+    core: 72
+    adjacent: 168
+    breadth: 336
+  max_hours_old: 336
+  backfill_hours_old: 336
 
-# Digest Configuration
+  # Hard guarantee: core cells in weight-1.0 locations are visited within this many hours,
+  # or their families' supply figures are suppressed with a coverage warning.
+  max_staleness_hours: 72
+
+  # Per-tier scheduling deadline = cadence_hours * this. Any cell past its deadline is
+  # scheduled ahead of the priority ranking. Coverage is an explicit guarantee rather than
+  # something emerging from the product of six weighting factors -- an earlier design relied
+  # on priority alone and starved every breadth cell indefinitely.
+  # With 4: core within 4 days, adjacent within 12, breadth within 28.
+  starvation_multiple: 4
+
+  budgets:
+    # Indeed is the volume workhorse: descriptions arrive in-response, so a census of
+    # descriptions is free and its cells carry the skill analytics.
+    indeed:
+      searches_per_run: 20
+      request_units: 200
+      results_wanted_default: 75
+      max_results_wanted: 200
+      min_seconds_between_searches: 2.0
+      jitter_seconds: [0.5, 2.5]
+      fetch_descriptions: true
+      desc_selection: census
+
+    # LinkedIn is a strictly budgeted supplement. fetch_descriptions is 'budgeted', NOT
+    # true: each description costs an extra request, so only a top-scoring subset can be
+    # fetched. That subset is selected by pre-score, which correlates with the user's own
+    # skills -- so LinkedIn descriptions are marked desc_selection='top_k' and excluded
+    # from skill-demand denominators. LinkedIn still counts fully toward role supply,
+    # where only the title, company, and location are needed.
+    linkedin:
+      searches_per_run: 6
+      request_units: 60
+      results_wanted_default: 50      # 2 pages, far under the ~10-page/IP wall
+      max_results_wanted: 75
+      max_pages_per_run: 14
+      description_fetches_per_run: 40
+      min_seconds_between_searches: 6.0
+      jitter_seconds: [2.0, 6.0]
+      fetch_descriptions: budgeted
+      desc_selection: top_k
+
+  circuit_breaker:
+    consecutive_errors_to_trip: 3
+    # A 429 means the IP is flagged. Retrying in-run deepens the flag, so it trips the
+    # source outright instead -- deliberately unlike backend/http_client.py's retry policy.
+    http_429_trips_immediately: true
+    transient_retries: 2
+    source_backoff_minutes: [15, 60, 240, 1440]
+    cell_backoff_minutes: [60, 360, 1440]
+
+  # Staffing firms and consultancies repost one requisition many times under varied
+  # titles, which near-duplicate detection cannot catch because the descriptions genuinely
+  # differ. Excluded from analytics by default; the dashboard offers a toggle.
+  agencies:
+    - Robert Half
+    - Insight Global
+    - TEKsystems
+    - Motion Recruitment
+    - CyberCoders
+    - Jobot
+    - Dice
+    - Randstad
+    - Adecco
+    - Manpower
+    - Hays
+    - Michael Page
+    - Academic Work
+    - Nexer
+    - Sopra Steria
+    - Consid
+    - Netcompany
+    - Knightec
+    - Sigma Technology
+    - HiQ
+    - Cygni
+
+  # Static FX rates, used only to put salaries on one annual-USD axis. Precision is not
+  # critical: salary_lift is a ratio computed within a stratum, and strata include country
+  # so cross-currency figures never share a median.
+  fx:
+    USD: 1.00
+    EUR: 1.08
+    SEK: 0.095
+    NOK: 0.093
+    DKK: 0.145
+    GBP: 1.27
+    CAD: 0.73
+
+# ---------------------------------------------------------------------------------------
+# Matching
+# ---------------------------------------------------------------------------------------
+matching:
+  min_match_score: 15          # minimum score to store a posting
+  weights:
+    skill_coverage: 0.45
+    bm25: 0.25
+    title_family: 0.20
+    seniority_fit: 0.10
+
+  llm:
+    # Off by default. The deterministic scorer runs on everything; this reranks only the
+    # top N and requires ANTHROPIC_API_KEY. Absent the key the stage is skipped with a
+    # warning rather than failing the run.
+    enabled: false
+    model: claude-opus-5
+    top_n: 25
+    min_deterministic_score: 40
+    use_batch_api: true         # 50% cost for offline runs
+    max_usd_per_run: 1.00       # pre-flight token count aborts rather than overspending
+
+# ---------------------------------------------------------------------------------------
+# Analytics
+# ---------------------------------------------------------------------------------------
+analytics:
+  windows: [30, 90]
+  # Derived, not a preference: a full matrix cycle takes ~5 days, and comparing supply
+  # across families needs several complete cycles or coverage is irreparably uneven.
+  min_window_days: 30
+
+  # Publication gates. Suppress WITH a reason; never silently omit.
+  min_postings_for_skill: 20
+  min_companies_for_skill: 3
+  max_company_share: 0.40      # one employer dominating a skill is not market demand
+  min_n_eff_for_scope: 20
+  min_coverage_fraction: 0.50
+  min_observations_per_cell: 3
+  min_salary_samples: 12
+
+  exclude_agencies: true
+
+  # Post-stratification target mix. Weights are DECLARED, not observed, so the estimate is
+  # stable as the scrape rotation changes -- otherwise every metric wobbles with the
+  # rotation and trend becomes meaningless.
+  #   interest         -- "of the jobs I'd actually consider, X% require this"
+  #   estimated_supply -- "of what the market is hiring for, X% require this"
+  #   observed         -- diagnostic ONLY; reflects scrape rotation, not the market
+  weighting_mode: interest
+  reference_mix:
+    ai_engineer|us_remote: 0.13
+    ai_engineer|la: 0.07
+    fullstack_engineer|us_remote: 0.11
+    fullstack_engineer|la: 0.06
+    platform_engineer|us_remote: 0.10
+    platform_engineer|la: 0.05
+    devops_engineer|us_remote: 0.07
+    backend_engineer|us_remote: 0.06
+    ai_engineer|fi: 0.05
+    fullstack_engineer|fi: 0.04
+    platform_engineer|fi: 0.04
+    ai_engineer|se: 0.05
+    fullstack_engineer|se: 0.04
+    platform_engineer|se: 0.04
+    fullstack_engineer|no: 0.02
+    fullstack_engineer|dk: 0.02
+    academic_technology|us_remote: 0.02
+    tpm|us_remote: 0.02
+    product_manager|us_remote: 0.01
+
+  # Skill-gap composite. blocking_gap dominates deliberately: "this skill is what stands
+  # between me and postings I otherwise match" is more actionable than raw popularity.
+  gap_weights:
+    blocking_gap: 0.40
+    demand: 0.30
+    adjacency: 0.20
+    salary_lift: 0.10
+
+# ---------------------------------------------------------------------------------------
+# Digest
+# ---------------------------------------------------------------------------------------
 digest:
   enabled: true
   min_score_for_digest: 40
+  include_skill_gap: true
 
 # Minimum match score to display in the dashboard (0-100)
 min_match_score: 15
