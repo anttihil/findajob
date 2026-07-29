@@ -20,6 +20,7 @@ python-jobspy = { git = "https://github.com/speedyapply/JobSpy", rev = "fda080a3
 
 [dependency-groups]
 dev = [
+    "httpx2>=2.9.1",
     "pytest>=9.1.1",
 ]
 
