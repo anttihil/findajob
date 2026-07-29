@@ -9,8 +9,17 @@ dependencies = [
     "fastapi>=0.111.0",
     "uvicorn>=0.30.1",
     "pydantic>=2.7.4",
+    "python-jobspy",
 ]
 
 [tool.uv]
 package = false
+
+[tool.uv.sources]
+python-jobspy = { git = "https://github.com/speedyapply/JobSpy", rev = "fda080a373e8226f3fd60635323f5da9af9892b1" }
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+]
 

@@ -6,33 +6,21 @@ from datetime import datetime
 DB_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "jobs.db")
 
 class Database:
-    def __init__(self):
-        self.conn = sqlite3.connect(DB_PATH)
+    def __init__(self, db_path=None):
+        self.db_path = db_path or DB_PATH
+        self.conn = sqlite3.connect(self.db_path)
         self.conn.row_factory = sqlite3.Row
         self.create_tables()
 
     def create_tables(self):
-        cursor = self.conn.cursor()
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS jobs (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                job_key TEXT UNIQUE,
-                title TEXT NOT NULL,
-                company TEXT,
-                location TEXT,
-                country TEXT,
-                url TEXT UNIQUE,
-                description TEXT,
-                source TEXT,
-                match_score INTEGER DEFAULT 0,
-                matched_skills TEXT, -- JSON string
-                resume_match TEXT, -- resume filename
-                status TEXT DEFAULT 'unread', -- 'unread', 'saved', 'applied', 'rejected'
-                date_found TEXT,
-                date_applied TEXT
-            )
-        """)
-        self.conn.commit()
+        """Bring the schema up to date via the versioned migration runner.
+
+        Migrations are idempotent, so calling this on every connection is cheap: once
+        user_version matches, it is a single PRAGMA read.
+        """
+        from backend.migrations import migrate
+
+        migrate(self.conn)
 
     def add_job(self, job_data):
         """
