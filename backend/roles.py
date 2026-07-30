@@ -115,6 +115,9 @@ class RoleTaxonomy:
             self.locations[location.id] = location
 
         self.tier_locations = data.get("tier_locations") or {}
+        self._exclusions = [
+            re.compile(p, re.IGNORECASE) for p in (data.get("exclusions") or [])
+        ]
         self.hash = hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
 
     # -- lookup ------------------------------------------------------------------------
@@ -160,6 +163,7 @@ class RoleTaxonomy:
             return None, SENIORITY_UNSPECIFIED
 
         normalized = re.sub(r"\s+", " ", title).strip()
+
         candidates = []
         for family in self.families.values():
             position, is_weak = family.find(normalized)
@@ -167,10 +171,36 @@ class RoleTaxonomy:
                 continue
             if is_weak and not has_tech_skills:
                 continue
-            candidates.append((position, family.order, family.key))
+            # Sort key: confident matches before weak ones, THEN by position. A weak generic
+            # match must never outrank a confident specific one just for appearing earlier
+            # in the string -- "Observability Engineer / Site Reliability Engineer" was
+            # being classified as generic software because the bare "Engineer" in
+            # "Observability Engineer" sits at a lower offset than "site reliability".
+            candidates.append((1 if is_weak else 0, position, family.order, family.key))
 
-        role_family = min(candidates)[2] if candidates else None
-        return role_family, self.seniority(normalized)
+        if not candidates:
+            return None, self.seniority(normalized)
+
+        # An exclusion only vetoes a WEAK match. Applying it unconditionally threw away real
+        # postings: "Sr. Java Backend / Sr. React Frontend / Sr. Network Engineer / Sr. Cloud
+        # Infrastructure Engineer" is a software job that happens to mention a network role,
+        # and "Principal Software Engineer, Senior Java Engineer - Cloud, Account Executive"
+        # was vetoed by the account-executive pattern. A confident software pattern is
+        # stronger evidence than the presence of a non-software phrase.
+        best = min(candidates)
+        if best[0] == 1 and self.is_excluded(normalized):
+            return None, self.seniority(normalized)
+
+        return best[3], self.seniority(normalized)
+
+    def is_excluded(self, title):
+        """Whether a title looks like a non-software engineering or non-technical role.
+
+        Hardware, RF, manufacturing, and facilities postings do mention Python and Linux, so
+        the technical-skill gate alone does not exclude them -- and left unchecked they are
+        absorbed by the generic family and inflate its supply figure.
+        """
+        return any(pattern.search(title or "") for pattern in self._exclusions)
 
     def seniority(self, title):
         if not title:
@@ -191,13 +221,15 @@ class RoleTaxonomy:
         if not title:
             return []
         normalized = re.sub(r"\s+", " ", title).strip()
+        if self.is_excluded(normalized):
+            return []
         hits = []
         for family in self.families.values():
             position, is_weak = family.find(normalized)
             if position is None or (is_weak and not has_tech_skills):
                 continue
-            hits.append((position, family.order, family.key))
-        return [key for _, _, key in sorted(hits)]
+            hits.append((1 if is_weak else 0, position, family.order, family.key))
+        return [key for _, _, _, key in sorted(hits)]
 
     # -- validation --------------------------------------------------------------------
     def validate(self):

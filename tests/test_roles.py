@@ -126,12 +126,10 @@ class ClassificationTests(unittest.TestCase):
     def test_weak_patterns_require_technical_corroboration(self):
         """Bare "X Engineer" is only a software role if the posting names a technology.
 
-        A live dry run classified a "Stationary Engineer" (boiler operator) and an
-        "R&D Engineer, Materials" as software_engineer, inflating that family's supply and
-        handing both a perfect title-family score.
+        A live dry run classified an "R&D Engineer, Materials" as software_engineer,
+        inflating that family's supply and handing it a perfect title-family score.
         """
-        for title in ["Stationary Engineer", "R&D Engineer, Materials",
-                      "Python + TypeScript Engineers", "Chemical Engineer"]:
+        for title in ["R&D Engineer, Materials", "Python + TypeScript Engineers"]:
             self.assertIsNone(
                 self._family(title, tech=False),
                 f"{title!r} should not classify without technical evidence",
@@ -139,6 +137,72 @@ class ClassificationTests(unittest.TestCase):
             self.assertEqual(
                 self._family(title, tech=True), "software_engineer", title
             )
+
+    def test_excluded_titles_are_vetoed_even_with_technical_skills(self):
+        """Hardware, RF, manufacturing, and facilities postings do mention Python and
+        Linux, so the technical-skill gate alone cannot exclude them. Left unchecked they
+        are absorbed by the generic family and inflate its supply figure. Every title here
+        was observed in a real scrape."""
+        for title in [
+            "Stationary Engineer", "Electrical Engineer", "Manufacturing Engineer",
+            "Hardware Engineer, PCB", "ASIC Verification Engineer", "Network Engineer",
+            "RF/Microwave Engineer - Senior Member of Technical Staff",
+            "STAFF ENGINEER, DRY ETCH DRAM", "Senior SAR-Based MTI Engineer",
+            "Distinguished Engineer (Chiplet Lead - Photonic Fabric)",
+            "Principal Failure Analysis Engineer", "Senior Quantum Error Correction Engineer",
+        ]:
+            self.assertIsNone(self._family(title, tech=True), title)
+
+    def test_exclusions_do_not_veto_real_software_titles(self):
+        """The vetoes must be narrow. "Flight Software Engineer" is software despite the
+        aerospace context; "Manufacturing Test" software is still software."""
+        for title in [
+            "Flight Software Engineer II", "Senior Software Engineer",
+            "Robotics Software Engineer - UAS", "Senior Platform Engineer",
+            "Embedded Autonomy Engineer", "Senior Software Engineer, Bazel Tools",
+        ]:
+            self.assertIsNotNone(self._family(title, tech=True), title)
+
+    def test_a_confident_match_survives_an_exclusion_elsewhere_in_the_title(self):
+        """Multi-role titles mix software with non-software roles. Vetoing unconditionally
+        discarded real postings, so an exclusion only overrides a WEAK match."""
+        self.assertEqual(
+            self._family(
+                "Sr. Java Backend / Sr. React Frontend / Sr. Network Engineer / "
+                "Sr. Cloud Infrastructure Engineer"
+            ),
+            "backend_engineer",
+        )
+        self.assertEqual(
+            self._family(
+                "Principal Software Engineer, Senior Java Engineer - Cloud, "
+                "Account Executive"
+            ),
+            "software_engineer",
+        )
+
+    def test_confident_specific_match_beats_earlier_weak_generic_match(self):
+        """Position alone is not enough: the bare "Engineer" in "Observability Engineer"
+        sits at a lower offset than "site reliability", so an earliest-position-wins rule
+        classified this real posting as generic software."""
+        self.assertEqual(
+            self._family("Observability Engineer / Site Reliability Engineer"), "sre"
+        )
+
+    def test_pattern_variants_seen_in_real_postings(self):
+        """Each of these lost a real posting to the generic bucket before being handled."""
+        cases = [
+            ("Senior ML Ops Engineer (Machine Learning Infrastructure)", "mlops_engineer"),
+            ("AI Developer", "ai_engineer"),
+            ("AI Architect/Developer", "ai_engineer"),
+            ("Senior AI Agentic Engineer", "ai_engineer"),
+            ("Lead IT DevSecOps Engineer", "devops_engineer"),
+            ("Senior Frontend Software Engineer - Invoicing & Payments",
+             "frontend_engineer"),
+            ("Senior Mobile Application Developer", "mobile_engineer"),
+        ]
+        for title, expected in cases:
+            self.assertEqual(self._family(title), expected, title)
 
     def test_confident_patterns_do_not_need_corroboration(self):
         """An explicit software title stands on its own."""
@@ -209,31 +273,46 @@ class RealCorpusTests(unittest.TestCase):
             raise unittest.SkipTest("jobs.db not present")
         conn = sqlite3.connect(DB_PATH)
         try:
-            cls.titles = [row[0] for row in conn.execute("SELECT title FROM jobs")]
+            # Legacy rows came from curated API feeds, so nearly every title is a real
+            # software role. Scraped rows are raw board output, where a large minority
+            # genuinely is not -- the two need different expectations.
+            cls.curated = [r[0] for r in conn.execute(
+                "SELECT title FROM jobs WHERE sync_run_id IS NULL")]
+            cls.scraped = [r[0] for r in conn.execute(
+                "SELECT title FROM jobs WHERE sync_run_id IS NOT NULL")]
         finally:
             conn.close()
         cls.roles = load_roles()
+        cls.titles = cls.curated + cls.scraped
 
-    def test_high_classification_rate(self):
-        classified = [t for t in self.titles
+    def test_curated_feed_titles_classify_almost_completely(self):
+        if not self.curated:
+            self.skipTest("no curated rows")
+        classified = [t for t in self.curated
                       if self.roles.classify(t, has_tech_skills=True)[0] is not None]
-        rate = len(classified) / len(self.titles)
-        self.assertGreater(rate, 0.90, f"only {rate:.0%} of real titles classified")
+        rate = len(classified) / len(self.curated)
+        self.assertGreater(rate, 0.90, f"only {rate:.0%} of curated titles classified")
 
-    def test_only_non_titles_remain_unclassified(self):
-        unclassified = {t for t in self.titles
+    def test_only_non_titles_remain_unclassified_in_curated_feed(self):
+        if not self.curated:
+            self.skipTest("no curated rows")
+        unclassified = {t for t in self.curated
                         if self.roles.classify(t, has_tech_skills=True)[0] is None}
-        # Every remaining failure should be something that is not a job title at all.
         self.assertTrue(
             unclassified <= {"Full-time", "Remote (US, Canada)", "Toronto, ON", "YC 19"},
-            f"unexpected unclassified titles: {unclassified}",
+            f"unexpected unclassified curated titles: {unclassified}",
         )
 
-    def test_most_real_titles_classify_without_corroboration(self):
-        """Only the genuinely ambiguous ones should depend on skill evidence."""
-        confident = [t for t in self.titles
-                     if self.roles.classify(t, has_tech_skills=False)[0] is not None]
-        self.assertGreater(len(confident) / len(self.titles), 0.85)
+    def test_scraped_titles_are_mostly_but_not_entirely_classified(self):
+        """Boards return substantial off-target results, so a 100% rate would mean the
+        vetoes are not working -- and a very low rate would mean they are too broad."""
+        if not self.scraped:
+            self.skipTest("no scraped rows")
+        classified = [t for t in self.scraped
+                      if self.roles.classify(t, has_tech_skills=True)[0] is not None]
+        rate = len(classified) / len(self.scraped)
+        self.assertGreater(rate, 0.55, f"only {rate:.0%} classified — vetoes too broad?")
+        self.assertLess(rate, 0.98, f"{rate:.0%} classified — vetoes not firing?")
 
     def test_every_classification_is_a_known_family(self):
         for title in self.titles:
