@@ -461,20 +461,10 @@
 
 
 
-                            <div class="form-group mt-4 gmail-imap-section">
-                                <label>Gmail IMAP Credentials</label>
-                                <p style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 8px;">Enter your Gmail address here. The App Password must be configured inside the <code>.env</code> file in your workspace directory for safety.</p>
-                                <div class="form-grid-2">
-                                    <div class="form-group-sub">
-                                        <label for="gmail-email">Gmail Address</label>
-                                        <input type="email" id="gmail-email" class="form-input" placeholder="your.email@gmail.com">
-                                    </div>
-                                    <div class="form-group-sub">
-                                        <label>IMAP Server (Default)</label>
-                                        <input type="text" id="gmail-imap-server" class="form-input" value="imap.gmail.com" readonly style="opacity: 0.7;">
-                                    </div>
-                                </div>
-                            </div>
+                            <!-- The Gmail IMAP source was removed: it mutated the mailbox by reading
+                                 UNSEEN mail (so runs were not idempotent) and produced zero
+                                 rows. Scraping is configured in config.yaml and
+                                 data/roles.yaml. -->
 
 
                             <button type="submit" class="save-btn mt-6">

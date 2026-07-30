@@ -511,10 +511,6 @@ function populateSettingsFields() {
     // Fill credentials
 
     
-    const gmailEmailInput = document.getElementById('gmail-email');
-    if (gmailEmailInput) {
-        gmailEmailInput.value = configData.gmail_imap?.email || '';
-    }
     
     // Generate Countries checkboxes
     const allCountries = ["US", "FI", "SE", "NO", "DK"];
@@ -540,9 +536,13 @@ function populateSettingsFields() {
     
     // Generate Source checkboxes
     const allSources = {
-        gmail_imap: "Gmail IMAP (Job Alerts)"
+        indeed: "Indeed (volume source — full descriptions)",
+        linkedin: "LinkedIn (budgeted supplement)",
     };
-    const activeSources = configData.sources || {};
+    // Sources moved under scraper.sources; fall back to the old flat key for an
+    // un-migrated config file.
+    const activeSources = (configData.scraper && configData.scraper.sources)
+        || configData.sources || {};
     settingsSourcesContainer.innerHTML = '';
     
     Object.keys(allSources).forEach(key => {
@@ -579,23 +579,17 @@ function setupSettingsForm() {
         
         // Collect queries
         const queries = settingsQueriesTextarea.value.split('\n')
-            .map(q => q.strip ? q.strip() : q.trim())
+            .map(q => q.trim())
             .filter(q => q.length > 0);
             
-        const gmailEmailInput = document.getElementById('gmail-email');
+        // /api/config deep-merges server-side, so omitting a key leaves it untouched.
+        // Posting a partial payload used to overwrite everything it did not mention.
         const payload = {
             countries: checkedCountries,
             search_queries: queries,
             min_match_score: parseInt(settingsScoreSlider.value),
-            sources: checkedSources,
-
-            gmail_imap: {
-                enabled: checkedSources.gmail_imap || false,
-                email: gmailEmailInput ? gmailEmailInput.value.trim() : '',
-                password_env_var: "GMAIL_APP_PASSWORD",
-                imap_server: "imap.gmail.com",
-                imap_port: 993
-            }
+            scraper: { sources: checkedSources },
+            matching: { min_match_score: parseInt(settingsScoreSlider.value) },
         };
         
         try {

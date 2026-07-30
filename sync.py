@@ -13,6 +13,7 @@ kills it.
 """
 
 import argparse
+import json
 import os
 import sys
 from datetime import datetime, timezone
@@ -188,6 +189,10 @@ def run_sync(dry_run=False, backfill=False, limit=None, sources=None,
             circuit.note_clean_run()
 
         _report_coverage(db, scraper_config)
+
+        llm_summary = _run_llm_stage(db, config, profile, taxonomy, dry_run)
+        if llm_summary:
+            totals["llm_cost_usd"] = llm_summary.get("usd", 0)
 
         status = "ok"
         if any(c.is_open for c in circuits.values()) or totals["cells_skipped"]:
@@ -437,6 +442,75 @@ def _rescore(db, scorer, taxonomy):
     db.conn.commit()
     logger.info("Rescore complete")
     return {"rescored": len(rows)}
+
+
+def _run_llm_stage(db, config, profile, taxonomy, dry_run):
+    """Optionally rerank this run's best postings with the Claude API.
+
+    Feature-flagged off. Any failure here is logged and swallowed: the deterministic score is
+    what the dashboard shows, and ingestion must not depend on an optional service.
+    """
+    llm_config = (config.get("matching") or {}).get("llm") or {}
+    if not llm_config.get("enabled", False):
+        return None
+
+    from backend.llm_scorer import LlmScorer
+
+    scorer = LlmScorer(config, profile, taxonomy)
+    available, reason = scorer.available()
+    if not available:
+        logger.info(f"LLM stage skipped: {reason}")
+        add_sync_error("LLM", f"Reranker skipped: {reason}", severity="info")
+        return None
+
+    rows = db.conn.execute(
+        """
+        SELECT job_key, title, company, location, description, seniority, match_score,
+               matched_skills
+          FROM jobs
+         WHERE sync_run_id IS NOT NULL AND duplicate_of IS NULL
+           AND description_quality = 'full' AND match_score >= ?
+         ORDER BY match_score DESC
+         LIMIT ?
+        """,
+        (llm_config.get("min_deterministic_score", 40), llm_config.get("top_n", 25)),
+    ).fetchall()
+    if not rows:
+        return None
+
+    scored = []
+    for row in rows:
+        posting = dict(row)
+        scored.append((posting, {
+            "score": posting.get("match_score") or 0,
+            "matched_skills": json.loads(posting.get("matched_skills") or "[]"),
+            "missing_skills": [],
+        }))
+
+    verdicts = scorer.rerank(scored, dry_run=dry_run)
+
+    if "__error__" in verdicts:
+        add_sync_error("LLM", verdicts["__error__"], severity="warning")
+        return scorer.spend_summary()
+    if "__batch__" in verdicts:
+        info = verdicts["__batch__"]
+        add_sync_error(
+            "LLM",
+            f"Batch {info['id']} submitted for {info['requests']} postings — "
+            f"verdicts arrive on a later run.",
+            severity="info",
+        )
+        return scorer.spend_summary()
+    if "__estimate__" in verdicts:
+        logger.info(f"LLM dry-run estimate: {verdicts['__estimate__']}")
+        return None
+
+    for job_key, verdict in verdicts.items():
+        db.conn.execute("UPDATE jobs SET llm_verdict = ? WHERE job_key = ?",
+                        (json.dumps(verdict), job_key))
+    db.conn.commit()
+    logger.info(f"LLM stage: stored {len(verdicts)} verdicts")
+    return scorer.spend_summary()
 
 
 def main(argv=None):

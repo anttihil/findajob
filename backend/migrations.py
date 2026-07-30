@@ -11,7 +11,7 @@ from backend.logger import get_logger
 
 logger = get_logger()
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 
 def _v1_baseline(cursor):
@@ -332,9 +332,21 @@ def _v2_analytics(cursor):
     )
 
 
+def _v3_llm_verdict(cursor):
+    """Store the optional Claude reranker's verdict alongside the deterministic score.
+
+    Kept separate from match_score on purpose: the deterministic score stays reproducible,
+    and a run without the LLM stage produces the same ranking as before.
+    """
+    existing = {row[1] for row in cursor.execute("PRAGMA table_info(jobs)")}
+    if "llm_verdict" not in existing:
+        cursor.execute("ALTER TABLE jobs ADD COLUMN llm_verdict TEXT")
+
+
 MIGRATIONS = [
     (1, "baseline jobs table", _v1_baseline),
     (2, "market analytics: cells, observations, skills, stats", _v2_analytics),
+    (3, "optional LLM verdict column", _v3_llm_verdict),
 ]
 
 
