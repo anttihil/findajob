@@ -25,7 +25,8 @@ SENIORITY_UNSPECIFIED = "unspecified"
 
 
 class RoleFamily:
-    __slots__ = ("key", "label", "tier", "resume", "query_terms", "order", "_patterns")
+    __slots__ = ("key", "label", "tier", "resume", "query_terms", "order", "_patterns",
+                 "_weak_patterns")
 
     def __init__(self, key, spec, order):
         self.key = key
@@ -36,15 +37,35 @@ class RoleFamily:
         # Declaration order doubles as a specificity ranking, used to break position ties.
         self.order = order
         self._patterns = [re.compile(p, re.IGNORECASE) for p in spec.get("patterns", [])]
+        # Weak patterns need corroboration from a technical skill in the posting. Bare
+        # "X Engineer" titles are otherwise claimed by the generic family regardless of
+        # whether the job has anything to do with software.
+        self._weak_patterns = [
+            re.compile(p, re.IGNORECASE) for p in spec.get("weak_patterns", [])
+        ]
 
-    def find(self, title):
-        """Earliest match offset in `title`, or None."""
+    def find(self, title, allow_weak=True):
+        """Earliest match offset in `title`, or None.
+
+        Returns (offset, is_weak). A weak-only match is reported so the caller can require
+        technical corroboration before accepting it.
+        """
         best = None
         for pattern in self._patterns:
             match = pattern.search(title)
             if match and (best is None or match.start() < best):
                 best = match.start()
-        return best
+        if best is not None:
+            return best, False
+
+        if not allow_weak:
+            return None, False
+
+        for pattern in self._weak_patterns:
+            match = pattern.search(title)
+            if match and (best is None or match.start() < best):
+                best = match.start()
+        return (best, True) if best is not None else (None, False)
 
     def __repr__(self):
         return f"<RoleFamily {self.key}>"
@@ -122,13 +143,18 @@ class RoleTaxonomy:
         return [f for f in self.families.values() if f.tier == tier]
 
     # -- normalization -----------------------------------------------------------------
-    def classify(self, title):
+    def classify(self, title, has_tech_skills=False):
         """Map a raw job title onto (role_family, seniority).
 
         Earliest match position wins, since titles lead with the primary role:
         "Senior Backend Developer / DevOps Engineer" is a backend role that also does
         devops, not the other way round. Declaration order breaks positional ties, so
         specific families beat the generic software_engineer catch-all at the same offset.
+
+        `has_tech_skills` gates weak patterns. Bare "X Engineer" is only a software role if
+        the posting actually mentions a technology -- otherwise a "Stationary Engineer" or
+        "R&D Engineer, Materials" is counted as software supply and handed a perfect
+        title-family score.
         """
         if not title:
             return None, SENIORITY_UNSPECIFIED
@@ -136,9 +162,12 @@ class RoleTaxonomy:
         normalized = re.sub(r"\s+", " ", title).strip()
         candidates = []
         for family in self.families.values():
-            position = family.find(normalized)
-            if position is not None:
-                candidates.append((position, family.order, family.key))
+            position, is_weak = family.find(normalized)
+            if position is None:
+                continue
+            if is_weak and not has_tech_skills:
+                continue
+            candidates.append((position, family.order, family.key))
 
         role_family = min(candidates)[2] if candidates else None
         return role_family, self.seniority(normalized)
@@ -152,7 +181,7 @@ class RoleTaxonomy:
                     return level
         return SENIORITY_UNSPECIFIED
 
-    def classify_all(self, title):
+    def classify_all(self, title, has_tech_skills=False):
         """Every family a title touches, ordered by match position.
 
         Multi-role titles are common ("Sr. Java Backend / Sr. React Frontend / Sr. Network
@@ -164,9 +193,10 @@ class RoleTaxonomy:
         normalized = re.sub(r"\s+", " ", title).strip()
         hits = []
         for family in self.families.values():
-            position = family.find(normalized)
-            if position is not None:
-                hits.append((position, family.order, family.key))
+            position, is_weak = family.find(normalized)
+            if position is None or (is_weak and not has_tech_skills):
+                continue
+            hits.append((position, family.order, family.key))
         return [key for _, _, key in sorted(hits)]
 
     # -- validation --------------------------------------------------------------------

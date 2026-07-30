@@ -1,72 +1,53 @@
-import re
+"""Backwards-compatible wrapper over backend/scoring.py.
+
+The old JobMatcher scored by regex keyword count (+25 if a resume skill appeared in the
+title, +5 in the body, capped at 100) and called the result a percent. It compared raw
+resume strings against raw description text, so "AWS (EC2, S3, IAM)" matched nothing, and a
+posting listing many technologies outscored one that actually fit.
+
+Scoring now lives in backend/scoring.py, which shares a canonical vocabulary with the job
+corpus and decomposes each score into named components. This shim remains so that
+`evaluate_job(title, description)` keeps working for any caller that has not moved over.
+New code should use JobScorer directly -- it returns the component breakdown, the matched
+and missing skills, and the resume mapping.
+"""
+
+from backend.profile import build_profile
+from backend.roles import load_roles
+from backend.scoring import JobScorer
+from backend.taxonomy import load_taxonomy
+
 
 class JobMatcher:
-    def __init__(self, resumes_dict):
-        """
-        resumes_dict: dict of {resume_filename: {title, skills}}
-        """
-        self.resumes = resumes_dict
+    """Legacy interface: evaluate_job(title, description) -> (resume, score, skills)."""
+
+    def __init__(self, resumes_dict=None, profile=None, roles=None, taxonomy=None):
+        # resumes_dict is accepted and ignored: the profile is now derived from the full
+        # corpus (including current_resume.md and achievements.md) rather than from
+        # whatever dict the caller happened to build.
+        self.taxonomy = taxonomy or load_taxonomy()
+        self.roles = roles or load_roles()
+        self.profile = profile or build_profile(taxonomy=self.taxonomy)
+        self.resumes = resumes_dict or {}
+        self._scorer = JobScorer(self.profile, self.roles, self.taxonomy)
 
     def evaluate_job(self, title, description):
-        """
-        Evaluates a job listing against all resumes.
-        Returns a tuple: (best_resume_filename, best_score, matched_skills)
-        """
-        if not self.resumes:
-            return None, 0, []
+        """Returns (best_resume_filename, score, matched_skill_labels)."""
+        family, seniority = self.roles.classify(
+            title or "", has_tech_skills=True
+        )
+        result = self._scorer.score({
+            "title": title or "",
+            "description": description or "",
+            "role_family": family,
+            "seniority": seniority,
+        })
+        labels = [self.taxonomy.label(key) for key in result["matched_skills"]]
+        resume = result["resume_match"] or (
+            next(iter(self.resumes), None) if self.resumes else None
+        )
+        return resume, result["score"], labels
 
-        best_resume = None
-        best_score = 0
-        best_skills = []
-
-        title_lower = title.lower()
-        desc_lower = description.lower()
-
-        for filename, resume_info in self.resumes.items():
-            skills = resume_info["skills"]
-            matched_skills = []
-            score_acc = 0
-
-            for skill in skills:
-                skill_lower = skill.lower()
-                
-                # Check for word boundary match
-                # Handle potential special characters in skills like Glide.js or ReactJS
-                # If skill has special chars, we escape them, but we still want word boundary protection
-                if '.' in skill_lower or '/' in skill_lower or '-' in skill_lower:
-                    pattern = re.escape(skill_lower)
-                else:
-                    pattern = r'\b' + re.escape(skill_lower) + r'\b'
-
-                if re.search(pattern, desc_lower):
-                    matched_skills.append(skill)
-                    
-                    # Boost if the skill is prominently featured in the job title
-                    if re.search(pattern, title_lower):
-                        score_acc += 25
-                    else:
-                        score_acc += 5
-            
-            # Normalize the score (we want a percentage style score from 0 to 100)
-            # Give a base score for the density of matches relative to resume size, 
-            # and a scale factor for absolute matches.
-            if matched_skills:
-                # Calculate score:
-                # 1. Base score for each match: 5-8 points
-                # 2. Add title boosts
-                # 3. Maximum score capped at 100
-                total_score = min(100, score_acc)
-            else:
-                total_score = 0
-
-            if total_score > best_score:
-                best_score = total_score
-                best_resume = filename
-                best_skills = matched_skills
-
-        # If no resume scored above 0, match it to the first resume with score 0
-        if best_score == 0 and self.resumes:
-            best_resume = list(self.resumes.keys())[0]
-            best_skills = []
-
-        return best_resume, best_score, best_skills
+    def evaluate_detailed(self, posting):
+        """Full result dict, for callers that want the component breakdown."""
+        return self._scorer.score(posting)

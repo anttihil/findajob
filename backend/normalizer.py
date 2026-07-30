@@ -356,14 +356,9 @@ def normalize_row(row, task, observed_at=None, config=None, roles=None, taxonomy
     )
     posting["content_hash"] = content_hash(company, title, posting["location"])
 
-    if roles is not None:
-        family, seniority = roles.classify(title)
-        posting["role_family"] = family
-        posting["seniority"] = seniority
-    else:
-        posting["role_family"] = None
-        posting["seniority"] = None
-
+    # Skills are extracted before classification, because weak title patterns need
+    # technical corroboration: bare "X Engineer" is only a software role if the posting
+    # actually mentions a technology.
     if taxonomy is not None and posting["description_quality"] == "full":
         posting["skills"] = taxonomy.extract(description, title=title)
         posting["blockers"] = taxonomy.extract_blockers(description)
@@ -371,7 +366,34 @@ def normalize_row(row, task, observed_at=None, config=None, roles=None, taxonomy
         posting["skills"] = {}
         posting["blockers"] = []
 
+    if roles is not None:
+        family, seniority = roles.classify(
+            title, has_tech_skills=has_technical_skill(posting["skills"], taxonomy)
+        )
+        posting["role_family"] = family
+        posting["seniority"] = seniority
+    else:
+        posting["role_family"] = None
+        posting["seniority"] = None
+
     return posting
+
+
+# Categories that make a posting a technology job. Practice and domain skills alone do not:
+# an "R&D Engineer, Materials" posting mentioning A/B testing and technical writing is still
+# not a software role.
+TECHNICAL_CATEGORIES = frozenset({
+    "language", "frontend", "backend", "database", "cloud", "infrastructure", "devops",
+    "ai_ml", "data", "security", "cms", "testing", "tooling",
+})
+
+
+def has_technical_skill(skills, taxonomy):
+    if not skills or taxonomy is None:
+        return False
+    return any(
+        taxonomy.category(key) in TECHNICAL_CATEGORIES for key in skills
+    )
 
 
 def normalize_rows(rows, task, observed_at=None, config=None, roles=None, taxonomy=None):

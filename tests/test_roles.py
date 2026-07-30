@@ -87,8 +87,10 @@ class ClassificationTests(unittest.TestCase):
     def setUp(self):
         self.roles = load_roles()
 
-    def _family(self, title):
-        return self.roles.classify(title)[0]
+    def _family(self, title, tech=True):
+        """Default tech=True: most callers are testing title patterns, and the normalizer
+        passes real skill evidence in production."""
+        return self.roles.classify(title, has_tech_skills=tech)[0]
 
     def test_specific_families_beat_the_generic_catch_all(self):
         cases = [
@@ -120,6 +122,33 @@ class ClassificationTests(unittest.TestCase):
     def test_plural_engineers_still_classifies(self):
         """\\bengineer\\b cannot match "Engineers"; the pattern must allow the plural."""
         self.assertIsNotNone(self._family("Python + TypeScript Engineers"))
+
+    def test_weak_patterns_require_technical_corroboration(self):
+        """Bare "X Engineer" is only a software role if the posting names a technology.
+
+        A live dry run classified a "Stationary Engineer" (boiler operator) and an
+        "R&D Engineer, Materials" as software_engineer, inflating that family's supply and
+        handing both a perfect title-family score.
+        """
+        for title in ["Stationary Engineer", "R&D Engineer, Materials",
+                      "Python + TypeScript Engineers", "Chemical Engineer"]:
+            self.assertIsNone(
+                self._family(title, tech=False),
+                f"{title!r} should not classify without technical evidence",
+            )
+            self.assertEqual(
+                self._family(title, tech=True), "software_engineer", title
+            )
+
+    def test_confident_patterns_do_not_need_corroboration(self):
+        """An explicit software title stands on its own."""
+        for title, expected in [
+            ("Senior Platform Engineer", "platform_engineer"),
+            ("DevOps Engineer", "devops_engineer"),
+            ("Full Stack Developer", "fullstack_engineer"),
+            ("Software Engineer", "software_engineer"),
+        ]:
+            self.assertEqual(self._family(title, tech=False), expected, title)
 
     def test_earliest_position_wins_for_multi_role_titles(self):
         """Titles lead with the primary role, so position beats declaration order."""
@@ -186,22 +215,29 @@ class RealCorpusTests(unittest.TestCase):
         cls.roles = load_roles()
 
     def test_high_classification_rate(self):
-        classified = [t for t in self.titles if self.roles.classify(t)[0] is not None]
+        classified = [t for t in self.titles
+                      if self.roles.classify(t, has_tech_skills=True)[0] is not None]
         rate = len(classified) / len(self.titles)
         self.assertGreater(rate, 0.90, f"only {rate:.0%} of real titles classified")
 
     def test_only_non_titles_remain_unclassified(self):
         unclassified = {t for t in self.titles
-                        if self.roles.classify(t)[0] is None}
+                        if self.roles.classify(t, has_tech_skills=True)[0] is None}
         # Every remaining failure should be something that is not a job title at all.
         self.assertTrue(
             unclassified <= {"Full-time", "Remote (US, Canada)", "Toronto, ON", "YC 19"},
             f"unexpected unclassified titles: {unclassified}",
         )
 
+    def test_most_real_titles_classify_without_corroboration(self):
+        """Only the genuinely ambiguous ones should depend on skill evidence."""
+        confident = [t for t in self.titles
+                     if self.roles.classify(t, has_tech_skills=False)[0] is not None]
+        self.assertGreater(len(confident) / len(self.titles), 0.85)
+
     def test_every_classification_is_a_known_family(self):
         for title in self.titles:
-            family, _ = self.roles.classify(title)
+            family, _ = self.roles.classify(title, has_tech_skills=True)
             if family is not None:
                 self.assertIn(family, self.roles.families, title)
 
