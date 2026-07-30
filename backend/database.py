@@ -114,6 +114,59 @@ class Database:
             jobs.append(job)
         return jobs
 
+    def query_jobs(self, status=None, country=None, resume_match=None, role_family=None,
+                   seniority=None, source=None, is_remote=None, has_salary=None,
+                   include_duplicates=False, min_score=None, limit=200, offset=0):
+        """Filtered, paginated posting list for the dashboard.
+
+        Duplicates are hidden by default: the same requisition cross-posted to both boards
+        would otherwise appear twice in the feed.
+        """
+        query = "SELECT * FROM jobs WHERE 1=1"
+        params = []
+
+        if not include_duplicates:
+            query += " AND duplicate_of IS NULL"
+        for column, value in (
+            ("status", status), ("country", country), ("resume_match", resume_match),
+            ("role_family", role_family), ("seniority", seniority), ("source", source),
+        ):
+            if value:
+                query += f" AND {column} = ?"
+                params.append(value)
+        if is_remote is not None:
+            query += " AND is_remote = ?"
+            params.append(1 if is_remote else 0)
+        if has_salary is not None:
+            query += (" AND salary_annual_usd IS NOT NULL" if has_salary
+                      else " AND salary_annual_usd IS NULL")
+        if min_score is not None:
+            query += " AND match_score >= ?"
+            params.append(min_score)
+
+        total = self.conn.execute(
+            f"SELECT COUNT(*) FROM ({query})", params
+        ).fetchone()[0]
+
+        query += " ORDER BY match_score DESC, date_found DESC LIMIT ? OFFSET ?"
+        params.extend([limit, offset])
+
+        jobs = []
+        for row in self.conn.execute(query, params):
+            job = dict(row)
+            job["matched_skills"] = (
+                json.loads(row["matched_skills"]) if row["matched_skills"] else []
+            )
+            jobs.append(job)
+
+        return {
+            "jobs": jobs,
+            "total": total,
+            "limit": limit,
+            "offset": offset,
+            "has_more": offset + len(jobs) < total,
+        }
+
     def update_job_status(self, job_id, status):
         cursor = self.conn.cursor()
         now_str = datetime.now().isoformat() if status == "applied" else None

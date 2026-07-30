@@ -161,7 +161,13 @@ analytics:
   max_company_share: 0.40      # one employer dominating a skill is not market demand
   min_n_eff_for_scope: 20
   min_coverage_fraction: 0.50
-  min_observations_per_cell: 3
+  # Was 3, which conflicted with the scheduler's whole purpose: it deliberately ROTATES to
+  # different cells rather than revisiting one, so a cell accumulates observations only
+  # across days. Meanwhile coverage_fraction already measures what actually matters -- one
+  # observation with hours_old=336 is a complete census of a 14-day window. Requiring 3 was
+  # therefore redundant with the coverage gate and suppressed sound estimates. Observation
+  # depth is still reported per row and shown in the coverage panel.
+  min_observations_per_cell: 1
   min_salary_samples: 12
 
   exclude_agencies: true
