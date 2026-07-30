@@ -12,6 +12,7 @@ const navItems = document.querySelectorAll('.nav-item');
 const tabPanes = document.querySelectorAll('.tab-pane');
 const headerDate = document.getElementById('header-date');
 const pageTitle = document.getElementById('page-title');
+let jobsTotal = 0;
 
 // Stats Elements
 const statTotalEl = document.getElementById('stat-total');
@@ -135,8 +136,12 @@ async function fetchJobs() {
         
         const url = `/api/jobs?${queryParams.join('&')}`;
         const res = await fetch(url);
-        jobsData = await res.json();
-        
+        const payload = await res.json();
+        // /api/jobs is paginated now, so it returns {jobs, total, has_more} rather than a
+        // bare array.
+        jobsData = Array.isArray(payload) ? payload : (payload.jobs || []);
+        jobsTotal = Array.isArray(payload) ? payload.length : (payload.total ?? 0);
+
         renderJobCards();
     } catch (e) {
         console.error("Error fetching jobs:", e);
@@ -254,9 +259,9 @@ function renderJobCards() {
             <div class="job-card" data-id="${job.id}">
                 <div class="job-card-details">
                     <div class="job-card-header">
-                        <h4>${job.title}</h4>
+                        <h4>${escapeHTML(job.title)}</h4>
                     </div>
-                    <div class="job-company">${job.company}</div>
+                    <div class="job-company">${escapeHTML(job.company)}</div>
                     <div class="job-meta-row">
                         <span><i class="fa-solid fa-location-dot"></i> ${job.location || 'Remote'}</span>
                         <span><i class="fa-solid fa-clock"></i> Found ${dateStr}</span>
@@ -361,8 +366,8 @@ function openJobDrawer(jobId) {
     if (!selectedJob) return;
     
     drawerTitle.textContent = selectedJob.title;
-    drawerCompany.innerHTML = `<i class="fa-solid fa-building"></i> ${selectedJob.company}`;
-    drawerLocation.innerHTML = `<i class="fa-solid fa-location-dot"></i> ${selectedJob.location || selectedJob.country}`;
+    drawerCompany.innerHTML = `<i class="fa-solid fa-building"></i> ${escapeHTML(selectedJob.company)}`;
+    drawerLocation.innerHTML = `<i class="fa-solid fa-location-dot"></i> ${escapeHTML(selectedJob.location || selectedJob.country)}`;
     drawerScore.textContent = `${selectedJob.match_score}% Match`;
     drawerSource.textContent = selectedJob.source;
     drawerMatchedResume.textContent = selectedJob.resume_match;
@@ -713,11 +718,22 @@ function renderSyncErrors(errors) {
     if (!syncErrorsList || !syncErrorBanner) return;
     
     syncErrorsList.innerHTML = '';
+    // Severity distinguishes a hard failure from a coverage caveat or a notice. Rendering
+    // "supply for these families is suppressed this window" in the same red as a rate-limit
+    // trip trains the reader to ignore the banner.
+    const ICONS = {
+        error: 'fa-circle-exclamation',
+        warning: 'fa-triangle-exclamation',
+        info: 'fa-circle-info',
+    };
     errors.forEach(err => {
         const timeStr = err.timestamp ? new Date(err.timestamp).toLocaleTimeString() : 'Unknown';
+        const severity = err.severity || 'error';
         const liHTML = `
-            <li>
-                <strong>${err.source}</strong> [${timeStr}]: ${err.error}
+            <li class="sync-error-${escapeHTML(severity)}">
+                <i class="fa-solid ${ICONS[severity] || ICONS.error}"></i>
+                <strong>${escapeHTML(err.source)}</strong> [${escapeHTML(timeStr)}]:
+                ${escapeHTML(err.error)}
             </li>
         `;
         syncErrorsList.insertAdjacentHTML('beforeend', liHTML);
@@ -760,6 +776,12 @@ function setupTabSwitching() {
             } else if (targetTab === 'digests') {
                 pageTitle.textContent = 'Daily Job Digests';
                 loadDigests();
+            } else if (targetTab === 'market') {
+                pageTitle.textContent = 'Market Supply';
+                loadMarketTab();
+            } else if (targetTab === 'skills') {
+                pageTitle.textContent = 'Skill Gap Analysis';
+                loadSkillsTab();
             } else if (targetTab === 'settings') {
                 pageTitle.textContent = 'Radar Configurations';
                 // Double check sync visual banner
@@ -941,3 +963,436 @@ function convertMarkdownToHTML(md) {
     
     return newLines.join('\n');
 }
+
+/* ==========================================================================
+ * MARKET SUPPLY TAB
+ *
+ * Small multiples, one panel per location. There is deliberately no pooled
+ * cross-location ranking: flow is comparable only within a single location and
+ * source, so pooling would be the one comparison that isn't valid.
+ * ========================================================================== */
+
+let marketLocations = null;
+
+async function loadMarketTab() {
+    const panels = document.getElementById('market-panels');
+    const source = document.getElementById('market-source').value;
+    const windowDays = Number(document.getElementById('market-window').value);
+
+    if (!marketLocations) {
+        try {
+            const res = await fetch('/api/market/locations');
+            marketLocations = await res.json();
+        } catch (e) {
+            panels.innerHTML = '<p class="chart-empty">Could not load locations.</p>';
+            return;
+        }
+    }
+
+    panels.innerHTML = '<p class="chart-empty">Loading…</p>';
+
+    const results = await Promise.all(
+        marketLocations.locations.map(async (loc) => {
+            try {
+                const res = await fetch(
+                    `/api/market/supply?location=${encodeURIComponent(loc.id)}`
+                    + `&source=${encodeURIComponent(source)}&window_days=${windowDays}`
+                );
+                if (!res.ok) return { loc, error: `HTTP ${res.status}` };
+                return { loc, data: await res.json() };
+            } catch (e) {
+                return { loc, error: String(e) };
+            }
+        })
+    );
+
+    panels.innerHTML = '';
+    let anyData = false;
+
+    results.forEach(({ loc, data, error }) => {
+        const panel = document.createElement('div');
+        panel.className = 'market-panel';
+
+        const published = data
+            ? data.rows.filter((r) => !r.suppressed_reason)
+            : [];
+        const suppressed = data
+            ? data.rows.filter((r) => r.suppressed_reason)
+            : [];
+        if (published.length) anyData = true;
+
+        panel.innerHTML = `
+            <div class="market-panel-head">
+                <h4>${Charts.esc(loc.label)}${loc.is_remote ? ' · remote' : ''}</h4>
+                <span class="market-panel-meta">${Charts.esc(loc.country)}</span>
+            </div>
+            <div class="coverage-strip" data-strip></div>
+            <div data-chart></div>
+            <div class="market-suppressed" data-suppressed></div>`;
+        panels.appendChild(panel);
+
+        if (error) {
+            panel.querySelector('[data-chart]').innerHTML =
+                `<p class="chart-empty">${Charts.esc(error)}</p>`;
+            return;
+        }
+
+        const p = data.provenance;
+        const censoredCount = published.filter((r) => r.censored).length;
+        Charts.renderCoverageStrip(panel.querySelector('[data-strip]'), [
+            { label: 'shown', value: `${p.published_rows}/${p.total_rows}` },
+            {
+                label: 'truncated',
+                value: censoredCount ? `${censoredCount} lower-bound` : 'none',
+                warn: censoredCount > 0,
+                tooltip: 'The board cut off the result set for these families, so their '
+                       + 'flow is a lower bound rather than a measurement.',
+            },
+            {
+                label: 'window',
+                value: `${p.window_days}d`,
+                warn: p.window_below_minimum,
+                tooltip: p.window_below_minimum
+                    ? `Below the ${p.min_window_days}-day minimum: a full scrape cycle `
+                      + 'takes about 5 days, so shorter windows have uneven coverage.'
+                    : '',
+            },
+        ]);
+
+        Charts.renderBarChart(panel.querySelector('[data-chart]'), published.map((r) => ({
+            label: r.label,
+            value: r.flow_per_day || 0,
+            censored: r.censored,
+            zero_yield: r.zero_yield,
+            n_postings: r.n_postings,
+            n_companies: r.n_companies,
+            coverage_fraction: r.coverage_fraction,
+        })), {
+            valueKey: 'value',
+            unit: '/day',
+            formatValue: (v) => v.toFixed(1),
+            labelWidth: 170,
+            emptyText: 'Nothing published for this location yet.',
+            ariaLabel: `Role supply in ${loc.label}`,
+        });
+
+        panel.querySelector('[data-suppressed]').innerHTML = suppressed.length
+            ? `<span class="suppressed-note">${suppressed.length} suppressed: `
+              + suppressed.map((r) =>
+                  `${Charts.esc(r.label)} (${Charts.esc(r.suppressed_reason)})`).join(', ')
+              + '</span>'
+            : '';
+    });
+
+    if (!anyData) {
+        panels.insertAdjacentHTML('afterbegin',
+            '<p class="cold-start-note">No supply figures yet. Run '
+            + '<code>uv run python sync.py --backfill</code> a few times, then check back — '
+            + 'each family needs enough observed window coverage before a rate can be '
+            + 'stated.</p>');
+    }
+
+    loadMarketHeatmap(source, windowDays);
+    loadCoverageTable();
+}
+
+async function loadMarketHeatmap(source, windowDays) {
+    const container = document.getElementById('market-heatmap');
+    if (!marketLocations) return;
+
+    const locations = marketLocations.locations;
+    const perLocation = await Promise.all(locations.map(async (loc) => {
+        try {
+            const res = await fetch(
+                `/api/market/supply?location=${encodeURIComponent(loc.id)}`
+                + `&source=${encodeURIComponent(source)}&window_days=${windowDays}`);
+            if (!res.ok) return {};
+            const data = await res.json();
+            const map = {};
+            data.rows.forEach((r) => {
+                if (!r.suppressed_reason) map[r.role_family] = r.flow_per_day || 0;
+            });
+            return map;
+        } catch (e) { return {}; }
+    }));
+
+    // Only families with data somewhere, so the grid does not become mostly dots.
+    const families = marketLocations.role_families.filter((f) =>
+        perLocation.some((m) => m[f.key] !== undefined));
+
+    if (!families.length) {
+        container.innerHTML = '<p class="chart-empty">Not enough coverage yet.</p>';
+        return;
+    }
+
+    Charts.renderHeatmap(
+        container,
+        families.map((f) => perLocation.map((m) =>
+            m[f.key] === undefined ? null : m[f.key])),
+        {
+            rowLabels: families.map((f) => f.label),
+            colLabels: locations.map((l) => l.id),
+            formatValue: (v) => (v >= 10 ? v.toFixed(0) : v.toFixed(1)),
+        }
+    );
+}
+
+async function loadCoverageTable() {
+    const container = document.getElementById('coverage-table');
+    const summary = document.getElementById('coverage-summary');
+    try {
+        const res = await fetch('/api/market/coverage');
+        const { cells } = await res.json();
+        const scraped = cells.filter((c) => c.total_scrapes > 0);
+        const stale = scraped.filter((c) => (c.hours_since_success ?? 1e6) > 96);
+        const erroring = cells.filter((c) => c.consecutive_error > 0);
+
+        summary.textContent = `${scraped.length}/${cells.length} cells visited · `
+            + `${stale.length} stale · ${erroring.length} erroring`;
+
+        const rows = scraped
+            .sort((a, b) => (b.hours_since_success ?? 1e6) - (a.hours_since_success ?? 1e6))
+            .slice(0, 40);
+
+        if (!rows.length) {
+            container.innerHTML = '<p class="chart-empty">No cells scraped yet.</p>';
+            return;
+        }
+
+        container.innerHTML = `
+            <table class="data-table">
+              <thead><tr>
+                <th>Source</th><th>Location</th><th>Role family</th><th>Tier</th>
+                <th>Last success</th><th>Returned</th><th>Scrapes</th><th>State</th>
+              </tr></thead>
+              <tbody>${rows.map((c) => {
+                  const hrs = c.hours_since_success;
+                  const staleCell = (hrs ?? 1e6) > 96;
+                  let state = 'ok';
+                  if (c.backoff_until) state = 'backoff';
+                  else if (c.consecutive_error > 0) state = `${c.consecutive_error} errors`;
+                  else if (c.consecutive_empty > 2) state = `${c.consecutive_empty} empty`;
+                  else if (c.last_saturated) state = 'truncated';
+                  return `<tr class="${staleCell ? 'row-warn' : ''}">
+                    <td>${Charts.esc(c.source)}</td>
+                    <td>${Charts.esc(c.location_id)}</td>
+                    <td>${Charts.esc(c.role_family)}</td>
+                    <td>${Charts.esc(c.tier)}</td>
+                    <td>${hrs === null ? 'never' : `${hrs.toFixed(0)}h ago`}</td>
+                    <td>${c.last_result_count ?? 0}</td>
+                    <td>${c.total_scrapes}</td>
+                    <td>${Charts.esc(state)}</td>
+                  </tr>`;
+              }).join('')}</tbody>
+            </table>`;
+    } catch (e) {
+        container.innerHTML = '<p class="chart-empty">Could not load coverage.</p>';
+    }
+}
+
+/* ==========================================================================
+ * SKILL GAP TAB
+ * ========================================================================== */
+
+async function loadSkillsTab() {
+    const windowDays = Number(document.getElementById('skills-window').value);
+    const weighting = document.getElementById('skills-weighting').value;
+    const gapList = document.getElementById('gap-list');
+    gapList.innerHTML = '<p class="chart-empty">Loading…</p>';
+
+    let data;
+    try {
+        const res = await fetch(
+            `/api/skills/gap?window_days=${windowDays}&weighting=${weighting}`);
+        data = await res.json();
+    } catch (e) {
+        gapList.innerHTML = '<p class="chart-empty">Could not load skill gaps.</p>';
+        return;
+    }
+
+    const p = data.provenance;
+
+    Charts.renderStatTiles(document.getElementById('skills-tiles'), [
+        { value: p.n_postings ?? 0, label: 'postings analysed',
+          sub: `n_eff ${p.n_eff ?? 0}`,
+          tooltip: 'Effective sample size after reweighting. Lower than the raw count '
+                 + 'because an uneven scrape mix costs precision.' },
+        { value: p.n_good_fit ?? 0, label: 'strong matches',
+          sub: `score ≥ ${p.good_fit_threshold ?? 60}`,
+          tooltip: 'Postings you already match well. Blocking gaps are measured against '
+                 + 'these.' },
+        { value: data.views.priority_gaps.length, label: 'skills to acquire' },
+        { value: data.views.validated_strengths.length, label: 'validated strengths' },
+    ]);
+
+    Charts.renderCoverageStrip(document.getElementById('skills-coverage'), [
+        { label: 'weighting', value: data.weighting_effective || data.weighting_mode },
+        { label: 'window', value: `${data.window_days}d`,
+          warn: p.window_below_minimum },
+        { label: 'strata', value: `${p.strata_used ?? 0}/${p.strata_available ?? 0}` },
+        { label: 'suppressed', value: data.views.suppressed.length,
+          warn: data.views.suppressed.length > 0 },
+    ]);
+
+    // Banner: the honest caveats, stated up front rather than buried.
+    const banner = document.getElementById('skills-banner');
+    const notes = [];
+    if (data.weighting_fallback_reason) {
+        notes.push({ severity: 'warning', text: data.weighting_fallback_reason });
+    }
+    if (p.cold_start) {
+        notes.push({
+            severity: 'info',
+            text: 'Building baseline — the corpus is still small, so treat these figures as '
+                + 'provisional. A full scrape cycle takes about 5 days.',
+        });
+    }
+    if (p.residual_bias_note) {
+        notes.push({ severity: 'info', text: p.residual_bias_note });
+    }
+    banner.innerHTML = notes.length
+        ? `<div class="glass-card analysis-banner">${notes.map((n) =>
+            `<p class="banner-note is-${n.severity}">
+               <i class="fa-solid ${n.severity === 'warning'
+                   ? 'fa-triangle-exclamation' : 'fa-circle-info'}"></i>
+               ${Charts.esc(n.text)}</p>`).join('')}</div>`
+        : '';
+
+    renderGapRows(gapList, data.views.priority_gaps, 'gap');
+    renderGapRows(document.getElementById('strengths-list'),
+                  data.views.validated_strengths, 'strength');
+    renderGapRows(document.getElementById('dead-weight-list'),
+                  data.views.dead_weight, 'dead');
+
+    document.getElementById('suppressed-count').textContent =
+        `${data.views.suppressed.length} skills`;
+    document.getElementById('suppressed-list').innerHTML =
+        data.views.suppressed.length
+            ? data.views.suppressed.map((s) =>
+                `<span class="suppressed-chip" title="${Charts.esc(s.reason)}">
+                   ${Charts.esc(s.label)}
+                   <em>${Charts.esc(s.reason)}</em> · n=${s.n_raw}</span>`).join('')
+            : '<p class="chart-empty">Nothing suppressed.</p>';
+}
+
+function renderGapRows(container, rows, kind) {
+    container.innerHTML = '';
+    if (!rows || !rows.length) {
+        container.innerHTML = '<p class="chart-empty">Nothing to show yet.</p>';
+        return;
+    }
+
+    rows.forEach((row, index) => {
+        const item = document.createElement('div');
+        item.className = `gap-row is-${kind}`;
+
+        const pct = (v) => `${((v || 0) * 100).toFixed(0)}%`;
+        const headline = kind === 'gap'
+            ? `<span class="gap-priority" title="Composite acquisition priority">
+                 ${(row.priority * 100).toFixed(0)}</span>`
+            : `<span class="gap-priority is-demand" title="Share of postings requiring it">
+                 ${pct(row.demand)}</span>`;
+
+        item.innerHTML = `
+            <div class="gap-row-head">
+                <span class="gap-rank">${index + 1}</span>
+                ${headline}
+                <button class="gap-name" data-skill="${Charts.esc(row.skill)}">
+                    ${Charts.esc(row.label)}
+                </button>
+                <span class="gap-tags">
+                    <span class="gap-tag">${Charts.esc(row.category)}</span>
+                    ${kind === 'gap'
+                        ? `<span class="gap-tag is-effort-${Charts.esc(row.effort)}">
+                             ${Charts.esc(row.effort)} effort</span>` : ''}
+                    ${row.user_level
+                        ? `<span class="gap-tag is-have">level ${row.user_level}</span>` : ''}
+                </span>
+            </div>
+            <div class="gap-row-body" data-meters></div>
+            <div class="gap-row-foot">
+                <span title="Postings mentioning this skill">n=${row.n_raw}</span>
+                <span title="Distinct companies">${row.n_companies} companies</span>
+                <span title="Wilson score interval on demand">
+                    demand ${pct(row.demand)}
+                    [${pct(row.demand_ci_low)}–${pct(row.demand_ci_high)}]</span>
+                ${row.salary_lift
+                    ? `<span title="Median salary ratio vs the corpus baseline">
+                         salary ×${row.salary_lift.toFixed(2)}</span>` : ''}
+            </div>`;
+        container.appendChild(item);
+
+        if (kind === 'gap') {
+            Charts.renderMeters(item.querySelector('[data-meters]'), [
+                { label: 'blocking', value: row.blocking_gap,
+                  display: pct(row.blocking_gap),
+                  tooltip: 'Share of postings you otherwise match well that require this '
+                         + 'skill — the reason to learn it next.' },
+                { label: 'demand', value: row.demand, display: pct(row.demand),
+                  tooltip: 'Share of all in-scope postings requiring it.' },
+                { label: 'adjacent', value: row.adjacency, display: pct(row.adjacency),
+                  tooltip: 'How much of the surrounding stack you already know — a proxy '
+                         + 'for how reachable this skill is from where you are.' },
+            ]);
+        } else {
+            item.querySelector('[data-meters]').remove();
+        }
+    });
+
+    container.querySelectorAll('.gap-name').forEach((button) => {
+        button.addEventListener('click', () => openSkillDetail(button.dataset.skill));
+    });
+}
+
+async function openSkillDetail(skill) {
+    try {
+        const res = await fetch(`/api/skills/${encodeURIComponent(skill)}`);
+        if (!res.ok) return;
+        const d = await res.json();
+
+        drawerScore.textContent = d.user_has ? `Level ${d.user_level}` : 'Not on resume';
+        drawerSource.textContent = d.category;
+        drawerTitle.textContent = d.label;
+        drawerCompany.innerHTML =
+            `<i class="fa-solid fa-briefcase"></i> ${d.postings.length} postings`;
+        drawerLocation.innerHTML = `<i class="fa-solid fa-clock"></i> last ${d.window_days} days`;
+        drawerMatchedResume.textContent = d.evidence.length
+            ? d.evidence.join(' · ') : 'No evidence in your resume corpus';
+
+        drawerSkillsList.innerHTML = d.cooccurring.map((c) =>
+            `<span class="skill-tag ${c.user_has ? '' : 'is-missing'}">
+               ${Charts.esc(c.label)} <em>${c.n}</em></span>`).join('')
+            || '<span class="skill-tag">No co-occurring skills</span>';
+
+        drawerDescription.innerHTML = `
+            <h4>Where it appears</h4>
+            <ul class="detail-list">${d.by_role_family.map((f) =>
+                `<li>${Charts.esc(f.label)} <strong>${f.n}</strong></li>`).join('')}</ul>
+            <h4>Postings requiring it</h4>
+            <ul class="detail-list">${d.postings.slice(0, 25).map((j) =>
+                `<li><a href="${Charts.esc(j.url)}" target="_blank" rel="noopener">
+                   ${Charts.esc(j.title)}</a>
+                   <span class="detail-meta">${Charts.esc(j.company)} ·
+                   score ${j.match_score}${j.in_title ? ' · in title' : ''}</span></li>`)
+                .join('')}</ul>`;
+
+        // Reuse the existing job drawer rather than adding a second overlay component.
+        drawerApplyLink.style.display = 'none';
+        jobDrawer.classList.add('active');
+        drawerOverlay.classList.add('active');
+    } catch (e) {
+        console.error('skill detail failed', e);
+    }
+}
+
+/* Control wiring */
+document.addEventListener('DOMContentLoaded', () => {
+    ['market-source', 'market-window'].forEach((id) => {
+        const el = document.getElementById(id);
+        if (el) el.addEventListener('change', loadMarketTab);
+    });
+    ['skills-window', 'skills-weighting'].forEach((id) => {
+        const el = document.getElementById(id);
+        if (el) el.addEventListener('change', loadSkillsTab);
+    });
+});
