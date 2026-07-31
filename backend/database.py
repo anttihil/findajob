@@ -116,7 +116,8 @@ class Database:
 
     def query_jobs(self, status=None, country=None, resume_match=None, role_family=None,
                    seniority=None, source=None, is_remote=None, has_salary=None,
-                   include_duplicates=False, min_score=None, limit=200, offset=0):
+                   access=None, include_duplicates=False, min_score=None,
+                   limit=200, offset=0):
         """Filtered, paginated posting list for the dashboard.
 
         Duplicates are hidden by default: the same requisition cross-posted to both boards
@@ -130,6 +131,7 @@ class Database:
         for column, value in (
             ("status", status), ("country", country), ("resume_match", resume_match),
             ("role_family", role_family), ("seniority", seniority), ("source", source),
+            ("access", access),
         ):
             if value:
                 query += f" AND {column} = ?"
@@ -468,7 +470,8 @@ class Database:
         "salary_min", "salary_max", "salary_currency", "salary_interval",
         "salary_annual_usd", "salary_currency_inferred", "salary_source",
         "description_quality", "desc_selection", "content_hash", "is_agency",
-        "company_num_employees", "company_industry", "scrape_cell_id", "sync_run_id",
+        "company_num_employees", "company_industry", "access",
+        "scrape_cell_id", "sync_run_id",
         "taxonomy_hash", "match_score", "matched_skills", "resume_match",
     ]
 

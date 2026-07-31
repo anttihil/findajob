@@ -44,14 +44,30 @@ class RoleTaxonomyIntegrityTests(unittest.TestCase):
             self.assertIn(expected, mapped)
 
     def test_nordic_locations_are_configured(self):
-        for location_id in ["us_remote", "la", "fi", "se", "no", "dk"]:
+        for location_id in ["us_remote", "los_angeles", "helsinki", "stockholm",
+                            "oslo", "copenhagen"]:
             self.assertIn(location_id, self.roles.locations)
-        self.assertEqual(self.roles.locations["fi"].indeed_country, "finland")
-        self.assertEqual(self.roles.locations["se"].indeed_country, "sweden")
+        self.assertEqual(self.roles.locations["helsinki"].indeed_country, "finland")
+        self.assertEqual(self.roles.locations["stockholm"].indeed_country, "sweden")
+
+    def test_location_ids_are_not_ambiguous_abbreviations(self):
+        """"la" reads as Louisiana, and two-letter ids collide with US state codes."""
+        for location_id in self.roles.locations:
+            self.assertNotIn(location_id, {"la", "fi", "se", "dk", "ca", "wa", "ny"})
 
     def test_remote_location_is_flagged_remote(self):
         self.assertTrue(self.roles.locations["us_remote"].is_remote)
-        self.assertFalse(self.roles.locations["la"].is_remote)
+        self.assertFalse(self.roles.locations["los_angeles"].is_remote)
+
+    def test_every_location_declares_an_access_level(self):
+        """access governs whether a role is takeable without moving house."""
+        from backend.roles import ACCESS_LEVELS
+
+        for location in self.roles.locations.values():
+            self.assertIn(location.access, ACCESS_LEVELS, location.id)
+        self.assertEqual(self.roles.locations["los_angeles"].access, "commutable")
+        self.assertEqual(self.roles.locations["us_remote"].access, "remote")
+        self.assertEqual(self.roles.locations["helsinki"].access, "relocation")
 
 
 class SeniorityTests(unittest.TestCase):
@@ -352,7 +368,7 @@ class CellPlanningTests(unittest.TestCase):
     def test_core_families_reach_the_nordics(self):
         specs = self.roles.cell_specs()
         nordic = {s["role_family"] for s in specs
-                  if s["location_id"] in {"fi", "se", "no", "dk"}}
+                  if s["location_id"] in {"helsinki", "stockholm", "oslo", "copenhagen"}}
         self.assertIn("ai_engineer", nordic)
         self.assertIn("platform_engineer", nordic)
 
@@ -373,3 +389,59 @@ class CellPlanningTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class CommutableAreaTests(unittest.TestCase):
+    """candidates have local or remote preferences, so this is the distinction that decides whether a
+    posting is worth reading: commutable, remote, or requires relocating."""
+
+    def setUp(self):
+        self.roles = load_roles()
+
+    def test_la_basin_cities_are_commutable(self):
+        for city in ["Los Angeles", "Santa Monica", "Pasadena", "El Segundo",
+                     "Long Beach", "Burbank", "Culver City", "Irvine", "Commerce"]:
+            self.assertTrue(
+                self.roles.is_commutable(city=city, region="CA"), city
+            )
+
+    def test_same_named_cities_in_other_states_are_not(self):
+        """Glendale AZ, Pasadena TX, and Ontario CA-vs-Canada all exist."""
+        self.assertFalse(self.roles.is_commutable(city="Glendale", region="AZ"))
+        self.assertFalse(self.roles.is_commutable(city="Pasadena", region="TX"))
+
+    def test_distant_california_cities_are_not_commutable(self):
+        for city in ["San Francisco", "San Jose", "Sacramento", "San Diego"]:
+            self.assertFalse(
+                self.roles.is_commutable(city=city, region="CA"), city
+            )
+
+    def test_area_phrasings_are_recognised(self):
+        for text in ["Greater Los Angeles Area", "Orange County, CA",
+                     "South Bay", "San Fernando Valley"]:
+            self.assertTrue(self.roles.is_commutable(location_text=text), text)
+
+    def test_commutable_beats_remote(self):
+        """A remote-friendly role down the road is strictly better than one merely remote."""
+        self.assertEqual(
+            self.roles.classify_access(city="Santa Monica", region="CA", is_remote=True),
+            "commutable",
+        )
+
+    def test_remote_elsewhere_is_remote(self):
+        self.assertEqual(
+            self.roles.classify_access(city="Austin", region="TX", is_remote=True),
+            "remote",
+        )
+
+    def test_onsite_elsewhere_requires_relocation(self):
+        for city, region in [("Austin", "TX"), ("Stockholm", ""), ("Helsinki", "")]:
+            self.assertEqual(
+                self.roles.classify_access(city=city, region=region, is_remote=False),
+                "relocation",
+                city,
+            )
+
+    def test_unknown_location_with_no_remote_flag_is_relocation(self):
+        """Conservative: never imply a role is reachable without evidence."""
+        self.assertEqual(self.roles.classify_access(), "relocation")

@@ -11,7 +11,7 @@ from backend.logger import get_logger
 
 logger = get_logger()
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 
 def _v1_baseline(cursor):
@@ -343,10 +343,58 @@ def _v3_llm_verdict(cursor):
         cursor.execute("ALTER TABLE jobs ADD COLUMN llm_verdict TEXT")
 
 
+# Location ids were originally abbreviated. "la" reads as Louisiana rather than Los Angeles,
+# and two-letter ids collide with US state codes generally, so they are spelled out. The
+# mapping is applied to every table that stores a location_id.
+_V4_LOCATION_RENAMES = {
+    "la": "los_angeles",
+    "fi": "helsinki",
+    "se": "stockholm",
+    "no": "oslo",
+    "dk": "copenhagen",
+}
+
+
+def _v4_access_and_location_ids(cursor):
+    """Add posting-level `access` and spell out abbreviated location ids.
+
+    `access` (commutable | remote | relocation) is the distinction that governs whether a
+    posting is worth reading at all: the user lives in Los Angeles, so anything neither
+    remote nor within commuting distance requires relocating. It is stored per posting
+    rather than derived from the search, because a nationwide or remote-flagged search
+    routinely returns roles that happen to sit in the LA basin.
+    """
+    existing = {row[1] for row in cursor.execute("PRAGMA table_info(jobs)")}
+    if "access" not in existing:
+        cursor.execute("ALTER TABLE jobs ADD COLUMN access TEXT")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_jobs_access ON jobs(access)")
+
+    for old, new in _V4_LOCATION_RENAMES.items():
+        for table in ("scrape_cells", "cell_observations", "role_market_stats"):
+            try:
+                cursor.execute(
+                    f"UPDATE {table} SET location_id = ? WHERE location_id = ?",
+                    (new, old),
+                )
+            except Exception:
+                # Table may not exist on a partially-migrated database.
+                pass
+    # skill_market_stats stores scope strings like 'location:la'.
+    for old, new in _V4_LOCATION_RENAMES.items():
+        try:
+            cursor.execute(
+                "UPDATE skill_market_stats SET scope = ? WHERE scope = ?",
+                (f"location:{new}", f"location:{old}"),
+            )
+        except Exception:
+            pass
+
+
 MIGRATIONS = [
     (1, "baseline jobs table", _v1_baseline),
     (2, "market analytics: cells, observations, skills, stats", _v2_analytics),
     (3, "optional LLM verdict column", _v3_llm_verdict),
+    (4, "posting access level and unabbreviated location ids", _v4_access_and_location_ids),
 ]
 
 

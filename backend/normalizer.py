@@ -372,9 +372,19 @@ def normalize_row(row, task, observed_at=None, config=None, roles=None, taxonomy
         )
         posting["role_family"] = family
         posting["seniority"] = seniority
+        # Judged from the posting's own city, not from the search that surfaced it. A
+        # nationwide or remote-flagged search regularly returns roles in the LA basin, and
+        # those are the most actionable results in the corpus.
+        posting["access"] = roles.classify_access(
+            city=posting.get("city"),
+            region=posting.get("region"),
+            location_text=posting.get("location"),
+            is_remote=posting.get("is_remote"),
+        )
     else:
         posting["role_family"] = None
         posting["seniority"] = None
+        posting["access"] = None
 
     return posting
 

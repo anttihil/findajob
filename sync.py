@@ -25,6 +25,7 @@ from backend.database import Database
 from backend.logger import get_logger
 from backend.normalizer import normalize_rows
 from backend.profile import build_profile
+from backend.proxies import apply_proxy_budgets, is_rotating, load_proxies
 from backend.roles import load_roles
 from backend.scheduler import (
     is_saturated,
@@ -72,9 +73,15 @@ def run_sync(dry_run=False, backfill=False, limit=None, sources=None,
     logger.info("=" * 60)
 
     config = load_config()
-    scraper_config = config.get("scraper", {})
     taxonomy = load_taxonomy()
     roles = load_roles()
+
+    # Proxies raise the LinkedIn budget substantially, so they are resolved before the
+    # scheduler sees the config.
+    proxies = load_proxies(config)
+    scraper_config = apply_proxy_budgets(config.get("scraper", {}), proxies)
+    scraper_config["proxies_list"] = proxies
+    rotating = bool(proxies) and is_rotating(config)
 
     for label, problems in (("skills.yaml", taxonomy.validate()),
                             ("roles.yaml", roles.validate())):
@@ -136,7 +143,10 @@ def run_sync(dry_run=False, backfill=False, limit=None, sources=None,
         min_score = (config.get("matching") or {}).get("min_match_score", 15)
 
         for source in enabled:
-            circuit = SourceCircuit(source, scraper_config, db=None if dry_run else db)
+            circuit = SourceCircuit(
+                source, scraper_config, db=None if dry_run else db,
+                rotating_proxies=rotating,
+            )
             circuits[source] = circuit
 
             if circuit.persisted_backoff_active():

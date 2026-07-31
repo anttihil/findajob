@@ -56,8 +56,13 @@ class SourceTripped(Exception):
 class SourceCircuit:
     """Tracks one source's health across a run and persists backoff across runs."""
 
-    def __init__(self, source, config, db=None, now=None, sleep=time.sleep):
+    def __init__(self, source, config, db=None, now=None, sleep=time.sleep,
+                 rotating_proxies=False):
         self.source = source
+        # A rotating pool changes what a 429 means: one exit IP got flagged, not the
+        # account, and the next request arrives from a different IP. Retrying is then the
+        # correct response rather than the thing that deepens the flag.
+        self.rotating_proxies = bool(rotating_proxies)
         self.config = config or {}
         self.db = db
         self.sleep = sleep
@@ -75,6 +80,8 @@ class SourceCircuit:
             "cell_backoff_minutes", [60, 360, 1440]
         )
         self.max_retries = breaker.get("transient_retries", 2)
+        self.proxy_rotation_retries = breaker.get("proxy_rotation_retries", 3)
+        self.rotation_attempts = 0
 
         budget = (self.config.get("budgets") or {}).get(source, {})
         self.min_interval = budget.get("min_seconds_between_searches", 2.0)
@@ -143,6 +150,15 @@ class SourceCircuit:
 
         if error_class in (ERROR_RATE_LIMIT, ERROR_BLOCKED):
             self.rate_limit_hits += 1
+            if self.rotating_proxies and self.rotation_attempts < self.proxy_rotation_retries:
+                # Burn a rotation attempt instead of tripping: the retry comes from a
+                # different exit IP, so the flagged one is simply not used again.
+                self.rotation_attempts += 1
+                logger.warning(
+                    f"[{self.source}] {error_class} on one exit IP; rotating "
+                    f"({self.rotation_attempts}/{self.proxy_rotation_retries})"
+                )
+                return ERROR_TRANSIENT
             if self.rate_limit_trips_immediately:
                 self._trip(f"{error_class} ({message[:120]})", escalate=True)
             return error_class
@@ -200,6 +216,7 @@ class SourceCircuit:
             "reason": self.trip_reason,
             "searches_ok": self.searches_ok,
             "rate_limit_hits": self.rate_limit_hits,
+            "proxy_rotations": self.rotation_attempts,
             "errors": self.errors[:10],
         }
 

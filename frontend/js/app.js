@@ -13,6 +13,7 @@ const tabPanes = document.querySelectorAll('.tab-pane');
 const headerDate = document.getElementById('header-date');
 const pageTitle = document.getElementById('page-title');
 let jobsTotal = 0;
+let currentAccess = '';
 
 // Stats Elements
 const statTotalEl = document.getElementById('stat-total');
@@ -133,6 +134,8 @@ async function fetchJobs() {
         if (country) queryParams.push(`country=${country}`);
         if (resume) queryParams.push(`resume_match=${resume}`);
         if (score) queryParams.push(`min_score=${score}`);
+        
+        if (currentAccess) queryParams.push(`access=${currentAccess}`);
         
         const url = `/api/jobs?${queryParams.join('&')}`;
         const res = await fetch(url);
@@ -263,7 +266,8 @@ function renderJobCards() {
                     </div>
                     <div class="job-company">${escapeHTML(job.company)}</div>
                     <div class="job-meta-row">
-                        <span><i class="fa-solid fa-location-dot"></i> ${job.location || 'Remote'}</span>
+                        <span><i class="fa-solid fa-location-dot"></i> ${escapeHTML(job.location || 'Remote')}</span>
+                        ${accessBadge(job.access)}
                         <span><i class="fa-solid fa-clock"></i> Found ${dateStr}</span>
                     </div>
                     <div class="matched-skills-preview">
@@ -1390,3 +1394,36 @@ document.addEventListener('DOMContentLoaded', () => {
         if (el) el.addEventListener('change', loadSkillsTab);
     });
 });
+
+
+/* Reachability filter. candidates have local or remote preferences, so "can I take this job without
+ * moving?" is the first question about any posting -- ahead of score. */
+document.addEventListener('DOMContentLoaded', () => {
+    document.querySelectorAll('.access-toggle-grid .status-pill').forEach((pill) => {
+        pill.addEventListener('click', () => {
+            document.querySelectorAll('.access-toggle-grid .status-pill')
+                .forEach((p) => p.classList.remove('active'));
+            pill.classList.add('active');
+            currentAccess = pill.dataset.access || '';
+            fetchJobs();
+        });
+    });
+});
+
+
+/* Reachability badge. Answers "could I take this without moving?" at a glance, which for a
+ * Los Angeles-based search matters before the match score does. */
+function accessBadge(access) {
+    const BADGES = {
+        commutable: ['fa-house', 'LA area', 'is-commutable',
+                     'Within commuting distance — no relocation or remote arrangement needed'],
+        remote: ['fa-wifi', 'Remote', 'is-remote', 'Remote, so location is not a constraint'],
+        relocation: ['fa-plane', 'Relocate', 'is-relocation',
+                     'Onsite somewhere you would have to move to'],
+    };
+    const badge = BADGES[access];
+    if (!badge) return '';
+    const [icon, label, cls, tip] = badge;
+    return `<span class="access-badge ${cls}" title="${escapeHTML(tip)}">`
+         + `<i class="fa-solid ${icon}"></i> ${escapeHTML(label)}</span>`;
+}

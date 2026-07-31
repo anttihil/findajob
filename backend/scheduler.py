@@ -89,6 +89,7 @@ class ScrapeTask:
             "desc_selection": self.desc_selection,
             "role_family": self.role_family, "tier": self.tier,
             "est_request_units": self.est_request_units,
+            "proxies": self.extra.get("proxies") or [],
         }
 
 
@@ -242,13 +243,22 @@ def _make_task(cell, config, roles, source, now, backfill=False):
     else:
         results_wanted = results_wanted_for(cell, config, source)
 
-    # 'budgeted' means: run the search cheaply, then fetch descriptions only for the
-    # top-scoring subset. Those descriptions are NOT a census, so they must never reach
-    # skill-demand denominators -- desc_selection records which regime produced them.
+    # desc_selection must describe what actually happened, because the skill-demand views
+    # gate on it.
+    #
+    #   census  every posting in the cell got a description -> no selection bias, so the
+    #           cell can feed skill statistics.
+    #   none    no descriptions at all -> the cell contributes titles only, which is still
+    #           complete for role supply.
+    #   top_k   a pre-score-selected subset (reserved; not currently produced).
+    #
+    # 'budgeted' previously mapped to top_k, which was wrong twice over: nothing fetched
+    # descriptions for the selected subset, so LinkedIn postings had NO description and
+    # scored on titles alone, and labelling an empty set top_k implied a bias that was not
+    # there. Enabling descriptions for the whole cell (which a rotating proxy pool makes
+    # affordable) is both simpler and statistically cleaner than sampling a biased subset.
     if fetch_setting is True:
         fetch_description, desc_selection = True, "census"
-    elif fetch_setting == "budgeted":
-        fetch_description, desc_selection = False, "top_k"
     else:
         fetch_description, desc_selection = False, "none"
 
@@ -273,6 +283,7 @@ def _make_task(cell, config, roles, source, now, backfill=False):
         role_family=cell.role_family,
         tier=cell.tier,
         est_request_units=estimate_units(source, results_wanted, config),
+        extra={"proxies": config.get("proxies_list") or []},
     )
 
 

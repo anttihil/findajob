@@ -95,6 +95,10 @@ def get_jobs(
     source: Optional[str] = None,
     is_remote: Optional[bool] = None,
     has_salary: Optional[bool] = None,
+    # commutable | remote | relocation. candidates have local or remote preferences, so this is the
+    # filter that matters most: anything neither remote nor within commuting distance
+    # requires moving house.
+    access: Optional[str] = Query(None, pattern="^(commutable|remote|relocation)$"),
     include_duplicates: bool = False,
     min_score: Optional[int] = None,
     # Paginated from the start: the corpus reaches thousands of rows within days, and
@@ -107,7 +111,7 @@ def get_jobs(
         return db.query_jobs(
             status=status, country=country, resume_match=resume_match,
             role_family=role_family, seniority=seniority, source=source,
-            is_remote=is_remote, has_salary=has_salary,
+            is_remote=is_remote, has_salary=has_salary, access=access,
             include_duplicates=include_duplicates, min_score=min_score,
             limit=limit, offset=offset,
         )

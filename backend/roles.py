@@ -71,9 +71,17 @@ class RoleFamily:
         return f"<RoleFamily {self.key}>"
 
 
+# How reachable a role is without moving house. This is the distinction that actually
+# governs whether a posting is worth reading.
+ACCESS_COMMUTABLE = "commutable"
+ACCESS_REMOTE = "remote"
+ACCESS_RELOCATION = "relocation"
+ACCESS_LEVELS = (ACCESS_COMMUTABLE, ACCESS_REMOTE, ACCESS_RELOCATION)
+
+
 class Location:
     __slots__ = ("id", "label", "country", "is_remote", "weight", "indeed_country",
-                 "distance")
+                 "distance", "access")
 
     def __init__(self, spec):
         self.id = spec["id"]
@@ -83,12 +91,16 @@ class Location:
         self.weight = float(spec.get("weight", 1.0))
         self.indeed_country = spec.get("indeed_country", "usa")
         self.distance = spec.get("distance", 50)
+        self.access = spec.get(
+            "access", ACCESS_REMOTE if self.is_remote else ACCESS_RELOCATION
+        )
 
     def to_dict(self):
         return {
             "id": self.id, "label": self.label, "country": self.country,
             "is_remote": self.is_remote, "weight": self.weight,
             "indeed_country": self.indeed_country, "distance": self.distance,
+            "access": self.access,
         }
 
 
@@ -117,6 +129,15 @@ class RoleTaxonomy:
         self.tier_locations = data.get("tier_locations") or {}
         self._exclusions = [
             re.compile(p, re.IGNORECASE) for p in (data.get("exclusions") or [])
+        ]
+
+        area = data.get("commutable_area") or {}
+        self.commutable_region = (area.get("region") or "").strip().upper()
+        self._commutable_cities = {
+            c.strip().lower() for c in (area.get("cities") or []) if c
+        }
+        self._commutable_patterns = [
+            re.compile(p, re.IGNORECASE) for p in (area.get("patterns") or [])
         ]
         self.hash = hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
 
@@ -193,6 +214,37 @@ class RoleTaxonomy:
 
         return best[3], self.seniority(normalized)
 
+    def is_commutable(self, city=None, region=None, location_text=None):
+        """Whether a posting sits within commuting distance of home.
+
+        Judged from the posting's own city, not from which search surfaced it: a nationwide
+        or remote-flagged search routinely returns roles that happen to sit in the LA basin,
+        and those are the most actionable results in the whole corpus.
+        """
+        city_key = (city or "").strip().lower()
+        if city_key and city_key in self._commutable_cities:
+            # Guard against same-named cities in other states (Glendale AZ, Pasadena TX).
+            region_key = (region or "").strip().upper()
+            if not region_key or not self.commutable_region:
+                return True
+            return region_key == self.commutable_region
+
+        haystack = " ".join(filter(None, [city, region, location_text]))
+        return any(p.search(haystack) for p in self._commutable_patterns)
+
+    def classify_access(self, city=None, region=None, location_text=None,
+                        is_remote=None):
+        """Posting-level access: commutable beats remote beats relocation.
+
+        Commutable is checked first on purpose -- a remote-friendly role down the road is
+        strictly better than one that is merely remote.
+        """
+        if self.is_commutable(city, region, location_text):
+            return ACCESS_COMMUTABLE
+        if is_remote:
+            return ACCESS_REMOTE
+        return ACCESS_RELOCATION
+
     def is_excluded(self, title):
         """Whether a title looks like a non-software engineering or non-technical role.
 
@@ -253,6 +305,18 @@ class RoleTaxonomy:
                 problems.append(f"family '{key}': no query_terms")
             if family.tier not in ("core", "adjacent", "breadth"):
                 problems.append(f"family '{key}': unknown tier '{family.tier}'")
+
+        for location in self.locations.values():
+            if location.access not in ACCESS_LEVELS:
+                problems.append(
+                    f"location '{location.id}': unknown access '{location.access}' "
+                    f"(expected one of {ACCESS_LEVELS})"
+                )
+            if len(location.id) <= 2 and location.id not in ("no",):
+                problems.append(
+                    f"location id '{location.id}' is ambiguously short — "
+                    f"two-letter ids read as US state codes"
+                )
 
         for tier, location_ids in self.tier_locations.items():
             if tier not in ("core", "adjacent", "breadth"):

@@ -1574,3 +1574,21 @@ body {
     font-style: normal; font-family: var(--font-mono); font-size: 0.66rem;
     color: var(--text-muted); margin-left: 0.25rem;
 }
+
+/* --- reachability: can this job be taken without moving? --- */
+.access-toggle-grid { grid-template-columns: repeat(4, 1fr); }
+.access-badge {
+    display: inline-flex; align-items: center; gap: 0.3rem;
+    font-size: 0.68rem; padding: 0.12rem 0.45rem; border-radius: 999px;
+    border: 1px solid var(--border-light); background: rgba(255,255,255,0.04);
+    color: var(--text-secondary);
+}
+.access-badge.is-commutable {
+    border-color: rgba(16,185,129,0.45); background: rgba(16,185,129,0.12);
+    color: var(--color-green);
+}
+.access-badge.is-remote {
+    border-color: rgba(59,130,246,0.45); background: rgba(59,130,246,0.12);
+    color: var(--accent-blue);
+}
+.access-badge.is-relocation { color: var(--text-muted); }

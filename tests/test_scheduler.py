@@ -223,14 +223,28 @@ class BudgetTests(unittest.TestCase):
         self.assertTrue(all(t.desc_selection == "census" for t in tasks))
         self.assertTrue(all(t.fetch_description for t in tasks))
 
-    def test_linkedin_tasks_are_marked_top_k_not_census(self):
-        """LinkedIn descriptions are pre-score selected, so they must never be pooled into
-        skill-demand denominators."""
+    def test_linkedin_without_proxies_fetches_no_descriptions(self):
+        """On a single IP, one extra request per description spends the whole page budget on
+        a handful of postings. Those cells contribute titles (complete for role supply) and
+        nothing to skill demand, so they are labelled 'none' rather than 'top_k' -- calling
+        an empty set top_k would imply a selection bias that is not there."""
         tasks = select_cells(make_cells("linkedin", self.roles), CONFIG, self.roles,
                              "linkedin", NOW)
         self.assertTrue(tasks)
-        self.assertTrue(all(t.desc_selection == "top_k" for t in tasks))
+        self.assertTrue(all(t.desc_selection == "none" for t in tasks))
         self.assertTrue(all(not t.fetch_description for t in tasks))
+
+    def test_proxies_turn_linkedin_into_a_description_census(self):
+        """The payoff of a rotating pool: LinkedIn starts feeding the skill analytics."""
+        config = dict(CONFIG)
+        config["budgets"] = {
+            **CONFIG["budgets"],
+            "linkedin": {**CONFIG["budgets"]["linkedin"], "fetch_descriptions": True},
+        }
+        tasks = select_cells(make_cells("linkedin", self.roles), config, self.roles,
+                             "linkedin", NOW)
+        self.assertTrue(all(t.desc_selection == "census" for t in tasks))
+        self.assertTrue(all(t.fetch_description for t in tasks))
 
     def test_backfill_maximises_results_and_window(self):
         tasks = select_cells(make_cells("indeed", self.roles), CONFIG, self.roles,
