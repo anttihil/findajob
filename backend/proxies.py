@@ -44,6 +44,28 @@ def load_proxies(config=None):
     return proxies
 
 
+def pin_for(proxies, key, attempt=0):
+    """Pick ONE endpoint from the pool, as a single-element list.
+
+    JobSpy reassigns `session.proxies` from its cycle on every request (util.py), so handing
+    it the whole pool means a different exit IP per request -- and therefore a fresh TCP
+    connect plus TLS handshake per request, because a changed proxy is a different
+    connection-pool key. Measured against the pool, TLS setup alone runs ~0.32-0.47s versus
+    ~0.03s direct, and LinkedIn spends one request per description, so that handshake is
+    paid 50+ times per cell.
+
+    Pinning one endpoint for the whole cell restores keep-alive without giving up rotation:
+    the pool still rotates, just at cell granularity rather than request granularity. That
+    also fits the actual constraint better -- the wall is ~10 pages per IP and a cell is 2.
+
+    `attempt` shifts the choice, so a retry after a rate-limit lands on a different exit IP
+    rather than hammering the one that was just flagged.
+    """
+    if not proxies:
+        return []
+    return [proxies[(int(key) + int(attempt)) % len(proxies)]]
+
+
 def is_rotating(config=None):
     settings = ((config or {}).get("scraper", {}) or {}).get("proxies") or {}
     return bool(settings.get("rotating", True))

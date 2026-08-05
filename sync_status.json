@@ -1,18 +1,18 @@
 {
   "sync_in_progress": false,
-  "last_sync_time": "2026-07-29T18:25:50.529875",
+  "last_sync_time": "2026-08-05T16:00:54.821311",
   "errors": [
     {
       "source": "Scheduler",
-      "error": "Coverage: 99 core cells past the 72h floor (helsinki/ai_engineer, stockholm/ai_engineer, oslo/ai_engineer, copenhagen/ai_engineer...). Supply comparisons for these families are suppressed this window.",
+      "error": "Coverage: 27 core cells past the 72h floor (us_remote/ai_engineer, us_remote/ai_engineer, los_angeles/ai_engineer, los_angeles/ai_engineer...). Supply comparisons for these families are suppressed this window.",
       "severity": "warning",
-      "timestamp": "2026-07-29T18:25:50.524263"
+      "timestamp": "2026-08-05T16:00:54.810979"
     }
   ],
   "last_run_stats": {
-    "total_fetched": 150,
-    "total_evaluated": 150,
-    "total_new": 137
+    "total_fetched": 1416,
+    "total_evaluated": 1416,
+    "total_new": 896
   },
   "owner_pid": null,
   "started_at": null

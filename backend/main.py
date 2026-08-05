@@ -17,7 +17,7 @@ from backend.gap_analysis import GapAnalysis
 from backend.profile import build_profile
 from backend.resume_parser import ResumeParser
 from backend.roles import load_roles
-from backend.scheduler import select_cells
+from backend.scheduler import select_cells, with_location_weights
 from backend.sources.link_generator import LinkGenerator
 from backend.status_manager import (
     clear_stale_lock,
@@ -305,7 +305,8 @@ def get_sync_plan(source: str = "indeed"):
         config = load_config()
         roles = load_roles()
         cells = db.get_cells(source=source)
-        tasks = select_cells(cells, config.get("scraper", {}), roles, source)
+        scraper_config = with_location_weights(config.get("scraper", {}), roles)
+        tasks = select_cells(cells, scraper_config, roles, source)
         return {
             "source": source,
             "cells_total": len(cells),

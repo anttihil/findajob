@@ -30,6 +30,7 @@ from backend.scheduler import (  # noqa: E402
     select_cells,
     starved_cells,
     update_ewma,
+    with_location_weights,
 )
 from backend.scraper_guard import (  # noqa: E402
     ERROR_BLOCKED,
@@ -58,10 +59,14 @@ CONFIG = {
                      "results_wanted_default": 50, "max_results_wanted": 75,
                      "max_pages_per_run": 14, "fetch_descriptions": "budgeted"},
     },
+    # Ids must match roles.yaml exactly. They were abbreviated ('la', 'fi') until the v4
+    # migration renamed them, and the stale keys silently defeated every weight lookup
+    # here -- which is how the missing production wiring stayed green for so long.
     "locations": {
-        "us_remote": {"weight": 1.0}, "la": {"weight": 1.0}, "us_nat": {"weight": 0.55},
-        "fi": {"weight": 0.85}, "se": {"weight": 0.85},
-        "no": {"weight": 0.65}, "dk": {"weight": 0.65},
+        "us_remote": {"weight": 1.0}, "los_angeles": {"weight": 1.0},
+        "us_nat": {"weight": 0.55},
+        "helsinki": {"weight": 0.85}, "stockholm": {"weight": 0.85},
+        "oslo": {"weight": 0.65}, "copenhagen": {"weight": 0.65},
     },
     "circuit_breaker": {
         "consecutive_errors_to_trip": 3,
@@ -306,6 +311,53 @@ class StalenessFloorTests(unittest.TestCase):
             last_success_at=(NOW - timedelta(days=30)).isoformat(),
         )]
         self.assertEqual(overdue_cells(cells, CONFIG, NOW), [])
+
+
+class LocationWeightWiringTests(unittest.TestCase):
+    """Weights are declared in roles.yaml and consumed off the scraper config.
+
+    These assert the *bridge* rather than the policy. Every weight-dependent test above
+    hand-builds CONFIG with a "locations" key, so all of them passed while production
+    passed a config that had none -- every location weighed 1.0 and the >= 1.0 filters
+    matched everything. Testing the policy is not enough; the wiring needs its own test.
+    """
+
+    def setUp(self):
+        self.roles = load_roles()
+
+    def test_weights_are_populated_from_roles_yaml(self):
+        merged = with_location_weights({"cadence_hours": {"core": 24}}, self.roles)
+        self.assertTrue(merged["locations"])
+        for location_id, location in self.roles.locations.items():
+            self.assertEqual(
+                merged["locations"][location_id]["weight"], location.weight
+            )
+
+    def test_fixture_ids_match_roles_yaml(self):
+        """Guards the specific rot that hid the bug: renamed ids, silent lookup misses."""
+        self.assertEqual(set(CONFIG["locations"]), set(self.roles.locations))
+
+    def test_bridge_changes_who_counts_as_overdue(self):
+        """The regression itself: a low-weight cell is only excluded once weights arrive."""
+        cells = [CellState(
+            1, "indeed", "ai_engineer", "us_nat", "q", tier="core",
+            last_success_at=(NOW - timedelta(days=30)).isoformat(),
+        )]
+        bare = {"max_staleness_hours": 72}
+        self.assertEqual(len(overdue_cells(cells, bare, NOW)), 1)
+        self.assertEqual(
+            overdue_cells(cells, with_location_weights(bare, self.roles), NOW), []
+        )
+
+    def test_priority_is_damped_by_location_weight(self):
+        merged = with_location_weights(CONFIG, self.roles)
+        commutable = CellState(1, "indeed", "ai_engineer", "los_angeles", "q",
+                               tier="core")
+        relocation = CellState(2, "indeed", "ai_engineer", "us_nat", "q", tier="core")
+        self.assertGreater(
+            cell_priority(commutable, merged, NOW),
+            cell_priority(relocation, merged, NOW),
+        )
 
 
 class StarvationDeadlineTests(unittest.TestCase):

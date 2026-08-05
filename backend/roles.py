@@ -80,12 +80,18 @@ ACCESS_LEVELS = (ACCESS_COMMUTABLE, ACCESS_REMOTE, ACCESS_RELOCATION)
 
 
 class Location:
-    __slots__ = ("id", "label", "country", "is_remote", "weight", "indeed_country",
-                 "distance", "access")
+    __slots__ = ("id", "label", "search_label", "country", "is_remote", "weight",
+                 "indeed_country", "distance", "access")
 
     def __init__(self, spec):
         self.id = spec["id"]
         self.label = spec["label"]
+        # What the board is actually asked for. `label` is a display string and the two are
+        # NOT interchangeable: Indeed returns 0 rows for "United States (onsite,
+        # nationwide)" and 10 for "United States". A label used as a query fails silently --
+        # the cell records status='empty', which analytics read as a genuine "none
+        # observed" rather than as a broken search.
+        self.search_label = spec.get("search_label", spec["label"])
         self.country = spec["country"]
         self.is_remote = bool(spec.get("is_remote", False))
         self.weight = float(spec.get("weight", 1.0))
@@ -97,7 +103,8 @@ class Location:
 
     def to_dict(self):
         return {
-            "id": self.id, "label": self.label, "country": self.country,
+            "id": self.id, "label": self.label, "search_label": self.search_label,
+            "country": self.country,
             "is_remote": self.is_remote, "weight": self.weight,
             "indeed_country": self.indeed_country, "distance": self.distance,
             "access": self.access,
@@ -316,6 +323,15 @@ class RoleTaxonomy:
                 problems.append(
                     f"location id '{location.id}' is ambiguously short — "
                     f"two-letter ids read as US state codes"
+                )
+            # A qualifier in the string sent to the board matches nothing and the cell
+            # records status='empty', which analytics read as real "none observed" demand.
+            # Cheap to assert, invisible otherwise.
+            if "(" in location.search_label:
+                problems.append(
+                    f"location '{location.id}': search_label "
+                    f"{location.search_label!r} contains a parenthetical — boards match it "
+                    f"literally and return nothing. Set search_label to the bare place name."
                 )
 
         for tier, location_ids in self.tier_locations.items():

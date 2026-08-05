@@ -445,3 +445,46 @@ class CommutableAreaTests(unittest.TestCase):
     def test_unknown_location_with_no_remote_flag_is_relocation(self):
         """Conservative: never imply a role is reachable without evidence."""
         self.assertEqual(self.roles.classify_access(), "relocation")
+
+
+class SearchLabelTests(unittest.TestCase):
+    """`label` is for humans, `search_label` is sent to the board.
+
+    Conflating them cost a silent outage: us_nat was searched as "United States (onsite,
+    nationwide)", which Indeed matches literally and answers with 0 rows, so 20 core cells
+    recorded status='empty' -- indistinguishable downstream from a genuine "none observed".
+    """
+
+    def setUp(self):
+        self.roles = load_roles()
+
+    def test_search_label_defaults_to_label(self):
+        location = self.roles.locations["los_angeles"]
+        self.assertEqual(location.search_label, location.label)
+
+    def test_qualified_labels_are_overridden(self):
+        for location_id in ("us_nat", "us_remote"):
+            location = self.roles.locations[location_id]
+            self.assertEqual(location.search_label, "United States")
+            self.assertIn("(", location.label)
+
+    def test_no_shipped_location_sends_a_parenthetical_to_a_board(self):
+        for location in self.roles.locations.values():
+            self.assertNotIn(
+                "(", location.search_label,
+                f"{location.id} would be searched as {location.search_label!r}",
+            )
+
+    def test_validate_rejects_a_parenthetical_search_label(self):
+        self.roles.locations["us_nat"].search_label = "United States (nationwide)"
+        problems = self.roles.validate()
+        self.assertTrue(any("parenthetical" in p for p in problems), problems)
+
+    def test_planned_cells_carry_the_search_label(self):
+        """The bridge that actually broke: cell_specs -> task -> kwargs['location']."""
+        from backend.scheduler import CellState, _make_task
+        from datetime import datetime, timezone
+
+        cell = CellState(1, "indeed", "ai_engineer", "us_nat", "AI Engineer", tier="core")
+        task = _make_task(cell, {}, self.roles, "indeed", datetime.now(timezone.utc))
+        self.assertEqual(task.location_label, "United States")

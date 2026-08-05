@@ -25,12 +25,13 @@ from backend.database import Database
 from backend.logger import get_logger
 from backend.normalizer import normalize_rows
 from backend.profile import build_profile
-from backend.proxies import apply_proxy_budgets, is_rotating, load_proxies
+from backend.proxies import apply_proxy_budgets, is_rotating, load_proxies, pin_for
 from backend.roles import load_roles
 from backend.scheduler import (
     is_saturated,
     overdue_cells,
     select_cells,
+    with_location_weights,
     update_ewma,
 )
 from backend.scoring import JobScorer, build_index_from_db
@@ -82,6 +83,8 @@ def run_sync(dry_run=False, backfill=False, limit=None, sources=None,
     scraper_config = apply_proxy_budgets(config.get("scraper", {}), proxies)
     scraper_config["proxies_list"] = proxies
     rotating = bool(proxies) and is_rotating(config)
+
+    scraper_config = with_location_weights(scraper_config, roles)
 
     for label, problems in (("skills.yaml", taxonomy.validate()),
                             ("roles.yaml", roles.validate())):
@@ -255,9 +258,13 @@ def _scrape_one(db, client, circuit, task, run_id, scorer, taxonomy, roles, conf
     observed_at = datetime.now(timezone.utc)
     attempts = 0
     max_attempts = 1 + (scraper_retries(config))
+    # The whole pool travels on the task; one endpoint is pinned per attempt so the cell
+    # keeps a warm connection, and a retry moves to a different exit IP.
+    pool = payload.get("proxies") or []
 
     while True:
         attempts += 1
+        payload["proxies"] = pin_for(pool, task.cell_id, attempts - 1)
         try:
             circuit.before_request()
         except SourceTripped:

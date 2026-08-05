@@ -93,6 +93,23 @@ class ScrapeTask:
         }
 
 
+def with_location_weights(scraper_config, roles):
+    """Copy of `scraper_config` carrying roles.yaml's per-location weights.
+
+    Weights are declared in roles.yaml but consumed here, off the scraper config. Every
+    entry point into this module must go through this, because the failure mode when it is
+    skipped is silent rather than loud: `.get("locations")` returns {}, every location
+    weighs 1.0, and both the ranking and the `>= 1.0` filters in enforce_staleness_floor /
+    overdue_cells quietly widen to include relocation cells.
+    """
+    merged = dict(scraper_config)
+    merged["locations"] = {
+        location_id: {"weight": location.weight}
+        for location_id, location in roles.locations.items()
+    }
+    return merged
+
+
 def _parse(value):
     if value is None:
         return None
@@ -267,7 +284,8 @@ def _make_task(cell, config, roles, source, now, backfill=False):
         source=source,
         query=cell.query,
         location_id=cell.location_id,
-        location_label=location.label if location else cell.location_id,
+        # search_label, not label: this string is sent to the board as the location.
+        location_label=location.search_label if location else cell.location_id,
         country=location.country if location else None,
         indeed_country=location.indeed_country if location else "usa",
         is_remote=location.is_remote if location else False,
