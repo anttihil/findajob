@@ -1,0 +1,30 @@
+[Unit]
+Description=Run CareerRadar sync twice daily
+Documentation=file:///opt/projects/resume/job_search_automation/README.md
+
+[Timer]
+OnCalendar=*-*-* 07:00:00
+OnCalendar=*-*-* 19:00:00
+
+# Two runs a day is the design point: scrape_cells rotates ~26 cells/day against a
+# 252-cell matrix, which is the ~5-day full cycle that analytics.min_window_days=30
+# assumes several complete cycles of.
+
+# Catch up after the machine was asleep or off. This is the reason for using a systemd
+# timer over a cron entry: cron silently drops a missed run, and a dropped run is not a
+# neutral event here -- core cells past the 72h staleness floor have their families'
+# supply figures SUPPRESSED, so downtime shows up as missing bars in the dashboard.
+# adaptive_hours_old widens the lookback to 1.5x the real gap, so a late run still
+# observes the interval it missed -- but only if it eventually runs.
+Persistent=true
+
+# Jitter the start. Two boards, hit at exactly 07:00:00 every day from one household, is
+# a needlessly identifiable pattern, and nothing here needs minute-level punctuality.
+RandomizedDelaySec=30min
+
+# If a run somehow overruns into the next window, skip rather than stack. systemd will not
+# start a .service that is already active, but being explicit documents the intent.
+AccuracySec=1min
+
+[Install]
+WantedBy=timers.target

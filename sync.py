@@ -40,7 +40,13 @@ from backend.scraper_guard import (
     SourceCircuit,
     SourceTripped,
 )
-from backend.status_manager import add_sync_error, set_sync_progress
+from backend.status_manager import (
+    add_sync_error,
+    clear_stale_lock,
+    is_sync_running,
+    load_sync_status,
+    set_sync_progress,
+)
 from backend.taxonomy import load_taxonomy
 
 logger = get_logger()
@@ -67,7 +73,7 @@ def plan_hash(roles, config):
 
 
 def run_sync(dry_run=False, backfill=False, limit=None, sources=None,
-             rescore_only=False):
+             rescore_only=False, force=False):
     logger.info("=" * 60)
     mode = "dry_run" if dry_run else ("backfill" if backfill else "incremental")
     logger.info(f"Starting sync ({mode})")
@@ -102,6 +108,22 @@ def run_sync(dry_run=False, backfill=False, limit=None, sources=None,
     )
 
     if not dry_run:
+        # The dashboard's /api/sync has always checked this; the CLI never did, which was
+        # survivable while every run was launched by hand. Under a timer it is not: a
+        # scheduled run landing on top of a manual one double-scrapes the same cells,
+        # races both writers on cell rotation state, and leaves whichever finishes second
+        # owning sync_status.json. systemd only guarantees a unit is not started twice --
+        # it knows nothing about a run started from a terminal.
+        if is_sync_running() and not force:
+            logger.error(
+                "another sync holds the lock (pid "
+                f"{load_sync_status().get('owner_pid')}, started "
+                f"{load_sync_status().get('started_at')}); refusing to start. "
+                "Use --force to override."
+            )
+            return None
+        if clear_stale_lock():
+            logger.warning("released a stale lock from a previous run that died")
         set_sync_progress(True)
 
     db = Database()
@@ -545,16 +567,23 @@ def main(argv=None):
     parser.add_argument("--rescore-only", action="store_true",
                         help="re-derive scores and skills for stored postings under the "
                              "current taxonomy; no scraping")
+    parser.add_argument("--force", action="store_true",
+                        help="start even if another sync holds the lock (only when you "
+                             "know the other run is gone)")
     args = parser.parse_args(argv)
 
     if args.dry_run and not args.limit:
         args.limit = 3
 
-    run_sync(
+    result = run_sync(
         dry_run=args.dry_run, backfill=args.backfill, limit=args.limit,
-        sources=args.sources, rescore_only=args.rescore_only,
+        sources=args.sources, rescore_only=args.rescore_only, force=args.force,
     )
-    return 0
+    # run_sync returns its totals on every path that actually ran, and None only when it
+    # refused to start (invalid taxonomy, or the lock is held). Propagate that as an exit
+    # code so a timer-launched unit records a failure rather than reporting success for a
+    # sync that never happened.
+    return 0 if result is not None else 1
 
 
 if __name__ == "__main__":

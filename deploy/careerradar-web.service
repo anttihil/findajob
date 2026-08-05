@@ -1,0 +1,40 @@
+[Unit]
+Description=CareerRadar dashboard
+Documentation=file:///opt/projects/resume/job_search_automation/README.md
+After=network-online.target
+Wants=network-online.target
+
+# Bound the damage from a crash loop: give up after 5 restarts in 5 minutes rather than
+# hammering a genuinely broken build forever. These belong in [Unit], not [Service] --
+# systemd parses them here and silently ignores them there.
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+Type=exec
+WorkingDirectory=/opt/projects/resume/job_search_automation
+
+# NOT run.py: it starts uvicorn with reload=True, whose file watcher kills the server on
+# any edit under the tree and forks a reloader child that confuses systemd's process
+# tracking. run.py stays the development entry point.
+#
+# The venv interpreter is invoked directly rather than through `uv run`, so a boot-time
+# start cannot block on dependency resolution or a network round trip.
+ExecStart=/opt/projects/resume/job_search_automation/.venv/bin/uvicorn \
+    backend.main:app --host 127.0.0.1 --port 8000
+
+Restart=on-failure
+RestartSec=5s
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=careerradar-web
+
+# The dashboard only ever reads the repo and writes the database beside it.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=read-only
+ReadWritePaths=/opt/projects/resume/job_search_automation
+
+[Install]
+WantedBy=default.target

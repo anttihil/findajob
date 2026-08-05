@@ -1,0 +1,28 @@
+[Unit]
+Description=CareerRadar incremental sync
+Documentation=file:///opt/projects/resume/job_search_automation/README.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/projects/resume/job_search_automation
+ExecStart=/opt/projects/resume/job_search_automation/.venv/bin/python sync.py
+
+# A run is scrape-bound, not CPU-bound: LinkedIn spends ~1.6s per description and a full
+# 12-search budget is ~17 minutes. The ceiling is generous so a slow-but-healthy run is
+# never killed mid-cell, which would leave the cell's observation unwritten.
+TimeoutStartSec=45min
+
+# Deliberately absent: Restart=. A failed scrape must NOT be retried automatically -- the
+# circuit breaker already decided how long to back off, and restarting the unit would
+# discard that decision and re-approach a board that just rate-limited us.
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=careerradar-sync
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=read-only
+ReadWritePaths=/opt/projects/resume/job_search_automation
