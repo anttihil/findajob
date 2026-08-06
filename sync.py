@@ -160,11 +160,16 @@ def run_sync(dry_run=False, backfill=False, limit=None, sources=None,
             enabled = [s for s in enabled if s == "indeed"] or ["indeed"]
             logger.info("Backfill mode: Indeed only")
 
-        from backend.sources.jobspy_source import JobSpySource
+        from backend.sources.jobspy_source import JobSpySource, prune_archives
 
         source_client = JobSpySource(
             archive_dir=None if dry_run else ARCHIVE_DIR
         )
+        if not dry_run:
+            # Before scraping, so a run that dies partway still leaves the archive bounded.
+            prune_archives(
+                ARCHIVE_DIR, scraper_config.get("archive_retention_days", 14)
+            )
         min_score = (config.get("matching") or {}).get("min_match_score", 15)
 
         for source in enabled:

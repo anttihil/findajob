@@ -1,18 +1,18 @@
 {
   "sync_in_progress": false,
-  "last_sync_time": "2026-08-05T16:36:36.989274",
+  "last_sync_time": "2026-08-05T16:59:05.275110",
   "errors": [
     {
       "source": "Scheduler",
-      "error": "Coverage: 27 core cells past the 72h floor (us_remote/ai_engineer, us_remote/ai_engineer, los_angeles/ai_engineer, los_angeles/ai_engineer...). Supply comparisons for these families are suppressed this window.",
+      "error": "Coverage: 22 core cells past the 72h floor (us_remote/ai_engineer, us_remote/ai_engineer, los_angeles/ai_engineer, us_remote/platform_engineer...). Supply comparisons for these families are suppressed this window.",
       "severity": "warning",
-      "timestamp": "2026-08-05T16:36:36.984399"
+      "timestamp": "2026-08-05T16:59:05.266058"
     }
   ],
   "last_run_stats": {
-    "total_fetched": 102,
-    "total_evaluated": 102,
-    "total_new": 77
+    "total_fetched": 1317,
+    "total_evaluated": 1317,
+    "total_new": 909
   },
   "owner_pid": null,
   "started_at": null

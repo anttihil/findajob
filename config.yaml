@@ -20,6 +20,12 @@ scraper:
     indeed: 15        # results per GraphQL page
     linkedin: 25      # results per guest-API page
 
+  # How long raw scrape payloads are kept in raw_payloads/ so a normalizer bug can be
+  # replayed without re-scraping. Pruned at the start of every non-dry run. At ~0.6MB per
+  # cell and two runs a day, this bounds the archive at roughly 300-400MB. Set to 0 to
+  # keep everything (it grows a few GB a year).
+  archive_retention_days: 14
+
   # How often a cell in each tier should be revisited.
   cadence_hours:
     core: 24

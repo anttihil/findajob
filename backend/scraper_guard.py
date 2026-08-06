@@ -33,13 +33,24 @@ _BLOCKED_MARKERS = re.compile(
 )
 _TRANSIENT_MARKERS = re.compile(
     r"\b(?:50[0-9]|timeout|timed out|connection (?:reset|aborted|error)|"
-    r"temporarily unavailable|read timeout|ssl)\b", re.IGNORECASE
+    r"temporarily unavailable|read timeout|ssl|"
+    # A dead exit IP is the retryable case once proxies are pinned per cell: the retry
+    # shifts to a different endpoint (proxies.pin_for), so the bad one is simply not used
+    # again. Without these, JobSpy's "Bad proxy" wording matches nothing and classifies
+    # fatal, which is not retried and counts toward tripping the source.
+    r"bad proxy|proxy responded|proxy error)\b", re.IGNORECASE
 )
 
 
 def classify_error(exc):
-    """Classify a scrape exception. Rate-limit and blocked are NOT retryable."""
-    message = f"{type(exc).__name__}: {exc}"
+    """Classify a scrape exception. Rate-limit and blocked are NOT retryable.
+
+    An exception may carry `classify_text` to narrow what is matched to the wording that
+    actually came from the board. Anything a caller adds around it -- row counts, retry
+    counts -- is prose, and prose containing a bare "429" or "503" must not be able to
+    decide that a source gets tripped for the rest of the run.
+    """
+    message = getattr(exc, "classify_text", None) or f"{type(exc).__name__}: {exc}"
     if _RATE_LIMIT_MARKERS.search(message):
         return ERROR_RATE_LIMIT
     if _BLOCKED_MARKERS.search(message):
