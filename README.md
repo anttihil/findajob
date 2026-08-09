@@ -180,9 +180,17 @@ so those requests would land on whatever owns `/`.
 
 That config lives in `tailscaled` state and survives reboot, so there is nothing else to
 enable. Access is gated twice: the tailnet boundary, and a middleware in `backend/main.py`
-that rejects proxied requests whose `Tailscale-User-Login` is not the owner. The API has no
-other authentication and `POST /api/config` rewrites `config.yaml` on disk, so do not expose
-this with `tailscale funnel`.
+that rejects proxied requests whose `Tailscale-User-Login` is not the owner. Serve sets that
+header itself and strips any copy the client sends, so it cannot be spoofed from outside.
+The API has no other authentication and `POST /api/config` rewrites `config.yaml` on disk,
+so do not expose this with `tailscale funnel` — Funnel traffic carries no identity headers
+at all.
+
+One caveat: Serve also omits identity headers for **tagged** devices, and the middleware
+reads a missing header as "local caller" and allows it. Tags have to be created deliberately
+and this tailnet has none, but if that changes, move the app onto a Unix socket
+(`tailscale serve unix:...` with `uvicorn --uds`) so that nothing but Serve can reach it and
+a missing header can be refused outright.
 
 Two operational notes. `config.yaml` is rewritten at runtime by the dashboard, so the
 server's working tree goes dirty on its own — reconcile it before pulling. And the frontend

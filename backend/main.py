@@ -48,6 +48,13 @@ logger = get_logger()
 # Fail closed: with no owner configured, proxied requests are refused rather than waved
 # through. A request with no identity header at all did not come through Serve, so it is a
 # genuinely local caller -- the CLI, a health check, or a browser on the machine itself.
+#
+# Known gap: Serve does not populate identity headers for traffic from *tagged* devices, so
+# a tagged node would arrive here looking like a local caller and be let through. There are
+# no tagged devices on this tailnet today, and tags only exist when someone creates them
+# deliberately. Closing it properly means giving up the loopback TCP port and having Serve
+# proxy to a Unix socket instead (`tailscale serve unix:...` + `uvicorn --uds`), after which
+# nothing but Serve can reach the app and a missing header can be refused outright.
 OWNER_LOGIN = os.environ.get("CAREERRADAR_OWNER", "").strip()
 IDENTITY_HEADER = "tailscale-user-login"
 
