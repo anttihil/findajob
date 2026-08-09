@@ -20,7 +20,7 @@ from backend.resume_parser import ResumeParser
 class TestResumeParsing(unittest.TestCase):
     def setUp(self):
         project_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        self.resumes_dir = os.path.join(os.path.dirname(project_dir), "resumes")
+        self.resumes_dir = os.path.join(project_dir, "resumes")
 
     def test_resume_parser_execution(self):
         """The parser finds every resume file and produces the expected shape."""
@@ -51,7 +51,7 @@ class TestLegacyMatcherShim(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         project_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        if not os.path.isdir(os.path.join(os.path.dirname(project_dir), "resumes")):
+        if not os.path.isdir(os.path.join(project_dir, "resumes")):
             raise unittest.SkipTest("resumes/ not present")
         cls.matcher = JobMatcher()
 

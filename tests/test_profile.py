@@ -21,7 +21,7 @@ from backend.profile import (  # noqa: E402
 )
 from backend.taxonomy import load_taxonomy  # noqa: E402
 
-REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
 class RealProfileTests(unittest.TestCase):

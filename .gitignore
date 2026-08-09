@@ -1,0 +1,40 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+
+# Database. Runs in journal_mode=wal, so -wal/-shm are the pair that actually appears;
+# -journal is from rollback mode and never shows up.
+jobs.db
+jobs.db-wal
+jobs.db-shm
+jobs.db-journal
+
+# Credentials
+.env
+
+# Logging. RotatingFileHandler writes app.log.1 .. app.log.5, and *.log matches only the
+# .log suffix, so the numbered backups need their own pattern.
+app.log
+*.log
+*.log.[0-9]*
+
+# Raw scrape payloads, archived for normalizer replay. Pruned to
+# scraper.archive_retention_days on every non-dry run; ~300-400MB steady state.
+raw_payloads/
+
+# Generated digests
+digests/
+
+# Runtime state: rewritten on every sync and holds the PID lock. Tracked in the old repo by
+# accident, which made every run show up as a dirty working tree.
+sync_status.json
+
+# The resume corpus. These are personal documents, and their source of truth is the separate
+# `resume` repo -- this repo deliberately carries no career history. A fresh clone therefore
+# has no corpus, and build_profile() warns loudly when it notices. Restore with
+# scripts/sync_corpus.sh.
+resumes/
+achievements.md
+current_resume.md

@@ -2,7 +2,7 @@ import os
 import sys
 from typing import Any, Dict, List, Optional
 
-from fastapi import BackgroundTasks, FastAPI, HTTPException, Query
+from fastapi import BackgroundTasks, FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict
@@ -13,6 +13,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from backend.analytics import MarketAnalytics
 from backend.config import load_config, save_config
 from backend.database import Database
+from backend.logger import get_logger
 from backend.gap_analysis import GapAnalysis
 from backend.profile import build_profile
 from backend.resume_parser import ResumeParser
@@ -29,6 +30,46 @@ from backend.taxonomy import load_taxonomy
 from sync import run_sync
 
 app = FastAPI(title="Job Search Automation Dashboard")
+
+logger = get_logger()
+
+# Nothing else in this app authenticates anybody. PUT /api/jobs/{id}/status, POST /api/sync
+# (a 15-45 minute scrape) and POST /api/config (an arbitrary deep-merge rewrite of
+# config.yaml on disk) are all wide open, and the only thing that has ever protected them is
+# the 127.0.0.1 bind. Putting the dashboard on a tailnet removes that protection for every
+# device on the tailnet -- including ones belonging to other users the tailnet is shared
+# with -- so the bind stays, `tailscale serve` fronts it, and this gate checks who the proxy
+# says is calling.
+#
+# Tailscale Serve sets Tailscale-User-Login on each proxied request and strips any copy the
+# client tried to supply, so the header is trustworthy *provided* nothing but Serve can
+# reach the port. That is exactly what the loopback bind guarantees.
+#
+# Fail closed: with no owner configured, proxied requests are refused rather than waved
+# through. A request with no identity header at all did not come through Serve, so it is a
+# genuinely local caller -- the CLI, a health check, or a browser on the machine itself.
+OWNER_LOGIN = os.environ.get("CAREERRADAR_OWNER", "").strip()
+IDENTITY_HEADER = "tailscale-user-login"
+
+if not OWNER_LOGIN:
+    logger.warning(
+        "CAREERRADAR_OWNER is unset: every request arriving through `tailscale serve` will "
+        "be refused. Set it in .env to the tailnet login allowed to use the dashboard."
+    )
+
+
+@app.middleware("http")
+async def restrict_to_owner(request: Request, call_next):
+    login = request.headers.get(IDENTITY_HEADER)
+    if login is None:
+        return await call_next(request)
+    if login == OWNER_LOGIN:
+        return await call_next(request)
+    logger.warning("Refused dashboard request from tailnet user %s", login)
+    return JSONResponse(
+        {"detail": "Not authorised for this dashboard."}, status_code=403
+    )
+
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 FRONTEND_DIR = os.path.join(BASE_DIR, "frontend")

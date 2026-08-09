@@ -11,8 +11,10 @@ against your resume corpus, and answers three questions in a dashboard:
 ## Setup
 
 ```bash
-cd job_search_automation
+git clone https://github.com/your-username/careerradar.git
+cd careerradar
 uv sync
+scripts/sync_corpus.sh ../resume        # the resume corpus -- see below
 uv run python -m scripts.seed_cells     # build the scrape matrix from data/roles.yaml
 ```
 
@@ -20,7 +22,27 @@ uv run python -m scripts.seed_cells     # build the scrape matrix from data/role
 constrains numpy to 1.26.3, which has no cp313 wheel and cannot build on Python 3.13.
 
 No credentials are needed for scraping. `ANTHROPIC_API_KEY` is only used by the optional
-reranker below.
+reranker below. `SCRAPER_PROXIES` in `.env` is optional but load-bearing: without it the
+budgets fall back to conservative single-IP limits and LinkedIn drops to titles-only.
+
+## The resume corpus
+
+`profile.py` grades your skills from eight files this repo deliberately does **not** track:
+
+```
+resumes/*.md        six tailored variants
+current_resume.md
+achievements.md
+```
+
+They are personal career documents and their source of truth is the separate `resume` repo,
+so a fresh clone has no corpus at all. A missing corpus does not fail — it falls back to the
+levels declared in `data/skills.yaml`, which silently shifts every match score. That is why
+`build_profile()` logs a warning whenever it reads fewer than eight sources. Heed it:
+
+```bash
+scripts/sync_corpus.sh ../resume        # path to the resume repo; ../resume is the default
+```
 
 ## Running
 
@@ -51,7 +73,8 @@ kills it.
 | `--rescore-only` | re-derive scores and skills for stored postings under the current taxonomy; no scraping |
 | `--limit N` | cap cells per source |
 
-There is no scheduler bundled. Use cron or a systemd timer if you want it unattended.
+Unattended operation is bundled — a systemd timer runs the sync twice a day. See
+**Deployment** below.
 
 ## How the search space is defined
 
@@ -120,6 +143,47 @@ warning — ingestion never depends on it. Job descriptions are treated as untru
 delimited, declared as data in the system prompt, and constrained to a structured output, so
 the worst case is a wrong score rather than a hijacked agent.
 
+## Deployment
+
+Runs on a Tailscale-reachable home server as two systemd units: a long-lived web service and
+a `oneshot` sync driven by a timer (07:00 and 19:00, `Persistent=true` so a run missed while
+the machine was off is caught up rather than dropped).
+
+```bash
+git clone https://github.com/your-username/careerradar.git ~/projects/careerradar
+cd ~/projects/careerradar
+uv sync
+scripts/sync_corpus.sh /path/to/resume         # corpus
+cp /path/to/.env .                             # SCRAPER_PROXIES
+sqlite3 /path/to/old/jobs.db ".backup 'jobs.db'"   # WAL mode: never plain-copy a live DB
+
+sudo cp deploy/careerradar-*.service deploy/careerradar-sync.timer /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now careerradar-web.service careerradar-sync.timer
+```
+
+The units hardcode the app root and `User=`; adjust both if the server layout differs. The
+sync unit deliberately has no `Restart=` — the circuit breaker has already decided how long to
+back off, and restarting the unit would discard that decision and re-approach a board that
+just rate-limited us.
+
+The web service binds `127.0.0.1:8000` and stays there. Tailscale fronts it:
+
+```bash
+sudo tailscale serve --bg 8000     # https://<host>.ts.net -- tailnet-only, real cert
+```
+
+That config lives in `tailscaled` state and survives reboot, so there is nothing else to
+enable. Access is gated twice: the tailnet boundary, and a middleware in `backend/main.py`
+that rejects proxied requests whose `Tailscale-User-Login` is not the owner. The API has no
+other authentication and `POST /api/config` rewrites `config.yaml` on disk, so do not expose
+this with `tailscale funnel`.
+
+Two operational notes. `config.yaml` is rewritten at runtime by the dashboard, so the
+server's working tree goes dirty on its own — reconcile it before pulling. And the frontend
+loads its font and icons from CDNs, so a viewing device with no route to the public internet
+gets a working dashboard with fallback typography.
+
 ## Layout
 
 ```
@@ -139,6 +203,8 @@ backend/
   migrations.py          versioned schema (PRAGMA user_version)
 frontend/js/charts.js    hand-rolled inline SVG charts
 scripts/seed_cells.py    build the scrape matrix
+scripts/sync_corpus.sh   pull the resume corpus in from the `resume` repo
+deploy/                  systemd units + timer (see Deployment)
 ```
 
 ## Tests

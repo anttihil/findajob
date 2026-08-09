@@ -1,6 +1,6 @@
 [Unit]
 Description=Run CareerRadar sync twice daily
-Documentation=file:///opt/projects/resume/job_search_automation/README.md
+Documentation=file:///opt/careerradar/README.md
 
 [Timer]
 OnCalendar=*-*-* 07:00:00

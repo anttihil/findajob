@@ -21,7 +21,7 @@ def load_config():
     # config.yaml; the search space itself now comes from data/roles.yaml (role families x
     # locations), not from a flat query list.
     defaults = {
-        "resumes_dir": "../resumes",
+        "resumes_dir": "resumes",
         "scraper": {
             "sources": {"indeed": True, "linkedin": True},
             "page_size": {"indeed": 15, "linkedin": 25},

@@ -1,6 +1,6 @@
 [Unit]
 Description=CareerRadar dashboard
-Documentation=file:///opt/projects/resume/job_search_automation/README.md
+Documentation=file:///opt/careerradar/README.md
 After=network-online.target
 Wants=network-online.target
 
@@ -12,7 +12,15 @@ StartLimitBurst=5
 
 [Service]
 Type=exec
-WorkingDirectory=/opt/projects/resume/job_search_automation
+
+# System unit, not a user unit. A home server should serve the dashboard from boot without
+# anyone logging in, which would otherwise need `loginctl enable-linger`; and only a system
+# unit can actually order itself after network-online.target, which does not exist in the
+# user manager.
+User=careerradar
+Group=careerradar
+
+WorkingDirectory=/opt/careerradar
 
 # NOT run.py: it starts uvicorn with reload=True, whose file watcher kills the server on
 # any edit under the tree and forks a reloader child that confuses systemd's process
@@ -20,7 +28,7 @@ WorkingDirectory=/opt/projects/resume/job_search_automation
 #
 # The venv interpreter is invoked directly rather than through `uv run`, so a boot-time
 # start cannot block on dependency resolution or a network round trip.
-ExecStart=/opt/projects/resume/job_search_automation/.venv/bin/uvicorn \
+ExecStart=/opt/careerradar/.venv/bin/uvicorn \
     backend.main:app --host 127.0.0.1 --port 8000
 
 Restart=on-failure
@@ -34,7 +42,7 @@ SyslogIdentifier=careerradar-web
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectHome=read-only
-ReadWritePaths=/opt/projects/resume/job_search_automation
+ReadWritePaths=/opt/careerradar
 
 [Install]
-WantedBy=default.target
+WantedBy=multi-user.target

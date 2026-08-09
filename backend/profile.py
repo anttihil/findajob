@@ -17,8 +17,11 @@ the case that matters here, since candidates may have EU work authorization and 
 
 import os
 
+from backend.logger import get_logger
 from backend.resume_parser import AchievementsParser, ResumeParser
 from backend.taxonomy import load_taxonomy
+
+logger = get_logger()
 
 LEVEL_ABSENT = 0
 LEVEL_MENTIONED = 1
@@ -29,9 +32,18 @@ LEVEL_STRONG = 3
 # collaborative repo should not outrank a competencies-section claim on its own.
 STRONG_EVIDENCE_MIN_COMMITS = 20
 
+# Six tailored variants in resumes/, plus current_resume.md and achievements.md. Reading
+# fewer is not a recoverable error: the profile silently falls back to the levels declared
+# in skills.yaml, which shifts every match score without failing anything.
+EXPECTED_CORPUS_SOURCES = 8
 
-def _repo_root():
-    return os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+def _app_root():
+    # backend/profile.py -> backend/ -> the repo root, which is where the corpus lives:
+    # resumes/, current_resume.md, achievements.md. All three are gitignored -- they are
+    # personal documents whose source of truth is the separate `resume` repo -- so a fresh
+    # clone has none of them and _warn_if_corpus_incomplete has to say so out loud.
+    return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
 class UserProfile:
@@ -113,7 +125,7 @@ def build_profile(resumes_dir=None, achievements_path=None, current_resume_path=
     it makes those skills invisible or weakly evidenced.
     """
     taxonomy = taxonomy or load_taxonomy()
-    root = _repo_root()
+    root = _app_root()
     resumes_dir = resumes_dir or os.path.join(root, "resumes")
     achievements_path = achievements_path or os.path.join(root, "achievements.md")
     current_resume_path = current_resume_path or os.path.join(root, "current_resume.md")
@@ -172,7 +184,33 @@ def build_profile(resumes_dir=None, achievements_path=None, current_resume_path=
                 record["current"] = record["current"] or evidence["is_current"]
         sources.append(os.path.basename(achievements_path))
 
+    _warn_if_corpus_incomplete(resumes_dir, sources)
     return UserProfile(skills, variants, taxonomy, sources)
+
+
+def _warn_if_corpus_incomplete(resumes_dir, sources):
+    """Say so when the corpus is missing, instead of scoring against a hollow profile.
+
+    run.py already warns about an empty resumes/ dir, but run.py is the development entry
+    point -- under systemd both the web service and the sync timer bypass it. Without this,
+    the only symptom of a corpus that failed to deploy is that every score is quietly
+    different from the one the same posting got yesterday.
+    """
+    if not os.path.isdir(resumes_dir):
+        logger.warning(
+            "Resume corpus missing: %s does not exist. Skill levels fall back to "
+            "skills.yaml declarations alone and every match score will be wrong. "
+            "Restore it with scripts/sync_corpus.sh.",
+            resumes_dir,
+        )
+    elif len(sources) < EXPECTED_CORPUS_SOURCES:
+        logger.warning(
+            "Resume corpus incomplete: read %d of %d expected sources (%s). Match scores "
+            "will differ from a full corpus. Restore it with scripts/sync_corpus.sh.",
+            len(sources),
+            EXPECTED_CORPUS_SOURCES,
+            ", ".join(sources) or "none",
+        )
 
 
 if __name__ == "__main__":

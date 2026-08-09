@@ -1,7 +1,7 @@
 [project]
-name = "job-search-automation"
+name = "careerradar"
 version = "0.1.0"
-description = "Gmail IMAP Job Search Automation and Digest Dashboard"
+description = "Scrapes job boards by role family and location, and charts hiring supply and skill gaps against your resume corpus"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [

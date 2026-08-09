@@ -21,7 +21,7 @@ from backend.resume_parser import (  # noqa: E402
     parse_technology_summary,
 )
 
-REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 RESUMES_DIR = os.path.join(REPO_ROOT, "resumes")
 ACHIEVEMENTS = os.path.join(REPO_ROOT, "achievements.md")
 CURRENT_RESUME = os.path.join(REPO_ROOT, "current_resume.md")

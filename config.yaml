@@ -1,7 +1,8 @@
 # Job Search Automation Configuration ("CareerRadar")
 
-# Path to the directory containing markdown resumes (relative to the project root)
-resumes_dir: "../resumes"
+# Path to the directory containing markdown resumes, relative to the project root.
+# Gitignored: personal documents, synced from the `resume` repo by scripts/sync_corpus.sh.
+resumes_dir: "resumes"
 
 # ---------------------------------------------------------------------------------------
 # Scraping
