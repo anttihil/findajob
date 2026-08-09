@@ -167,11 +167,16 @@ sync unit deliberately has no `Restart=` — the circuit breaker has already dec
 back off, and restarting the unit would discard that decision and re-approach a board that
 just rate-limited us.
 
-The web service binds `127.0.0.1:8000` and stays there. Tailscale fronts it:
+The web service binds `127.0.0.1:8010` and stays there. Tailscale fronts it:
 
 ```bash
-sudo tailscale serve --bg 8000     # https://<host>.ts.net -- tailnet-only, real cert
+sudo tailscale serve --bg --https 9443 8010    # https://<host>.ts.net:9443
 ```
+
+A dedicated HTTPS port rather than the tailnet root, because on the current server the root
+is already proxied to a different app. Serving this one under a subpath instead would not
+work without changes: the frontend asks for `/static/...` and `/api/...` at the origin root,
+so those requests would land on whatever owns `/`.
 
 That config lives in `tailscaled` state and survives reboot, so there is nothing else to
 enable. Access is gated twice: the tailnet boundary, and a middleware in `backend/main.py`

@@ -28,8 +28,12 @@ WorkingDirectory=/opt/careerradar
 #
 # The venv interpreter is invoked directly rather than through `uv run`, so a boot-time
 # start cannot block on dependency resolution or a network round trip.
+#
+# Port 8010, not 8000: the host already runs another FastAPI app on 8000, which owns
+# https://<host>.ts.net/ at the tailnet root. This one is reached on :9443 instead --
+# see README, Deployment.
 ExecStart=/opt/careerradar/.venv/bin/uvicorn \
-    backend.main:app --host 127.0.0.1 --port 8000
+    backend.main:app --host 127.0.0.1 --port 8010
 
 Restart=on-failure
 RestartSec=5s
