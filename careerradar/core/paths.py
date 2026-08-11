@@ -34,9 +34,3 @@ ARCHIVE_DIR = os.path.join(REPO_ROOT, "raw_payloads")
 DIGEST_DIR = os.path.join(REPO_ROOT, "digests")
 FRONTEND_DIR = os.path.join(PACKAGE_ROOT, "web", "frontend")
 
-
-def resumes_dir(config):
-    """Resolve `resumes_dir` from config against the repo root."""
-    return os.path.abspath(
-        os.path.join(REPO_ROOT, config.get("resumes_dir", "resumes"))
-    )

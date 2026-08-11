@@ -109,7 +109,7 @@ def cmd_build(args):
     from langgraph.types import Command
 
     from careerradar.profile.graph import build_graph, open_checkpointer
-    from careerradar.profile.ingest import collect_documents
+    from careerradar.profile.ingest import CorpusError, collect_documents
     from careerradar.profile.models import Profile
     from careerradar.profile.store import corpus_changed, save_profile
 
@@ -117,34 +117,42 @@ def cmd_build(args):
     profile_config = config.get("profile") or {}
     model = profile_config.get("model", DEFAULT_AGENT_MODEL)
 
-    documents = collect_documents()
+    try:
+        documents = collect_documents()
+    except CorpusError as exc:
+        print(f"{exc}")
+        return 1
     if not documents:
-        print("No corpus documents found.")
-        print("Populate resumes/ first:  scripts/sync_corpus.sh")
+        print("The corpus is empty. List your documents under `profile.corpus` in "
+              "config.yaml.")
         return 1
 
     changed = corpus_changed(documents)
-    if changed is False and not (args.restart or args.resume):
+    if changed is False and not (args.force or args.resume):
         print("An active profile already exists and the corpus has not changed since it "
               "was built.")
-        print("Rebuild anyway with:  careerradar profile build --restart")
+        print("Rebuild anyway with:  careerradar profile build --force")
         return 0
 
     checkpointer = open_checkpointer()
     graph = build_graph(checkpointer=checkpointer)
     thread = {"configurable": {"thread_id": THREAD_ID}}
 
-    if args.restart:
-        # A fresh thread id abandons the old checkpoint rather than mutating it, so a
-        # half-finished interview stays inspectable if the rebuild goes wrong.
-        import time
-        thread = {"configurable": {"thread_id": f"{THREAD_ID}-{int(time.time())}"}}
+    if not args.resume:
+        # Start clean. Without this, a *finished* build leaves a checkpoint whose graph has
+        # already reached END, so the next `build` resumes a completed run, produces no
+        # work, and re-saves the previous draft -- looking like it rebuilt when it did not.
+        # `--resume` is the only way to continue an interrupted interview.
+        checkpointer.delete_thread(THREAD_ID)
 
     print()
     print(_style("Building your profile", BOLD))
-    print(_wrap(f"{len(documents)} documents · model {model}", indent="  "))
-    print(_wrap("Reading the corpus and working out what it cannot tell me. "
-                "This takes a moment.", indent="  "))
+    # List the corpus, do not just count it. The corpus is "whatever is in resumes/", so a
+    # stale or unwanted document is otherwise invisible until it has already shaped the
+    # profile -- and every score downstream.
+    for document in documents:
+        print(_wrap(f"{document.kind:<16} {document.name}", indent="    "))
+    print(_wrap(f"{len(documents)} document(s) · model {model}", indent="  "))
     print()
 
     max_questions = 0 if getattr(args, "no_interview", False) else profile_config.get(

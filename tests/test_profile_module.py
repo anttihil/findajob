@@ -249,3 +249,103 @@ class StoreTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class CorpusTests(unittest.TestCase):
+    """The corpus is an explicit list. A missing document must fail loudly.
+
+    A silently-skipped document changes every skill level and therefore every score, and
+    the only symptom is a profile that looks plausible but is thinner than it should be.
+    """
+
+    def setUp(self):
+        self.root = tempfile.mkdtemp()
+        with open(os.path.join(self.root, "achievements.md"), "w") as fh:
+            fh.write("# Achievements\nShipped a platform.\n")
+        os.makedirs(os.path.join(self.root, "resumes"))
+        with open(os.path.join(self.root, "resumes", "curated.txt"), "w") as fh:
+            fh.write("Jane Doe\nSoftware engineer.\n")
+
+    def config(self, corpus):
+        return {"profile": {"corpus": corpus}}
+
+    def test_reads_exactly_the_named_documents(self):
+        from careerradar.profile.ingest import collect_documents
+
+        docs = collect_documents(
+            self.config([
+                {"path": "achievements.md", "kind": "achievements"},
+                {"path": "resumes/curated.txt", "kind": "resume"},
+            ]),
+            repo_root=self.root,
+        )
+        self.assertEqual([d.name for d in docs], ["achievements.md", "curated.txt"])
+        self.assertEqual([d.kind for d in docs], ["achievements", "resume"])
+
+    def test_an_unnamed_file_in_resumes_is_not_read(self):
+        """The whole point: dropping a file into resumes/ must not change the profile."""
+        from careerradar.profile.ingest import collect_documents
+
+        with open(os.path.join(self.root, "resumes", "llm_generated.md"), "w") as fh:
+            fh.write("# Inflated\nExpert in everything.\n")
+        docs = collect_documents(
+            self.config([{"path": "resumes/curated.txt"}]), repo_root=self.root
+        )
+        self.assertEqual([d.name for d in docs], ["curated.txt"])
+
+    def test_a_missing_named_document_raises(self):
+        from careerradar.profile.ingest import CorpusError, collect_documents
+
+        with self.assertRaises(CorpusError) as caught:
+            collect_documents(
+                self.config([{"path": "resumes/gone.md"}]), repo_root=self.root
+            )
+        self.assertIn("resumes/gone.md", str(caught.exception))
+
+    def test_a_document_marked_optional_may_be_absent(self):
+        from careerradar.profile.ingest import collect_documents
+
+        docs = collect_documents(
+            self.config([
+                {"path": "achievements.md"},
+                {"path": "resumes/gone.md", "optional": True},
+            ]),
+            repo_root=self.root,
+        )
+        self.assertEqual(len(docs), 1)
+
+    def test_an_empty_document_raises_rather_than_contributing_nothing(self):
+        from careerradar.profile.ingest import CorpusError, collect_documents
+
+        open(os.path.join(self.root, "resumes", "blank.txt"), "w").close()
+        with self.assertRaises(CorpusError):
+            collect_documents(
+                self.config([{"path": "resumes/blank.txt"}]), repo_root=self.root
+            )
+
+    def test_a_bare_string_entry_is_accepted(self):
+        from careerradar.profile.ingest import collect_documents
+
+        docs = collect_documents(self.config(["achievements.md"]), repo_root=self.root)
+        self.assertEqual([d.name for d in docs], ["achievements.md"])
+
+    def test_corpus_hash_is_stable_under_ordering(self):
+        from careerradar.profile.ingest import collect_documents, corpus_hash
+
+        a = collect_documents(
+            self.config(["achievements.md", "resumes/curated.txt"]), repo_root=self.root
+        )
+        b = collect_documents(
+            self.config(["resumes/curated.txt", "achievements.md"]), repo_root=self.root
+        )
+        self.assertEqual(corpus_hash(a), corpus_hash(b))
+
+    def test_corpus_hash_changes_when_content_changes(self):
+        from careerradar.profile.ingest import collect_documents, corpus_hash
+
+        spec = self.config(["achievements.md"])
+        before = corpus_hash(collect_documents(spec, repo_root=self.root))
+        with open(os.path.join(self.root, "achievements.md"), "a") as fh:
+            fh.write("\nAnd another thing.\n")
+        after = corpus_hash(collect_documents(spec, repo_root=self.root))
+        self.assertNotEqual(before, after)

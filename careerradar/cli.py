@@ -93,9 +93,9 @@ def build_parser():
     psub = p.add_subparsers(dest="subcommand", required=True)
     pb = psub.add_parser("build", help="run the document ingest + interview wizard")
     pb.add_argument("--resume", action="store_true",
-                    help="resume an interview left unfinished")
-    pb.add_argument("--restart", action="store_true",
-                    help="discard any in-progress interview and start over")
+                    help="continue an interview left unfinished")
+    pb.add_argument("--force", action="store_true",
+                    help="rebuild even if the corpus has not changed")
     pb.add_argument("--no-interview", action="store_true",
                     help="build from the documents alone, skipping the interview")
     psub.add_parser("show", help="print the active profile")

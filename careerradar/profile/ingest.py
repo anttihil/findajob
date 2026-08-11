@@ -5,6 +5,19 @@ outside parentheses. It only ever read markdown, so the PDFs sitting next to the
 were decoration. This module does no interpretation at all -- it hands whole documents to
 the model and lets it read them, which is the point of the redesign.
 
+**The corpus is an explicit list, not a directory scan.** `profile.corpus` in config.yaml
+names the files, and a missing one is an error rather than a shrug.
+
+Scanning `resumes/` was the original design and it is quietly dangerous: the directory also
+holds tailored resumes written for *submitting* to employers, which are a different kind of
+document from evidence about what someone can actually do. Six LLM-generated variants sat
+there, and their inflated skill lists -- Go listed first on the strength of one side
+project, plus NestJS, D3.js and CloudFormation with no backing work -- flowed straight into
+the profile and therefore into every score. Nothing failed; the numbers were just wrong.
+
+An explicit list makes adding a document a decision rather than a side effect of where a
+file happens to live.
+
 Content is hashed so `profile build` can answer "has the corpus actually changed since the
 active profile was built?" without a diff of the text.
 """
@@ -54,54 +67,76 @@ def _read(path):
     return _read_markdown(path)
 
 
-def collect_documents(resumes_dir=None, repo_root=REPO_ROOT):
-    """Gather every corpus document.
+class CorpusError(RuntimeError):
+    """A named corpus document is missing or unreadable.
 
-    Markdown wins over PDF for the same stem: they are two renderings of one resume, and
-    the markdown is the authored source. Including both would double every skill's apparent
-    evidence for no added information. A PDF with no markdown sibling *is* read -- that is
-    the case the old parser silently dropped.
+    Loud on purpose. A silently-skipped document changes every skill level and therefore
+    every score, and the only symptom is a profile that looks plausible but is thinner
+    than it should be.
+    """
+
+
+DEFAULT_CORPUS = [
+    {"path": "achievements.md", "kind": "achievements"},
+]
+
+
+def corpus_spec(config=None):
+    """The configured corpus list, or the default."""
+    if config is None:
+        from careerradar.core.config import load_config
+
+        config = load_config()
+    entries = ((config.get("profile") or {}).get("corpus")) or DEFAULT_CORPUS
+    normalized = []
+    for entry in entries:
+        if isinstance(entry, str):
+            entry = {"path": entry}
+        normalized.append({
+            "path": entry["path"],
+            "kind": entry.get("kind", "resume"),
+            "optional": bool(entry.get("optional", False)),
+        })
+    return normalized
+
+
+def collect_documents(config=None, repo_root=REPO_ROOT):
+    """Read exactly the documents `profile.corpus` names.
+
+    Paths are relative to the repo root. `.md`, `.txt`, and `.pdf` are all read -- a PDF
+    with no markdown source is a first-class corpus document, which the old regex parser
+    silently ignored.
     """
     documents = []
+    missing = []
 
-    for name, kind in (
-        ("current_resume.md", "current_resume"),
-        ("achievements.md", "achievements"),
-    ):
-        path = os.path.join(repo_root, name)
-        if os.path.exists(path):
-            documents.append(Document(path, kind, _read(path)[:MAX_DOC_CHARS]))
-        else:
-            logger.warning("Corpus: %s not found at %s", name, path)
+    for entry in corpus_spec(config):
+        path = entry["path"]
+        if not os.path.isabs(path):
+            path = os.path.join(repo_root, path)
 
-    resumes_dir = resumes_dir or os.path.join(repo_root, "resumes")
-    if not os.path.isdir(resumes_dir):
-        logger.warning("Corpus: no resumes directory at %s", resumes_dir)
-        return documents
-
-    entries = sorted(os.listdir(resumes_dir))
-    markdown_stems = {
-        os.path.splitext(e)[0] for e in entries if e.lower().endswith(".md")
-    }
-
-    for entry in entries:
-        stem, ext = os.path.splitext(entry)
-        ext = ext.lower()
-        if ext not in (".md", ".pdf", ".txt"):
+        if not os.path.exists(path):
+            (logger.warning("Corpus: optional document %s not found", path)
+             if entry["optional"] else missing.append(entry["path"]))
             continue
-        if ext in (".pdf", ".txt") and stem in markdown_stems:
-            continue
-        path = os.path.join(resumes_dir, entry)
+
         try:
             text = _read(path)
-        except Exception:
-            logger.warning("Corpus: could not read %s", path, exc_info=True)
-            continue
-        if not text.strip():
-            logger.warning("Corpus: %s is empty after extraction", path)
-            continue
-        documents.append(Document(path, "resume", text[:MAX_DOC_CHARS]))
+        except Exception as exc:
+            raise CorpusError(f"Could not read corpus document {path}: {exc}") from exc
 
+        if not text.strip():
+            raise CorpusError(f"Corpus document {path} is empty after extraction.")
+
+        documents.append(Document(path, entry["kind"], text[:MAX_DOC_CHARS]))
+
+    if missing:
+        raise CorpusError(
+            "Missing corpus document(s): "
+            + ", ".join(missing)
+            + ".\nFix the paths under `profile.corpus` in config.yaml, or mark them "
+              "`optional: true`."
+        )
     return documents
 
 

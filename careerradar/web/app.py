@@ -75,17 +75,12 @@ async def restrict_to_owner(request: Request, call_next):
 
 
 from careerradar.core.paths import FRONTEND_DIR, REPO_ROOT
-from careerradar.core.paths import resumes_dir as _resumes_dir
 
 BASE_DIR = REPO_ROOT
 
 
 def get_db():
     return Database()
-
-
-def resumes_dir():
-    return _resumes_dir(load_config())
 
 
 def analytics_context(db):

@@ -1,8 +1,9 @@
 # Job Search Automation Configuration ("CareerRadar")
 
-# Path to the directory containing markdown resumes, relative to the project root.
-# Gitignored: personal documents, synced from the `resume` repo by scripts/sync_corpus.sh.
-resumes_dir: "resumes"
+# The profile corpus is configured under `profile.corpus` near the bottom of this file.
+# Personal documents are gitignored; scripts/sync_corpus.sh pulls achievements.md in from
+# the separate `resume` repo.
+
 
 # ---------------------------------------------------------------------------------------
 # Scraping
@@ -269,6 +270,21 @@ profile:
   # posting is scored thereafter, and it is a handful of calls, not thousands.
   model: deepseek-v4-pro
   max_interview_questions: 15
+
+  # The documents the profile is built from. An explicit list, not a scan of resumes/.
+  #
+  # resumes/ also holds tailored resumes written for SUBMITTING to employers, which is a
+  # different kind of document from evidence about what you can actually do. Scanning the
+  # directory pulled six LLM-generated variants into the profile, and their inflated skill
+  # lists became skill levels and then scores. Nothing errored; the numbers were wrong.
+  #
+  # Paths are relative to the repo root. A named file that is missing is an error, unless
+  # marked `optional: true`.
+  corpus:
+    - path: achievements.md
+      kind: achievements
+    - path: resumes/resume.txt
+      kind: resume
 
 scoring:
   # The volume workhorse -- one call per posting. Flash with an automatically cached

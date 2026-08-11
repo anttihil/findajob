@@ -24,8 +24,8 @@ missing skill most often blocks a posting you otherwise match.
 
 ```bash
 uv sync
-scripts/sync_corpus.sh /path/to/resume     # the gitignored resume corpus
 cp /path/to/.env .                         # see below
+scripts/sync_corpus.sh /path/to/resume     # pulls achievements.md in
 uv run careerradar migrate                 # schema
 uv run careerradar profile build           # the interview -- do this first
 ```
@@ -55,19 +55,44 @@ uv run careerradar profile show
 uv run careerradar profile history
 ```
 
-`profile build` reads your corpus — six tailored resumes, `current_resume.md`,
-`achievements.md`, PDFs included — extracts what the documents support, then works out what
+`profile build` reads your corpus, extracts what the documents support, then works out what
 they *cannot* tell it and asks you. Career documents are a sales artifact: they
 systematically omit honest weaknesses, compensation floors, work authorization, and what
 you would refuse. Those are exactly the facts that decide whether a posting is a blocker or
 a stretch.
+
+### The corpus is an explicit list
+
+`profile.corpus` in config.yaml names the documents. Markdown, plain text, and PDF are all
+read; a document that is named but missing is an error rather than a shrug.
+
+```yaml
+profile:
+  corpus:
+    - path: achievements.md
+      kind: achievements
+    - path: resumes/resume.txt
+      kind: resume
+```
+
+This used to be a scan of `resumes/`, which is quietly dangerous, because that directory
+also holds tailored resumes written for *submitting* to employers — a different kind of
+document from evidence about what you can actually do. Six LLM-generated variants were
+being read as evidence, and their inflated skill lists (Go listed first on the strength of
+one side project; NestJS, D3.js and CloudFormation with no backing work) became skill
+levels and then scores. Nothing failed; the numbers were just wrong.
+
+Adding a document to the profile should be a decision, not a side effect of where a file
+happens to live. `scripts/sync_corpus.sh` no longer uses `rsync --delete` for the same
+reason: it was deleting hand-curated documents that exist only here.
 
 It is a LangGraph graph checkpointed to `graphs.db`, so you can stop at question four and
 resume a week later (`--resume`) with the extraction intact.
 
 - `--no-interview` builds from the documents alone. Useful for a first pass; the
   constraints will be empty until you actually sit the interview.
-- `--restart` abandons an in-progress interview and starts over.
+- `--resume` continues an interview you left unfinished.
+- `--force` rebuilds even when the corpus has not changed.
 
 The result is versioned and append-only. Every verdict records the `profile_version` that
 produced it, so rebuilding your profile does not rewrite history — it lets you re-score and
