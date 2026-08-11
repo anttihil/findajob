@@ -13,7 +13,7 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from backend.migrations import (  # noqa: E402
+from careerradar.core.migrations import (  # noqa: E402
     MIGRATIONS,
     SCHEMA_VERSION,
     current_version,

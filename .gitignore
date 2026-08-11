@@ -11,6 +11,14 @@ jobs.db-wal
 jobs.db-shm
 jobs.db-journal
 
+# LangGraph checkpoints. Not just build artifacts: a checkpoint stores the graph's whole
+# state, and the profile graph's state holds the full text of every corpus document. That
+# puts career history in a repo whose entire .gitignore policy exists to keep it out.
+graphs.db
+graphs.db-wal
+graphs.db-shm
+graphs.db-journal
+
 # Credentials
 .env
 

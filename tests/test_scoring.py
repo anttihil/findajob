@@ -17,14 +17,16 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from backend.profile import (  # noqa: E402
+from careerradar.profile.adapter import ProfileAdapter  # noqa: E402
+from careerradar.profile.models import (  # noqa: E402
     LEVEL_CLAIMED,
     LEVEL_MENTIONED,
     LEVEL_STRONG,
-    UserProfile,
+    Profile,
+    Skill,
 )
-from backend.roles import load_roles  # noqa: E402
-from backend.scoring import (  # noqa: E402
+from careerradar.taxonomy.roles import load_roles  # noqa: E402
+from careerradar.search.keyword_score import (  # noqa: E402
     Bm25Index,
     JobScorer,
     seniority_fit,
@@ -33,23 +35,19 @@ from backend.scoring import (  # noqa: E402
     title_family_fit,
     tokenize,
 )
-from backend.taxonomy import load_taxonomy  # noqa: E402
+from careerradar.taxonomy.skills import load_taxonomy  # noqa: E402
 
 
 def make_profile(levels, taxonomy):
     """A profile with explicit levels, so tests do not depend on the real resumes."""
-    skills = {
-        key: {"level": level, "evidence": ["test"], "commits": 0, "current": False}
-        for key, level in levels.items()
-    }
-    variants = {
-        "fullstack_ai_engineer.md": {"title": "Full-Stack AI", "skills": list(levels)},
-        "platform_devops_engineer.md": {"title": "Platform", "skills": list(levels)},
-        "genai_application_engineer.md": {"title": "GenAI", "skills": list(levels)},
-        "academic_technology_manager.md": {"title": "AcadTech", "skills": list(levels)},
-        "edtech_product_program_manager.md": {"title": "EdTech", "skills": list(levels)},
-    }
-    return UserProfile(skills, variants, taxonomy, ["test"])
+    profile = Profile(
+        bio="test candidate",
+        skills=[
+            Skill(key=key, label=key, level=level, evidence="test")
+            for key, level in levels.items()
+        ],
+    )
+    return ProfileAdapter(profile, version=0, taxonomy=taxonomy)
 
 
 class CoverageTests(unittest.TestCase):

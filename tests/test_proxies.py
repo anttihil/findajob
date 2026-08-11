@@ -11,7 +11,7 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from backend.proxies import (  # noqa: E402
+from careerradar.search.proxies import (  # noqa: E402
     ENV_VAR,
     apply_proxy_budgets,
     is_rotating,

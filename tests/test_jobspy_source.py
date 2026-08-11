@@ -13,14 +13,14 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from backend.scraper_guard import (  # noqa: E402
+from careerradar.search.guard import (  # noqa: E402
     ERROR_BLOCKED,
     ERROR_FATAL,
     ERROR_RATE_LIMIT,
     ERROR_TRANSIENT,
     classify_error,
 )
-from backend.sources.jobspy_source import (  # noqa: E402
+from careerradar.search.sources.jobspy_source import (  # noqa: E402
     JOBSPY_LOGGERS,
     ScraperReportedError,
     capture_scraper_errors,
@@ -173,7 +173,7 @@ class FetchWiringTests(unittest.TestCase):
     """
 
     def setUp(self):
-        import backend.sources.jobspy_source as module
+        import careerradar.search.sources.jobspy_source as module
 
         self.module = module
         self.source = module.JobSpySource(archive_dir=None)

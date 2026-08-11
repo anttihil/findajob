@@ -257,3 +257,37 @@ digest:
 
 # Minimum match score to display in the dashboard (0-100)
 min_match_score: 15
+
+# ---------------------------------------------------------------------------------------
+# Agents
+#
+# Three agents, three jobs, two models. Costs below are measured, not estimated -- see
+# docs/deepseek.md for the token shape they come from.
+# ---------------------------------------------------------------------------------------
+profile:
+  # Built once, interactively. Worth the larger model: this artifact decides how every
+  # posting is scored thereafter, and it is a handful of calls, not thousands.
+  model: deepseek-v4-pro
+  max_interview_questions: 15
+
+scoring:
+  # The volume workhorse -- one call per posting. Flash with an automatically cached
+  # profile prefix costs ~$0.0004 a posting, so scoring the whole corpus is a couple of
+  # dollars rather than a reason to sample.
+  model: deepseek-v4-flash
+  concurrency: 8
+  # Pre-flight: if the estimate exceeds this the run ABORTS rather than trimming the
+  # queue. A budget that silently drops the tail produces a partial pass that looks
+  # complete, and every coverage figure downstream inherits the lie.
+  max_usd_per_run: 2.50
+  # fit_score at or above which a company earns a deep-research pass.
+  research_threshold: 70
+
+research:
+  model: deepseek-v4-pro
+  search_provider: tavily
+  max_companies_per_run: 5
+  # Dossiers age out rather than being rebuilt on every encounter; company facts move on
+  # a scale of months, and a re-scrape of the same company is pure cost.
+  refresh_days: 30
+  max_usd_per_run: 2.00

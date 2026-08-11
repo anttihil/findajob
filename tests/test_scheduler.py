@@ -18,8 +18,8 @@ from datetime import datetime, timedelta, timezone
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from backend.roles import load_roles  # noqa: E402
-from backend.scheduler import (  # noqa: E402
+from careerradar.taxonomy.roles import load_roles  # noqa: E402
+from careerradar.search.scheduler import (  # noqa: E402
     CellState,
     adaptive_hours_old,
     cell_priority,
@@ -32,7 +32,7 @@ from backend.scheduler import (  # noqa: E402
     update_ewma,
     with_location_weights,
 )
-from backend.scraper_guard import (  # noqa: E402
+from careerradar.search.guard import (  # noqa: E402
     ERROR_BLOCKED,
     ERROR_FATAL,
     ERROR_RATE_LIMIT,

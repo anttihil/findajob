@@ -1,0 +1,552 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Jane's Career Radar - Job Search Automation</title>
+    <!-- Fonts & Icons -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Local Stylesheet served relative to /static -->
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body class="dark-theme">
+    <div class="glass-bg"></div>
+    <div class="app-container">
+        
+        <!-- Sidebar Navigation -->
+        <aside class="sidebar">
+            <div class="logo">
+                <div class="logo-icon"><i class="fa-solid fa-satellite-dish animate-pulse"></i></div>
+                <div class="logo-text">
+                    <h2>CareerRadar</h2>
+                    <span>Daily Job Intelligence</span>
+                </div>
+            </div>
+            
+            <nav class="nav-menu">
+                <button class="nav-item active" data-tab="dashboard">
+                    <i class="fa-solid fa-house"></i> Dashboard
+                </button>
+                <button class="nav-item" data-tab="market">
+                    <i class="fa-solid fa-chart-simple"></i> Market Supply
+                </button>
+                <button class="nav-item" data-tab="skills">
+                    <i class="fa-solid fa-arrow-trend-up"></i> Skill Gaps
+                </button>
+                <button class="nav-item" data-tab="search-links">
+                    <i class="fa-solid fa-link"></i> Direct Search Links
+                </button>
+                <button class="nav-item" data-tab="resumes">
+                    <i class="fa-solid fa-file-invoice"></i> Resumes & Skills
+                </button>
+                <button class="nav-item" data-tab="digests">
+                    <i class="fa-solid fa-envelope-open-text"></i> Digests
+                </button>
+                <button class="nav-item" data-tab="settings">
+                    <i class="fa-solid fa-sliders"></i> Settings & Sync
+                </button>
+            </nav>
+            
+            <div class="sync-status-widget">
+                <div class="sync-indicator">
+                    <span class="status-dot green"></span>
+                    <span class="status-text">Database Idle</span>
+                </div>
+                <div id="sync-stats-info" class="sync-stats-info hide"></div>
+                <button id="quick-sync-btn" class="quick-sync-btn">
+                    <i class="fa-solid fa-rotate"></i> Sync Now
+                </button>
+            </div>
+        </aside>
+
+        <!-- Main Content Area -->
+        <main class="main-content">
+            <header class="top-bar">
+                <h1 id="page-title">Career Dashboard</h1>
+                <div class="current-date" id="header-date">July 15, 2026</div>
+            </header>
+
+            <!-- TAB 1: DASHBOARD / FEED -->
+            <section id="tab-dashboard" class="tab-pane active">
+                
+                <!-- Overview Stats Grid -->
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <div class="stat-icon purple"><i class="fa-solid fa-magnifying-glass"></i></div>
+                        <div class="stat-info">
+                            <span class="stat-label">Total Crawled</span>
+                            <h3 id="stat-total">0</h3>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon green"><i class="fa-solid fa-bookmark"></i></div>
+                        <div class="stat-info">
+                            <span class="stat-label">Saved Matches</span>
+                            <h3 id="stat-saved">0</h3>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon blue"><i class="fa-solid fa-paper-plane"></i></div>
+                        <div class="stat-info">
+                            <span class="stat-label">Applied</span>
+                            <h3 id="stat-applied">0</h3>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon gold"><i class="fa-solid fa-star"></i></div>
+                        <div class="stat-info">
+                            <span class="stat-label">Avg Match Score</span>
+                            <h3 id="stat-avg-score">0%</h3>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Sync Error Warning Alert Box -->
+                <div id="sync-error-banner" class="sync-error-banner glass-card hide">
+                    <div class="banner-title">
+                        <span><i class="fa-solid fa-triangle-exclamation text-gold"></i> API Sync Warnings</span>
+                        <button id="close-banner-btn" class="close-banner-btn"><i class="fa-solid fa-xmark"></i></button>
+                    </div>
+                    <ul id="sync-errors-list" class="sync-errors-list">
+                        <!-- Error items will be injected here -->
+                    </ul>
+                </div>
+
+                <!-- Feed Container -->
+                <div class="feed-layout">
+                    <!-- Filters Sidebar -->
+                    <aside class="filter-sidebar">
+                        <div class="filter-header">
+                            <h3><i class="fa-solid fa-filter"></i> Filters</h3>
+                            <button id="clear-filters-btn" class="text-btn">Reset</button>
+                        </div>
+                        
+                        <div class="filter-group">
+                            <label>Application Status</label>
+                            <div class="status-toggle-grid">
+                                <button class="status-pill active" data-status="unread">Unread</button>
+                                <button class="status-pill" data-status="saved">Saved</button>
+                                <button class="status-pill" data-status="applied">Applied</button>
+                                <button class="status-pill" data-status="rejected">Rejected</button>
+                            </div>
+                        </div>
+
+                        <div class="filter-group">
+                            <label>Reachability</label>
+                            <div class="status-toggle-grid access-toggle-grid">
+                                <button class="status-pill active" data-access=""
+                                        title="Every posting">All</button>
+                                <button class="status-pill" data-access="commutable"
+                                        title="Within commuting distance of Los Angeles — no relocation, no remote arrangement needed">LA area</button>
+                                <button class="status-pill" data-access="remote"
+                                        title="Remote, so location is not a constraint">Remote</button>
+                                <button class="status-pill" data-access="relocation"
+                                        title="Onsite somewhere you would have to move to">Relocate</button>
+                            </div>
+                        </div>
+
+                        <div class="filter-group">
+                            <label for="filter-resume">Target Resume Profile</label>
+                            <select id="filter-resume" class="form-select">
+                                <option value="">All Profiles</option>
+                                <!-- Populated dynamically -->
+                            </select>
+                        </div>
+
+                        <div class="filter-group">
+                            <label for="filter-country">Country</label>
+                            <select id="filter-country" class="form-select">
+                                <option value="">All Countries</option>
+                                <option value="US">USA</option>
+                                <option value="FI">Finland</option>
+                                <option value="SE">Sweden</option>
+                                <option value="NO">Norway</option>
+                                <option value="DK">Denmark</option>
+                            </select>
+                        </div>
+
+                        <div class="filter-group">
+                            <div class="slider-header">
+                                <label for="filter-score">Min Match Score</label>
+                                <span id="score-val">15%</span>
+                            </div>
+                            <input type="range" id="filter-score" min="0" max="100" value="15" class="form-slider">
+                        </div>
+                    </aside>
+
+                    <!-- Feed Results List -->
+                    <div class="feed-main">
+                        <div class="feed-header">
+                            <span id="results-count" class="results-count">0 matching positions found</span>
+                            <div class="feed-sort">
+                                <label for="sort-by">Sort by</label>
+                                <select id="sort-by" class="form-select-sm">
+                                    <option value="score">Match Score</option>
+                                    <option value="date">Date Found</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div id="job-cards-container" class="job-cards-grid">
+                            <!-- Job cards injected dynamically -->
+                            <div class="no-jobs-card">
+                                <i class="fa-solid fa-binoculars"></i>
+                                <h3>No matching jobs found</h3>
+                                <p>Try adjusting your filters, triggering a new database sync, or relaxing your match threshold.</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- TAB 2: PRE-FILLED BOARD SEARCH LINKS -->
+            <section id="tab-search-links" class="tab-pane">
+                <div class="glass-card instruction-box">
+                    <h2><i class="fa-solid fa-link text-purple"></i> Direct Job Board Search Link Generator</h2>
+                    <p>Scraping job sites like Indeed and LinkedIn directly can hit CAPTCHAs. This module generates optimized boolean search strings based on your parsed resume skills and lets you search directly on the boards in your browser with one click.</p>
+                </div>
+
+                <div class="link-generator-card">
+                    <div class="form-grid-3">
+                        <div class="form-group">
+                            <label for="link-resume-select">Select Resume Profile</label>
+                            <select id="link-resume-select" class="form-select">
+                                <!-- Populated dynamically -->
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="link-country-select">Target Country</label>
+                            <select id="link-country-select" class="form-select">
+                                <option value="US">USA</option>
+                                <option value="FI">Finland</option>
+                                <option value="SE">Sweden</option>
+                                <option value="NO">Norway</option>
+                                <option value="DK">Denmark</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="link-query-select">Target Role Title</label>
+                            <select id="link-query-select" class="form-select">
+                                <!-- Populated dynamically -->
+                            </select>
+                        </div>
+                    </div>
+                    
+                    <button id="generate-links-btn" class="primary-btn mt-4">
+                        <i class="fa-solid fa-wand-magic-sparkles"></i> Generate Custom Search Links
+                    </button>
+
+                    <div id="generated-links-results" class="generated-links-results hide">
+                        <div class="divider"></div>
+                        <h4 class="section-subtitle">Search Results for <span id="gen-role-title"></span> in <span id="gen-country"></span></h4>
+                        
+                        <div class="search-query-display">
+                            <span>Boolean Search Phrase Used:</span>
+                            <code id="gen-query-code"></code>
+                        </div>
+
+                        <div class="link-buttons-grid">
+                            <a href="#" id="linkedin-search-link" target="_blank" class="board-link linkedin">
+                                <i class="fa-brands fa-linkedin"></i>
+                                <div class="link-label">
+                                    <strong>Search on LinkedIn</strong>
+                                    <span>Opens pre-filled search in a new tab</span>
+                                </div>
+                                <i class="fa-solid fa-up-right-from-square arrow-out"></i>
+                            </a>
+                            <a href="#" id="indeed-search-link" target="_blank" class="board-link indeed">
+                                <i class="fa-solid fa-circle-info"></i>
+                                <div class="link-label">
+                                    <strong>Search on Indeed</strong>
+                                    <span>Opens pre-filled search in a new tab</span>
+                                </div>
+                                <i class="fa-solid fa-up-right-from-square arrow-out"></i>
+                            </a>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- MARKET SUPPLY -->
+            <section id="tab-market" class="tab-pane">
+                <div class="glass-card">
+                    <div class="card-header-row">
+                        <h3><i class="fa-solid fa-chart-simple text-purple"></i>
+                            Role supply</h3>
+                        <div class="inline-controls">
+                            <select id="market-source" class="form-select-sm">
+                                <option value="indeed">Indeed</option>
+                                <option value="linkedin">LinkedIn</option>
+                            </select>
+                            <select id="market-window" class="form-select-sm">
+                                <option value="14">Last 14 days</option>
+                                <option value="30">Last 30 days</option>
+                                <option value="90">Last 90 days</option>
+                            </select>
+                        </div>
+                    </div>
+                    <p class="card-note">
+                        New postings per day, not totals. Absolute supply is not estimable —
+                        job boards never report how many postings exist, and every result set
+                        is truncated. A bar with an arrow cap and a “≥” label is a
+                        <strong>lower bound</strong>: the board cut us off, so there were
+                        more.
+                    </p>
+                    <p class="card-note">
+                        Each location is charted separately on purpose. Flow is only
+                        comparable within one location and source, so a single pooled ranking
+                        would be the one comparison that isn’t valid.
+                    </p>
+                    <div id="market-panels" class="market-panels">
+                        <p class="chart-empty">Loading…</p>
+                    </div>
+                </div>
+
+                <div class="glass-card">
+                    <h3><i class="fa-solid fa-table-cells text-purple"></i>
+                        Role family × location</h3>
+                    <p class="card-note">Postings per day. A dot means that cell has not been
+                        scraped yet — not that demand is zero.</p>
+                    <div id="market-heatmap" class="heatmap-wrap"></div>
+                </div>
+
+                <div class="glass-card">
+                    <div class="card-header-row">
+                        <h3><i class="fa-solid fa-satellite-dish text-purple"></i>
+                            Scrape coverage</h3>
+                        <span id="coverage-summary" class="results-count"></span>
+                    </div>
+                    <p class="card-note">Per-cell health. This is where a silently degrading
+                        scraper becomes visible.</p>
+                    <div id="coverage-table" class="coverage-table-wrap"></div>
+                </div>
+            </section>
+
+            <!-- SKILL GAPS -->
+            <section id="tab-skills" class="tab-pane">
+                <div id="skills-banner"></div>
+
+                <div class="glass-card">
+                    <div class="card-header-row">
+                        <h3><i class="fa-solid fa-arrow-trend-up text-purple"></i>
+                            Skills to acquire next</h3>
+                        <div class="inline-controls">
+                            <select id="skills-window" class="form-select-sm">
+                                <option value="90">Last 90 days</option>
+                                <option value="30">Last 30 days</option>
+                                <option value="14">Last 14 days</option>
+                            </select>
+                            <select id="skills-weighting" class="form-select-sm">
+                                <option value="interest">Weight: my target mix</option>
+                                <option value="observed">Unweighted (diagnostic)</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div id="skills-tiles" class="stat-tile-row"></div>
+                    <div id="skills-coverage" class="coverage-strip"></div>
+                    <p class="card-note">
+                        Ranked by <strong>blocking gap</strong> — how often a skill you lack
+                        appears in postings you <em>otherwise</em> match well. That is a more
+                        actionable signal than raw popularity, and it is weighted down for
+                        skills that take longer to learn.
+                    </p>
+                    <div id="gap-list" class="gap-list"></div>
+                </div>
+
+                <div class="two-col-grid">
+                    <div class="glass-card">
+                        <h3><i class="fa-solid fa-circle-check text-green"></i>
+                            Validated strengths</h3>
+                        <p class="card-note">On your resume and genuinely in demand.</p>
+                        <div id="strengths-list" class="gap-list"></div>
+                    </div>
+                    <div class="glass-card">
+                        <h3><i class="fa-solid fa-circle-minus"></i> Dead weight</h3>
+                        <p class="card-note">On your resume, but almost nobody asks for it.
+                            Resume space with little market return.</p>
+                        <div id="dead-weight-list" class="gap-list"></div>
+                    </div>
+                </div>
+
+                <div class="glass-card">
+                    <div class="card-header-row">
+                        <h3><i class="fa-solid fa-eye-slash"></i> Suppressed</h3>
+                        <span id="suppressed-count" class="results-count"></span>
+                    </div>
+                    <p class="card-note">Reported rather than hidden: these skills lack the
+                        sample size, company spread, or coverage to state a number honestly.
+                    </p>
+                    <div id="suppressed-list" class="suppressed-list"></div>
+                </div>
+            </section>
+
+            <!-- TAB 3: RESUMES & SKILLS -->
+            <section id="tab-resumes" class="tab-pane">
+                <div class="resumes-grid" id="resumes-list-container">
+                    <!-- Populated dynamically -->
+                </div>
+            </section>
+
+            <!-- TAB 5: JOB DIGESTS -->
+            <section id="tab-digests" class="tab-pane">
+                <div class="feed-layout">
+                    <!-- Digests Sidebar -->
+                    <aside class="filter-sidebar">
+                        <div class="filter-header">
+                            <h3><i class="fa-solid fa-envelope-open-text text-purple"></i> Daily Digests</h3>
+                        </div>
+                        <div id="digests-list-container" class="digests-list">
+                            <!-- Digest items injected dynamically -->
+                            <div class="no-digests-text">No digests found yet. Run the scraper sync to generate a digest of matches!</div>
+                        </div>
+                    </aside>
+
+                    <!-- Digest Display Area -->
+                    <div class="feed-main">
+                        <div class="glass-card digest-view-card" id="digest-view-card">
+                            <div class="digest-view-header" id="digest-view-header">
+                                <h2 id="digest-title">Select a digest to begin</h2>
+                                <span id="digest-meta"></span>
+                             </div>
+                            <div class="divider"></div>
+                            <div class="digest-view-body" id="digest-view-body">
+                                <div class="no-digest-selected">
+                                    <i class="fa-solid fa-envelope"></i>
+                                    <h3>No Digest Selected</h3>
+                                    <p>Select a matching digest from the sidebar list to view the compiled jobs report.</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- TAB 4: SETTINGS & SYNC -->
+            <section id="tab-settings" class="tab-pane">
+                <div class="settings-container">
+                    <div class="glass-card sync-box">
+                        <h3><i class="fa-solid fa-rotate-right"></i> Database Sync Engine</h3>
+                        <p>Run a scrape pass now. Postings land unscored; the scoring stage picks them up on its own timer.</p>
+                        
+                        <div class="sync-actions">
+                            <button id="trigger-sync-btn" class="primary-btn-lg">
+                                <i class="fa-solid fa-satellite-dish"></i> Run Scrape Now
+                            </button>
+                            <div class="sync-progress-indicator hide" id="sync-progress-indicator">
+                                <i class="fa-solid fa-circle-notch fa-spin"></i>
+                                <span>Scrape in progress. Fetching and normalizing postings...</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="glass-card settings-card mt-6">
+                        <h3><i class="fa-solid fa-gear"></i> Search Configuration</h3>
+                        
+                        <form id="settings-form">
+                            <div class="form-group mt-4">
+                                <label>Target Countries</label>
+                                <div class="checkbox-grid" id="settings-countries-container">
+                                    <!-- Dynamic checkboxes -->
+                                </div>
+                            </div>
+
+                            <div class="form-group mt-4">
+                                <label>Enabled Crawler Sources</label>
+                                <div class="checkbox-grid" id="settings-sources-container">
+                                    <!-- Dynamic source checkboxes -->
+                                </div>
+                            </div>
+
+                            <div class="form-group mt-4">
+                                <label for="settings-queries">Search Queries / Role Titles (One per line)</label>
+                                <textarea id="settings-queries" rows="5" class="form-textarea"></textarea>
+                            </div>
+
+                            <div class="form-group mt-4">
+                                <div class="slider-header">
+                                    <label for="settings-score">Default Min Match Score Threshold</label>
+                                    <span id="settings-score-val">15%</span>
+                                </div>
+                                <input type="range" id="settings-score" min="0" max="100" class="form-slider">
+                            </div>
+
+
+
+                            <!-- The Gmail IMAP source was removed: it mutated the mailbox by reading
+                                 UNSEEN mail (so runs were not idempotent) and produced zero
+                                 rows. Scraping is configured in config.yaml and
+                                 data/roles.yaml. -->
+
+
+                            <button type="submit" class="save-btn mt-6">
+                                <i class="fa-solid fa-floppy-disk"></i> Save Settings Configuration
+                            </button>
+                        </form>
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <!-- Slide Drawer for Job Details -->
+    <div class="drawer-overlay" id="drawer-overlay"></div>
+    <div class="job-drawer" id="job-drawer">
+        <button class="close-drawer-btn" id="close-drawer-btn">
+            <i class="fa-solid fa-xmark"></i>
+        </button>
+        
+        <div class="drawer-header">
+            <div class="drawer-badge-row">
+                <span class="match-badge-lg" id="drawer-score">95% Match</span>
+                <span class="source-badge" id="drawer-source">JobTech Sweden</span>
+            </div>
+            <h2 id="drawer-title">Senior Full-Stack Software Engineer</h2>
+            <div class="drawer-meta">
+                <span id="drawer-company"><i class="fa-solid fa-building"></i> UCLA Humanities Technology</span>
+                <span id="drawer-location"><i class="fa-solid fa-location-dot"></i> Helsinki, Finland</span>
+            </div>
+        </div>
+
+        <div class="drawer-actions-row">
+            <button class="action-pill text-green" id="action-save"><i class="fa-solid fa-bookmark"></i> Save Job</button>
+            <button class="action-pill text-blue" id="action-apply"><i class="fa-solid fa-paper-plane"></i> Mark Applied</button>
+            <button class="action-pill text-red" id="action-reject"><i class="fa-solid fa-trash-can"></i> Reject</button>
+            <a href="#" target="_blank" class="action-pill-apply" id="drawer-apply-link">
+                Apply on Site <i class="fa-solid fa-up-right-from-square"></i>
+            </a>
+        </div>
+
+        <div class="drawer-body">
+            <div class="drawer-section" id="drawer-verdict-section">
+                <h4>Verdict</h4>
+                <div id="drawer-verdict"><!-- fit score, blockers, gaps, strengths --></div>
+            </div>
+
+            <div class="drawer-section" id="drawer-dossier-section" style="display:none">
+                <h4>Company Dossier</h4>
+                <div id="drawer-dossier"><!-- deep-research output --></div>
+            </div>
+
+            <div class="drawer-section">
+                <h4>Matching Skills Found</h4>
+                <div class="skills-tags-container" id="drawer-skills-list">
+                    <!-- Skills tags -->
+                </div>
+            </div>
+
+            <div class="drawer-section">
+                <h4>Job Description</h4>
+                <div class="job-desc-content" id="drawer-description">
+                    <!-- Text description with highlighted matches -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/js/charts.js"></script>
+    <script src="/static/js/app.js"></script>
+</body>
+</html>

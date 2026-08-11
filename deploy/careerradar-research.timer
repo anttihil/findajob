@@ -1,0 +1,18 @@
+[Unit]
+Description=Research the companies behind CareerRadar's strong matches, nightly
+Documentation=file:///opt/careerradar/README.md
+
+[Timer]
+# After the 19:00 scrape and the scoring passes that follow it have settled, so a dossier
+# reflects the day's postings rather than yesterday's.
+OnCalendar=*-*-* 20:30:00
+
+# Company facts move on a scale of months and dossiers carry a refresh_days TTL, so a
+# missed night is genuinely nothing to catch up on.
+Persistent=false
+
+RandomizedDelaySec=20min
+AccuracySec=1min
+
+[Install]
+WantedBy=timers.target

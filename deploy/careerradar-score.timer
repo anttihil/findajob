@@ -1,0 +1,21 @@
+[Unit]
+Description=Drain the CareerRadar scoring queue every 30 minutes
+Documentation=file:///opt/careerradar/README.md
+
+[Timer]
+# Every half hour, offset from the scrape windows. Scoring is cheap (~$0.0003/posting) and
+# idempotent -- it selects only postings with no verdict under the active profile -- so a
+# run with an empty queue exits in under a second and costs nothing. Frequent and trivial
+# beats twice-daily and lumpy: a posting scraped at 07:00 is judged by 07:30 rather than
+# waiting for the evening.
+OnCalendar=*:00/30
+
+# A missed window is genuinely neutral here: the queue is durable in the database, so the
+# next run picks up exactly what the missed one would have. Nothing to catch up.
+Persistent=false
+
+RandomizedDelaySec=3min
+AccuracySec=1min
+
+[Install]
+WantedBy=timers.target

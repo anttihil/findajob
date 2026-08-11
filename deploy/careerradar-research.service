@@ -1,0 +1,30 @@
+[Unit]
+Description=CareerRadar research: build company dossiers for strong matches
+Documentation=file:///opt/careerradar/README.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+
+User=careerradar
+Group=careerradar
+
+WorkingDirectory=/opt/careerradar
+ExecStart=/opt/careerradar/.venv/bin/careerradar research run
+
+# Several web searches plus a few model calls per company, capped by
+# research.max_companies_per_run.
+TimeoutStartSec=45min
+
+Restart=on-failure
+RestartSec=300s
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=careerradar-research
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=read-only
+ReadWritePaths=/opt/careerradar

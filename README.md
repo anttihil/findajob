@@ -1,80 +1,127 @@
 # CareerRadar
 
-Scrapes LinkedIn and Indeed across a catalog of role families and locations, matches postings
-against your resume corpus, and answers three questions in a dashboard:
+Scrapes job boards by role family and location, judges every posting against an LLM-built
+profile of you, and researches the companies behind the good ones.
 
-- **Which roles actually have hiring supply?** — new postings per day per role family.
-- **Which of your skills are genuinely in demand?**
-- **Which skills should you learn next?** — ranked by how often a missing skill blocks a
-  posting you *otherwise* match well.
+Four stages, each on its own timer, handing off through one column:
+
+```
+search    scrape LinkedIn + Indeed on a rotating cell matrix   -> pipeline_state='new'
+score     judge each posting against your profile              -> pipeline_state='scored'
+research  build a dossier for companies behind strong matches  -> pipeline_state='researched'
+web       serve the dashboard
+```
+
+They are separate commands rather than one pipeline because a failure in one must not cost
+the work of another: a rate-limited board cannot stall scoring of the backlog, and an
+expired API key cannot lose a scrape.
+
+Underneath, `market/` still answers the questions the earlier version was built for — which
+role families actually have hiring supply, which of your skills are in demand, and which
+missing skill most often blocks a posting you otherwise match.
 
 ## Setup
 
 ```bash
-git clone https://github.com/your-username/careerradar.git
-cd careerradar
 uv sync
-scripts/sync_corpus.sh ../resume        # the resume corpus -- see below
-uv run python -m scripts.seed_cells     # build the scrape matrix from data/roles.yaml
+scripts/sync_corpus.sh /path/to/resume     # the gitignored resume corpus
+cp /path/to/.env .                         # see below
+uv run careerradar migrate                 # schema
+uv run careerradar profile build           # the interview -- do this first
 ```
 
-`python-jobspy` is pinned to a **git commit**, not the PyPI release: the published wheel
-constrains numpy to 1.26.3, which has no cp313 wheel and cannot build on Python 3.13.
+`python-jobspy` is pinned to a git commit rather than the PyPI wheel, which constrains
+numpy to 1.26.3 and has no cp313 wheel.
 
-No credentials are needed for scraping. `ANTHROPIC_API_KEY` is only used by the optional
-reranker below. `SCRAPER_PROXIES` in `.env` is optional but load-bearing: without it the
-budgets fall back to conservative single-IP limits and LinkedIn drops to titles-only.
+### Keys
 
-## The resume corpus
+`.env` (gitignored, loaded by `core/config.py`):
 
-`profile.py` grades your skills from eight files this repo deliberately does **not** track:
+| variable | needed for |
+|---|---|
+| `DEEPSEEK_API_KEY` | **required** — profile, scoring, research |
+| `TAVILY_API_KEY` | company intel and contacts. Without it, research still finds other openings from the corpus and says plainly that no web research happened |
+| `SCRAPER_PROXIES` | optional rotating pool. With it, LinkedIn becomes a description census instead of titles only |
+| `CAREERRADAR_OWNER` | the tailnet login allowed to reach the dashboard |
 
-```
-resumes/*.md        six tailored variants
-current_resume.md
-achievements.md
-```
+## The profile
 
-They are personal career documents and their source of truth is the separate `resume` repo,
-so a fresh clone has no corpus at all. A missing corpus does not fail — it falls back to the
-levels declared in `data/skills.yaml`, which silently shifts every match score. That is why
-`build_profile()` logs a warning whenever it reads fewer than eight sources. Heed it:
+Everything downstream depends on this, so it is built once, deliberately, with you in the
+room.
 
 ```bash
-scripts/sync_corpus.sh ../resume        # path to the resume repo; ../resume is the default
+uv run careerradar profile build      # ingest documents, then interview you
+uv run careerradar profile show
+uv run careerradar profile history
 ```
+
+`profile build` reads your corpus — six tailored resumes, `current_resume.md`,
+`achievements.md`, PDFs included — extracts what the documents support, then works out what
+they *cannot* tell it and asks you. Career documents are a sales artifact: they
+systematically omit honest weaknesses, compensation floors, work authorization, and what
+you would refuse. Those are exactly the facts that decide whether a posting is a blocker or
+a stretch.
+
+It is a LangGraph graph checkpointed to `graphs.db`, so you can stop at question four and
+resume a week later (`--resume`) with the extraction intact.
+
+- `--no-interview` builds from the documents alone. Useful for a first pass; the
+  constraints will be empty until you actually sit the interview.
+- `--restart` abandons an in-progress interview and starts over.
+
+The result is versioned and append-only. Every verdict records the `profile_version` that
+produced it, so rebuilding your profile does not rewrite history — it lets you re-score and
+compare.
+
+**Skill keys are canonicalized against `data/skills.yaml` on the way in.** The model names
+skills the way a person would ("ReactJS", "D3.js"); the keyword layer looks them up by
+canonical key (`react`, `d3`). Left alone that mismatch is silent and expensive — a profile
+saying `reactjs` at level 3 answers `level("react") == 0`, so every React requirement scores
+as a gap. The first real build produced exactly this for 4 of 28 skills.
 
 ## Running
 
 ```bash
-# 1. Verify the scrapers without writing anything. Run this first.
-uv run python sync.py --dry-run --limit 3
+# Scrape. Postings land unscored.
+uv run careerradar search run --dry-run --limit 3     # verify without writing
+uv run careerradar search run --backfill --source indeed
+uv run careerradar search run                          # steady state
 
-# 2. Deep first pass. Indeed only, widest window, ~14 cells per invocation.
-#    Run it 4-5 times across a few days to cover the matrix.
-uv run python sync.py --backfill --limit 14
+# Score. Cheap, idempotent, safe to run often.
+uv run careerradar score run --dry-run                 # cost estimate, writes nothing
+uv run careerradar score run --limit 200
+uv run careerradar score run --rescore-all             # after a profile rebuild
 
-# 3. Steady state: both sources, incremental. Twice a day is the design point.
-uv run python sync.py
+# Research the companies behind strong matches.
+uv run careerradar research run --dry-run
+uv run careerradar research run --company "MongoDB"
 
-# 4. Dashboard
-uv run run.py            # http://127.0.0.1:8000
+uv run careerradar web --port 8010
 ```
 
-**Run syncs from the CLI, not the dashboard's Sync button, while developing.** `run.py`
-starts uvicorn with `reload=True` and the sync runs in-process, so saving any file mid-scrape
-kills it.
+### What scoring costs
 
-| Flag | Effect |
+Measured against this corpus, not estimated:
+
+| | |
 |---|---|
-| `--dry-run` | scrape a small sample, print normalized rows and scores, write nothing |
-| `--backfill` | Indeed only, max results, widest window |
-| `--source indeed` | restrict to one source (repeatable) |
-| `--rescore-only` | re-derive scores and skills for stored postings under the current taxonomy; no scraping |
-| `--limit N` | cap cells per source |
+| model | `deepseek-v4-flash` |
+| per posting | ~$0.0003 |
+| 300-posting run | $0.0966, 68% of input tokens served from cache |
+| full 5,900-posting backlog | ~$1.80 |
 
-Unattended operation is bundled — a systemd timer runs the sync twice a day. See
-**Deployment** below.
+That is cheap enough that scoring is not a thing to ration — which is the point. The old
+design gated storage on a keyword threshold because judgement was expensive; now every
+posting that classifies as software work gets read properly.
+
+The economics come from DeepSeek's automatic prefix caching: the system rules plus your
+frozen profile prefix are byte-identical on every call and bill at 1/50th the input rate.
+That makes prompt layout architectural — see `docs/deepseek.md`, and the regression check
+in `scoring/worker.py` that warns if the cache rate collapses.
+
+`scoring.max_usd_per_run` is a pre-flight gate that **aborts** rather than trimming the
+queue. A budget that silently drops the tail produces a partial pass that looks complete,
+and every coverage figure downstream inherits the shortfall.
 
 ## How the search space is defined
 
@@ -83,89 +130,87 @@ Unattended operation is bundled — a systemd timer runs the sync twice a day. S
 IP. The scheduler *rotates* through those cells rather than sweeping them, so a full matrix
 cycle takes roughly 5 days — which is why `analytics.min_window_days` is 30.
 
-`data/skills.yaml` is the shared vocabulary: 172 canonical skills with aliases. Both the
-resume corpus and scraped descriptions map onto these keys, which is what makes a match mean
-the same thing on both sides.
+`data/skills.yaml` is the shared vocabulary: 172 canonical skills with aliases. The profile
+and scraped descriptions both map onto these keys, which is what makes a match mean the same
+thing on both sides.
 
 Editing either file changes what a run measures, so `taxonomy_hash` and `plan_hash` are
 recorded on every run and every stats row, and trend queries refuse to compare across a
-change. `--rescore-only` re-derives history under the current taxonomy when you'd rather have
-consistency than reproducibility.
+change.
+
+## Two scores, on purpose
+
+| | what it is | drives |
+|---|---|---|
+| `match_score` | keyword coverage + BM25 + family tier + seniority. Deterministic, reproducible. | the skill-gap analytics |
+| `fit_score` | the scoring agent's judgement, 0–100, with quoted blockers | dashboard ranking, the research queue |
+
+They can disagree, and when they do that is informative rather than a bug. Keyword coverage
+is what misjudges a career change or an unusual title; it is kept because `gap_analysis`
+measures its blocking gap against postings you match at `GOOD_FIT_THRESHOLD` or better, and
+swapping in a judgement score would silently change what those charts mean.
+
+Every hard blocker quotes the phrase from the posting that makes it one, so a verdict can be
+checked against its evidence instead of trusted.
 
 ## Reading the numbers honestly
 
-Worth understanding before trusting a chart.
+Supply is a **rate**, not a total. Boards never report how many postings exist and every
+result set is truncated, so absolute supply is not estimable and is never claimed. An amber
+bar with an arrow cap and a `≥` label is a lower bound.
 
-**Supply is a rate, not a total.** Boards never report how many postings exist and every
-result set is truncated, so absolute supply is not estimable and is never claimed. The
-headline metric is postings/day over the *interval union* of observed windows.
+"None observed" is not zero demand — a blank heatmap cell means never scraped, and the
+coverage strip says which.
 
-**An amber bar with an arrow cap and a `≥` label is a lower bound.** The board cut off the
-result set, so there were more. It is deliberately not drawn as an ordinary bar.
+Each location is charted separately because flow is only comparable within one
+location+source pair. There is no pooled cross-location ranking anywhere in the product.
 
-**"none observed" ≠ zero demand.** It means that cell was scraped and returned nothing
-on-topic. A dot in the heatmap means the cell has not been scraped at all.
+Skill demand is post-stratified against a *declared* `analytics.reference_mix` with Kish
+`n_eff` confidence intervals, falling back to unweighted-and-labelled figures until rotation
+coverage is adequate. Within-stratum selection bias is **not** corrected; it is reported
+(`saturated_share`, `n_companies`, `max_company_share`).
 
-**Each location is charted separately on purpose.** Flow is comparable only within one
-location and source, so there is no pooled cross-location ranking anywhere in the product.
+Suppression is always visible with a reason, never silent.
 
-**Skill demand is post-stratified** against the declared `analytics.reference_mix`, so it
-stays comparable as the rotation changes. Confidence intervals use Kish `n_eff`, not raw `n`,
-because reweighting an unbalanced sample costs precision. Until the rotation has covered
-enough of your target mix, the tab falls back to **unweighted** figures and says so — those
-reflect what was scraped, not the market.
-
-**What is not corrected:** within-stratum selection bias. If a cell truncated and the board
-ranks larger employers first, demand inside that stratum skews toward big-company stacks.
-`saturated_share`, `n_companies`, and `max_company_share` are reported so you can see it.
-
-**Suppression is visible, never silent.** A figure that lacks the sample size, company
-spread, or coverage to state honestly is listed with its reason rather than dropped.
-
-## Optional Claude reranker
-
-Off by default. The deterministic scorer runs on everything and is what the dashboard shows;
-this reads full descriptions for the top N and adds judgements keyword matching cannot make —
-whether a requirement is a hard blocker, whether the seniority band fits.
-
-```yaml
-matching:
-  llm:
-    enabled: true
-    model: claude-opus-5
-    top_n: 25
-    use_batch_api: true      # 50% cost
-    max_usd_per_run: 1.00    # pre-flight token count ABORTS rather than overspending
-```
-
-Needs `ANTHROPIC_API_KEY` and `uv add anthropic`. Without either, the stage is skipped with a
-warning — ingestion never depends on it. Job descriptions are treated as untrusted input:
-delimited, declared as data in the system prompt, and constrained to a structured output, so
-the worst case is a wrong score rather than a hijacked agent.
+The same standard applies to dossiers: source URLs are recorded from what was actually
+fetched, never authored by the model. Asked to supply them, it produced six plausible,
+well-formed, entirely invented URLs on a run where no search had happened — a failure
+invisible precisely because the URLs looked right. When web search is unavailable, the
+dossier says so.
 
 ## Deployment
 
-Runs on a Tailscale-reachable home server as two systemd units: a long-lived web service and
-a `oneshot` sync driven by a timer (07:00 and 19:00, `Persistent=true` so a run missed while
-the machine was off is caught up rather than dropped).
+Runs on a Tailscale-reachable home server: one long-lived web service and three `oneshot`
+units driven by timers.
+
+| unit | schedule | why |
+|---|---|---|
+| `careerradar-search.timer` | 07:00, 19:00 ±30min | matches the 252-cell/5-day rotation. `Persistent=true` — a missed run means suppressed supply figures, not a neutral gap |
+| `careerradar-score.timer` | every 30 min ±3min | cheap and idempotent; a posting scraped at 07:00 is judged by 07:30. `Persistent=false` — the queue is in the database, nothing to catch up |
+| `careerradar-research.timer` | 20:30 ±20min | after the evening scrape and its scoring have settled |
+| `careerradar-web.service` | always | binds `127.0.0.1:8010` |
 
 ```bash
 git clone https://github.com/your-username/careerradar.git ~/projects/careerradar
 cd ~/projects/careerradar
 uv sync
-scripts/sync_corpus.sh /path/to/resume         # corpus
-cp /path/to/.env .                             # SCRAPER_PROXIES
+scripts/sync_corpus.sh /path/to/resume
+cp /path/to/.env .
 sqlite3 /path/to/old/jobs.db ".backup 'jobs.db'"   # WAL mode: never plain-copy a live DB
+uv run careerradar migrate
 
-sudo cp deploy/careerradar-*.service deploy/careerradar-sync.timer /etc/systemd/system/
+sudo cp deploy/careerradar-*.service deploy/careerradar-*.timer /etc/systemd/system/
 sudo systemctl daemon-reload
-sudo systemctl enable --now careerradar-web.service careerradar-sync.timer
+sudo systemctl enable --now careerradar-web.service \
+    careerradar-search.timer careerradar-score.timer careerradar-research.timer
 ```
 
-The units hardcode the app root and `User=`; adjust both if the server layout differs. The
-sync unit deliberately has no `Restart=` — the circuit breaker has already decided how long to
-back off, and restarting the unit would discard that decision and re-approach a board that
-just rate-limited us.
+The units hardcode the app root and `User=`; adjust both if the server layout differs.
+
+`careerradar-search.service` deliberately has **no `Restart=`** — the circuit breaker has
+already decided how long to back off, and restarting would discard that decision and
+re-approach a board that just rate-limited us. The score and research units *do* retry: they
+talk to an API with its own rate-limit semantics, and a failed posting simply stays queued.
 
 The web service binds `127.0.0.1:8010` and stays there. Tailscale fronts it:
 
@@ -173,52 +218,46 @@ The web service binds `127.0.0.1:8010` and stays there. Tailscale fronts it:
 sudo tailscale serve --bg --https 9443 8010    # https://<host>.ts.net:9443
 ```
 
-A dedicated HTTPS port rather than the tailnet root, because on the current server the root
-is already proxied to a different app. Serving this one under a subpath instead would not
-work without changes: the frontend asks for `/static/...` and `/api/...` at the origin root,
-so those requests would land on whatever owns `/`.
+### The owner gate
 
-That config lives in `tailscaled` state and survives reboot, so there is nothing else to
-enable. Access is gated twice: the tailnet boundary, and a middleware in `backend/main.py`
-that rejects proxied requests whose `Tailscale-User-Login` is not the owner. Serve sets that
-header itself and strips any copy the client sends, so it cannot be spoofed from outside.
-The API has no other authentication and `POST /api/config` rewrites `config.yaml` on disk,
-so do not expose this with `tailscale funnel` — Funnel traffic carries no identity headers
-at all.
+`CAREERRADAR_OWNER` is the tailnet login allowed through. Tailscale Serve *sets*
+`Tailscale-User-Login` on each proxied request and strips any copy the client supplied, so a
+forged header never reaches the app — but that is only true because nothing except Serve can
+reach the port, which is what the loopback bind guarantees.
 
-One caveat: Serve also omits identity headers for **tagged** devices, and the middleware
-reads a missing header as "local caller" and allows it. Tags have to be created deliberately
-and this tailnet has none, but if that changes, move the app onto a Unix socket
-(`tailscale serve unix:...` with `uvicorn --uds`) so that nothing but Serve can reach it and
-a missing header can be refused outright.
+A request with no identity header is treated as a genuinely local caller (the CLI, a health
+check) and allowed. If `CAREERRADAR_OWNER` is unset, every proxied request is refused.
 
-Two operational notes. `config.yaml` is rewritten at runtime by the dashboard, so the
-server's working tree goes dirty on its own — reconcile it before pulling. And the frontend
-loads its font and icons from CDNs, so a viewing device with no route to the public internet
-gets a working dashboard with fallback typography.
+**Do not expose this via `tailscale funnel`:** Funnel traffic carries no identity headers, so
+every request would look local.
+
+**Known gap:** Serve does not populate identity headers for traffic from *tagged* devices, so
+a tagged node would arrive looking local and be let through. There are no tagged devices on
+this tailnet, and tags only exist when created deliberately. The fix is to give up the
+loopback TCP port and have Serve proxy to a Unix socket (`tailscale serve unix:...` +
+`uvicorn --uds`), after which a missing header can be refused outright.
 
 ## Layout
 
 ```
-data/roles.yaml          role families, seniority, locations, exclusions
-data/skills.yaml         canonical skills + aliases + informational blockers
-backend/
-  taxonomy.py            skill matching (word / literal / strict-with-context modes)
-  roles.py               title -> role family + seniority
-  profile.py             graded skill profile from 8 resume/achievement sources
-  scheduler.py           which cells to scrape, under budget
-  scraper_guard.py       per-source circuit breaker (429 is NOT retried)
-  normalizer.py          board rows -> schema; salary, location, dedup hashing
-  scoring.py             deterministic fit score, 4 explainable components
-  llm_scorer.py          optional Claude reranker
-  analytics.py           flow estimation, censoring, comparability classes
-  gap_analysis.py        skill demand, blocking gap, adjacency, priority
-  migrations.py          versioned schema (PRAGMA user_version)
-frontend/js/charts.js    hand-rolled inline SVG charts
-scripts/seed_cells.py    build the scrape matrix
-scripts/sync_corpus.sh   pull the resume corpus in from the `resume` repo
-deploy/                  systemd units + timer (see Deployment)
+careerradar/
+├── core/       config, db, migrations, logging, paths, LLM construction + cost
+├── taxonomy/   roles.yaml and skills.yaml loaders -- the shared vocabulary
+├── profile/    document ingest, interview graph, canonicalization, versioned store
+├── search/     scheduler, sources, circuit breaker, proxies, normalizer, keyword score
+├── scoring/    prompts, per-posting graph, queue worker
+├── research/   company dossier graph, search tools, queue worker
+├── market/     supply analytics, skill-gap analysis, digests
+├── web/        FastAPI app, owner gate, frontend/
+└── cli.py
+data/           roles.yaml, skills.yaml
+deploy/         systemd units
+docs/           deepseek.md -- the API constraints the scoring design rests on
 ```
+
+`core/paths.py` is the single definition of where anything lives. Twelve modules used to
+recompute the repo root from their own depth in the tree, which broke silently the moment
+the package was reorganized.
 
 ## Tests
 
@@ -226,13 +265,17 @@ deploy/                  systemd units + timer (see Deployment)
 uv run python -m pytest tests/ -q
 ```
 
-Notable suites: `test_taxonomy.py` is a false-positive gauntlet ("go to market", "R&D", "a
-ray of sunshine", "spark joy" must not match Go/R/Ray/Spark); `test_scheduler.py` simulates
-200 runs to assert no cell starves; `test_roles.py` uses real titles from the database rather
-than invented ones.
+279 tests, no API calls — the model is faked where behaviour around it is what matters.
+Notable ones: `test_scheduler.py` simulates 200 runs and asserts no cell starves;
+`test_taxonomy.py` is a false-positive gauntlet ("go to market", "a ray of sunshine",
+"spark joy" must not match Go, Ray, Spark); `test_scoring_module.py` asserts the cached half
+of the prompt contains no posting data; `test_profile_module.py` asserts a rendered profile
+is byte-stable under skill reordering.
+
+Several suites depend on the gitignored corpus and skip without it.
 
 ## Terms of service
 
 LinkedIn's and Indeed's terms prohibit automated scraping. This is single-user, personal-use
-scraping at low volume against public listing pages. The budget limits in `config.yaml` keep
-request volume modest, which is also what keeps it working.
+scraping at low volume against public listing pages, with a circuit breaker that backs off
+rather than retrying a rate limit. Run it against your own job search, not as a service.

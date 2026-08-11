@@ -12,7 +12,7 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from backend.roles import SENIORITY_UNSPECIFIED, load_roles  # noqa: E402
+from careerradar.taxonomy.roles import SENIORITY_UNSPECIFIED, load_roles  # noqa: E402
 
 DB_PATH = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "jobs.db"
@@ -61,7 +61,7 @@ class RoleTaxonomyIntegrityTests(unittest.TestCase):
 
     def test_every_location_declares_an_access_level(self):
         """access governs whether a role is takeable without moving house."""
-        from backend.roles import ACCESS_LEVELS
+        from careerradar.taxonomy.roles import ACCESS_LEVELS
 
         for location in self.roles.locations.values():
             self.assertIn(location.access, ACCESS_LEVELS, location.id)
@@ -482,7 +482,7 @@ class SearchLabelTests(unittest.TestCase):
 
     def test_planned_cells_carry_the_search_label(self):
         """The bridge that actually broke: cell_specs -> task -> kwargs['location']."""
-        from backend.scheduler import CellState, _make_task
+        from careerradar.search.scheduler import CellState, _make_task
         from datetime import datetime, timezone
 
         cell = CellState(1, "indeed", "ai_engineer", "us_nat", "AI Engineer", tier="core")
