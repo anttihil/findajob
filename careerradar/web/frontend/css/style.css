@@ -1660,10 +1660,19 @@ body {
 .verdict-list li { margin-bottom: 0.3rem; }
 
 /* Blockers are quoted straight from the posting, so they are typeset as quotations --
-   the visual difference is the reminder that this is evidence, not paraphrase. */
+   the visual difference is the reminder that this is evidence, not paraphrase. The
+   reasoning under each one is the model's argument rather than the posting's words, and is
+   set plainly so the distinction survives a glance. */
 .verdict-blockers li q {
     font-style: italic;
     color: #f87171;
+}
+
+.blocker-why {
+    display: block;
+    font-size: 0.8rem;
+    color: var(--text-secondary, #9ca3af);
+    margin-top: 0.1rem;
 }
 
 .verdict-empty,
@@ -1677,3 +1686,72 @@ body {
 .verdict-foot { margin-top: 0.9rem; opacity: 0.75; }
 .dossier-sources { margin-top: 0.75rem; opacity: 0.8; }
 .dossier-sources a, .verdict-list a { color: #a855f7; }
+
+/* --- ordinal verdict surface ---------------------------------------------------------
+   The card badge shows a Pareto tier rather than a percent. Tier 1 dominates everything
+   below it; equal tiers are incomparable, not equal, so the colour ramp is coarse on
+   purpose -- a finer gradient would imply a precision the ranking does not claim. */
+
+.match-badge.badge-top    { background: rgba(34, 197, 94, 0.14);  color: #4ade80;
+                            border-color: rgba(34, 197, 94, 0.35); }
+.match-badge.badge-good   { background: rgba(59, 130, 246, 0.13); color: #60a5fa;
+                            border-color: rgba(59, 130, 246, 0.32); }
+.match-badge.badge-far    { background: rgba(148, 163, 184, 0.12); color: #94a3b8;
+                            border-color: rgba(148, 163, 184, 0.28); }
+.match-badge.badge-blocked{ background: rgba(239, 68, 68, 0.13);  color: #f87171;
+                            border-color: rgba(239, 68, 68, 0.33); }
+.match-badge.badge-unscored { background: rgba(148, 163, 184, 0.08); color: #64748b;
+                            border-color: rgba(148, 163, 184, 0.2); }
+
+.coverage-badge {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--text-secondary, #9ca3af);
+    white-space: nowrap;
+}
+
+/* What the model understood the job to be. Set apart from the reasoning because it is the
+   line that reveals a posting judged on shared vocabulary rather than shared work. */
+.verdict-summary {
+    color: var(--text-primary, #e8e8ea);
+    font-size: 0.95rem;
+    line-height: 1.5;
+    padding: 0.6rem 0.75rem;
+    margin-bottom: 0.85rem;
+    border-left: 2px solid var(--accent-purple, #9333ea);
+    background: rgba(147, 51, 234, 0.06);
+    border-radius: 0 6px 6px 0;
+}
+
+/* The five answers the score was computed from. Shown together because the decomposition
+   is the product: each one can be disagreed with on its own. */
+.verdict-ordinals {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 0.85rem;
+}
+
+.verdict-ordinals .ordinal {
+    font-size: 11px;
+    padding: 3px 8px;
+    border-radius: 4px;
+    background: rgba(148, 163, 184, 0.1);
+    color: var(--text-secondary, #9ca3af);
+    white-space: nowrap;
+}
+
+.verdict-ordinals .ordinal b {
+    color: var(--text-primary, #e8e8ea);
+    font-weight: 600;
+    margin-right: 4px;
+}
+
+.verdict-stale {
+    font-size: 0.85rem;
+    color: #fbbf24;
+    background: rgba(251, 191, 36, 0.08);
+    border-radius: 6px;
+    padding: 0.5rem 0.7rem;
+    margin-bottom: 0.85rem;
+}

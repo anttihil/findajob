@@ -22,7 +22,19 @@ import sys
 def _cmd_score_stats(args):
     from careerradar.scoring.stats import run_stats
 
-    return run_stats(args.profile_version)
+    return run_stats(args.profile_version, scale_version=args.scale_version)
+
+
+def _cmd_score_audit(args):
+    from careerradar.scoring.audit_report import run_audit
+
+    return run_audit(args.profile_version, limit=args.limit)
+
+
+def _cmd_score_rescale(args):
+    from careerradar.scoring.rescale import rescale
+
+    return rescale(args.profile_version, dry_run=args.dry_run)
 
 
 def _cmd_search(args):
@@ -144,7 +156,25 @@ def build_parser():
     scs = scosub.add_parser("stats", help="verdict distribution for a scored corpus")
     scs.add_argument("--profile-version", type=int,
                      help="defaults to the active profile")
+    scs.add_argument("--scale-version", type=int,
+                     help="restrict to one scale; 0 is the pre-v6 model-emitted score")
     scs.set_defaults(func=_cmd_score_stats)
+
+    sca = scosub.add_parser(
+        "audit", help="re-check stored verdicts against their own evidence (no API calls)")
+    sca.add_argument("--profile-version", type=int,
+                     help="defaults to the active profile")
+    sca.add_argument("--limit", type=int, help="cap the verdicts checked")
+    sca.set_defaults(func=_cmd_score_audit)
+
+    scl = scosub.add_parser(
+        "rescale",
+        help="recompute fit_score from stored ordinals after a scale change (no API calls)")
+    scl.add_argument("--profile-version", type=int,
+                     help="defaults to every profile version")
+    scl.add_argument("--dry-run", action="store_true",
+                     help="print the band migration without writing")
+    scl.set_defaults(func=_cmd_score_rescale)
 
     # --- research --------------------------------------------------------------------
     r = sub.add_parser("research", help="build company dossiers for strong matches")

@@ -1,29 +1,36 @@
-"""Deterministic job-fit scoring.
+"""Deterministic requirement coverage.
 
-Stage 1 of a two-stage design. This runs on every posting, costs nothing, and is fully
-explainable -- every score decomposes into named components the UI can show. Stage 2 (an
-optional Claude reranker over the top N) lives in backend/llm_scorer.py and is off by
-default.
+What this measures is narrow and worth stating precisely: of the skills this posting names
+that our taxonomy recognises, how many can the candidate evidence. It is not a fit score
+and it does not rank the dashboard -- `scoring/` does that, with a model that can read the
+posting. Coverage feeds three things instead: the skill hint in the scoring prompt, the
+gap analytics in `market/`, and a coarse tiebreak.
 
-The previous scorer summed +25 per resume skill appearing in the title and +5 per skill in
-the body, capped at 100, and called the result a percent. Three problems: it compared raw
-resume strings against raw description text (so "AWS (EC2, S3)" matched nothing), a posting
-listing many technologies scored higher than one that actually fit, and the number had no
-interpretation. Scores here are a weighted mean of four bounded components, so 0-100 means
-something consistent.
+Two corrections from what this file used to be.
+
+BM25 is gone. It carried 25% of the weight and its query was `profile_tokens()` -- a bag of
+the candidate's skill labels, byte-identical for every posting in the corpus. So it asked
+"how much rare vocabulary does this posting share with a fixed word list", which is a
+noisier restatement of the coverage component it sat next to, computed on raw tokens
+instead of canonical keys. Nothing validated it, and a posting matching four generic terms
+(linux, python, shell, tech_writing) scored the same 70 as one matching eighteen.
+
+The result is no longer presented as a percent. It never was one: the coverage prior, an
+unspecified seniority and an unmapped role family together put ~23 points on the floor, so
+the observed range across 5,932 postings was 15-80. `coverage_ratio` reports matched over
+required with its denominator, and is None -- not 1.0 -- when the posting named nothing we
+recognise.
 """
-
-import math
-import re
-from collections import Counter
 
 from careerradar.profile.models import LEVEL_CLAIMED, LEVEL_MENTIONED, LEVEL_STRONG
 
+# Redistributed proportionally when BM25 was removed (0.45/0.20/0.10 over 0.75), rather
+# than re-tuned. There is nothing to tune against, and inventing a number is how the
+# original weights got here.
 DEFAULT_WEIGHTS = {
-    "skill_coverage": 0.45,
-    "bm25": 0.25,
-    "title_family": 0.20,
-    "seniority_fit": 0.10,
+    "skill_coverage": 0.62,
+    "title_family": 0.24,
+    "seniority_fit": 0.14,
 }
 
 # How much each profile evidence level contributes when a required skill is matched. A skill
@@ -57,99 +64,15 @@ SENIORITY_FIT = {
     "intern": 0.05,
 }
 
-BM25_K1 = 1.5
-BM25_B = 0.75
-# Saturation point for the BM25 -> 0..1 mapping. BM25 is unbounded, so it needs a squash to
-# sit in a weighted mean alongside three bounded components.
-BM25_SATURATION = 12.0
-
-_TOKEN_RE = re.compile(r"[a-z0-9][a-z0-9+#.\-]*")
-
-_STOPWORDS = frozenset("""
-a an and are as at be been but by for from has have if in into is it its of on or that the
-to was were will with you your we our us they their this these those he she them i me my
-will would can could should may might must shall about after all also am any because before
-being below between both during each few further here how more most no nor not now once only
-other over own same so some such than then there through too under until up very what when
-where which while who whom why
-role job work team company position candidate experience years apply applicant opportunity
-""".split())
+# Credit for a skill the candidate evidences only through something it subsumes: the
+# posting asks for `llm_apps`, the profile shows `claude_api`. Discounted, because
+# subsumption is weaker evidence than the named skill -- and applied on the PROFILE side
+# only. Inflating the posting side would corrupt `skill_market_stats`, which measures
+# demand from `job_skills` and has no column separating observed from inferred.
+IMPLIED_CREDIT = 0.8
 
 
-def tokenize(text):
-    if not text:
-        return []
-    return [
-        token for token in _TOKEN_RE.findall(text.lower())
-        if token not in _STOPWORDS and len(token) > 1
-    ]
-
-
-class Bm25Index:
-    """Minimal BM25 over a corpus of job descriptions.
-
-    IDF needs document frequencies, so the index is built from whatever descriptions are
-    already stored. With an empty corpus it degrades to a uniform IDF, which reduces BM25 to
-    length-normalized term overlap -- weaker but still meaningful, and it means a cold
-    database does not crash or silently score everything zero.
-    """
-
-    def __init__(self, documents=None):
-        self.doc_count = 0
-        self.doc_freq = Counter()
-        self.avg_length = 1.0
-        if documents:
-            self.fit(documents)
-
-    def fit(self, documents):
-        lengths = []
-        for document in documents:
-            tokens = tokenize(document)
-            if not tokens:
-                continue
-            lengths.append(len(tokens))
-            self.doc_count += 1
-            for token in set(tokens):
-                self.doc_freq[token] += 1
-        if lengths:
-            self.avg_length = sum(lengths) / len(lengths)
-        return self
-
-    def idf(self, term):
-        if self.doc_count == 0:
-            return 1.0
-        freq = self.doc_freq.get(term, 0)
-        # Robertson-Sparck-Jones, floored so common terms cannot go negative.
-        return max(
-            0.05,
-            math.log((self.doc_count - freq + 0.5) / (freq + 0.5) + 1.0),
-        )
-
-    def score(self, query_tokens, document_tokens):
-        if not query_tokens or not document_tokens:
-            return 0.0
-        counts = Counter(document_tokens)
-        length = len(document_tokens)
-        total = 0.0
-        for term in set(query_tokens):
-            freq = counts.get(term, 0)
-            if not freq:
-                continue
-            denominator = freq + BM25_K1 * (
-                1 - BM25_B + BM25_B * length / max(self.avg_length, 1.0)
-            )
-            total += self.idf(term) * (freq * (BM25_K1 + 1)) / denominator
-        return total
-
-
-def squash(value, saturation):
-    """Map an unbounded non-negative score into [0, 1)."""
-    if value <= 0:
-        return 0.0
-    return value / (value + saturation)
-
-
-def skill_coverage(required, profile):
+def skill_coverage(required, profile, taxonomy=None):
     """Fraction of a posting's required skills the user can evidence, shrunk toward a prior.
 
     Coverage, not count: a posting listing 30 technologies of which the user has 10 is a
@@ -163,6 +86,11 @@ def skill_coverage(required, profile):
     So the ratio is smoothed with COVERAGE_PRIOR_WEIGHT pseudo-skills at COVERAGE_PRIOR:
     an empty posting lands near the prior rather than at the top, and confident coverage
     requires a real denominator.
+
+    Returns `(coverage, matched, missing, ratio)`. `ratio` is the unsmoothed matched-over-
+    required fraction for display, and is None when the posting named nothing recognised --
+    that is unknown coverage, not perfect coverage, and the smoothing exists precisely
+    because the raw ratio cannot say so.
     """
     matched = []
     missing = []
@@ -173,8 +101,14 @@ def skill_coverage(required, profile):
         weight = TITLE_SKILL_MULTIPLIER if info.get("in_title") else 1.0
         possible += weight
         level = profile.level(skill)
-        if level > 0:
-            earned += weight * LEVEL_CREDIT.get(level, 0.5)
+        credit = LEVEL_CREDIT.get(level, 0.5) if level > 0 else 0.0
+        if level == 0 and taxonomy is not None:
+            implied = max((profile.level(child)
+                           for child in taxonomy.implied_by(skill)), default=0)
+            if implied > 0:
+                credit = LEVEL_CREDIT.get(implied, 0.5) * IMPLIED_CREDIT
+        if credit > 0:
+            earned += weight * credit
             matched.append(skill)
         else:
             missing.append(skill)
@@ -183,7 +117,9 @@ def skill_coverage(required, profile):
         (earned + COVERAGE_PRIOR_WEIGHT * COVERAGE_PRIOR)
         / (possible + COVERAGE_PRIOR_WEIGHT)
     )
-    return coverage, matched, missing
+    total = len(matched) + len(missing)
+    ratio = (len(matched) / total) if total else None
+    return coverage, matched, missing, ratio
 
 
 def title_family_fit(role_family, roles, profile=None):
@@ -215,7 +151,7 @@ def seniority_fit(seniority):
 class JobScorer:
     """Scores postings against the user profile. Deterministic and explainable."""
 
-    def __init__(self, profile, roles, taxonomy, weights=None, bm25=None):
+    def __init__(self, profile, roles, taxonomy, weights=None):
         self.profile = profile
         self.roles = roles
         self.taxonomy = taxonomy
@@ -224,25 +160,6 @@ class JobScorer:
             self.weights.update(
                 {k: v for k, v in weights.items() if k in DEFAULT_WEIGHTS}
             )
-        self.bm25 = bm25 or Bm25Index()
-        self._profile_tokens = None
-
-    def profile_tokens(self):
-        """The user's profile rendered as a BM25 query.
-
-        Skill labels are repeated by evidence level, so a strongly-evidenced skill weighs
-        more in the term overlap than one merely claimed.
-        """
-        if self._profile_tokens is None:
-            parts = []
-            for key in self.profile.keys():
-                label = self.taxonomy.label(key)
-                repeats = {LEVEL_STRONG: 3, LEVEL_CLAIMED: 2}.get(
-                    self.profile.level(key), 1
-                )
-                parts.extend([label] * repeats)
-            self._profile_tokens = tokenize(" ".join(parts))
-        return self._profile_tokens
 
     def score(self, posting):
         """Score one posting. Returns a dict with the total and every component.
@@ -257,13 +174,11 @@ class JobScorer:
         if required is None:
             required = self.taxonomy.extract(description, title=title)
 
-        coverage, matched, missing = skill_coverage(required, self.profile)
-        raw_bm25 = self.bm25.score(
-            self.profile_tokens(), tokenize(f"{title} {description}")
+        coverage, matched, missing, ratio = skill_coverage(
+            required, self.profile, taxonomy=self.taxonomy
         )
         components = {
             "skill_coverage": coverage,
-            "bm25": squash(raw_bm25, BM25_SATURATION),
             "title_family": title_family_fit(
                 posting.get("role_family"), self.roles, self.profile
             ),
@@ -275,30 +190,17 @@ class JobScorer:
         total = max(0.0, min(1.0, total))
 
         return {
+            # A coverage index, not a percent. See the module docstring.
             "score": int(round(total * 100)),
             "components": components,
             "weights": dict(self.weights),
             "matched_skills": sorted(matched),
             "missing_skills": sorted(missing),
+            "matched_count": len(matched),
             "required_count": len(required),
-            "bm25_raw": round(raw_bm25, 3),
+            "coverage_ratio": ratio,
             "resume_match": self.roles.resume_for(posting.get("role_family")),
         }
 
     def score_many(self, postings):
         return [self.score(posting) for posting in postings]
-
-
-def build_index_from_db(db, limit=2000):
-    """Build a BM25 index from stored descriptions.
-
-    Only full descriptions contribute: snippets would skew both the average document length
-    and the document frequencies.
-    """
-    rows = db.conn.execute(
-        "SELECT description FROM jobs "
-        "WHERE description IS NOT NULL AND description_quality = 'full' "
-        "ORDER BY id DESC LIMIT ?",
-        (limit,),
-    ).fetchall()
-    return Bm25Index([row[0] for row in rows])

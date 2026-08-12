@@ -9,7 +9,9 @@ versioned -- not recomputed per request like the regex profile it replaces.
 import json
 from typing import Literal, Optional
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
+
+from careerradar.scoring import rubric
 
 # Kept identical to the levels the old regex profile used, because `keyword_score.py` and
 # `gap_analysis.py` still index into LEVEL_CREDIT with these numbers. What changes is how a
@@ -177,3 +179,235 @@ class FitVerdict(BaseModel):
         if isinstance(decoded, list):
             return decoded
         return [str(decoded)] if decoded not in (None, "") else []
+
+
+# --- the ordinal assessment -------------------------------------------------------------
+#
+# Bumped when the schema below changes shape. `scoring/worker.py` selects on it, so raising
+# it re-drains the backlog through the normal resumable path instead of needing a
+# `--rescore-all` that starts over on every interruption.
+VERDICT_SCHEMA_VERSION = 2
+
+_ANCHORED = "  ".join(
+    f"{value}: {text}" for value, text in rubric.IMPORTANCE_ANCHORS.items()
+)
+
+
+class CoreRequirement(BaseModel):
+    """One thing the posting actually asks for, with the words that ask for it.
+
+    The quote is what makes the extraction checkable. `scoring/audit.py` verifies it is
+    really in the posting, so a requirement the model invented is detectable rather than
+    something the reader has to take on trust.
+    """
+
+    requirement: str = Field(description="The requirement, in your own words, one line.")
+    quote: str = Field(
+        description="The phrase from the posting that states it, copied verbatim."
+    )
+    importance: Literal["must_have", "important", "nice_to_have"] = Field(
+        description=_ANCHORED
+    )
+
+
+class RequirementAssessment(BaseModel):
+    requirement: str = Field(
+        description="Must repeat one of the requirements you listed above, word for word."
+    )
+    status: Literal["met", "partial", "unmet"]
+    candidate_evidence: Optional[str] = Field(
+        default=None,
+        description="What in the profile shows this, or null if nothing does.",
+    )
+
+
+# Why HardBlocker has two fields. This is a comment rather than a docstring because a
+# model docstring is sent to the model as the schema description on every call, and none of
+# the following is any use to it.
+#
+# `hard_blockers` was a list of strings, each of which had to be the evidence AND the
+# explanation at once. The model resolved that conflict by writing the explanation, and the
+# auditor -- which can only check the evidence -- discarded the verdict. Of the 33 distinct
+# blockers that lost a verdict in one run, 19 were prose citing the candidate's *own profile
+# constraint*: "the candidate's NON-NEGOTIABLE constraint is 'Military technology / defense
+# contractors'", which is not in the posting and can never be located there. Another five
+# were role-category judgements ("this is a building maintenance role, not a software
+# role") with the same shape. All were correct, thrown away, and re-scored from scratch on
+# the next run at full price.
+#
+# Splitting the field fixes it structurally rather than by asking the model more nicely:
+# `quote` is the half that is checkable and `why` is somewhere for the reasoning to live
+# that is not the evidence. `CoreRequirement` already worked this way; this is the same
+# treatment applied where it was missing.
+class HardBlocker(BaseModel):
+    """One disqualifying requirement: the words from the posting, and why they disqualify.
+
+    `scoring/audit.py` checks `quote` against the posting and ignores `why`, so a blocker
+    the model invented is detectable while its reasoning stays free to talk about the
+    candidate.
+    """
+
+    quote: str = Field(
+        description=(
+            "Words copied from the posting: the requirement, the company name or the job "
+            "title, whichever one carries the disqualification. Copy them exactly -- do "
+            "not summarise, translate, or explain in this field. If nothing in the "
+            "posting can be copied here, it is not a hard blocker."
+        )
+    )
+    why: str = Field(
+        description=(
+            "One sentence on why that phrase disqualifies THIS candidate: the constraint "
+            "or gap it collides with. All of the reasoning goes here, none of it in "
+            "`quote`."
+        )
+    )
+
+
+class FitAssessment(BaseModel):
+    """What the scoring agent returns. It answers questions; it does not produce a score.
+
+    FIELD ORDER IS THE REASONING ORDER. Function calling fills fields in declaration
+    order, so the model reads the posting, names what it is, extracts the requirements and
+    checks them off *before* it is asked for a judgement. Reordering these silently
+    changes what each answer is conditioned on, which is why `test_scoring_module.py`
+    pins the sequence.
+
+    The number lives in `scoring/scale.py` and is computed from the five ordinals. The
+    previous schema asked the model for `fit_score: int` directly and got 53 distinct
+    values across 5,511 verdicts, 99.84% of which simply re-encoded the band label.
+    """
+
+    role_summary: str = Field(
+        description=(
+            "One line: what this job actually is. Name the product domain, not just the "
+            "job title -- 'QA for warehouse robotics', not 'QA engineer'."
+        )
+    )
+    core_requirements: list[CoreRequirement] = Field(
+        description=(
+            "What the posting genuinely requires, quoted. Job ads pad their requirements "
+            "sections; a skill named once in a wish-list is not the job. Five to eight is "
+            "usual."
+        )
+    )
+    requirement_assessments: list[RequirementAssessment] = Field(
+        description="One entry per requirement above. Every must_have needs one."
+    )
+
+    eligibility: Literal["eligible", "conditional", "blocked"] = Field(
+        description=rubric.render_scale("eligibility")
+    )
+    role_match: Literal[
+        "same_role", "adjacent", "different_domain", "different_field"
+    ] = Field(description=rubric.render_scale("role_match"))
+    capability_match: Literal[
+        "exceeds", "meets", "most_with_gaps", "major_gaps", "not_close"
+    ] = Field(description=rubric.render_scale("capability_match"))
+    seniority_gap: Literal["matched", "candidate_above", "candidate_below"] = Field(
+        description=rubric.render_scale("seniority_gap")
+    )
+    evidence_quality: Literal["strong", "adequate", "thin"] = Field(
+        description=rubric.render_scale("evidence_quality")
+    )
+
+    hard_blockers: list[HardBlocker] = Field(
+        default_factory=list,
+        description=(
+            "Why eligibility is not `eligible`, one entry per disqualifying requirement. "
+            "Empty when eligible."
+        ),
+    )
+    key_gaps: list[str] = Field(
+        default_factory=list, description="Missing but learnable or negotiable."
+    )
+    strengths: list[str] = Field(
+        default_factory=list,
+        description="Where this candidate is a strong answer to the posting.",
+    )
+    reasoning: str = Field(description="Two or three sentences. Blunt and specific.")
+    research_worthy: bool = Field(
+        description="Whether the company is worth a deep-research pass."
+    )
+
+    _accept_a_json_encoded_list = field_validator(
+        "key_gaps", "strengths", mode="before"
+    )(FitVerdict._accept_a_json_encoded_list.__func__)
+
+    @field_validator("hard_blockers", mode="before")
+    @classmethod
+    def _accept_a_blocker_written_as_a_string(cls, value):
+        """Take the old flat shape and the JSON-encoded-list shape both.
+
+        Two callers need this. The model still occasionally emits a bare string where the
+        object belongs, and refusing costs a whole retry for something with an obvious
+        reading -- the same argument `_accept_a_json_encoded_list` makes. And verdicts
+        written before this field had a shape are stored flat; migration v7 converts them,
+        but nothing guarantees a database has been through it before a row is parsed.
+
+        A string becomes the quote with an empty `why`, which is exactly what it meant:
+        the old field's whole contract was "quote the phrase from the posting".
+        """
+        value = FitVerdict._accept_a_json_encoded_list.__func__(cls, value)
+        if not isinstance(value, list):
+            return value
+        return [{"quote": item, "why": ""} if isinstance(item, str) else item
+                for item in value]
+
+    @model_validator(mode="after")
+    def _repair_and_check(self):
+        """Repair what is mechanically recoverable; raise only where judgement is missing.
+
+        A raise here surfaces as `parsing_error` through `with_structured_output(...,
+        include_raw=True)`, which routes to the scoring graph's existing retry edge. That
+        costs a whole extra call, so it is reserved for cases where there is nothing to
+        repair from -- following the precedent set by `_accept_a_json_encoded_list`, which
+        decodes what the model plainly meant rather than buying another round trip.
+
+        The verbatim-quote check is NOT here. It needs the posting text, and LangChain
+        builds the parser itself and calls `model_validate` with no context to pass it
+        through. It lives in `scoring/audit.py`, which runs post-parse in `node_score`.
+        """
+        if not self.core_requirements:
+            raise ValueError(
+                "core_requirements is empty: the extraction step was skipped, so the "
+                "ordinals were guessed rather than derived."
+            )
+
+        if self.eligibility != "eligible" and not self.hard_blockers:
+            raise ValueError(
+                f"eligibility is '{self.eligibility}' but hard_blockers is empty. A "
+                "verdict that disqualifies without naming what disqualified is not "
+                "actionable."
+            )
+
+        assessed = {a.requirement.strip().casefold()
+                    for a in self.requirement_assessments}
+        unassessed_must = [r.requirement for r in self.core_requirements
+                           if r.importance == "must_have"
+                           and r.requirement.strip().casefold() not in assessed]
+        if unassessed_must:
+            raise ValueError(
+                "every must_have needs a requirement_assessment; missing: "
+                + ", ".join(unassessed_must)
+            )
+
+        if self.capability_match == "exceeds":
+            unmet = {a.requirement.strip().casefold()
+                     for a in self.requirement_assessments if a.status == "unmet"}
+            must = {r.requirement.strip().casefold() for r in self.core_requirements
+                    if r.importance == "must_have"}
+            if unmet & must:
+                raise ValueError(
+                    "capability_match is 'exceeds' while a must_have is unmet -- these "
+                    "cannot both be true."
+                )
+
+        # Repairs. One-bit fixes that a retry would only buy back at the price of a call.
+        if self.eligibility == "blocked" and self.research_worthy:
+            self.research_worthy = False
+
+        return self
+
+    def ordinals(self) -> dict:
+        return {name: getattr(self, name) for name in rubric.DIMENSIONS}

@@ -86,12 +86,18 @@ pass it explicitly.
 
 Two consequences worth keeping in mind when reading a distribution:
 
-- **Scores are quantised.** Across 5,511 verdicts the model used 53 distinct values, with
-  strong attractors (5, 8, 12, 15, 18, 22, 25, 30, 35, 45, 55, 62, 72, 78, 82). It does
-  not emit 79, 80 or 81 at all, so the `strong` band is reached by jumping 78 -> 82.
+- **Scores were quantised, which is why the model no longer emits one.** Across 5,511
+  verdicts it used 53 distinct values with strong attractors (5, 8, 12, 15, 18, 22, 25, 30,
+  35, 45, 55, 62, 72, 78, 82) and never emitted 79, 80 or 81, so `strong` was reached by
+  jumping 78 -> 82. It now answers five ordinals and `scoring/scale.py` computes the number.
+  See the README.
 - **An empty top band is not necessarily prompt suppression.** Adding an explicit
   calibration note about the top band moved the highest-scoring group by +1.1 points,
   well inside the noise it was competing with. Fix the sampling before rewriting a rubric.
+
+**Temperature 0 is not full determinism.** The 12/12 figure above is a small sample. Re-running
+`evals/metamorphic.py` over the same 10 postings moves one or two ordinals between runs, so
+treat repeated identical output as likely rather than guaranteed.
 
 Check any of this with `careerradar score stats`.
 

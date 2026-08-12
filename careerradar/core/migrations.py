@@ -11,7 +11,7 @@ from careerradar.core.logger import get_logger
 
 logger = get_logger()
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 7
 
 
 def _v1_baseline(cursor):
@@ -567,12 +567,196 @@ def _v5_agentic(cursor):
     )
 
 
+
+def _v6_ordinal_verdicts(cursor):
+    """Store the scoring agent's answers, not just the number derived from them.
+
+    The previous schema kept `fit_score INTEGER` and a band label. Measured across 5,511
+    verdicts the model used 53 distinct values, 99.84% of which agreed with the band the
+    prompt's own table assigned -- inside `worth_applying`, the single value 62 accounted
+    for 45% of the band. The number was a re-encoding of the label, and storing only it
+    threw away the reasoning that produced it.
+
+    Now the model answers five named scales and `scoring/scale.py` projects them onto a
+    score. Keeping the ordinals in columns is what makes that projection cheap to change:
+    `careerradar score rescale` recomputes every row without an API call, and the UI can
+    sort, filter and cross-tab on any dimension instead of on one collapsed number.
+
+    Existing verdicts are KEPT, at `scale_version = 0`. They are the only cross-version
+    evidence in the database -- the profile v3-vs-v4 comparison that measured 16.7 points
+    of mean drift came from them -- and they cost real money to produce. `scale_version`
+    makes them unmistakable, and `scoring/stats.py` refuses to render a mixed histogram
+    rather than averaging two incomparable scales together.
+
+    On `jobs`, three of the new columns are about staleness rather than scoring. Posting
+    liveness was previously unknowable: `sync_run_id` is overwritten on every re-find and
+    nothing recorded when a posting was last actually seen, so "closed" and "that cell has
+    not been scraped since" were indistinguishable. Measured on the three cells scraped in
+    both of the first two windows without saturating, 36 of 71 postings from the earlier
+    cohort reappeared six days later -- a ~6-day half-life. Scoring a corpus without
+    knowing that means paying to rank dead postings at the top of the dashboard.
+    """
+    verdict_columns = {row[1] for row in cursor.execute("PRAGMA table_info(job_verdicts)")}
+
+    for column, ddl in (
+        ("role_summary", "TEXT"),
+        ("eligibility", "TEXT"),
+        ("role_match", "TEXT"),
+        ("capability_match", "TEXT"),
+        ("seniority_gap", "TEXT"),
+        ("evidence_quality", "TEXT"),
+        # JSON. The extraction the ordinals were derived from, kept so a verdict can be
+        # checked against its own working rather than trusted.
+        ("core_requirements", "TEXT"),
+        ("requirement_assessments", "TEXT"),
+        ("audit_flags", "TEXT"),
+        # 0 means "the model emitted the number itself" -- the pre-v6 regime.
+        ("scale_version", "INTEGER NOT NULL DEFAULT 0"),
+        ("verdict_schema_version", "INTEGER NOT NULL DEFAULT 1"),
+        ("pareto_tier", "INTEGER"),
+        # Identifies the rules a verdict was produced under, so a distribution shift can be
+        # attributed to a prompt edit instead of argued about.
+        ("prompt_hash", "TEXT"),
+    ):
+        if column not in verdict_columns:
+            cursor.execute(f"ALTER TABLE job_verdicts ADD COLUMN {column} {ddl}")
+
+    cursor.execute(
+        "CREATE INDEX IF NOT EXISTS idx_verdicts_ordinals "
+        "ON job_verdicts(profile_version, eligibility, pareto_tier)"
+    )
+
+    job_columns = {row[1] for row in cursor.execute("PRAGMA table_info(jobs)")}
+    for column, ddl in (
+        # Coverage as a fraction with its denominator, rather than a percent that was never
+        # one: `match_score` has ~23 points of unearned floor and its observed range across
+        # 5,932 postings was 15-80, so "15%" meant "nothing matched", not "a poor match".
+        ("matched_count", "INTEGER"),
+        ("required_count", "INTEGER"),
+        # Which scorer wrote match_score. 121 rows still carry display labels in
+        # `matched_skills` instead of canonical keys because an older scorer wrote them and
+        # nothing recorded the fact; staleness becomes queryable instead of inferred from
+        # the shape of a JSON blob.
+        ("scorer_version", "INTEGER NOT NULL DEFAULT 0"),
+        ("last_seen_at", "TEXT"),
+        ("times_seen", "INTEGER NOT NULL DEFAULT 1"),
+    ):
+        if column not in job_columns:
+            cursor.execute(f"ALTER TABLE jobs ADD COLUMN {column} {ddl}")
+
+    # Backfill last_seen_at from the run that last touched each row. Approximate -- the run
+    # timestamp, not the observation -- but it is strictly better than NULL, and every row
+    # scraped from here on records the real thing.
+    cursor.execute(
+        """
+        UPDATE jobs SET last_seen_at = COALESCE(
+            (SELECT r.started_at FROM sync_runs r WHERE r.id = jobs.sync_run_id),
+            date_found)
+        WHERE last_seen_at IS NULL
+        """
+    )
+
+    cursor.execute(
+        "CREATE INDEX IF NOT EXISTS idx_jobs_last_seen ON jobs(last_seen_at)"
+    )
+
+    # Liveness cannot be a stored column: it depends on when the posting's CELL was last
+    # scraped, which changes without the posting row changing.
+    #
+    # Three states, and the third one is the point. Absence from a scrape only means
+    # "closed" if we actually looked; with ~26 of 252 cells rotating per day, most postings
+    # are simply unobserved, and calling those closed would delete the corpus. The grace
+    # window absorbs the ordering skew between when a run starts (which is what
+    # `last_seen_at` records for backfilled rows) and when a cell reports success.
+    cursor.execute("DROP VIEW IF EXISTS v_job_liveness")
+    cursor.execute(
+        """
+        CREATE VIEW v_job_liveness AS
+        SELECT j.id AS job_id,
+               j.last_seen_at,
+               c.last_success_at AS cell_last_success_at,
+               CASE
+                 WHEN j.last_seen_at IS NULL OR c.last_success_at IS NULL THEN 'unknown'
+                 -- The cell was scraped well after we last saw this posting, and it did
+                 -- not come back. That is the only case where absence is evidence.
+                 WHEN julianday(c.last_success_at) - julianday(j.last_seen_at) > 0.5
+                      THEN 'likely_closed'
+                 -- Nobody has looked at this cell in over a week, so we know nothing
+                 -- current about it either way.
+                 WHEN julianday('now') - julianday(c.last_success_at) > 7 THEN 'stale'
+                 ELSE 'live'
+               END AS liveness
+        FROM jobs j
+        LEFT JOIN scrape_cells c ON c.id = j.scrape_cell_id
+        """
+    )
+
+
+def _v7_structured_blockers(cursor):
+    """Give a stored hard blocker the same shape the model now emits: quote plus why.
+
+    `hard_blockers` was a JSON array of strings that each had to be a verbatim posting
+    quote and an explanation at once. The auditor checks the quote, so a blocker whose
+    text was mostly explanation failed the check and its verdict was discarded -- 19 of
+    the 33 distinct blockers that lost a verdict in one run were correct judgements
+    written as prose about the candidate's own constraints. `profile/models.py` splits the
+    field; this brings the rows already on disk along.
+
+    Each old string becomes `{"quote": <the string>, "why": ""}`. Nothing is lost: the
+    string is preserved exactly, and it lands in the field whose contract it was already
+    written against. `careerradar score audit` therefore reports the same quote-status
+    rates over migrated rows as it did before, which is what keeps the trend line readable
+    across the change.
+
+    VERDICT_SCHEMA_VERSION is deliberately NOT bumped. That constant re-drains the backlog
+    through the scoring worker, and re-scoring ~5,500 verdicts costs real money to buy
+    ordinals that are already correct -- only the blocker representation changed, and it
+    changed here rather than by asking the model again.
+    """
+    import json
+
+    columns = {row[1] for row in cursor.execute("PRAGMA table_info(job_verdicts)")}
+    if "hard_blockers" not in columns:
+        return
+
+    converted = 0
+    updates = []
+    for row_id, raw in cursor.execute(
+        "SELECT id, hard_blockers FROM job_verdicts "
+        "WHERE hard_blockers IS NOT NULL AND hard_blockers NOT IN ('', '[]')"
+    ).fetchall():
+        try:
+            decoded = json.loads(raw)
+        except (TypeError, ValueError):
+            # Not JSON at all -- an early row that stored one blocker as a bare sentence.
+            # It is still a blocker, so carry it over rather than dropping it.
+            decoded = [raw]
+        if not isinstance(decoded, list):
+            decoded = [str(decoded)]
+        if all(isinstance(item, dict) for item in decoded):
+            continue
+        rebuilt = [
+            item if isinstance(item, dict) else {"quote": str(item), "why": ""}
+            for item in decoded
+        ]
+        updates.append((json.dumps(rebuilt), row_id))
+        converted += 1
+
+    cursor.executemany(
+        "UPDATE job_verdicts SET hard_blockers = ? WHERE id = ?", updates
+    )
+    if converted:
+        logger.info("v7: converted hard_blockers on %d verdict rows", converted)
+
+
 MIGRATIONS = [
     (1, "baseline jobs table", _v1_baseline),
     (2, "market analytics: cells, observations, skills, stats", _v2_analytics),
     (3, "optional LLM verdict column", _v3_llm_verdict),
     (4, "posting access level and unabbreviated location ids", _v4_access_and_location_ids),
     (5, "agentic pipeline: profiles, verdicts, dossiers, pipeline_state", _v5_agentic),
+    (6, "ordinal verdicts, derived score, posting liveness", _v6_ordinal_verdicts),
+    (7, "hard blockers carry quote and reasoning separately", _v7_structured_blockers),
 ]
 
 

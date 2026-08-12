@@ -5,6 +5,10 @@ from datetime import datetime, timedelta, timezone
 
 from careerradar.core.paths import DB_PATH  # noqa: F401
 
+
+def _utcnow():
+    return datetime.now(timezone.utc).isoformat()
+
 class Database:
     def __init__(self, db_path=None):
         self.db_path = db_path or DB_PATH
@@ -22,10 +26,19 @@ class Database:
 
         migrate(self.conn)
 
-    # Ranking is by the LLM's judgement, with the keyword score only as a tiebreak.
-    # `fit_score DESC` puts unscored postings (NULL) last under SQLite's NULL ordering,
-    # which is what we want -- an unscored posting is not a zero-fit posting.
+    # The default ranks WITHOUT inventing an exchange rate between the dimensions.
+    # Eligibility partitions -- nothing blocked outranks anything eligible, at any tier --
+    # and `pareto_tier` orders within a partition by dominance, so two postings share a
+    # tier only when neither is better than the other on every dimension. Ties inside a
+    # tier are real; recency breaks them, and nothing should be read into the result.
+    #
+    # `fit_score` remains available as a coarse sort. It is a projection of the same
+    # ordinals through an invented weighting (see scoring/scale.py), which is exactly why
+    # it is not the default.
     _SORTS = {
+        "fit": ("CASE v.eligibility WHEN 'eligible' THEN 0 WHEN 'conditional' THEN 1 "
+                "WHEN 'blocked' THEN 2 ELSE 3 END, "
+                "COALESCE(v.pareto_tier, 99), date_found DESC"),
         "fit_score": "fit_score DESC, match_score DESC, date_found DESC",
         "match_score": "match_score DESC, date_found DESC",
         "date_found": "date_found DESC",
@@ -35,7 +48,9 @@ class Database:
                    seniority=None, source=None, is_remote=None, has_salary=None,
                    access=None, include_duplicates=False, min_score=None,
                    verdict=None, pipeline_state=None, min_fit_score=None,
-                   sort="fit_score", limit=200, offset=0):
+                   eligibility=None, role_match=None, capability_match=None,
+                   max_tier=None, liveness=None,
+                   sort="fit", limit=200, offset=0):
         """Filtered, paginated posting list for the dashboard.
 
         Duplicates are hidden by default: the same requisition cross-posted to both boards
@@ -53,13 +68,26 @@ class Database:
                    v.hard_blockers  AS hard_blockers,
                    v.key_gaps       AS key_gaps,
                    v.strengths      AS strengths,
-                   v.reasoning      AS reasoning
+                   v.reasoning      AS reasoning,
+                   v.role_summary   AS role_summary,
+                   v.eligibility    AS eligibility,
+                   v.role_match     AS role_match,
+                   v.capability_match AS capability_match,
+                   v.seniority_gap  AS seniority_gap,
+                   v.evidence_quality AS evidence_quality,
+                   v.pareto_tier    AS pareto_tier,
+                   v.core_requirements AS core_requirements,
+                   v.requirement_assessments AS requirement_assessments,
+                   v.audit_flags    AS audit_flags,
+                   v.scale_version  AS scale_version,
+                   l.liveness       AS liveness
               FROM jobs
               LEFT JOIN job_verdicts v
                      ON v.job_id = jobs.id
                     AND v.profile_version = (
                         SELECT version FROM profiles WHERE is_active = 1
                     )
+              LEFT JOIN v_job_liveness l ON l.job_id = jobs.id
              WHERE 1=1
         """
         params = []
@@ -71,6 +99,8 @@ class Database:
             ("jobs.role_family", role_family), ("jobs.seniority", seniority),
             ("jobs.source", source), ("jobs.access", access),
             ("jobs.pipeline_state", pipeline_state), ("v.verdict", verdict),
+            ("v.eligibility", eligibility), ("v.role_match", role_match),
+            ("v.capability_match", capability_match), ("l.liveness", liveness),
         ):
             if value:
                 query += f" AND {column} = ?"
@@ -87,6 +117,9 @@ class Database:
         if min_fit_score is not None:
             query += " AND jobs.fit_score >= ?"
             params.append(min_fit_score)
+        if max_tier is not None:
+            query += " AND v.pareto_tier <= ?"
+            params.append(max_tier)
 
         total = self.conn.execute(
             f"SELECT COUNT(*) FROM ({query})", params
@@ -140,10 +173,19 @@ class Database:
         cursor.execute("SELECT COUNT(*) FROM jobs")
         stats["total_jobs"] = cursor.fetchone()[0]
         
-        # Average match score
-        cursor.execute("SELECT AVG(match_score) FROM jobs WHERE match_score > 0")
-        avg = cursor.fetchone()[0]
-        stats["avg_match_score"] = round(avg, 1) if avg else 0
+        # Coverage, reported with its denominator. `match_score` was never a percent --
+        # the coverage prior, an unspecified seniority and an unmapped family put ~23
+        # points on the floor, so its observed range was 15-80.
+        cursor.execute(
+            "SELECT SUM(matched_count), SUM(required_count) FROM jobs "
+            "WHERE required_count > 0"
+        )
+        matched, required = cursor.fetchone()
+        stats["skill_coverage"] = {
+            "matched": matched or 0,
+            "required": required or 0,
+            "ratio": round(matched / required, 3) if required else None,
+        }
         
         # Counts by country
         cursor.execute("SELECT country, COUNT(*) as count FROM jobs GROUP BY country")
@@ -153,14 +195,39 @@ class Database:
         cursor.execute("SELECT pipeline_state, COUNT(*) as count FROM jobs GROUP BY pipeline_state")
         stats["pipeline_counts"] = {r["pipeline_state"]: r["count"] for r in cursor.fetchall()}
 
-        cursor.execute("SELECT AVG(fit_score) FROM jobs WHERE fit_score IS NOT NULL")
-        avg_fit = cursor.fetchone()[0]
-        stats["avg_fit_score"] = round(avg_fit, 1) if avg_fit else 0
+        # Ordinal marginals, not an average score. A mean over a projected scale says
+        # very little; a collapsed marginal (90% `meets`) is the thing worth catching, and
+        # it is the new "the model is not using its scale".
+        active = "(SELECT version FROM profiles WHERE is_active = 1)"
+        stats["ordinals"] = {}
+        for dimension in ("eligibility", "role_match", "capability_match",
+                          "evidence_quality"):
+            cursor.execute(
+                f"SELECT {dimension}, COUNT(*) c FROM job_verdicts "
+                f"WHERE profile_version = {active} AND {dimension} IS NOT NULL "
+                f"GROUP BY 1 ORDER BY 2 DESC"
+            )
+            stats["ordinals"][dimension] = {r[0]: r[1] for r in cursor.fetchall()}
 
+        # Worth applying to, stated as a predicate rather than a threshold on a lumpy
+        # scale. The old `fit_score >= 70` sat between two quantisation attractors (62 and
+        # 72), so it was partly measuring where the model liked to round.
         cursor.execute(
-            "SELECT COUNT(*) FROM jobs WHERE fit_score >= 70 AND duplicate_of IS NULL"
+            f"""
+            SELECT COUNT(*) FROM jobs j
+              JOIN job_verdicts v ON v.job_id = j.id AND v.profile_version = {active}
+             WHERE j.duplicate_of IS NULL
+               AND v.eligibility = 'eligible'
+               AND v.role_match IN ('same_role', 'adjacent')
+               AND v.capability_match IN ('exceeds', 'meets')
+            """
         )
         stats["strong_matches"] = cursor.fetchone()[0]
+
+        cursor.execute(
+            "SELECT liveness, COUNT(*) FROM v_job_liveness GROUP BY 1"
+        )
+        stats["liveness_counts"] = {r[0]: r[1] for r in cursor.fetchall()}
 
         return stats
 
@@ -426,7 +493,8 @@ class Database:
         "description_quality", "desc_selection", "content_hash", "is_agency",
         "company_num_employees", "company_industry", "access",
         "scrape_cell_id", "sync_run_id",
-        "taxonomy_hash", "match_score", "matched_skills", "pipeline_state",
+        "taxonomy_hash", "match_score", "matched_skills", "matched_count",
+        "required_count", "scorer_version", "pipeline_state",
     ]
 
     def upsert_posting(self, posting, run_id=None, taxonomy_hash=None):
@@ -456,16 +524,24 @@ class Database:
             job_id = existing["id"]
             updatable = [c for c in self.POSTING_COLUMNS
                          if c in record and c not in ("job_key", "url")]
-            if updatable:
-                cursor.execute(
-                    f"UPDATE jobs SET {', '.join(f'{c} = ?' for c in updatable)} "
-                    "WHERE id = ?",
-                    [record[c] for c in updatable] + [job_id],
-                )
-                self.conn.commit()
+            # Re-finding a posting is evidence it is still open, and it was previously
+            # thrown away: `sync_run_id` was overwritten and nothing recorded WHEN the
+            # posting was last actually seen. Without that, a posting missing from a scrape
+            # is indistinguishable from one whose cell has not been scraped since -- and
+            # with a ~5-day cell rotation, most of the corpus is in the second case.
+            cursor.execute(
+                f"UPDATE jobs SET {', '.join(f'{c} = ?' for c in updatable)}"
+                f"{', ' if updatable else ' '}"
+                "last_seen_at = ?, times_seen = COALESCE(times_seen, 1) + 1 "
+                "WHERE id = ?",
+                [record[c] for c in updatable] + [_utcnow(), job_id],
+            )
+            self.conn.commit()
             return job_id, False
 
         columns = [c for c in self.POSTING_COLUMNS if c in record]
+        record["last_seen_at"] = _utcnow()
+        columns.append("last_seen_at")
         columns.append("date_found")
         values = [record[c] for c in columns[:-1]]
         values.append(datetime.now(timezone.utc).isoformat())

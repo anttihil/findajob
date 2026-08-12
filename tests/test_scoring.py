@@ -27,13 +27,10 @@ from careerradar.profile.models import (  # noqa: E402
 )
 from careerradar.taxonomy.roles import load_roles  # noqa: E402
 from careerradar.search.keyword_score import (  # noqa: E402
-    Bm25Index,
     JobScorer,
     seniority_fit,
     skill_coverage,
-    squash,
     title_family_fit,
-    tokenize,
 )
 from careerradar.taxonomy.skills import load_taxonomy  # noqa: E402
 
@@ -61,22 +58,22 @@ class CoverageTests(unittest.TestCase):
 
     def test_no_recognized_skills_does_not_mean_perfect_coverage(self):
         """The Stationary Engineer regression: an empty requirement set scored 1.00."""
-        coverage, matched, missing = skill_coverage({}, self.profile)
+        coverage, matched, missing, _ratio = skill_coverage({}, self.profile)
         self.assertLess(coverage, 0.4)
         self.assertEqual(matched, [])
         self.assertEqual(missing, [])
 
     def test_coverage_is_shrunk_toward_the_prior_on_small_denominators(self):
         """Two-of-two must not look as strong as twenty-of-twenty."""
-        small, _, _ = skill_coverage({"python": {}}, self.profile)
-        large, _, _ = skill_coverage(
+        small, *_ = skill_coverage({"python": {}}, self.profile)
+        large, *_ = skill_coverage(
             {k: {} for k in ["python", "docker", "terraform"] * 5}, self.profile
         )
         self.assertLess(small, large)
 
     def test_full_coverage_approaches_one_with_enough_evidence(self):
         required = {k: {} for k in ["python", "docker"]}
-        coverage, _, _ = skill_coverage(required, self.profile)
+        coverage, *_ = skill_coverage(required, self.profile)
         self.assertGreater(coverage, 0.35)
         self.assertLess(coverage, 1.0)
 
@@ -97,7 +94,7 @@ class CoverageTests(unittest.TestCase):
         )
 
     def test_missing_skills_are_reported(self):
-        _, matched, missing = skill_coverage(
+        _c, matched, missing, _r = skill_coverage(
             {"python": {}, "kubernetes": {}}, self.profile
         )
         self.assertIn("python", matched)
@@ -144,46 +141,43 @@ class ComponentTests(unittest.TestCase):
     def test_unclassified_family_scores_zero(self):
         self.assertEqual(title_family_fit(None, self.roles, self.profile), 0.0)
 
-    def test_squash_is_monotonic_and_bounded(self):
-        values = [squash(v, 12.0) for v in (0, 1, 5, 20, 100, 1000)]
-        self.assertEqual(values, sorted(values))
-        self.assertTrue(all(0 <= v < 1 for v in values))
+class CoverageRatioTests(unittest.TestCase):
+    """The ratio must be able to say "unknown", which the smoothed score cannot."""
+
+    def setUp(self):
+        self.tax = load_taxonomy()
+        self.profile = make_profile({"python": LEVEL_STRONG}, self.tax)
+
+    def test_a_posting_naming_nothing_recognised_has_unknown_coverage(self):
+        _cov, _m, _mi, ratio = skill_coverage({}, self.profile)
+        self.assertIsNone(ratio)
+
+    def test_the_ratio_is_matched_over_required(self):
+        required = {"python": {"in_title": False}, "kubernetes": {"in_title": False}}
+        _cov, matched, missing, ratio = skill_coverage(required, self.profile)
+        self.assertEqual(ratio, len(matched) / (len(matched) + len(missing)))
 
 
-class TokenizeTests(unittest.TestCase):
-    def test_stopwords_and_boilerplate_are_dropped(self):
-        tokens = tokenize("We are looking for a candidate with experience in Python")
-        self.assertIn("python", tokens)
-        for noise in ("are", "for", "a", "with", "candidate", "experience"):
-            self.assertNotIn(noise, tokens)
+class ImpliesTests(unittest.TestCase):
+    """A posting asking for `llm_apps` should see evidence of `claude_api`."""
 
-    def test_technical_punctuation_survives(self):
-        tokens = tokenize("Node.js, C++, CI/CD and .NET")
-        self.assertTrue(any("node.js" in t for t in tokens))
-        self.assertTrue(any("c++" in t for t in tokens))
+    def setUp(self):
+        self.tax = load_taxonomy()
+        self.profile = make_profile({"claude_api": LEVEL_STRONG}, self.tax)
 
-    def test_empty_input_is_safe(self):
-        self.assertEqual(tokenize(""), [])
-        self.assertEqual(tokenize(None), [])
+    def test_a_child_skill_evidences_its_parent(self):
+        required = {"llm_apps": {"in_title": False}}
+        without = skill_coverage(required, self.profile)
+        with_tax = skill_coverage(required, self.profile, taxonomy=self.tax)
+        self.assertIn("llm_apps", without[2])       # missing without the edges
+        self.assertIn("llm_apps", with_tax[1])      # matched with them
 
-
-class Bm25Tests(unittest.TestCase):
-    def test_empty_corpus_degrades_gracefully(self):
-        """A cold database must not crash or score everything zero."""
-        index = Bm25Index()
-        score = index.score(tokenize("python docker"), tokenize("python docker terraform"))
-        self.assertGreater(score, 0)
-
-    def test_overlap_scores_higher_than_no_overlap(self):
-        index = Bm25Index(["python docker aws", "java spring hibernate"])
-        overlapping = index.score(tokenize("python docker"), tokenize("python docker aws"))
-        disjoint = index.score(tokenize("python docker"), tokenize("java spring"))
-        self.assertGreater(overlapping, disjoint)
-
-    def test_rare_terms_weigh_more_than_common_ones(self):
-        corpus = ["python web app"] * 20 + ["python vllm inference"]
-        index = Bm25Index(corpus)
-        self.assertGreater(index.idf("vllm"), index.idf("python"))
+    def test_implied_credit_is_worth_less_than_the_named_skill(self):
+        implied = skill_coverage({"llm_apps": {"in_title": False}}, self.profile,
+                                 taxonomy=self.tax)[0]
+        named = skill_coverage({"claude_api": {"in_title": False}}, self.profile,
+                               taxonomy=self.tax)[0]
+        self.assertLess(implied, named)
 
 
 class ScorerTests(unittest.TestCase):
@@ -288,9 +282,10 @@ class ScorerTests(unittest.TestCase):
             "role_family": "platform_engineer", "seniority": "senior",
         })
         for key in ("score", "components", "weights", "matched_skills",
-                    "missing_skills", "required_count", "resume_match"):
+                    "missing_skills", "matched_count", "required_count",
+                    "coverage_ratio", "resume_match"):
             self.assertIn(key, result)
-        for component in ("skill_coverage", "bm25", "title_family", "seniority_fit"):
+        for component in ("skill_coverage", "title_family", "seniority_fit"):
             self.assertIn(component, result["components"])
             self.assertGreaterEqual(result["components"][component], 0.0)
             self.assertLessEqual(result["components"][component], 1.0)
@@ -315,10 +310,13 @@ class ScorerTests(unittest.TestCase):
     def test_weights_are_configurable_and_clamped_to_known_keys(self):
         scorer = JobScorer(
             self.profile, self.roles, self.tax,
-            weights={"skill_coverage": 1.0, "bm25": 0.0, "title_family": 0.0,
-                     "seniority_fit": 0.0, "bogus": 5.0},
+            weights={"skill_coverage": 1.0, "title_family": 0.0,
+                     "seniority_fit": 0.0, "bm25": 0.7, "bogus": 5.0},
         )
         self.assertNotIn("bogus", scorer.weights)
+        # bm25 is gone from the component set, so a config still naming it is ignored
+        # rather than silently reintroducing a weight nothing reads.
+        self.assertNotIn("bm25", scorer.weights)
         self.assertEqual(scorer.weights["skill_coverage"], 1.0)
 
 

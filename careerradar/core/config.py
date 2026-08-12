@@ -66,9 +66,13 @@ def load_config():
             },
         },
         "matching": {
-            "min_match_score": 15,
-            "llm": {"enabled": False, "model": "claude-opus-5", "top_n": 25,
-                    "max_usd_per_run": 1.0},
+            # No min_match_score. It defaulted to 15, which is the floor of the scale it
+            # gated, so it never once changed an outcome -- and a config key that reads
+            # like a working safety valve but is not is worse than no key. The `llm`
+            # reranker block went with it: it pointed at backend/llm_scorer.py, which no
+            # longer exists.
+            "weights": {"skill_coverage": 0.62, "title_family": 0.24,
+                        "seniority_fit": 0.14},
         },
         "analytics": {
             "windows": [30, 90],
@@ -79,10 +83,9 @@ def load_config():
         },
         "digest": {
             "enabled": True,
-            "min_score_for_digest": 40,
+            "max_tier": 4,
             "include_skill_gap": True,
         },
-        "min_match_score": 15
     }
 
     if not os.path.exists(CONFIG_PATH):

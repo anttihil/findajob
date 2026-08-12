@@ -13,6 +13,7 @@ its confidence interval uses Kish n_eff rather than raw n. Every suppressed figu
 reason rather than silently vanishing.
 """
 
+import json
 import math
 from datetime import datetime, timedelta, timezone
 
@@ -28,13 +29,43 @@ from careerradar.market.analytics import (
     wilson_interval,
 )
 
-# A posting the user matches this well is "otherwise a good fit", so a missing skill in it is
-# genuinely blocking rather than incidental.
-GOOD_FIT_THRESHOLD = 60
+# A posting the user matches this well is "otherwise a good fit", so a missing skill in it
+# is genuinely blocking rather than incidental.
+#
+# Stated as coverage rather than as a `match_score` threshold. The old `>= 60` was a cut on
+# a weighted mean, so removing BM25 and reweighting would have silently changed what every
+# skill-gap chart means -- and re-tuning 60 to some other number would only have hidden
+# that. Coverage with a minimum denominator is weight-independent and says what it checks:
+# the posting named at least four skills we recognise, and the candidate can evidence half.
+GOOD_FIT_COVERAGE = 0.5
+GOOD_FIT_MIN_REQUIREMENTS = 4
 
 # Effort ratings temper the ranking: a high-demand skill that takes months to acquire should
 # not automatically outrank a comparable one that takes a weekend.
 EFFORT_MULTIPLIER = {"low": 1.15, "medium": 1.0, "high": 0.8}
+
+
+def _is_good_fit(posting):
+    """Did the candidate cover enough of what this posting actually named?
+
+    Falls back to counting `matched_skills` when the denormalized counts are absent, so
+    rows written before migration v6 still classify instead of silently dropping out of the
+    good-fit stratum and shrinking it.
+    """
+    required = posting.get("required_count")
+    matched = posting.get("matched_count")
+    if required is None or matched is None:
+        skills = posting.get("skills") or {}
+        matched_list = posting.get("matched_skills") or []
+        if isinstance(matched_list, str):
+            try:
+                matched_list = json.loads(matched_list)
+            except ValueError:
+                matched_list = []
+        required, matched = len(skills), len(matched_list)
+    if not required or required < GOOD_FIT_MIN_REQUIREMENTS:
+        return False
+    return (matched / required) >= GOOD_FIT_COVERAGE
 
 
 class GapAnalysis:
@@ -166,8 +197,7 @@ class GapAnalysis:
         total_weight = sum(weight_of[p["id"]] for p in active)
         n_eff_total = kish_n_eff([weight_of[p["id"]] for p in active])
 
-        good_fit = [p for p in active
-                    if (p.get("match_score") or 0) >= GOOD_FIT_THRESHOLD]
+        good_fit = [p for p in active if _is_good_fit(p)]
         good_fit_weight = sum(weight_of[p["id"]] for p in good_fit)
 
         stats = self._per_skill_stats(
@@ -189,7 +219,10 @@ class GapAnalysis:
                 "n_postings": len(active),
                 "n_eff": round(n_eff_total, 1),
                 "n_good_fit": len(good_fit),
-                "good_fit_threshold": GOOD_FIT_THRESHOLD,
+                "good_fit_criterion": (
+                    f"coverage >= {GOOD_FIT_COVERAGE} over >= "
+                    f"{GOOD_FIT_MIN_REQUIREMENTS} recognised requirements"
+                ),
                 "missing_weight": diagnostics["missing_weight"],
                 "strata_used": diagnostics["strata_used"],
                 "strata_available": diagnostics["strata_available"],

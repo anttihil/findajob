@@ -62,10 +62,13 @@ class ProfileAdapter:
         """
         grouped = {}
         for key, record in self.skills.items():
+            # `taxonomy.skills[key]` is a Skill object with __slots__, not a mapping, so
+            # the .get() this used to do raised AttributeError for every known key -- the
+            # method only ever "worked" on the no-taxonomy path that buckets everything
+            # under "other". `category()` is the accessor that exists for this.
             category = "other"
             if self.taxonomy is not None:
-                meta = getattr(self.taxonomy, "skills", {}).get(key) or {}
-                category = meta.get("category", "other")
+                category = self.taxonomy.category(key) or "other"
             grouped.setdefault(category, []).append(
                 {"key": key, "label": record["label"], "level": record["level"]}
             )

@@ -13,11 +13,16 @@ from unittest import mock
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from careerradar.core.llm import PRICES, Spend, estimate_cost, usage_cost  # noqa: E402
-from careerradar.profile.models import FitVerdict  # noqa: E402
+from careerradar.profile.models import (  # noqa: E402
+    FitAssessment,
+    FitVerdict,
+)
+from careerradar.scoring import rubric  # noqa: E402
 from careerradar.scoring.prompts import (  # noqa: E402
     MAX_DESCRIPTION_CHARS,
     build_system,
     render_posting,
+    render_skill_hint,
 )
 
 PROFILE = "CANDIDATE PROFILE\n\nAn engineer who ships Python services.\n"
@@ -53,6 +58,44 @@ class PromptLayoutTests(unittest.TestCase):
         system = build_system(PROFILE)
         for marker in ("2026-", "2025-", "T00:", "job_id", "uuid"):
             self.assertNotIn(marker, system)
+
+    def test_the_skill_hint_never_reaches_the_cached_half(self):
+        """The hint is per-posting, so a leak here is the ~50x input-cost bug."""
+        hint = render_skill_hint(matched=["Terraform(STRONG)"], missing=["Erlang"])
+        rendered = render_posting(posting(), skill_hint=hint)
+        self.assertIn("Terraform(STRONG)", rendered)
+        system = build_system(PROFILE)
+        for marker in ("<taxonomy_signal", "Terraform(STRONG)", "Erlang"):
+            self.assertNotIn(marker, system)
+
+    def test_the_skill_hint_sits_outside_the_untrusted_delimiters(self):
+        """It is system-derived. Wrapping it as posting content would misstate that."""
+        hint = render_skill_hint(matched=["Python(STRONG)"], missing=[])
+        rendered = render_posting(posting(), skill_hint=hint)
+        self.assertLess(rendered.index("</posting>"), rendered.index("<taxonomy_signal"))
+
+    def test_an_empty_hint_adds_nothing(self):
+        self.assertEqual(render_skill_hint(matched=[], missing=[]), "")
+        self.assertEqual(render_posting(posting()),
+                         render_posting(posting(), skill_hint=""))
+
+    def test_the_hint_disclaims_its_own_reliability(self):
+        """Without this the model anchors on the extractor and stops reading."""
+        hint = render_skill_hint(matched=["Python(STRONG)"], missing=["Rust"])
+        self.assertIn("authoritative", hint)
+
+    def test_the_rules_no_longer_state_a_numeric_scale(self):
+        """A numeric rubric is the most likely way the ordinals collapse back to a score."""
+        system = build_system(PROFILE)
+        for marker in ("80-100", "60-79", "40-59", "20-39", "0-19", "Scoring bands"):
+            self.assertNotIn(marker, system)
+        self.assertIn("YOU DO NOT PRODUCE A SCORE", system)
+
+    def test_every_ordinal_value_is_defined_in_the_rules(self):
+        system = build_system(PROFILE)
+        for dimension in rubric.DIMENSIONS:
+            for value in rubric.ANCHORS[dimension][0]:
+                self.assertIn(value, system, f"{dimension}={value} undefined")
 
     def test_posting_is_delimited_as_untrusted(self):
         rendered = render_posting(posting())
@@ -119,13 +162,27 @@ class FakeChain:
         return self.responses.pop(0) if self.responses else self.responses[-1]
 
 
-def ok_response():
-    verdict = FitVerdict(
-        fit_score=72, verdict="worth_applying", seniority_fit="matched",
-        hard_blockers=[], key_gaps=["kubernetes"], strengths=["python"],
+def assessment(**overrides):
+    """A well-formed verdict whose quote really is in `posting()`'s description."""
+    fields = dict(
+        role_summary="Platform engineering for a container hosting product.",
+        core_requirements=[{"requirement": "Kubernetes",
+                            "quote": "someone who knows Kubernetes",
+                            "importance": "must_have"}],
+        requirement_assessments=[{"requirement": "Kubernetes", "status": "partial",
+                                  "candidate_evidence": "Docker in production"}],
+        eligibility="eligible", role_match="adjacent", capability_match="most_with_gaps",
+        seniority_gap="matched", evidence_quality="adequate",
+        hard_blockers=[], key_gaps=["kubernetes"], strengths=[],
         reasoning="Solid overlap.", research_worthy=True,
     )
-    return {"parsed": verdict, "raw": mock.Mock(response_metadata={}), "parsing_error": None}
+    fields.update(overrides)
+    return FitAssessment(**fields)
+
+
+def ok_response(**overrides):
+    return {"parsed": assessment(**overrides), "raw": mock.Mock(response_metadata={}),
+            "parsing_error": None}
 
 
 def bad_response():
@@ -149,15 +206,53 @@ class GraphTests(unittest.TestCase):
         return state, chain
 
     def test_a_good_response_is_scored_in_one_call(self):
+        from careerradar.scoring import scale
+
         state, chain = self.run_graph([ok_response()])
         self.assertEqual(len(chain.calls), 1)
-        self.assertEqual(state["verdict"]["fit_score"], 72)
         self.assertIsNone(state.get("error"))
+        # The model never sent a number; this one came out of the projection.
+        self.assertEqual(state["verdict"]["fit_score"],
+                         scale.fit_score(eligibility="eligible", role_match="adjacent",
+                                         capability_match="most_with_gaps",
+                                         seniority_gap="matched",
+                                         evidence_quality="adequate"))
+        self.assertEqual(state["verdict"]["scale_version"], scale.SCALE_VERSION)
+        self.assertIn("pareto_tier", state["verdict"])
 
     def test_an_unparseable_response_is_retried(self):
         state, chain = self.run_graph([bad_response(), ok_response()])
         self.assertEqual(len(chain.calls), 2)
-        self.assertEqual(state["verdict"]["fit_score"], 72)
+        self.assertIsNotNone(state["verdict"])
+
+    def test_a_blocker_that_quotes_nothing_in_the_posting_is_refused(self):
+        """The fatal audit case: a verdict disqualifies on evidence that is not there."""
+        invented = ok_response(
+            eligibility="blocked",
+            hard_blockers=["Requires an active TS/SCI clearance with polygraph"])
+        state, chain = self.run_graph([invented, ok_response()])
+        self.assertEqual(len(chain.calls), 2)
+        self.assertEqual(state["verdict"]["eligibility"], "eligible")
+
+    def test_a_blocker_the_posting_really_states_is_kept(self):
+        blocked = ok_response(
+            eligibility="blocked",
+            hard_blockers=["someone who knows Kubernetes"],
+            research_worthy=False)
+        state, chain = self.run_graph([blocked])
+        self.assertEqual(len(chain.calls), 1)
+        self.assertEqual(state["verdict"]["eligibility"], "blocked")
+        self.assertLessEqual(state["verdict"]["fit_score"], 5)
+
+    def test_a_semantic_rejection_is_nudged_with_the_rule_it_broke(self):
+        """A generic 'you did not call the tool' just buys the same failure again."""
+        rejected = {"parsed": None, "raw": mock.Mock(response_metadata={}),
+                    "parsing_error": "1 validation error for FitAssessment\n  "
+                                     "Value error, core_requirements is empty: the "
+                                     "extraction step was skipped."}
+        _state, chain = self.run_graph([rejected, ok_response()])
+        nudge = chain.calls[1][-1][1]
+        self.assertIn("core_requirements is empty", nudge)
 
     def test_the_retry_carries_a_nudge_the_first_attempt_did_not(self):
         _state, chain = self.run_graph([bad_response(), ok_response()])
@@ -190,6 +285,31 @@ class GraphTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SchemaOrderTests(unittest.TestCase):
+    """Function calling fills fields in declaration order, so the order IS the reasoning.
+
+    Extraction has to precede judgement: the model names what the job is and quotes what it
+    requires before it is asked whether the candidate fits. A refactor that reorders these
+    changes what each answer is conditioned on and would leave no other trace.
+    """
+
+    def test_the_field_order_is_the_documented_reasoning_order(self):
+        self.assertEqual(
+            list(FitAssessment.model_fields),
+            ["role_summary", "core_requirements", "requirement_assessments",
+             "eligibility", "role_match", "capability_match", "seniority_gap",
+             "evidence_quality", "hard_blockers", "key_gaps", "strengths",
+             "reasoning", "research_worthy"])
+
+    def test_the_ordinals_appear_in_the_order_the_rubric_declares(self):
+        fields = list(FitAssessment.model_fields)
+        self.assertEqual([f for f in fields if f in rubric.DIMENSIONS],
+                         list(rubric.DIMENSIONS))
+
+    def test_the_model_is_never_asked_for_a_number(self):
+        self.assertNotIn("fit_score", FitAssessment.model_fields)
 
 
 class ListCoercionTests(unittest.TestCase):

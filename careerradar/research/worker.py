@@ -19,16 +19,45 @@ from careerradar.research.tools import search_available
 logger = get_logger()
 
 
+# Mirrors `scoring.research_gate` in config.yaml, for a config that predates the key.
+DEFAULT_RESEARCH_GATE = {
+    "eligibility": ["eligible"],
+    "role_match": ["same_role", "adjacent"],
+    "capability_match": ["exceeds", "meets", "most_with_gaps"],
+}
+
+
 def _now():
     return datetime.now(timezone.utc).isoformat()
 
 
-def _candidates(db, threshold, refresh_days, limit, company=None):
+def _gate_sql(gate):
+    """The research gate as SQL, from the named ordinal values in config.
+
+    A predicate rather than `fit_score >= 70`. The old threshold sat between two of the
+    scale's quantisation attractors (62 and 72), so part of what it measured was where the
+    model liked to round; and it could never say *why* a company qualified.
+    """
+    clauses, params = [], []
+    for column in ("eligibility", "role_match", "capability_match"):
+        allowed = gate.get(column)
+        if not allowed:
+            continue
+        clauses.append(f"v.{column} IN ({', '.join('?' * len(allowed))})")
+        params.extend(allowed)
+    return (" AND " + " AND ".join(clauses)) if clauses else "", params
+
+
+def _candidates(db, gate, refresh_days, limit, company=None):
     """Companies worth researching, best posting first.
 
     Grouped by `company_normalized` so a company with a dozen strong postings is one unit
-    of work. `MAX(fit_score)` picks the posting that earned the research, and its
-    role_family and location drive the nearby-jobs queries.
+    of work. The best-ranked posting picks the row whose role_family and location drive
+    the nearby-jobs queries.
+
+    Postings whose cell has been re-scraped without finding them are excluded: researching
+    a company on the strength of a closed listing spends the most expensive model in the
+    pipeline on a job that no longer exists.
     """
     cutoff = (datetime.now(timezone.utc) - timedelta(days=refresh_days)).isoformat()
 
@@ -36,26 +65,33 @@ def _candidates(db, threshold, refresh_days, limit, company=None):
         where = "AND (j.company_normalized = ? OR j.company = ?)"
         params = [company, company]
     else:
-        where = "AND j.fit_score >= ?"
-        params = [threshold]
+        where, params = _gate_sql(gate)
 
     query = f"""
         SELECT j.company_normalized,
                MAX(j.fit_score)                AS best_score,
+               MIN(v.pareto_tier)              AS best_tier,
                COUNT(*)                        AS postings,
                MAX(j.company)                  AS company,
                MAX(j.id)                       AS job_id,
                MAX(j.role_family)              AS role_family,
                MAX(c.location_id)              AS location_id
           FROM jobs j
+          JOIN job_verdicts v
+                    ON v.job_id = j.id
+                   AND v.profile_version = (
+                       SELECT version FROM profiles WHERE is_active = 1
+                   )
           LEFT JOIN scrape_cells c ON c.id = j.scrape_cell_id
+          LEFT JOIN v_job_liveness l ON l.job_id = j.id
           LEFT JOIN company_dossiers d ON d.company_normalized = j.company_normalized
          WHERE j.duplicate_of IS NULL
            AND j.company_normalized IS NOT NULL
+           AND COALESCE(l.liveness, 'unknown') != 'likely_closed'
            {where}
            AND (d.generated_at IS NULL OR d.generated_at < ?)
          GROUP BY j.company_normalized
-         ORDER BY best_score DESC
+         ORDER BY best_tier ASC, best_score DESC
     """
     params.append(cutoff)
     if limit:
@@ -109,7 +145,7 @@ def run_research(company=None, limit=None, dry_run=False):
     research_config = config.get("research") or {}
     scoring_config = config.get("scoring") or {}
     model = research_config.get("model", DEFAULT_AGENT_MODEL)
-    threshold = scoring_config.get("research_threshold", 70)
+    gate = scoring_config.get("research_gate") or DEFAULT_RESEARCH_GATE
     refresh_days = research_config.get("refresh_days", 30)
     limit = limit or research_config.get("max_companies_per_run", 5)
 
@@ -126,19 +162,21 @@ def run_research(company=None, limit=None, dry_run=False):
 
     db = Database()
     try:
-        rows = _candidates(db, threshold, refresh_days, limit, company=company)
+        rows = _candidates(db, gate, refresh_days, limit, company=company)
         if not rows:
             if company:
                 print(f"No postings found for {company!r}.")
             else:
-                print(f"Nothing to research: no company has a posting scoring >= {threshold} "
-                      f"without a dossier newer than {refresh_days} days.")
+                criteria = "; ".join(f"{k} in {v}" for k, v in gate.items())
+                print("Nothing to research: no company has a live posting matching the "
+                      f"research gate ({criteria}) without a dossier newer than "
+                      f"{refresh_days} days.")
             return 0
 
         print(f"profile v{profile_version} · model {model}")
         print(f"companies to research: {len(rows)}")
         for row in rows:
-            print(f"  {row['company'][:44]:<46} best fit {row['best_score']}  "
+            print(f"  {row['company'][:44]:<46} tier {row['best_tier']}  "
                   f"({row['postings']} posting(s))")
 
         if dry_run:

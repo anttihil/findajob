@@ -19,7 +19,9 @@ from typing import Optional, TypedDict
 
 from careerradar.core.llm import DEFAULT_SCORING_MODEL, structured_model
 from careerradar.core.logger import get_logger
-from careerradar.profile.models import FitVerdict
+from careerradar.profile.models import FitAssessment
+from careerradar.scoring import scale
+from careerradar.scoring.audit import audit
 from careerradar.scoring.prompts import render_posting
 
 logger = get_logger()
@@ -31,32 +33,59 @@ RETRY_NUDGE = (
     "structured verdict. Do not write prose."
 )
 
+# A generic nudge against a semantic failure just buys the same failure again: the model
+# did call the tool, and telling it otherwise is a description it cannot act on. When the
+# schema or the auditor rejected a well-formed answer, say which rule it broke.
+def semantic_nudge(reason: str) -> str:
+    return (
+        f"Your previous verdict was rejected: {reason}\n"
+        "Return the verdict again, corrected. Every quote must be copied from the posting "
+        "exactly as it appears there."
+    )
+
 
 class ScoreState(TypedDict, total=False):
     system: str
     posting: dict
+    # The deterministic extractor's read on this posting, already rendered. Built by the
+    # worker, which owns the DB and the scorer; the graph must not open a connection.
+    skill_hint: str
     rendered: str
     verdict: Optional[dict]
     usage: Optional[dict]
     attempts: int
     error: Optional[str]
+    # Whether the last failure was the model answering the schema and being rejected,
+    # rather than not answering at all. Decides which nudge the retry carries. Must be
+    # declared here: LangGraph drops keys a node returns that the state does not name.
+    semantic: bool
     model: str
+    # Set by the worker so the auditor can check blockers against what the candidate
+    # actually has, and strengths against what the posting actually mentions.
+    profile: object
+    taxonomy: object
 
 
 def node_render(state: ScoreState) -> dict:
-    return {"rendered": render_posting(state["posting"]), "attempts": 0}
+    return {
+        "rendered": render_posting(state["posting"],
+                                   skill_hint=state.get("skill_hint") or ""),
+        "attempts": 0,
+    }
 
 
 def node_score(state: ScoreState) -> dict:
     model_name = state.get("model", DEFAULT_SCORING_MODEL)
     model = structured_model(model_name)
     chain = model.with_structured_output(
-        FitVerdict, method="function_calling", strict=True, include_raw=True
+        FitAssessment, method="function_calling", strict=True, include_raw=True
     )
 
     messages = [("system", state["system"]), ("user", state["rendered"])]
     if state.get("attempts", 0):
-        messages.append(("user", RETRY_NUDGE))
+        previous = state.get("error") or ""
+        messages.append(("user", semantic_nudge(previous) if state.get("semantic")
+                         else RETRY_NUDGE))
 
     attempts = state.get("attempts", 0) + 1
     try:
@@ -74,13 +103,44 @@ def node_score(state: ScoreState) -> dict:
     usage = token_usage(raw) if raw is not None else None
 
     if parse_error is not None or parsed is None:
-        logger.warning("Scoring returned unparseable output (attempt %d): %s",
+        # A cross-field validator in FitAssessment raising surfaces here too, not just a
+        # malformed tool call: LangChain catches it and reports it as a parsing error.
+        # Those are the semantic rejections, and they deserve a nudge that names the rule.
+        logger.warning("Scoring returned unusable output (attempt %d): %s",
                        attempts, parse_error)
-        return {"attempts": attempts, "error": str(parse_error), "verdict": None,
-                "usage": usage}
+        return {"attempts": attempts, "error": _rule_from(parse_error), "verdict": None,
+                "usage": usage, "semantic": _is_semantic(parse_error)}
 
-    return {"attempts": attempts, "verdict": parsed.model_dump(), "usage": usage,
-            "error": None}
+    # The verbatim-quote check cannot be a Pydantic validator -- it needs the posting text,
+    # and LangChain builds the parser itself with no way to pass context through. It runs
+    # here instead, which is also where the taxonomy cross-check has to live.
+    parsed, flags, fatal = audit(parsed, posting=state["posting"],
+                                 profile=state.get("profile"),
+                                 taxonomy=state.get("taxonomy"))
+    if fatal is not None:
+        logger.warning("Verdict failed audit (attempt %d): %s", attempts, fatal)
+        return {"attempts": attempts, "error": fatal, "verdict": None, "usage": usage,
+                "semantic": True}
+
+    verdict = parsed.model_dump()
+    verdict["audit_flags"] = flags
+    # The number is computed here rather than in the worker so that anything driving the
+    # graph -- the eval harness included -- gets it through the same path.
+    verdict.update(scale.project(verdict))
+    return {"attempts": attempts, "verdict": verdict, "usage": usage, "error": None,
+            "semantic": False}
+
+
+def _is_semantic(parse_error) -> bool:
+    """Did the model answer the schema and get rejected, or fail to answer at all?"""
+    return "validation error" in str(parse_error).lower()
+
+
+def _rule_from(parse_error) -> str:
+    """The rule text out of a Pydantic error, without the stack of field paths."""
+    text = str(parse_error)
+    marker = "Value error, "
+    return text.split(marker, 1)[1].split("\n")[0].strip() if marker in text else text
 
 
 def route_after_score(state: ScoreState) -> str:

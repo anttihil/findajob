@@ -30,7 +30,8 @@ STRICT_CONTEXT_WINDOW = 120
 class Skill:
     __slots__ = (
         "key", "label", "category", "aliases", "strict_aliases", "context",
-        "effort", "user_level", "_regex", "_strict_regex", "_context_regex",
+        "effort", "user_level", "implies",
+        "_regex", "_strict_regex", "_context_regex",
     )
 
     def __init__(self, key, spec):
@@ -41,6 +42,10 @@ class Skill:
         self.strict_aliases = [a for a in spec.get("strict_aliases", []) if a]
         self.context = [c for c in spec.get("context", []) if c]
         self.effort = spec.get("effort", "medium")
+        # Subsumption only: "X is a kind of Y", never "X is related to Y". Used on the
+        # PROFILE side of a coverage comparison so evidence of `claude_api` counts, at a
+        # discount, toward a posting asking for `llm_apps`. Never used in extract().
+        self.implies = [i for i in spec.get("implies", []) if i]
         # None means "derive from the resume corpus" -- the default, so the profile stays in
         # sync when the resumes change. An explicit value is for skills no resume mentions.
         self.user_level = spec.get("user_level")
@@ -163,6 +168,14 @@ class Taxonomy:
         # figures produced under different taxonomies.
         self.hash = hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
 
+        # Inverted once at load: coverage asks "what evidences this parent?", which is the
+        # opposite direction from how the edges are declared.
+        self._implied_by = {}
+        for key, skill in self.skills.items():
+            for parent in skill.implies:
+                self._implied_by.setdefault(parent, set()).add(key)
+        self._closure_cache = {}
+
     # -- lookup ------------------------------------------------------------------------
     def __len__(self):
         return len(self.skills)
@@ -187,6 +200,46 @@ class Taxonomy:
     def by_category(self, category):
         return [s for s in self.skills.values() if s.category == category]
 
+    # -- subsumption -------------------------------------------------------------------
+    MAX_IMPLIES_DEPTH = 4
+
+    def closure(self, key):
+        """Everything `key` implies, transitively. Excludes `key` itself."""
+        cached = self._closure_cache.get(key)
+        if cached is not None:
+            return cached
+        seen, frontier, depth = set(), [key], 0
+        while frontier and depth < self.MAX_IMPLIES_DEPTH:
+            nxt = []
+            for current in frontier:
+                skill = self.skills.get(current)
+                for parent in (skill.implies if skill else ()):
+                    if parent not in seen and parent != key:
+                        seen.add(parent)
+                        nxt.append(parent)
+            frontier, depth = nxt, depth + 1
+        result = frozenset(seen)
+        self._closure_cache[key] = result
+        return result
+
+    def implied_by(self, parent):
+        """Every skill whose presence evidences `parent`, transitively."""
+        cached = self._closure_cache.get(("<-", parent))
+        if cached is not None:
+            return cached
+        seen, frontier, depth = set(), [parent], 0
+        while frontier and depth < self.MAX_IMPLIES_DEPTH:
+            nxt = []
+            for current in frontier:
+                for child in self._implied_by.get(current, ()):
+                    if child not in seen and child != parent:
+                        seen.add(child)
+                        nxt.append(child)
+            frontier, depth = nxt, depth + 1
+        result = frozenset(seen)
+        self._closure_cache[("<-", parent)] = result
+        return result
+
     # -- validation --------------------------------------------------------------------
     def validate(self):
         """Return a list of problems. Empty means the taxonomy is well-formed."""
@@ -195,6 +248,16 @@ class Taxonomy:
         seen_aliases = {}
 
         for key, skill in self.skills.items():
+            for parent in skill.implies:
+                if parent not in self.skills:
+                    problems.append(f"skill '{key}': implies unknown skill '{parent}'")
+                elif parent == key:
+                    problems.append(f"skill '{key}': implies itself")
+            # A cycle would make coverage credit circular and, without the depth cap,
+            # would not terminate.
+            if key in self.closure(key):
+                problems.append(f"skill '{key}': implies itself through a cycle")
+
             if skill.category not in known_categories:
                 problems.append(
                     f"skill '{key}': unknown category '{skill.category}'"

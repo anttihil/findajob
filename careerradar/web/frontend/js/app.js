@@ -186,13 +186,45 @@ async function fetchStats() {
         statTotalEl.textContent = stats.total_jobs || 0;
         statSavedEl.textContent = stats.status_counts?.saved || 0;
         statAppliedEl.textContent = stats.status_counts?.applied || 0;
-        statAvgScoreEl.textContent = `${stats.avg_match_score || 0}%`;
+        // Coverage with its denominator, not an average of a scale that bottoms out
+        // near 15. `strong_matches` is a predicate now (eligible + same/adjacent role +
+        // meets or better), so it states what it counted.
+        const cov = stats.skill_coverage;
+        statAvgScoreEl.textContent = cov && cov.ratio !== null
+            ? `${Math.round(cov.ratio * 100)}%` : '--';
     } catch (e) {
         console.error("Error fetching stats:", e);
     }
 }
 
 // --- UI RENDERING ---
+
+// The badge says where the posting sits in the partial order, not a percent. Tier 1
+// dominates everything below it; equal tiers are genuinely incomparable rather than equal.
+function tierBadge(job) {
+    if (job.eligibility === 'blocked') {
+        return `<span class="match-badge badge-blocked" title="A requirement you cannot meet">blocked</span>`;
+    }
+    if (job.pareto_tier == null) {
+        return `<span class="match-badge badge-unscored">unscored</span>`;
+    }
+    const cls = job.pareto_tier <= 2 ? 'badge-top'
+        : job.pareto_tier <= 4 ? 'badge-good' : 'badge-far';
+    const cond = job.eligibility === 'conditional' ? ' *' : '';
+    return `<span class="match-badge ${cls}" title="${tierTitle(job)}">tier ${job.pareto_tier}${cond}</span>`;
+}
+
+function tierTitle(job) {
+    return [job.role_match, job.capability_match, job.seniority_gap]
+        .filter(Boolean).join(' · ').replace(/_/g, ' ');
+}
+
+// Matched over required, with the denominator visible. `match_score` was never a percent:
+// its floor was ~15 and its ceiling ~80.
+function coverageBadge(job) {
+    if (!job.required_count) return '';
+    return `<span class="coverage-badge" title="skills this posting names that you can evidence">${job.matched_count || 0}/${job.required_count} skills</span>`;
+}
 
 function populateResumeDropdowns() {
     // Save selections
@@ -226,7 +258,14 @@ function renderJobCards() {
     const sortBy = sortBySelect.value;
     const sortedJobs = [...jobsData].sort((a, b) => {
         if (sortBy === 'score') {
-            return b.match_score - a.match_score;
+            // Same order the API and the drawer use: eligibility partitions, then Pareto
+            // tier. The card list used to sort by match_score while the drawer led with
+            // fit_score, so the same corpus had two different ideas of "best".
+            const rank = j => (
+                {eligible: 0, conditional: 1, blocked: 2}[j.eligibility] ?? 3);
+            return (rank(a) - rank(b))
+                || ((a.pareto_tier ?? 99) - (b.pareto_tier ?? 99))
+                || (new Date(b.date_found) - new Date(a.date_found));
         } else {
             return new Date(b.date_found) - new Date(a.date_found);
         }
@@ -279,7 +318,8 @@ function renderJobCards() {
                 <div class="job-card-right">
                     <div class="match-badge-wrap">
                         ${statusBadge}
-                        <span class="match-badge">${job.match_score}% Match</span>
+                        ${tierBadge(job)}
+                        ${coverageBadge(job)}
                     </div>
                     <span class="source-tag">${job.source}</span>
                 </div>
@@ -373,12 +413,12 @@ function openJobDrawer(jobId) {
     drawerTitle.textContent = selectedJob.title;
     drawerCompany.innerHTML = `<i class="fa-solid fa-building"></i> ${escapeHTML(selectedJob.company)}`;
     drawerLocation.innerHTML = `<i class="fa-solid fa-location-dot"></i> ${escapeHTML(selectedJob.location || selectedJob.country)}`;
-    // Two scores, two meanings. fit_score is the agent's judgement and leads; match_score
-    // is keyword coverage and is shown beside it because when they disagree, that is
-    // itself the interesting signal.
-    drawerScore.textContent = selectedJob.fit_score != null
-        ? `${selectedJob.fit_score} fit`
-        : 'Not yet scored';
+    // The tier leads, because it is the honest ranking: it orders only where one posting
+    // dominates another on every dimension. The score beside it is a projection through a
+    // weighting nothing validates, kept because some views need one number.
+    drawerScore.textContent = selectedJob.pareto_tier != null
+        ? `tier ${selectedJob.pareto_tier}`
+        : (selectedJob.fit_score != null ? `${selectedJob.fit_score} fit` : 'Not yet scored');
     drawerSource.textContent = selectedJob.source;
     drawerApplyLink.href = selectedJob.url;
     renderVerdict(selectedJob);
@@ -516,8 +556,10 @@ function populateSettingsFields() {
     settingsQueriesTextarea.value = configData.search_queries?.join('\n') || '';
     
     // Fill slider
-    settingsScoreSlider.value = configData.min_match_score || 15;
-    settingsScoreValEl.textContent = `${settingsScoreSlider.value}%`;
+    // Tier, not a percent. The old slider set min_match_score, which defaulted to the
+    // floor of the scale it gated and so never filtered anything.
+    settingsScoreSlider.value = (configData.matching || {}).max_tier || 10;
+    settingsScoreValEl.textContent = settingsScoreSlider.value;
     
     // Fill credentials
 
@@ -569,7 +611,7 @@ function populateSettingsFields() {
 
 function setupSettingsForm() {
     settingsScoreSlider.addEventListener('input', () => {
-        settingsScoreValEl.textContent = `${settingsScoreSlider.value}%`;
+        settingsScoreValEl.textContent = settingsScoreSlider.value;
     });
     
     settingsForm.addEventListener('submit', async (e) => {
@@ -598,9 +640,9 @@ function setupSettingsForm() {
         const payload = {
             countries: checkedCountries,
             search_queries: queries,
-            min_match_score: parseInt(settingsScoreSlider.value),
+
             scraper: { sources: checkedSources },
-            matching: { min_match_score: parseInt(settingsScoreSlider.value) },
+            matching: { max_tier: parseInt(settingsScoreSlider.value) },
         };
         
         try {
@@ -1461,7 +1503,7 @@ function renderVerdict(job) {
             `<p class="verdict-empty">Not scored yet. This posting is queued
              (<code>${escapeHTML(job.pipeline_state || 'new')}</code>); the scoring stage
              will pick it up on its next run.</p>
-             <p class="verdict-empty">Keyword coverage: ${job.match_score}%</p>`;
+             <p class="verdict-empty">${job.required_count ? `${job.matched_count || 0} of ${job.required_count} named skills evidenced` : 'No recognised skills in this posting'}</p>`;
         return;
     }
 
@@ -1473,20 +1515,57 @@ function renderVerdict(job) {
             <span class="verdict-badge verdict-${escapeHTML(job.verdict)}">
                 ${escapeHTML(VERDICT_LABELS[job.verdict] || job.verdict)}
             </span>
-            <span class="verdict-score">${job.fit_score}/100</span>
-            <span class="verdict-seniority">seniority ${escapeHTML(job.seniority_fit || '?')}</span>
+            ${job.pareto_tier != null
+                ? `<span class="verdict-score" title="1 dominates everything below it">tier ${job.pareto_tier}</span>`
+                : `<span class="verdict-score">${job.fit_score}/100</span>`}
         </div>`);
+
+    // What the model understood the job to BE. The single most useful line in the drawer:
+    // it is where a posting judged on shared vocabulary rather than shared work gives
+    // itself away.
+    if (job.role_summary) {
+        parts.push(`<p class="verdict-summary">${escapeHTML(job.role_summary)}</p>`);
+    }
+
+    // The five answers the score was computed from. Showing them rather than the number
+    // alone is the point of the whole schema: every score decomposes into named
+    // judgements, each of which can be disagreed with individually.
+    const ordinals = [
+        ['eligibility', job.eligibility],
+        ['role', job.role_match],
+        ['capability', job.capability_match],
+        ['seniority', job.seniority_gap],
+        ['evidence', job.evidence_quality],
+    ].filter(([, v]) => v);
+    if (ordinals.length) {
+        parts.push('<div class="verdict-ordinals">' + ordinals.map(([k, v]) =>
+            `<span class="ordinal"><b>${k}</b> ${escapeHTML(v.replace(/_/g, ' '))}</span>`
+        ).join('') + '</div>');
+    }
+
+    if (job.liveness === 'likely_closed') {
+        parts.push(`<p class="verdict-stale">This posting did not reappear the last time
+            its search was run, so it has probably closed.</p>`);
+    }
 
     if (job.reasoning) {
         parts.push(`<p class="verdict-reasoning">${escapeHTML(job.reasoning)}</p>`);
     }
 
     // Blockers first and quoted: each one is a phrase lifted from the posting, so the
-    // claim can be checked against the source rather than taken on faith.
+    // claim can be checked against the source rather than taken on faith. The reasoning
+    // sits under the quote rather than inside it -- the two were one string until the
+    // scorer started losing verdicts over which half the auditor was reading.
     if (blockers.length) {
         parts.push(`<h5 class="verdict-h5 text-red">Hard blockers (${blockers.length})</h5>`);
-        parts.push('<ul class="verdict-list verdict-blockers">' +
-            blockers.map(b => `<li><q>${escapeHTML(b)}</q></li>`).join('') + '</ul>');
+        parts.push('<ul class="verdict-list verdict-blockers">' + blockers.map(b => {
+            // Verdicts written before the field was split are plain strings.
+            const quote = typeof b === 'string' ? b : (b.quote || '');
+            const why = typeof b === 'string' ? '' : (b.why || '');
+            return `<li><q>${escapeHTML(quote)}</q>` +
+                (why ? `<span class="blocker-why">${escapeHTML(why)}</span>` : '') +
+                '</li>';
+        }).join('') + '</ul>');
     }
     if ((job.key_gaps || []).length) {
         parts.push('<h5 class="verdict-h5">Gaps</h5>' + bulletList(job.key_gaps));
@@ -1494,7 +1573,7 @@ function renderVerdict(job) {
     if ((job.strengths || []).length) {
         parts.push('<h5 class="verdict-h5 text-green">You bring</h5>' + bulletList(job.strengths));
     }
-    parts.push(`<p class="verdict-foot">Keyword coverage: ${job.match_score}%</p>`);
+    parts.push(`<p class="verdict-foot">${job.required_count ? `${job.matched_count || 0} of ${job.required_count} named skills evidenced` : 'No recognised skills in this posting'}</p>`);
 
     drawerVerdict.innerHTML = parts.join('');
 }

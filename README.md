@@ -163,20 +163,52 @@ Editing either file changes what a run measures, so `taxonomy_hash` and `plan_ha
 recorded on every run and every stats row, and trend queries refuse to compare across a
 change.
 
-## Two scores, on purpose
+## The scoring agent answers questions; it does not produce a score
 
-| | what it is | drives |
-|---|---|---|
-| `match_score` | keyword coverage + BM25 + family tier + seniority. Deterministic, reproducible. | the skill-gap analytics |
-| `fit_score` | the scoring agent's judgement, 0–100, with quoted blockers | dashboard ranking, the research queue |
+Five ordinals, each with anchored criteria in `careerradar/scoring/rubric.py`:
 
-They can disagree, and when they do that is informative rather than a bug. Keyword coverage
-is what misjudges a career change or an unusual title; it is kept because `gap_analysis`
-measures its blocking gap against postings you match at `GOOD_FIT_THRESHOLD` or better, and
-swapping in a judgement score would silently change what those charts mean.
+| dimension | values |
+|---|---|
+| `eligibility` | eligible / conditional / blocked |
+| `role_match` | same_role / adjacent / different_domain / different_field |
+| `capability_match` | exceeds / meets / most_with_gaps / major_gaps / not_close |
+| `seniority_gap` | matched / candidate_above / candidate_below |
+| `evidence_quality` | strong / adequate / thin |
 
-Every hard blocker quotes the phrase from the posting that makes it one, so a verdict can be
-checked against its evidence instead of trusted.
+They are what gets stored. The earlier schema asked the model for `fit_score: int` and got
+53 distinct values across 5,511 verdicts, 99.84% of which agreed with the band its own
+prompt assigned -- inside `worth_applying`, the value 62 alone was 45% of the band. It was
+picking a label and decorating it with digits.
+
+**Ranking does not merge them.** `eligibility` partitions: nothing blocked outranks anything
+eligible, at any tier. Within a partition, `scoring/scale.py` orders by Pareto dominance --
+A beats B only if A is at least as good on every dimension. Equal tiers are honest ties, not
+equal quality. A weighted score would have to assert an exchange rate between the dimensions
+and nothing supports one.
+
+`fit_score` survives as a *projection* of the tuple, for the places that need one number. It
+is an invented weighting and is labelled as such. Because the ordinals are stored,
+`careerradar score rescale` recomputes it over the whole corpus with no API calls.
+
+`match_score` measures requirement coverage, not fit. It feeds the skill hint in the scoring
+prompt, the gap analytics, and a tiebreak. BM25 was removed from it: its query was a fixed
+bag of the candidate's skill labels, identical for every posting, so it restated the coverage
+component beside it with more noise and no validation.
+
+## How the verdicts are checked
+
+There is no golden set yet, and two of the checks that matter need no labels at all.
+
+`careerradar score audit` re-runs both over stored verdicts with no API calls. A quote is or
+is not in the posting -- measured over 9,053 stored blockers, 89.6% were verifiable and ~10%
+could not be found. And a blocker either does or does not demand something the profile says
+you already have; that check found ~50 verdicts blocking a US citizen for not being a US
+citizen.
+
+`uv run python -m evals.metamorphic` supplies directional ground truth by construction:
+append a clearance requirement and `eligibility` must become `blocked`; add a must-have the
+candidate lacks and `capability_match` must not improve. Invariance perturbations (renaming
+the company, reordering bullets) are reported rather than gated. ~$0.03 a run.
 
 ## Reading the numbers honestly
 

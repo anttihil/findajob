@@ -167,24 +167,17 @@ scraper:
 # ---------------------------------------------------------------------------------------
 # Matching
 # ---------------------------------------------------------------------------------------
+# What the keyword layer measures is requirement COVERAGE, not fit. It feeds the skill
+# hint in the scoring prompt, the gap analytics, and a coarse tiebreak -- it does not rank
+# the dashboard. See careerradar/search/keyword_score.py.
 matching:
-  min_match_score: 15          # minimum score to store a posting
   weights:
-    skill_coverage: 0.45
-    bm25: 0.25
-    title_family: 0.20
-    seniority_fit: 0.10
-
-  llm:
-    # Off by default. The deterministic scorer runs on everything; this reranks only the
-    # top N and requires ANTHROPIC_API_KEY. Absent the key the stage is skipped with a
-    # warning rather than failing the run.
-    enabled: false
-    model: claude-opus-5
-    top_n: 25
-    min_deterministic_score: 40
-    use_batch_api: true         # 50% cost for offline runs
-    max_usd_per_run: 1.00       # pre-flight token count aborts rather than overspending
+    # Redistributed proportionally when BM25 was removed. Its query was a fixed bag of the
+    # candidate's skill labels, identical for every posting, so it restated the coverage
+    # component next to it with more noise and no validation.
+    skill_coverage: 0.62
+    title_family: 0.24
+    seniority_fit: 0.14
 
 # ---------------------------------------------------------------------------------------
 # Analytics
@@ -253,11 +246,7 @@ analytics:
 # ---------------------------------------------------------------------------------------
 digest:
   enabled: true
-  min_score_for_digest: 40
   include_skill_gap: true
-
-# Minimum match score to display in the dashboard (0-100)
-min_match_score: 15
 
 # ---------------------------------------------------------------------------------------
 # Agents
@@ -295,9 +284,17 @@ scoring:
   # Pre-flight: if the estimate exceeds this the run ABORTS rather than trimming the
   # queue. A budget that silently drops the tail produces a partial pass that looks
   # complete, and every coverage figure downstream inherits the lie.
-  max_usd_per_run: 2.50
-  # fit_score at or above which a company earns a deep-research pass.
-  research_threshold: 70
+  #
+  # Raised from 2.50 with the v2 verdict schema: the model now returns a role summary and
+  # five to eight quoted requirements with an assessment each, roughly doubling completion
+  # length. A full corpus pass estimates around $3.
+  max_usd_per_run: 4.00
+  # Which postings earn a deep-research pass. A predicate rather than a number on a lumpy
+  # scale -- and it states its own reasoning, which `fit_score >= 70` never did.
+  research_gate:
+    eligibility: [eligible]
+    role_match: [same_role, adjacent]
+    capability_match: [exceeds, meets, most_with_gaps]
 
 research:
   model: deepseek-v4-pro

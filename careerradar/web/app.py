@@ -127,14 +127,30 @@ def get_jobs(
     access: Optional[str] = Query(None, pattern="^(commutable|remote|relocation)$"),
     include_duplicates: bool = False,
     min_score: Optional[int] = None,
-    # The LLM's judgement, as opposed to min_score's keyword coverage. Both are exposed
-    # because they measure different things and disagreeing is informative.
+    # The scalar projection of the ordinals. Kept for a coarse cut, but the ordinals below
+    # are what the dashboard should filter on -- they say WHY a posting qualifies, and a
+    # threshold on a projected scale cannot.
     min_fit_score: Optional[int] = None,
     verdict: Optional[str] = Query(
         None, pattern="^(strong|worth_applying|stretch|poor_fit|mismatch)$"
     ),
+    eligibility: Optional[str] = Query(
+        None, pattern="^(eligible|conditional|blocked)$"
+    ),
+    role_match: Optional[str] = Query(
+        None, pattern="^(same_role|adjacent|different_domain|different_field)$"
+    ),
+    capability_match: Optional[str] = Query(
+        None, pattern="^(exceeds|meets|most_with_gaps|major_gaps|not_close)$"
+    ),
+    # Pareto tier: 1 dominates everything below it. Filtering `max_tier=4` asks for the top
+    # four layers without asserting an exchange rate between the dimensions.
+    max_tier: Optional[int] = Query(None, ge=1, le=10),
+    liveness: Optional[str] = Query(
+        None, pattern="^(live|stale|likely_closed|unknown)$"
+    ),
     pipeline_state: Optional[str] = Query(None, pattern="^(new|scored|researched)$"),
-    sort: str = Query("fit_score", pattern="^(fit_score|match_score|date_found)$"),
+    sort: str = Query("fit", pattern="^(fit|fit_score|match_score|date_found)$"),
     # Paginated from the start: the corpus reaches thousands of rows within days, and
     # renderJobCards builds DOM for every row it receives.
     limit: int = Query(200, ge=1, le=1000),
@@ -148,6 +164,8 @@ def get_jobs(
             is_remote=is_remote, has_salary=has_salary, access=access,
             include_duplicates=include_duplicates, min_score=min_score,
             min_fit_score=min_fit_score, verdict=verdict,
+            eligibility=eligibility, role_match=role_match,
+            capability_match=capability_match, max_tier=max_tier, liveness=liveness,
             pipeline_state=pipeline_state, sort=sort,
             limit=limit, offset=offset,
         )

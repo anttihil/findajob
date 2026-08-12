@@ -32,7 +32,7 @@ from careerradar.search.scheduler import (
     with_location_weights,
     update_ewma,
 )
-from careerradar.search.keyword_score import JobScorer, build_index_from_db
+from careerradar.search.keyword_score import JobScorer
 from careerradar.search.guard import (
     ERROR_TRANSIENT,
     SourceCircuit,
@@ -141,7 +141,6 @@ def run_sync(dry_run=False, backfill=False, limit=None, sources=None,
         scorer = JobScorer(
             profile, roles, taxonomy,
             weights=(config.get("matching") or {}).get("weights"),
-            bm25=build_index_from_db(db),
         )
 
         if rescore_only:
@@ -172,7 +171,7 @@ def run_sync(dry_run=False, backfill=False, limit=None, sources=None,
             prune_archives(
                 ARCHIVE_DIR, scraper_config.get("archive_retention_days", 14)
             )
-        min_score = (config.get("matching") or {}).get("min_match_score", 15)
+        _warn_if_taxonomy_moved(db, taxonomy)
 
         for source in enabled:
             circuit = SourceCircuit(
@@ -211,7 +210,7 @@ def run_sync(dry_run=False, backfill=False, limit=None, sources=None,
             for task in tasks:
                 outcome = _scrape_one(
                     db, source_client, circuit, task, run_id, scorer, taxonomy,
-                    roles, config, min_score, dry_run,
+                    roles, config, dry_run,
                 )
                 if outcome == "tripped":
                     remaining = len(tasks) - tasks.index(task) - 1
@@ -275,7 +274,7 @@ _LAST_CELL_STATS = {}
 
 
 def _scrape_one(db, client, circuit, task, run_id, scorer, taxonomy, roles, config,
-                min_score, dry_run):
+                dry_run):
     """Scrape, normalize, score, and store one cell. Returns ok|empty|error|tripped."""
     global _LAST_CELL_STATS
     _LAST_CELL_STATS = {}
@@ -328,6 +327,9 @@ def _scrape_one(db, client, circuit, task, run_id, scorer, taxonomy, roles, conf
         result = scorer.score(posting)
         posting["match_score"] = result["score"]
         posting["matched_skills"] = result["matched_skills"]
+        posting["matched_count"] = result["matched_count"]
+        posting["required_count"] = result["required_count"]
+        posting["scorer_version"] = SCORER_VERSION
         posting["pipeline_state"] = "new"
         stored.append((posting, result))
 
@@ -464,6 +466,34 @@ def _report_coverage(db, scraper_config):
     )
 
 
+# Which scorer wrote `match_score`. 1 is the coverage scorer without BM25; 0 means a row
+# predates the column and its score is not comparable with anything.
+SCORER_VERSION = 1
+
+
+def _warn_if_taxonomy_moved(db, taxonomy):
+    """Say so when stored postings were scored under a different skills.yaml.
+
+    Editing the taxonomy silently changes what `match_score` and `job_skills` mean, and
+    nothing previously noticed: `jobs.taxonomy_hash` went stale and the rows kept being
+    compared with fresh ones. The remedy is one flag, so the warning names it.
+    """
+    stale = db.conn.execute(
+        "SELECT COUNT(*) FROM jobs WHERE taxonomy_hash IS NOT NULL AND taxonomy_hash != ?",
+        (taxonomy.hash,),
+    ).fetchone()[0]
+    old_scorer = db.conn.execute(
+        "SELECT COUNT(*) FROM jobs WHERE COALESCE(scorer_version, 0) < ?",
+        (SCORER_VERSION,),
+    ).fetchone()[0]
+    if stale or old_scorer:
+        logger.warning(
+            "%s posting(s) scored under an older taxonomy and %s under an older scorer. "
+            "Run `careerradar search run --rescore-only` to bring them current.",
+            f"{stale:,}", f"{old_scorer:,}",
+        )
+
+
 def _rescore(db, scorer, taxonomy):
     """Re-derive scores and skills for stored postings under the current taxonomy.
 
@@ -471,9 +501,13 @@ def _rescore(db, scorer, taxonomy):
     older taxonomy is not comparable. This makes the choice explicit: keep snapshots as
     recorded (reproducible), or rescore everything (consistent).
     """
+    # Not `description_quality = 'full'`. The v2 migration only set that flag where the
+    # description was already >= 400 chars, so the shorter rows were permanently
+    # unreachable by rescore -- which is part of why 121 postings still carried display
+    # labels in `matched_skills` from a scorer two versions old.
     rows = db.conn.execute(
         "SELECT id, title, description, role_family, seniority FROM jobs "
-        "WHERE description IS NOT NULL AND description_quality = 'full'"
+        "WHERE description IS NOT NULL AND length(description) > 0"
     ).fetchall()
     logger.info(f"Rescoring {len(rows)} postings under taxonomy {taxonomy.hash}")
 
@@ -483,10 +517,19 @@ def _rescore(db, scorer, taxonomy):
             posting["description"], title=posting["title"]
         )
         result = scorer.score(posting)
+        # The failure that produced the 121 stale rows was silent for the whole life of the
+        # column: a scorer wrote display labels where canonical keys belong and nothing
+        # noticed. One set lookup is cheap insurance.
+        unknown = [k for k in result["matched_skills"] if k not in taxonomy.skills]
+        if unknown:
+            raise ValueError(
+                f"matched_skills for job {row['id']} contains non-canonical keys: {unknown}"
+            )
         db.conn.execute(
-            "UPDATE jobs SET match_score = ?, matched_skills = ?, "
-            "taxonomy_hash = ? WHERE id = ?",
+            "UPDATE jobs SET match_score = ?, matched_skills = ?, matched_count = ?, "
+            "required_count = ?, scorer_version = ?, taxonomy_hash = ? WHERE id = ?",
             (result["score"], json.dumps(result["matched_skills"]),
+             result["matched_count"], result["required_count"], SCORER_VERSION,
              taxonomy.hash, row["id"]),
         )
         db.replace_job_skills(row["id"], posting["skills"])
