@@ -1703,11 +1703,91 @@ body {
 .match-badge.badge-unscored { background: rgba(148, 163, 184, 0.08); color: #64748b;
                             border-color: rgba(148, 163, 184, 0.2); }
 
-.coverage-badge {
+/* Must-haves met over must-haves stated. Monospace because it is a count being compared
+   across cards, and colour only at the two ends: all met, or something unmet. A partial
+   sits between them and gets the neutral treatment -- it is a conversation, not a verdict. */
+.requirement-badge {
     font-family: 'JetBrains Mono', monospace;
     font-size: 11px;
     color: var(--text-secondary, #9ca3af);
     white-space: nowrap;
+}
+
+.requirement-badge.req-all     { color: #4ade80; }
+.requirement-badge.req-partial { color: #fbbf24; }
+.requirement-badge.req-gaps    { color: #f87171; }
+
+/* --- requirement checklist (drawer) ---------------------------------------------------
+   One row per extracted requirement. The status word carries the colour and the row keeps
+   a matching left edge, so the shape of a posting -- three unmets stacked at the top, or a
+   single amber partial -- is readable before any of it is read. */
+
+.req-summary {
+    font-size: 0.8rem;
+    color: var(--text-secondary, #9ca3af);
+    margin-bottom: 0.6rem;
+}
+
+.req-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.req-row {
+    padding: 0.5rem 0.7rem;
+    border-radius: 0 6px 6px 0;
+    border-left: 2px solid rgba(148, 163, 184, 0.35);
+    background: rgba(148, 163, 184, 0.06);
+}
+
+.req-row.req-met     { border-left-color: #4ade80; }
+.req-row.req-partial { border-left-color: #fbbf24; }
+.req-row.req-unmet   { border-left-color: #f87171; }
+
+.req-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 0.25rem;
+}
+
+.req-status {
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-secondary, #9ca3af);
+}
+
+.req-met .req-status     { color: #4ade80; }
+.req-partial .req-status { color: #fbbf24; }
+.req-unmet .req-status   { color: #f87171; }
+
+.req-importance {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-secondary, #9ca3af);
+    opacity: 0.7;
+}
+
+.req-text {
+    color: var(--text-primary, #e8e8ea);
+    font-size: 0.9rem;
+    line-height: 1.45;
+}
+
+/* The model's argument, not the posting's words -- set down a level, the same way
+   `.blocker-why` sits under its quote. */
+.req-evidence {
+    font-size: 0.8rem;
+    color: var(--text-secondary, #9ca3af);
+    line-height: 1.45;
+    margin-top: 0.2rem;
 }
 
 /* What the model understood the job to be. Set apart from the reasoning because it is the
@@ -1754,4 +1834,69 @@ body {
     border-radius: 6px;
     padding: 0.5rem 0.7rem;
     margin-bottom: 0.85rem;
+}
+
+/* =======================================================================================
+ * Server-rendered controls
+ *
+ * The dashboard filter is a form and its one-value controls are links, so several
+ * elements changed tag without changing role: the status and reachability pills are <a>
+ * rather than <button>, a job card is an <a> wrapping the whole card, and the drawer's
+ * close and reset controls are links. These rules restore the button-like presentation
+ * that came free from the old elements.
+ * ===================================================================================== */
+
+a.status-pill,
+a.text-btn,
+a.close-drawer-btn {
+    text-decoration: none;
+}
+
+/* `.text-btn` never had a rule of its own -- it was an unstyled <button> coasting on the
+   browser default. As a link it needs stating. */
+.text-btn {
+    background: none;
+    border: none;
+    padding: 0;
+    cursor: pointer;
+    font-family: var(--font-sans);
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--accent-purple);
+}
+
+.text-btn:hover {
+    color: var(--text-primary);
+}
+
+a.status-pill {
+    display: block;
+    text-align: center;
+}
+
+/* The whole card is the link target, so the inherited anchor colour has to be undone or
+   every title, company and meta line turns link-blue. */
+a.job-card {
+    text-decoration: none;
+    color: inherit;
+}
+
+/* The drawer's action row became a form so status changes can post without JS. It was a
+   flex container before and has to stay one. */
+form.drawer-actions-row {
+    margin: 0;
+}
+
+/* Paging controls. Previously unreachable: the API has always paginated, but the client
+   never sent limit or offset. */
+.feed-pagination {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 18px;
+    padding: 18px 0 4px;
+}
+
+.feed-pagination a {
+    text-decoration: none;
 }

@@ -6,6 +6,36 @@ from datetime import datetime, timedelta, timezone
 from careerradar.core.paths import DB_PATH  # noqa: F401
 
 
+# The two requirement lists are stored as separate JSON columns because the model answers
+# them as separate fields, but they are one table: `core_requirements` carries the
+# importance, `requirement_assessments` carries the status, and the join key is the
+# requirement text the model was told to repeat verbatim. `profile/models.py` validates
+# that repetition and normalises with `strip().casefold()` -- the same normalisation is
+# used here so the dashboard and the validator cannot disagree about which requirement is
+# which.
+def _requirement_summary(core, assessments):
+    """Must-have counts for one verdict, or None when there is nothing to count.
+
+    None rather than a zeroed dict: a verdict written before the ordinal schema has no
+    requirement extraction at all, and "0 of 0 must-haves met" would read as a finding
+    about the posting rather than about the row's age.
+    """
+    if not core:
+        return None
+    status = {a.get("requirement", "").strip().casefold(): a.get("status")
+              for a in assessments or []}
+    counts = {"met": 0, "partial": 0, "unmet": 0, "unassessed": 0}
+    for requirement in core:
+        if requirement.get("importance") != "must_have":
+            continue
+        counts[status.get(requirement.get("requirement", "").strip().casefold())
+               or "unassessed"] += 1
+    total = sum(counts.values())
+    if not total:
+        return None
+    return {"must_total": total, **{f"must_{k}": v for k, v in counts.items()}}
+
+
 def _utcnow():
     return datetime.now(timezone.utc).isoformat()
 
@@ -49,7 +79,7 @@ class Database:
                    access=None, include_duplicates=False, min_score=None,
                    verdict=None, pipeline_state=None, min_fit_score=None,
                    eligibility=None, role_match=None, capability_match=None,
-                   max_tier=None, liveness=None,
+                   max_tier=None, liveness=None, job_id=None,
                    sort="fit", limit=200, offset=0):
         """Filtered, paginated posting list for the dashboard.
 
@@ -92,6 +122,12 @@ class Database:
         """
         params = []
 
+        # Fetching one posting reuses this method so that the drawer sees exactly the row
+        # shape the feed does -- the same verdict join, the same JSON decoding, the same
+        # requirement summary. A second bespoke query is how the two drifted apart before.
+        if job_id is not None:
+            query += " AND jobs.id = ?"
+            params.append(job_id)
         if not include_duplicates:
             query += " AND duplicate_of IS NULL"
         for column, value in (
@@ -135,8 +171,15 @@ class Database:
             job["matched_skills"] = (
                 json.loads(row["matched_skills"]) if row["matched_skills"] else []
             )
-            for field in ("hard_blockers", "key_gaps", "strengths"):
+            for field in ("hard_blockers", "key_gaps", "strengths",
+                          "core_requirements", "requirement_assessments"):
                 job[field] = json.loads(job[field]) if job.get(field) else []
+            # Derived here, not in the frontend: the join is on normalised requirement text
+            # and the normalisation has to match the validator in `profile/models.py`. One
+            # implementation, server-side, where the rule already lives.
+            job["requirement_summary"] = _requirement_summary(
+                job["core_requirements"], job["requirement_assessments"]
+            )
             jobs.append(job)
 
         return {

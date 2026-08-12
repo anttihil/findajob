@@ -1,10 +1,14 @@
 import json
 import os
+from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from fastapi import BackgroundTasks, FastAPI, HTTPException, Query, Request
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from fastapi import BackgroundTasks, FastAPI, Form, HTTPException, Query, Request
+from fastapi.responses import (
+    HTMLResponse, JSONResponse, RedirectResponse,
+)
 from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, ConfigDict
 
 from careerradar.market.analytics import MarketAnalytics
@@ -74,7 +78,8 @@ async def restrict_to_owner(request: Request, call_next):
     )
 
 
-from careerradar.core.paths import FRONTEND_DIR, REPO_ROOT
+from careerradar.core.paths import FRONTEND_DIR, REPO_ROOT, TEMPLATE_DIR
+from careerradar.web import rendering
 
 BASE_DIR = REPO_ROOT
 
@@ -312,23 +317,38 @@ def get_profile_versions():
 
 # --- Company dossiers ------------------------------------------------------------------
 
+def dossier_for(db, company: Optional[str]) -> Optional[Dict[str, Any]]:
+    """The deep-research dossier for one company, or None.
+
+    Factored out so the drawer renders the dossier from the same read the JSON endpoint
+    serves. The drawer used to fetch this itself and swallow every failure in a bare
+    `catch`, which meant "no dossier" and "the request broke" looked identical.
+    """
+    from careerradar.search.normalizer import normalize_company
+
+    if not company:
+        return None
+    row = db.conn.execute(
+        "SELECT * FROM company_dossiers WHERE company_normalized = ? "
+        "OR company_display = ?",
+        (normalize_company(company), company),
+    ).fetchone()
+    if row is None:
+        return None
+    record = dict(row)
+    for field in ("intel_json", "contacts_json", "nearby_jobs_json", "sources_json"):
+        record[field.removesuffix("_json")] = json.loads(record.pop(field) or "null")
+    return record
+
+
 @app.get("/api/companies/{company}/dossier")
 def get_company_dossier(company: str):
     """The deep-research dossier for one company, keyed on its normalized name."""
-    from careerradar.search.normalizer import normalize_company
-
     db = get_db()
     try:
-        row = db.conn.execute(
-            "SELECT * FROM company_dossiers WHERE company_normalized = ? "
-            "OR company_display = ?",
-            (normalize_company(company), company),
-        ).fetchone()
-        if row is None:
+        record = dossier_for(db, company)
+        if record is None:
             raise HTTPException(status_code=404, detail="No dossier for this company")
-        record = dict(row)
-        for field in ("intel_json", "contacts_json", "nearby_jobs_json", "sources_json"):
-            record[field.removesuffix("_json")] = json.loads(record.pop(field) or "null")
         return record
     finally:
         db.close()
@@ -444,12 +464,129 @@ def get_digest_content(filename: str):
 os.makedirs(os.path.join(FRONTEND_DIR, "css"), exist_ok=True)
 os.makedirs(os.path.join(FRONTEND_DIR, "js"), exist_ok=True)
 
-app.mount("/static", StaticFiles(directory=FRONTEND_DIR), name="static")
+# `no-cache` means "store it, but revalidate before every use" -- not "do not store".
+# Both responses already carry an ETag, so revalidation costs a 304 with an empty body on
+# a loopback connection.
+#
+# Without it the assets under /static send no Cache-Control at all, which leaves a browser
+# free to apply *heuristic* freshness and serve them without asking. The page and its
+# modules then drift apart independently, and a cached module paired with freshly rendered
+# markup is a real, observed breakage: the script reaches for an element the HTML does not
+# contain and the exception aborts everything after it. Files that are only correct as a
+# matched set must be revalidated as one.
+#
+# The page itself is rendered per request now rather than served from disk, so it carries
+# the header for the same reason: it names the module URLs that must not be stale.
+CACHE_HEADERS = {"Cache-Control": "no-cache"}
 
 
-@app.get("/")
-def serve_home():
-    index_path = os.path.join(FRONTEND_DIR, "index.html")
-    if os.path.exists(index_path):
-        return FileResponse(index_path)
-    return HTMLResponse("<h1>Frontend dashboard index.html not found yet.</h1>")
+class RevalidatedStaticFiles(StaticFiles):
+    """StaticFiles that asks before reusing anything. See CACHE_HEADERS."""
+
+    def file_response(self, *args, **kwargs):
+        response = super().file_response(*args, **kwargs)
+        response.headers.update(CACHE_HEADERS)
+        return response
+
+
+app.mount("/static", RevalidatedStaticFiles(directory=FRONTEND_DIR), name="static")
+
+
+# --- Server-rendered dashboard -----------------------------------------------------------
+
+templates = Jinja2Templates(directory=TEMPLATE_DIR)
+templates.env.filters["short_date"] = rendering.short_date
+templates.env.filters["hostname"] = rendering.hostname
+
+
+@app.get("/", response_class=HTMLResponse)
+def dashboard(
+    request: Request,
+    # These names are the query parameters of `Database.query_jobs`, deliberately. The
+    # filter form posts them straight through, so a field whose name is wrong fails here
+    # at validation instead of being silently dropped -- which is how the old dashboard
+    # shipped a sort control that sent nothing and a resume filter that filtered nothing.
+    status: str = Query("unread", pattern="^(unread|saved|applied|rejected)$"),
+    access: str = Query("", pattern="^(commutable|remote|relocation)?$"),
+    country: str = "",
+    min_score: Optional[int] = Query(None, ge=0, le=100),
+    max_tier: Optional[int] = Query(None, ge=1, le=10),
+    verdict: str = Query("", pattern="^(strong|worth_applying|stretch|poor_fit|mismatch)?$"),
+    eligibility: str = Query("", pattern="^(eligible|conditional|blocked)?$"),
+    sort: str = Query("fit", pattern="^(fit|fit_score|match_score|date_found)$"),
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    # Which posting the drawer is showing, if any. The drawer is page state rather than
+    # client state: it is in the URL, so it survives a reload and the back button closes
+    # it. Opening one used to depend on the card list still being in a JS array.
+    job: Optional[int] = None,
+):
+    query = rendering.FilterQuery({
+        "status": status, "access": access, "country": country,
+        "min_score": min_score, "max_tier": max_tier, "verdict": verdict,
+        "eligibility": eligibility, "sort": sort, "limit": limit, "offset": offset,
+    })
+
+    db = get_db()
+    try:
+        page = db.query_jobs(**query.as_db_kwargs())
+        stats = db.get_stats()
+
+        # Fetched by id rather than searched for in the page above: the posting a link
+        # points at need not be on the page the link was rendered from, and after a status
+        # change it usually is not.
+        drawer_job = None
+        dossier = None
+        if job is not None:
+            match = db.query_jobs(job_id=job, status=None, limit=1)["jobs"]
+            drawer_job = match[0] if match else None
+            if drawer_job is not None:
+                dossier = dossier_for(db, drawer_job.get("company"))
+
+        return templates.TemplateResponse(
+            request,
+            "base.html",
+            {
+                "query": query,
+                "jobs": page["jobs"],
+                "total": page["total"],
+                "has_more": page["has_more"],
+                "stats": stats,
+                "countries": rendering.country_choices(load_roles()),
+                "today": datetime.now().strftime("%B %-d, %Y"),
+                "job": drawer_job,
+                "dossier": dossier,
+                "requirement_rows": (
+                    rendering.requirement_rows(drawer_job) if drawer_job else []
+                ),
+                "highlighted_description": (
+                    rendering.highlight_terms(
+                        drawer_job.get("description"),
+                        drawer_job.get("matched_skills") or [],
+                    ) if drawer_job else ""
+                ),
+            },
+            headers=CACHE_HEADERS,
+        )
+    finally:
+        db.close()
+
+
+@app.post("/jobs/{job_id}/status")
+def set_job_status_form(job_id: int, status: str = Form(...), next: str = "/"):
+    """Status change from the drawer, as a plain form post.
+
+    Redirects back to the URL the form came from so the drawer stays open on the posting
+    you were reading. The JSON endpoint at PUT /api/jobs/{id}/status is unchanged and is
+    what the CLI and any script should use; this exists so the drawer needs no JS.
+    """
+    if status not in ("unread", "saved", "applied", "rejected"):
+        raise HTTPException(status_code=400, detail="Invalid status value")
+    db = get_db()
+    try:
+        if not db.update_job_status(job_id, status):
+            raise HTTPException(status_code=404, detail="Job not found")
+    finally:
+        db.close()
+    # 303 so the browser follows with GET; a 307 would repeat the POST on reload.
+    return RedirectResponse(next or "/", status_code=303)

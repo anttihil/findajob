@@ -1,0 +1,29 @@
+{# The requirement checklist, which is what the capability ordinal was read off. The
+   ordinal says "most_with_gaps"; this says which requirement, what the posting's own words
+   asked for, and what in the profile answers it -- so a judgement can be disagreed with
+   one line at a time rather than as a whole.
+
+   `requirement_rows` is joined and ordered in `rendering.requirement_rows`. #}
+
+{% if job.requirement_summary %}
+  <p class="req-summary">{{ job.requirement_summary.must_met }} of
+    {{ job.requirement_summary.must_total }} must-haves met</p>
+{% endif %}
+
+<ul class="req-list">
+  {%- for row in requirement_rows %}
+    {# The posting's own phrasing rides along as a tooltip rather than a second line: it is
+       what makes the extraction checkable, but showing both in full turns a six-entry list
+       into a wall. #}
+    <li class="req-row req-{{ row.status }}" title="{{ row.quote }}">
+      <div class="req-head">
+        <span class="req-status">{{ row.status }}</span>
+        <span class="req-importance">{{ row.importance | replace('_', ' ') }}</span>
+      </div>
+      <div class="req-text">{{ row.requirement }}</div>
+      {%- if row.evidence %}
+        <div class="req-evidence">{{ row.evidence }}</div>
+      {%- endif %}
+    </li>
+  {%- endfor %}
+</ul>

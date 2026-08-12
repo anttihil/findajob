@@ -22,9 +22,13 @@ Group=careerradar
 
 WorkingDirectory=/opt/careerradar
 
-# NOT run.py: it starts uvicorn with reload=True, whose file watcher kills the server on
-# any edit under the tree and forks a reloader child that confuses systemd's process
-# tracking. run.py stays the development entry point.
+# uvicorn is invoked directly rather than through `careerradar web --reload`: the reload
+# watcher kills the server on any edit under the tree and forks a reloader child that
+# confuses systemd's process tracking. The CLI stays the development entry point.
+#
+# The module path is `careerradar.web.app:app`. It was `backend.main:app` until the
+# package reorganization moved it, and because `backend/` still holds a __pycache__ the
+# breakage looked like an import error rather than a missing directory.
 #
 # The venv interpreter is invoked directly rather than through `uv run`, so a boot-time
 # start cannot block on dependency resolution or a network round trip.
@@ -33,7 +37,7 @@ WorkingDirectory=/opt/careerradar
 # https://<host>.ts.net/ at the tailnet root. This one is reached on :9443 instead --
 # see README, Deployment.
 ExecStart=/opt/careerradar/.venv/bin/uvicorn \
-    backend.main:app --host 127.0.0.1 --port 8010
+    careerradar.web.app:app --host 127.0.0.1 --port 8010
 
 Restart=on-failure
 RestartSec=5s

@@ -1,0 +1,53 @@
+<section id="tab-market" class="tab-pane">
+    <div class="glass-card">
+        <div class="card-header-row">
+            <h3><i class="fa-solid fa-chart-simple text-purple"></i>
+                Role supply</h3>
+            <div class="inline-controls">
+                <select id="market-source" class="form-select-sm">
+                    <option value="indeed">Indeed</option>
+                    <option value="linkedin">LinkedIn</option>
+                </select>
+                <select id="market-window" class="form-select-sm">
+                    <option value="14">Last 14 days</option>
+                    <option value="30">Last 30 days</option>
+                    <option value="90">Last 90 days</option>
+                </select>
+            </div>
+        </div>
+        <p class="card-note">
+            New postings per day, not totals. Absolute supply is not estimable —
+            job boards never report how many postings exist, and every result set
+            is truncated. A bar with an arrow cap and a “≥” label is a
+            <strong>lower bound</strong>: the board cut us off, so there were
+            more.
+        </p>
+        <p class="card-note">
+            Each location is charted separately on purpose. Flow is only
+            comparable within one location and source, so a single pooled ranking
+            would be the one comparison that isn’t valid.
+        </p>
+        <div id="market-panels" class="market-panels">
+            <p class="chart-empty">Loading…</p>
+        </div>
+    </div>
+
+    <div class="glass-card">
+        <h3><i class="fa-solid fa-table-cells text-purple"></i>
+            Role family × location</h3>
+        <p class="card-note">Postings per day. A dot means that cell has not been
+            scraped yet — not that demand is zero.</p>
+        <div id="market-heatmap" class="heatmap-wrap"></div>
+    </div>
+
+    <div class="glass-card">
+        <div class="card-header-row">
+            <h3><i class="fa-solid fa-satellite-dish text-purple"></i>
+                Scrape coverage</h3>
+            <span id="coverage-summary" class="results-count"></span>
+        </div>
+        <p class="card-note">Per-cell health. This is where a silently degrading
+            scraper becomes visible.</p>
+        <div id="coverage-table" class="coverage-table-wrap"></div>
+    </div>
+</section>

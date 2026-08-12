@@ -1,0 +1,56 @@
+<section id="tab-skills" class="tab-pane">
+    <div id="skills-banner"></div>
+
+    <div class="glass-card">
+        <div class="card-header-row">
+            <h3><i class="fa-solid fa-arrow-trend-up text-purple"></i>
+                Skills to acquire next</h3>
+            <div class="inline-controls">
+                <select id="skills-window" class="form-select-sm">
+                    <option value="90">Last 90 days</option>
+                    <option value="30">Last 30 days</option>
+                    <option value="14">Last 14 days</option>
+                </select>
+                <select id="skills-weighting" class="form-select-sm">
+                    <option value="interest">Weight: my target mix</option>
+                    <option value="observed">Unweighted (diagnostic)</option>
+                </select>
+            </div>
+        </div>
+        <div id="skills-tiles" class="stat-tile-row"></div>
+        <div id="skills-coverage" class="coverage-strip"></div>
+        <p class="card-note">
+            Ranked by <strong>blocking gap</strong> — how often a skill you lack
+            appears in postings you <em>otherwise</em> match well. That is a more
+            actionable signal than raw popularity, and it is weighted down for
+            skills that take longer to learn.
+        </p>
+        <div id="gap-list" class="gap-list"></div>
+    </div>
+
+    <div class="two-col-grid">
+        <div class="glass-card">
+            <h3><i class="fa-solid fa-circle-check text-green"></i>
+                Validated strengths</h3>
+            <p class="card-note">On your resume and genuinely in demand.</p>
+            <div id="strengths-list" class="gap-list"></div>
+        </div>
+        <div class="glass-card">
+            <h3><i class="fa-solid fa-circle-minus"></i> Dead weight</h3>
+            <p class="card-note">On your resume, but almost nobody asks for it.
+                Resume space with little market return.</p>
+            <div id="dead-weight-list" class="gap-list"></div>
+        </div>
+    </div>
+
+    <div class="glass-card">
+        <div class="card-header-row">
+            <h3><i class="fa-solid fa-eye-slash"></i> Suppressed</h3>
+            <span id="suppressed-count" class="results-count"></span>
+        </div>
+        <p class="card-note">Reported rather than hidden: these skills lack the
+            sample size, company spread, or coverage to state a number honestly.
+        </p>
+        <div id="suppressed-list" class="suppressed-list"></div>
+    </div>
+</section>

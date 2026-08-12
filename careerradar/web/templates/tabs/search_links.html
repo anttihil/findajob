@@ -1,0 +1,61 @@
+<section id="tab-search-links" class="tab-pane">
+    <div class="glass-card instruction-box">
+        <h2><i class="fa-solid fa-link text-purple"></i> Direct Job Board Search Link Generator</h2>
+        <p>Scraping job sites like Indeed and LinkedIn directly can hit CAPTCHAs. This module generates optimized boolean search strings from the active profile's strongest skills and lets you search directly on the boards in your browser with one click.</p>
+    </div>
+
+    <div class="link-generator-card">
+        <div class="form-grid-2">
+            <div class="form-group">
+                <label for="link-country-select">Target Country</label>
+                <select id="link-country-select" class="form-select">
+                    {# Derived from data/roles.yaml rather than hardcoded. This list was
+                       spelled out here, again in the dashboard filter, and built a third
+                       time in JS from config -- three copies of one fact. #}
+                    {%- for code, label in countries %}
+                    <option value="{{ code }}">{{ label }}</option>
+                    {%- endfor %}
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="link-query-select">Target Role Title</label>
+                <select id="link-query-select" class="form-select">
+                    <!-- Populated dynamically -->
+                </select>
+            </div>
+        </div>
+        
+        <button id="generate-links-btn" class="primary-btn mt-4">
+            <i class="fa-solid fa-wand-magic-sparkles"></i> Generate Custom Search Links
+        </button>
+
+        <div id="generated-links-results" class="generated-links-results hide">
+            <div class="divider"></div>
+            <h4 class="section-subtitle">Search Results for <span id="gen-role-title"></span> in <span id="gen-country"></span></h4>
+            
+            <div class="search-query-display">
+                <span>Boolean Search Phrase Used:</span>
+                <code id="gen-query-code"></code>
+            </div>
+
+            <div class="link-buttons-grid">
+                <a href="#" id="linkedin-search-link" target="_blank" class="board-link linkedin">
+                    <i class="fa-brands fa-linkedin"></i>
+                    <div class="link-label">
+                        <strong>Search on LinkedIn</strong>
+                        <span>Opens pre-filled search in a new tab</span>
+                    </div>
+                    <i class="fa-solid fa-up-right-from-square arrow-out"></i>
+                </a>
+                <a href="#" id="indeed-search-link" target="_blank" class="board-link indeed">
+                    <i class="fa-solid fa-circle-info"></i>
+                    <div class="link-label">
+                        <strong>Search on Indeed</strong>
+                        <span>Opens pre-filled search in a new tab</span>
+                    </div>
+                    <i class="fa-solid fa-up-right-from-square arrow-out"></i>
+                </a>
+            </div>
+        </div>
+    </div>
+</section>

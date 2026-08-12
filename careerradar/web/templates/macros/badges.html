@@ -1,0 +1,86 @@
+{# Badge vocabulary, ported from the renderers that used to live in app.js.
+
+   These were `tierBadge`, `tierTitle`, `requirementBadge` and `accessBadge` -- pure
+   functions of a job row that built HTML by string concatenation, each one calling a
+   hand-rolled `escapeHTML` at every interpolation and silently omitting it in a few
+   places. Jinja autoescapes by default, so the omissions are no longer expressible. #}
+
+{# Where the posting sits in the partial order, not a percent. Tier 1 dominates everything
+   below it; equal tiers are genuinely incomparable rather than equal. #}
+{% macro tier_badge(job) -%}
+  {%- if job.eligibility == 'blocked' -%}
+    <span class="match-badge badge-blocked" title="A requirement you cannot meet">blocked</span>
+  {%- elif job.pareto_tier is none -%}
+    <span class="match-badge badge-unscored">unscored</span>
+  {%- else -%}
+    {%- set cls = 'badge-top' if job.pareto_tier <= 2
+                  else ('badge-good' if job.pareto_tier <= 4 else 'badge-far') -%}
+    <span class="match-badge {{ cls }}" title="{{ tier_title(job) }}">tier
+      {{- ' ' }}{{ job.pareto_tier }}{{ ' *' if job.eligibility == 'conditional' }}</span>
+  {%- endif -%}
+{%- endmacro %}
+
+{% macro tier_title(job) -%}
+  {{- [job.role_match, job.capability_match, job.seniority_gap]
+      | select | join(' · ') | replace('_', ' ') -}}
+{%- endmacro %}
+
+{# Must-haves met, out of the must-haves this posting actually states. The denominator is
+   the model's own extraction from the posting -- each entry quotes the phrase it came
+   from -- so it is a property of the job rather than of our taxonomy.
+
+   The summary is computed in `database._requirement_summary`, because the join is on
+   normalised requirement text and that normalisation has to match the validator in
+   `profile/models.py`. One implementation, server-side. #}
+{% macro requirement_badge(job) -%}
+  {%- set s = job.requirement_summary -%}
+  {%- if s -%}
+    {# Anything short of `met` is named rather than folded into the numerator: "4/6" with
+       two partials is a different application from "4/6" with two unmets. #}
+    {%- set rest = [
+        (s.must_partial ~ ' partial') if s.must_partial else '',
+        (s.must_unmet ~ ' unmet') if s.must_unmet else '',
+        (s.must_unassessed ~ ' unassessed') if s.must_unassessed else '',
+    ] | select | join(', ') -%}
+    {%- set cls = 'req-all' if s.must_met == s.must_total
+                  else ('req-gaps' if s.must_unmet else 'req-partial') -%}
+    <span class="requirement-badge {{ cls }}"
+          title="must-haves this posting states{{ ' — ' ~ rest if rest }}"
+      >{{ s.must_met }}/{{ s.must_total }} must-haves</span>
+  {%- endif -%}
+{%- endmacro %}
+
+{# Answers "could I take this without moving?" at a glance, which for a Los Angeles-based
+   search matters before the match score does. #}
+{% set ACCESS_BADGES = {
+    'commutable': ('fa-house', 'LA area', 'is-commutable',
+                   'Within commuting distance — no relocation or remote arrangement needed'),
+    'remote':     ('fa-wifi', 'Remote', 'is-remote',
+                   'Remote, so location is not a constraint'),
+    'relocation': ('fa-plane', 'Relocate', 'is-relocation',
+                   'Onsite somewhere you would have to move to'),
+} %}
+
+{% macro access_badge(access) -%}
+  {%- set badge = ACCESS_BADGES.get(access) -%}
+  {%- if badge -%}
+    <span class="access-badge {{ badge[2] }}" title="{{ badge[3] }}"
+      ><i class="fa-solid {{ badge[0] }}"></i> {{ badge[1] }}</span>
+  {%- endif -%}
+{%- endmacro %}
+
+{% set VERDICT_LABELS = {
+    'strong': 'Strong match',
+    'worth_applying': 'Worth applying',
+    'stretch': 'Stretch',
+    'poor_fit': 'Poor fit',
+    'mismatch': 'Mismatch',
+} %}
+
+{% macro bullet_list(items, class_name='') -%}
+  {%- if items -%}
+    <ul class="verdict-list {{ class_name }}">
+      {%- for item in items %}<li>{{ item }}</li>{% endfor -%}
+    </ul>
+  {%- endif -%}
+{%- endmacro %}

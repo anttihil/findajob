@@ -1,0 +1,98 @@
+{% import "macros/badges.html" as badges %}
+
+{# The job detail drawer. Ported from `openJobDrawer` plus `renderVerdict`,
+   `renderRequirements` and `renderDossier`.
+
+   The JS version wrapped every section in a `drawerSection(name, render)` try/catch,
+   because a NULL column reaching one renderer used to throw and abort the rest of the
+   drawer -- leaving a half-drawn panel and a console message nobody reads. Jinja renders
+   undefined as empty rather than throwing, so the guard has nothing left to guard. #}
+
+<div class="drawer-overlay {{ 'active' if job }}" id="drawer-overlay"></div>
+<div class="job-drawer {{ 'active' if job }}" id="job-drawer">
+{% if job %}
+  <a class="close-drawer-btn" href="{{ query.without_job() }}" id="close-drawer-btn">
+    <i class="fa-solid fa-xmark"></i>
+  </a>
+
+  <div class="drawer-header">
+    <div class="drawer-badge-row">
+      {# The tier leads, because it is the honest ranking: it orders only where one posting
+         dominates another on every dimension. The score beside it is a projection through
+         a weighting nothing validates, kept because some views need one number. #}
+      <span class="match-badge-lg" id="drawer-score">
+        {%- if job.pareto_tier is not none %}tier {{ job.pareto_tier }}
+        {%- elif job.fit_score is not none %}{{ job.fit_score }} fit
+        {%- else %}Not yet scored{% endif -%}
+      </span>
+      <span class="source-badge" id="drawer-source">{{ job.source }}</span>
+    </div>
+    <h2 id="drawer-title">{{ job.title }}</h2>
+    <div class="drawer-meta">
+      <span><i class="fa-solid fa-building"></i> {{ job.company }}</span>
+      <span><i class="fa-solid fa-location-dot"></i> {{ job.location or job.country }}</span>
+    </div>
+  </div>
+
+  {# Status changes are a POST that redirects back to this same URL, so the drawer stays
+     open on exactly the posting you were reading. #}
+  <form class="drawer-actions-row" method="post"
+        action="/jobs/{{ job.id }}/status?next={{ query.with_job(job.id) | urlencode }}">
+    <button type="submit" name="status" value="saved"
+            class="action-pill text-green {{ 'active' if job.status == 'saved' }}">
+      <i class="fa-solid fa-bookmark"></i> Save Job
+    </button>
+    <button type="submit" name="status" value="applied"
+            class="action-pill text-blue {{ 'active' if job.status == 'applied' }}">
+      <i class="fa-solid fa-paper-plane"></i> Mark Applied
+    </button>
+    <button type="submit" name="status" value="rejected"
+            class="action-pill text-red {{ 'active' if job.status == 'rejected' }}">
+      <i class="fa-solid fa-trash-can"></i> Reject
+    </button>
+    <a href="{{ job.url or '#' }}" target="_blank" rel="noopener"
+       class="action-pill-apply" id="drawer-apply-link">
+      Apply on Site <i class="fa-solid fa-up-right-from-square"></i>
+    </a>
+  </form>
+
+  <div class="drawer-body">
+    <div class="drawer-section">
+      <h4>Verdict</h4>
+      <div id="drawer-verdict">{% include "partials/verdict.html" %}</div>
+    </div>
+
+    {% if requirement_rows %}
+    <div class="drawer-section" id="drawer-requirements-section">
+      <h4>Requirements</h4>
+      <div id="drawer-requirements">{% include "partials/requirements.html" %}</div>
+    </div>
+    {% endif %}
+
+    {% if dossier %}
+    <div class="drawer-section" id="drawer-dossier-section">
+      <h4>Company Dossier</h4>
+      <div id="drawer-dossier">{% include "partials/dossier.html" %}</div>
+    </div>
+    {% endif %}
+
+    <div class="drawer-section">
+      <h4>Keyword Overlap</h4>
+      <div class="skills-tags-container" id="drawer-skills-list">
+        {%- for skill in job.matched_skills %}
+          <span class="skill-tag text-purple">{{ skill }}</span>
+        {%- else %}
+          <span class="skill-tag">No direct keyword overlap</span>
+        {%- endfor %}
+      </div>
+    </div>
+
+    <div class="drawer-section">
+      <h4>Job Description</h4>
+      {# Already escaped, then marked up with <span class="highlight-term"> around each
+         matched skill -- see `rendering.highlight_terms`. #}
+      <div class="job-desc-content" id="drawer-description">{{ highlighted_description }}</div>
+    </div>
+  </div>
+{% endif %}
+</div>

@@ -1,0 +1,194 @@
+{% import "macros/job_card.html" as cards %}
+
+<section id="tab-dashboard" class="tab-pane active">
+
+  <div class="stats-grid">
+    <div class="stat-card">
+      <div class="stat-icon purple"><i class="fa-solid fa-magnifying-glass"></i></div>
+      <div class="stat-info">
+        <span class="stat-label">Total Crawled</span>
+        <h3 id="stat-total">{{ stats.total_jobs or 0 }}</h3>
+      </div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-icon green"><i class="fa-solid fa-bookmark"></i></div>
+      <div class="stat-info">
+        <span class="stat-label">Saved Matches</span>
+        <h3 id="stat-saved">{{ stats.status_counts.get('saved', 0) }}</h3>
+      </div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-icon blue"><i class="fa-solid fa-paper-plane"></i></div>
+      <div class="stat-info">
+        <span class="stat-label">Applied</span>
+        <h3 id="stat-applied">{{ stats.status_counts.get('applied', 0) }}</h3>
+      </div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-icon gold"><i class="fa-solid fa-star"></i></div>
+      <div class="stat-info">
+        {# A predicate -- eligible, same or adjacent role, meets or better -- so the tile
+           states what it counted. It replaced a keyword coverage ratio that measured how
+           much of each posting the taxonomy recognised as much as it measured fit. #}
+        <span class="stat-label">Worth Applying To</span>
+        <h3 id="stat-avg-score">{{ stats.strong_matches or 0 }}</h3>
+      </div>
+    </div>
+  </div>
+
+  <div id="sync-error-banner" class="sync-error-banner glass-card hide">
+    <div class="banner-title">
+      <span><i class="fa-solid fa-triangle-exclamation text-gold"></i> API Sync Warnings</span>
+      <button id="close-banner-btn" class="close-banner-btn"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+    <ul id="sync-errors-list" class="sync-errors-list"></ul>
+  </div>
+
+  <div class="feed-layout">
+    {# The filter sidebar is a form, and the form is the only copy of the filter state.
+       Controls that set one value at a time are links carrying the whole current filter;
+       the rest are fields submitted together. Either way the server reads exactly what
+       the URL says, so a control cannot render as active while filtering on something
+       else. #}
+    <form class="filter-sidebar" method="get" action="/">
+      {# Carried so that submitting the selects below does not drop the pill selections. #}
+      <input type="hidden" name="status" value="{{ query.status }}">
+      <input type="hidden" name="access" value="{{ query.access }}">
+
+      <div class="filter-header">
+        <h3><i class="fa-solid fa-filter"></i> Filters</h3>
+        <a href="/" class="text-btn" id="clear-filters-btn">Reset</a>
+      </div>
+
+      <div class="filter-group">
+        <label>Application Status</label>
+        <div class="status-toggle-grid">
+          {%- for value, label in [('unread', 'Unread'), ('saved', 'Saved'),
+                                   ('applied', 'Applied'), ('rejected', 'Rejected')] %}
+            <a class="status-pill {{ 'active' if query.is_active('status', value) }}"
+               href="{{ query.url(status=value) }}">{{ label }}</a>
+          {%- endfor %}
+        </div>
+      </div>
+
+      <div class="filter-group">
+        <label>Reachability</label>
+        {# These pills are why the conversion happened. They shared the `.status-pill`
+           selector with the row above, so `setupFilters` bound its handler to them too:
+           every click fired two `fetchJobs()` calls, the first carrying the previous
+           reachability value, and whichever response resolved last won. There is no
+           handler and no second request now -- the link is the filter. #}
+        <div class="status-toggle-grid access-toggle-grid">
+          {%- for value, label, tip in [
+              ('', 'All', 'Every posting'),
+              ('commutable', 'LA area', 'Within commuting distance of Los Angeles — no relocation, no remote arrangement needed'),
+              ('remote', 'Remote', 'Remote, so location is not a constraint'),
+              ('relocation', 'Relocate', 'Onsite somewhere you would have to move to')] %}
+            <a class="status-pill {{ 'active' if query.is_active('access', value) }}"
+               href="{{ query.url(access=value) }}" title="{{ tip }}">{{ label }}</a>
+          {%- endfor %}
+        </div>
+      </div>
+
+      <div class="filter-group">
+        <label for="filter-country">Country</label>
+        <select id="filter-country" name="country" class="form-select"
+                onchange="this.form.submit()">
+          <option value="">All Countries</option>
+          {%- for code, label in countries %}
+            <option value="{{ code }}" {{ 'selected' if query.country == code }}>{{ label }}</option>
+          {%- endfor %}
+        </select>
+      </div>
+
+      <div class="filter-group">
+        <label for="filter-tier">Pareto tier</label>
+        {# Tier 1 dominates everything below it. Asking for the top N layers does not
+           assert an exchange rate between the dimensions, which a threshold on the
+           projected score does. This control had no equivalent in the JS dashboard even
+           though `query_jobs` has accepted `max_tier` all along. #}
+        <select id="filter-tier" name="max_tier" class="form-select"
+                onchange="this.form.submit()">
+          <option value="">Any tier</option>
+          {%- for tier in range(1, 11) %}
+            <option value="{{ tier }}" {{ 'selected' if query.max_tier == tier }}>
+              Tier {{ tier }} and better</option>
+          {%- endfor %}
+        </select>
+      </div>
+
+      <div class="filter-group">
+        <div class="slider-header">
+          <label for="filter-score">Min Match Score</label>
+          <span id="score-val">{{ query.min_score if query.min_score is not none else 0 }}%</span>
+        </div>
+        <input type="range" id="filter-score" name="min_score" min="0" max="100"
+               value="{{ query.min_score if query.min_score is not none else 0 }}"
+               class="form-slider"
+               oninput="document.getElementById('score-val').textContent = this.value + '%'"
+               onchange="this.form.submit()">
+      </div>
+
+      <noscript>
+        <button type="submit" class="save-btn">Apply filters</button>
+      </noscript>
+    </form>
+
+    <div class="feed-main">
+      <div class="feed-header">
+        <span id="results-count" class="results-count">
+          {{ total }} matching position{{ '' if total == 1 else 's' }} found
+        </span>
+        <div class="feed-sort">
+          <label for="sort-by">Sort by</label>
+          {# The old dropdown offered "score" and "date", neither of which matched the
+             API's accepted values, and `fetchJobs` never sent the parameter at all --
+             changing it re-fetched an identically-sorted list. #}
+          <form method="get" action="/">
+            {%- for key, value in query.hidden_fields(exclude='sort') %}
+              <input type="hidden" name="{{ key }}" value="{{ value }}">
+            {%- endfor %}
+            <select id="sort-by" name="sort" class="form-select-sm" onchange="this.form.submit()">
+              <option value="fit" {{ 'selected' if query.sort == 'fit' }}>Fit (eligibility, then tier)</option>
+              <option value="fit_score" {{ 'selected' if query.sort == 'fit_score' }}>Fit score</option>
+              <option value="match_score" {{ 'selected' if query.sort == 'match_score' }}>Keyword match</option>
+              <option value="date_found" {{ 'selected' if query.sort == 'date_found' }}>Date found</option>
+            </select>
+          </form>
+        </div>
+      </div>
+
+      <div id="job-cards-container" class="job-cards-grid">
+        {%- for job in jobs %}
+          {{ cards.job_card(job, query) }}
+        {%- else %}
+          <div class="no-jobs-card">
+            <i class="fa-solid fa-binoculars"></i>
+            <h3>No matching jobs found</h3>
+            <p>Try adjusting your filters, triggering a new database sync, or relaxing your
+              match threshold.</p>
+          </div>
+        {%- endfor %}
+      </div>
+
+      {# Pagination was unreachable before: `query_jobs` has always paginated and returned
+         `has_more`, but the client never sent limit or offset and ignored the flag, so the
+         feed was pinned to the first 200 rows with no way to see past them. #}
+      {% if total > query.limit %}
+        <nav class="feed-pagination">
+          {% if query.offset > 0 %}
+            <a class="text-btn" href="{{ query.page(query.offset - query.limit) }}">
+              <i class="fa-solid fa-chevron-left"></i> Newer</a>
+          {% endif %}
+          <span class="results-count">
+            {{ query.offset + 1 }}–{{ [query.offset + query.limit, total] | min }} of {{ total }}
+          </span>
+          {% if has_more %}
+            <a class="text-btn" href="{{ query.page(query.offset + query.limit) }}">
+              Older <i class="fa-solid fa-chevron-right"></i></a>
+          {% endif %}
+        </nav>
+      {% endif %}
+    </div>
+  </div>
+</section>

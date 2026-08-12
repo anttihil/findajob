@@ -1,0 +1,69 @@
+<section id="tab-settings" class="tab-pane">
+    <div class="settings-container">
+        <div class="glass-card sync-box">
+            <h3><i class="fa-solid fa-rotate-right"></i> Database Sync Engine</h3>
+            <p>Run a scrape pass now. Postings land unscored; the scoring stage picks them up on its own timer.</p>
+            
+            <div class="sync-actions">
+                <button id="trigger-sync-btn" class="primary-btn-lg">
+                    <i class="fa-solid fa-satellite-dish"></i> Run Scrape Now
+                </button>
+                <div class="sync-progress-indicator hide" id="sync-progress-indicator">
+                    <i class="fa-solid fa-circle-notch fa-spin"></i>
+                    <span>Scrape in progress. Fetching and normalizing postings...</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="glass-card settings-card mt-6">
+            <h3><i class="fa-solid fa-gear"></i> Search Configuration</h3>
+            
+            <form id="settings-form">
+                <div class="form-group mt-4">
+                    <label>Target Countries</label>
+                    {# The list comes from data/roles.yaml, like every other country list
+                       in the UI. JS only ticks the boxes. #}
+                    <div class="checkbox-grid" id="settings-countries-container">
+                        {%- for code, label in countries %}
+                        <label class="checkbox-label">
+                            <input type="checkbox" name="country" value="{{ code }}"> {{ label }} ({{ code }})
+                        </label>
+                        {%- endfor %}
+                    </div>
+                </div>
+
+                <div class="form-group mt-4">
+                    <label>Enabled Crawler Sources</label>
+                    <div class="checkbox-grid" id="settings-sources-container">
+                        <!-- Dynamic source checkboxes -->
+                    </div>
+                </div>
+
+                <div class="form-group mt-4">
+                    <label for="settings-queries">Search Queries / Role Titles (One per line)</label>
+                    <textarea id="settings-queries" rows="5" class="form-textarea"></textarea>
+                </div>
+
+                <div class="form-group mt-4">
+                    <div class="slider-header">
+                        <label for="settings-score">Show postings down to tier</label>
+                        <span id="settings-score-val">10</span>
+                    </div>
+                    <input type="range" id="settings-score" min="1" max="10" class="form-slider">
+                </div>
+
+
+
+                <!-- The Gmail IMAP source was removed: it mutated the mailbox by reading
+                     UNSEEN mail (so runs were not idempotent) and produced zero
+                     rows. Scraping is configured in config.yaml and
+                     data/roles.yaml. -->
+
+
+                <button type="submit" class="save-btn mt-6">
+                    <i class="fa-solid fa-floppy-disk"></i> Save Settings Configuration
+                </button>
+            </form>
+        </div>
+    </div>
+</section>

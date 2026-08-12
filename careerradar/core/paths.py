@@ -34,3 +34,4 @@ ARCHIVE_DIR = os.path.join(REPO_ROOT, "raw_payloads")
 DIGEST_DIR = os.path.join(REPO_ROOT, "digests")
 FRONTEND_DIR = os.path.join(PACKAGE_ROOT, "web", "frontend")
 
+TEMPLATE_DIR = os.path.join(PACKAGE_ROOT, "web", "templates")

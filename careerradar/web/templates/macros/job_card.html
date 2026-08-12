@@ -1,0 +1,42 @@
+{% import "macros/badges.html" as badges %}
+
+{# One posting in the feed. Ported from `renderJobCards`, which also re-sorted the list
+   client-side using a copy of the server's `fit` ordering -- the card list sorted by
+   match_score while the drawer led with fit_score, so the same corpus had two different
+   ideas of "best". The ordering now comes from `_SORTS['fit']` alone.
+
+   The card is a link rather than a click handler: the drawer is page state, so opening one
+   is a navigation the back button understands. #}
+{% macro job_card(job, query) -%}
+<a class="job-card" href="{{ query.with_job(job.id) }}" data-id="{{ job.id }}">
+  <div class="job-card-details">
+    <div class="job-card-header">
+      <h4>{{ job.title }}</h4>
+    </div>
+    <div class="job-company">{{ job.company }}</div>
+    <div class="job-meta-row">
+      <span><i class="fa-solid fa-location-dot"></i> {{ job.location or 'Remote' }}</span>
+      {{ badges.access_badge(job.access) }}
+      <span><i class="fa-solid fa-clock"></i> Found {{ job.date_found | short_date }}</span>
+    </div>
+    <div class="matched-skills-preview">
+      {%- for skill in job.matched_skills[:5] %}
+        <span class="skill-tag-sm">{{ skill }}</span>
+      {%- endfor %}
+      {%- if job.matched_skills | length > 5 %}
+        <span class="skill-tag-sm">+{{ job.matched_skills | length - 5 }} more</span>
+      {%- endif %}
+    </div>
+  </div>
+  <div class="job-card-right">
+    <div class="match-badge-wrap">
+      {%- if job.status != 'unread' %}
+        <span class="job-status-indicator {{ job.status }}">{{ job.status }}</span>
+      {%- endif %}
+      {{ badges.tier_badge(job) }}
+      {{ badges.requirement_badge(job) }}
+    </div>
+    <span class="source-tag">{{ job.source }}</span>
+  </div>
+</a>
+{%- endmacro %}

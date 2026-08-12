@@ -1,0 +1,79 @@
+{% import "macros/badges.html" as badges %}
+
+{% if job.fit_score is none or not job.verdict %}
+  <p class="verdict-empty">Not scored yet. This posting is queued
+    (<code>{{ job.pipeline_state or 'new' }}</code>); the scoring stage will pick it up on
+    its next run.</p>
+{% else %}
+  <div class="verdict-head">
+    <span class="verdict-badge verdict-{{ job.verdict }}">
+      {{ badges.VERDICT_LABELS.get(job.verdict, job.verdict) }}
+    </span>
+    {% if job.pareto_tier is not none %}
+      <span class="verdict-score" title="1 dominates everything below it"
+        >tier {{ job.pareto_tier }}</span>
+    {% else %}
+      <span class="verdict-score">{{ job.fit_score }}/100</span>
+    {% endif %}
+  </div>
+
+  {# What the model understood the job to BE. The single most useful line in the drawer: it
+     is where a posting judged on shared vocabulary rather than shared work gives itself
+     away. #}
+  {% if job.role_summary %}
+    <p class="verdict-summary">{{ job.role_summary }}</p>
+  {% endif %}
+
+  {# The five answers the score was computed from. Showing them rather than the number
+     alone is the point of the whole schema: every score decomposes into named judgements,
+     each of which can be disagreed with individually. #}
+  {% set ordinals = [
+      ('eligibility', job.eligibility),
+      ('role', job.role_match),
+      ('capability', job.capability_match),
+      ('seniority', job.seniority_gap),
+      ('evidence', job.evidence_quality),
+  ] | rejectattr('1', 'none') | rejectattr('1', 'equalto', '') | list %}
+  {% if ordinals %}
+    <div class="verdict-ordinals">
+      {%- for key, value in ordinals %}
+        <span class="ordinal"><b>{{ key }}</b> {{ value | replace('_', ' ') }}</span>
+      {%- endfor %}
+    </div>
+  {% endif %}
+
+  {% if job.liveness == 'likely_closed' %}
+    <p class="verdict-stale">This posting did not reappear the last time its search was
+      run, so it has probably closed.</p>
+  {% endif %}
+
+  {% if job.reasoning %}
+    <p class="verdict-reasoning">{{ job.reasoning }}</p>
+  {% endif %}
+
+  {# Blockers first and quoted: each one is a phrase lifted from the posting, so the claim
+     can be checked against the source rather than taken on faith. The reasoning sits under
+     the quote rather than inside it -- the two were one string until the scorer started
+     losing verdicts over which half the auditor was reading. #}
+  {% if job.hard_blockers %}
+    <h5 class="verdict-h5 text-red">Hard blockers ({{ job.hard_blockers | length }})</h5>
+    <ul class="verdict-list verdict-blockers">
+      {%- for blocker in job.hard_blockers %}
+        {# Verdicts written before the field was split are plain strings. #}
+        {%- set quote = blocker if blocker is string else blocker.get('quote', '') %}
+        {%- set why = '' if blocker is string else blocker.get('why', '') %}
+        <li><q>{{ quote }}</q>
+          {%- if why %}<span class="blocker-why">{{ why }}</span>{% endif -%}
+        </li>
+      {%- endfor %}
+    </ul>
+  {% endif %}
+
+  {% if job.key_gaps %}
+    <h5 class="verdict-h5">Gaps</h5>{{ badges.bullet_list(job.key_gaps) }}
+  {% endif %}
+
+  {% if job.strengths %}
+    <h5 class="verdict-h5 text-green">You bring</h5>{{ badges.bullet_list(job.strengths) }}
+  {% endif %}
+{% endif %}
