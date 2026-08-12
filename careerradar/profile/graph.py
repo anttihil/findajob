@@ -18,7 +18,11 @@ to exactly one turn of work.
 
 from typing import Annotated, Any, Optional, TypedDict
 
-from careerradar.core.llm import DEFAULT_AGENT_MODEL, agentic_model, structured_model
+from careerradar.core.llm import (
+    DEFAULT_AGENT_MODEL,
+    invoke_structured,
+    structured_model,
+)
 from careerradar.core.logger import get_logger
 from careerradar.core.paths import GRAPH_DB_PATH
 from careerradar.profile.ingest import collect_documents, render_corpus
@@ -57,6 +61,12 @@ they actually enjoy, and where a title overstates or understates the real work.
 Ask about those. Do NOT ask anything the documents already answer -- a question whose
 answer is in the corpus wastes the interview and signals you did not read it.
 
+Ask about one skill or one topic per question. A question naming three skills gets one
+thin sentence covering all three, and a yes/no framing ("is that just curiosity, or is
+there work I'm missing?") gets a yes -- neither carries enough to correct a skill level.
+Where the documents list a skill without evidence, ask what they built with it, where,
+and how much of it was theirs.
+
 Order the questions by how much the answer would change how a job posting gets scored.
 Ask about hard constraints (work authorization, location, compensation floor) before
 preferences. Each question must be answerable in a sentence or two."""
@@ -67,6 +77,25 @@ You are writing the final profile for a job candidate.
 You have their documents, the claims extracted from those documents, and their own answers
 to an interview. The interview answers are the candidate speaking about themselves: where
 they contradict the documents, the answers win.
+
+Skill levels are re-derived here, not inherited. The claims were levelled from the
+documents alone, so their levels record what the candidate had room to write down -- not
+what they have done. Read every answer for skill evidence and re-level against it:
+
+  A skill they describe using on real work is at least 2, whatever the documents showed.
+  If they describe building or owning something substantial with it, it is 3.
+
+  Personal projects are real work. "I used it in several personal projects, including X"
+  is a 2, not a 1.
+
+  A level stays at 1 only when the candidate puts it there themselves -- studied it,
+  tried it, never shipped with it.
+
+An answer that names a skill and leaves its level unchanged is the specific failure this
+step exists to prevent. The interview is the only place a skill the resume had no room to
+justify can be corrected; if the levels come back matching the extracted claims, the
+interview was wasted. When an answer moves a level, replace that skill's evidence with
+what the candidate said, so the level and its justification agree.
 
 This profile is the sole basis on which thousands of job postings will be scored. Two
 failure modes to avoid, in order of cost:
@@ -123,11 +152,11 @@ def node_ingest(state: ProfileState) -> dict:
 
 def node_extract(state: ProfileState) -> dict:
     model = structured_model(state.get("model", DEFAULT_AGENT_MODEL))
-    chain = model.with_structured_output(
-        ExtractedClaims, method="function_calling", strict=True
-    )
-    claims = chain.invoke(
-        [("system", EXTRACT_SYSTEM), ("user", state["corpus"])]
+    claims = invoke_structured(
+        model,
+        ExtractedClaims,
+        [("system", EXTRACT_SYSTEM), ("user", state["corpus"])],
+        label="Profile extract",
     )
     logger.info(
         "Profile: extracted %d skills, %d contradictions",
@@ -138,18 +167,20 @@ def node_extract(state: ProfileState) -> dict:
 
 def node_gaps(state: ProfileState) -> dict:
     model = structured_model(state.get("model", DEFAULT_AGENT_MODEL))
-    chain = model.with_structured_output(
-        GapQuestions, method="function_calling", strict=True
-    )
     claims = ExtractedClaims.model_validate(state["claims"])
     limit = state.get("max_questions", 15)
-    result = chain.invoke([
-        ("system", GAPS_SYSTEM),
-        ("user",
-         f"{state['corpus']}\n\n"
-         f"<extracted_claims>\n{claims.model_dump_json(indent=2)}\n</extracted_claims>\n\n"
-         f"Produce at most {limit} questions."),
-    ])
+    result = invoke_structured(
+        model,
+        GapQuestions,
+        [
+            ("system", GAPS_SYSTEM),
+            ("user",
+             f"{state['corpus']}\n\n"
+             f"<extracted_claims>\n{claims.model_dump_json(indent=2)}\n</extracted_claims>\n\n"
+             f"Produce at most {limit} questions."),
+        ],
+        label="Profile gaps",
+    )
     questions = [q.model_dump() for q in result.questions][:limit]
     logger.info("Profile: %d interview questions", len(questions))
     return {"questions": questions, "cursor": 0}
@@ -181,7 +212,6 @@ def node_ask(state: ProfileState) -> dict:
 
 def node_synthesize(state: ProfileState) -> dict:
     model = structured_model(state.get("model", DEFAULT_AGENT_MODEL))
-    chain = model.with_structured_output(Profile, method="function_calling", strict=True)
 
     transcript = "\n\n".join(
         f"Q ({t['topic']}): {t['question']}\nA: {t['answer']}"
@@ -199,14 +229,50 @@ def node_synthesize(state: ProfileState) -> dict:
             "Apply these changes. Keep everything else as it was."
         )
 
-    profile = chain.invoke([
-        ("system", SYNTHESIZE_SYSTEM),
-        ("user",
-         f"{state['corpus']}\n\n"
-         f"<extracted_claims>\n{claims.model_dump_json(indent=2)}\n</extracted_claims>\n\n"
-         f"<interview>\n{transcript}\n</interview>{instruction}"),
-    ])
+    profile = invoke_structured(
+        model,
+        Profile,
+        [
+            ("system", SYNTHESIZE_SYSTEM),
+            ("user",
+             f"{state['corpus']}\n\n"
+             f"<extracted_claims>\n{claims.model_dump_json(indent=2)}\n</extracted_claims>\n\n"
+             f"<interview>\n{transcript}\n</interview>{instruction}"),
+        ],
+        label="Profile synthesize",
+    )
+    logger.info("Profile: synthesized draft with %d skills", len(profile.skills))
     return {"draft": profile.model_dump(), "revision": None}
+
+
+def level_changes(claims: Optional[dict], draft: dict) -> dict:
+    """What the interview did to the skill levels the documents alone produced.
+
+    Computed here rather than in the terminal wizard because it is the reviewer's main
+    question -- did answering fifteen questions change anything? -- and every adapter has
+    to answer it. A silent no is the failure mode worth surfacing: a synthesis that echoes
+    the extracted levels back looks like a finished profile, and the reviewer approves an
+    interview that was never applied.
+    """
+    before = {s["key"]: s for s in ((claims or {}).get("skills") or [])}
+    raised, lowered, added = [], [], []
+    for skill in draft.get("skills") or []:
+        previous = before.get(skill["key"])
+        if previous is None:
+            added.append({"key": skill["key"], "label": skill["label"],
+                          "to": skill["level"]})
+        elif skill["level"] > previous["level"]:
+            raised.append({"key": skill["key"], "label": skill["label"],
+                           "from": previous["level"], "to": skill["level"]})
+        elif skill["level"] < previous["level"]:
+            lowered.append({"key": skill["key"], "label": skill["label"],
+                            "from": previous["level"], "to": skill["level"]})
+    return {
+        "raised": raised,
+        "lowered": lowered,
+        "added": added,
+        "total": len(draft.get("skills") or []),
+    }
 
 
 def node_review(state: ProfileState) -> dict:
@@ -214,6 +280,7 @@ def node_review(state: ProfileState) -> dict:
     decision = interrupt({
         "kind": "review",
         "profile": state["draft"],
+        "level_changes": level_changes(state.get("claims"), state["draft"]),
     })
     if isinstance(decision, dict):
         if decision.get("approve"):

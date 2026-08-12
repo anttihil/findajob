@@ -20,7 +20,11 @@ builder, because the query builder is never shown the posting.
 
 from typing import Optional, TypedDict
 
-from careerradar.core.llm import DEFAULT_AGENT_MODEL, agentic_model, structured_model
+from careerradar.core.llm import (
+    DEFAULT_AGENT_MODEL,
+    invoke_structured,
+    structured_model,
+)
 from careerradar.core.logger import get_logger
 from careerradar.research.models import CompanyIntel, Contact, Dossier
 from careerradar.research.tools import (
@@ -118,13 +122,15 @@ def node_gather_intel(state: ResearchState) -> dict:
     if not results:
         return {"intel": None}
 
-    chain = structured_model(state.get("model", DEFAULT_AGENT_MODEL)).with_structured_output(
-        CompanyIntel, method="function_calling", strict=True
+    intel = invoke_structured(
+        structured_model(state.get("model", DEFAULT_AGENT_MODEL)),
+        CompanyIntel,
+        [
+            ("system", INTEL_SYSTEM),
+            ("user", f"Company: {company}\n\n<search_results>\n{render_results(results)}\n</search_results>"),
+        ],
+        label=f"Research intel ({company})",
     )
-    intel = chain.invoke([
-        ("system", INTEL_SYSTEM),
-        ("user", f"Company: {company}\n\n<search_results>\n{render_results(results)}\n</search_results>"),
-    ])
     return {"intel": intel.model_dump(), "sources": [r["url"] for r in results if r["url"]]}
 
 
@@ -150,15 +156,17 @@ def node_gather_contacts(state: ResearchState) -> dict:
     class Contacts(BaseModel):
         contacts: list[Contact] = Field(default_factory=list)
 
-    chain = structured_model(state.get("model", DEFAULT_AGENT_MODEL)).with_structured_output(
-        Contacts, method="function_calling", strict=True
+    found = invoke_structured(
+        structured_model(state.get("model", DEFAULT_AGENT_MODEL)),
+        Contacts,
+        [
+            ("system", CONTACTS_SYSTEM),
+            ("user",
+             f"Company: {company}\nRole being applied for: {role}\n\n"
+             f"<search_results>\n{render_results(results)}\n</search_results>"),
+        ],
+        label=f"Research contacts ({company})",
     )
-    found = chain.invoke([
-        ("system", CONTACTS_SYSTEM),
-        ("user",
-         f"Company: {company}\nRole being applied for: {role}\n\n"
-         f"<search_results>\n{render_results(results)}\n</search_results>"),
-    ])
     return {"contacts": [c.model_dump() for c in found.contacts]}
 
 
@@ -193,24 +201,25 @@ def node_gather_nearby(state: ResearchState) -> dict:
 
 
 def node_synthesize(state: ResearchState) -> dict:
-    chain = structured_model(state.get("model", DEFAULT_AGENT_MODEL)).with_structured_output(
-        Dossier, method="function_calling", strict=True
-    )
-
     intel = state.get("intel")
     intel_block = (
         f"<intel>\n{intel}\n</intel>" if intel
         else "<intel>(web search unavailable -- no company intel gathered)</intel>"
     )
-    dossier = chain.invoke([
-        ("system", SYNTHESIZE_SYSTEM),
-        ("user",
-         f"Company: {state['company']}\n\n"
-         f"{state['profile_summary']}\n\n"
-         f"{intel_block}\n\n"
-         f"<contacts>\n{state.get('contacts')}\n</contacts>\n\n"
-         f"<other_openings>\n{state.get('nearby')}\n</other_openings>"),
-    ])
+    dossier = invoke_structured(
+        structured_model(state.get("model", DEFAULT_AGENT_MODEL)),
+        Dossier,
+        [
+            ("system", SYNTHESIZE_SYSTEM),
+            ("user",
+             f"Company: {state['company']}\n\n"
+             f"{state['profile_summary']}\n\n"
+             f"{intel_block}\n\n"
+             f"<contacts>\n{state.get('contacts')}\n</contacts>\n\n"
+             f"<other_openings>\n{state.get('nearby')}\n</other_openings>"),
+        ],
+        label=f"Research synthesize ({state['company']})",
+    )
     record = dossier.model_dump()
 
     # Sources are a record of what was actually fetched, not a model output. Asked for

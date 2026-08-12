@@ -76,6 +76,73 @@ def agentic_model(model=DEFAULT_AGENT_MODEL, **kwargs):
     return ChatDeepSeek(model=model, **kwargs)
 
 
+STRUCTURED_ATTEMPTS = 3
+
+STRUCTURED_RETRY_NUDGE = (
+    "Your previous response did not call the tool. Call it now, with the complete "
+    "structured object. Do not write prose."
+)
+
+
+class StructuredOutputError(RuntimeError):
+    """The model answered, but never made the tool call the schema required."""
+
+
+def _no_tool_call_reason(raw):
+    """Say *why* a schema-enforced call came back empty, while the response is in hand.
+
+    Worth the lines: "prose instead of a tool call" and "truncated mid-argument" have
+    different fixes (retry vs. a smaller ask), and by the time the caller sees a `None`
+    the response that distinguishes them is gone.
+    """
+    if raw is None:
+        return "no response"
+    metadata = getattr(raw, "response_metadata", None) or {}
+    finish = metadata.get("finish_reason")
+    if finish == "length":
+        return "the response hit the output token limit before the tool call finished"
+    invalid = getattr(raw, "invalid_tool_calls", None) or []
+    if invalid:
+        return f"malformed tool-call arguments ({invalid[0].get('error') or 'unparseable'})"
+    text = " ".join(str(getattr(raw, "content", "") or "").split())
+    if text:
+        return f"prose instead of a tool call: {text[:200]}"
+    return f"empty response (finish_reason={finish})"
+
+
+def invoke_structured(model, schema, messages, *, label, attempts=STRUCTURED_ATTEMPTS):
+    """Schema-enforced invoke that retries the one failure V4 actually has.
+
+    V4 occasionally answers a forced tool choice with prose anyway
+    (langchainjs#10954). `with_structured_output` reports that as a `None` parse rather
+    than an exception, so an unguarded caller crashes on the next attribute access --
+    several frames from the cause, with the interview it was built from nowhere in the
+    traceback. Retrying with a nudge clears it in practice; exhausting the retries raises
+    an error that names the step and the reason.
+    """
+    chain = model.with_structured_output(
+        schema, method="function_calling", strict=True, include_raw=True
+    )
+    reason = None
+    for attempt in range(1, attempts + 1):
+        turns = list(messages)
+        if attempt > 1:
+            turns.append(("user", STRUCTURED_RETRY_NUDGE))
+        result = chain.invoke(turns)
+        parsed = result.get("parsed")
+        if parsed is not None and result.get("parsing_error") is None:
+            return parsed
+        reason = result.get("parsing_error") or _no_tool_call_reason(result.get("raw"))
+        logger.warning(
+            "%s: no usable %s (attempt %d/%d): %s",
+            label, schema.__name__, attempt, attempts, reason,
+        )
+    raise StructuredOutputError(
+        f"{label}: the model did not return a valid {schema.__name__} in {attempts} "
+        f"attempts. Last reason: {reason}"
+    )
+
+
 def token_usage(message):
     """Pull DeepSeek's cache-aware token counts off a LangChain response.
 

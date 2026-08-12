@@ -11,7 +11,7 @@ import sys
 import textwrap
 
 from careerradar.core.config import load_config
-from careerradar.core.llm import DEFAULT_AGENT_MODEL, MissingApiKey
+from careerradar.core.llm import DEFAULT_AGENT_MODEL, MissingApiKey, StructuredOutputError
 from careerradar.core.logger import get_logger
 
 logger = get_logger()
@@ -96,6 +96,45 @@ def _render_profile(profile: dict) -> str:
     return "\n".join(out)
 
 
+LEVEL_NAMES = {0: "absent", 1: "familiar", 2: "working", 3: "strong"}
+
+
+def _render_level_changes(changes: dict) -> str:
+    """Show what the interview moved -- and say so plainly when it moved nothing.
+
+    Without this the reviewer is comparing a 39-skill list against a memory of what they
+    typed. The levels are what the whole interview exists to correct, and an answer that
+    failed to land is invisible in a rendered profile: every line looks equally deliberate.
+    """
+    raised = changes.get("raised") or []
+    lowered = changes.get("lowered") or []
+    added = changes.get("added") or []
+    moved = len(raised) + len(lowered) + len(added)
+
+    out = [""]
+    if not moved:
+        out.append(_style("LEVEL CHANGES FROM THE INTERVIEW", BOLD))
+        out.append(_wrap("None. Every skill kept the level the documents alone gave it. "
+                         "If an answer should have changed one, say so below and it will "
+                         "be re-synthesized."))
+        return "\n".join(out)
+
+    out.append(_style(
+        f"LEVEL CHANGES FROM THE INTERVIEW ({moved} of {changes.get('total', 0)} skills)",
+        BOLD,
+    ))
+    width = max((len(c["label"]) for c in raised + lowered + added), default=0)
+    for change in sorted(raised, key=lambda c: (-c["to"], c["label"])):
+        out.append(_wrap(f"{change['label']:<{width}}  {LEVEL_NAMES[change['from']]} -> "
+                         f"{LEVEL_NAMES[change['to']]}"))
+    for change in sorted(lowered, key=lambda c: (-c["to"], c["label"])):
+        out.append(_wrap(f"{change['label']:<{width}}  {LEVEL_NAMES[change['from']]} -> "
+                         f"{LEVEL_NAMES[change['to']]}  (lowered)"))
+    for change in sorted(added, key=lambda c: (-c["to"], c["label"])):
+        out.append(_wrap(f"{change['label']:<{width}}  new, {LEVEL_NAMES[change['to']]}"))
+    return "\n".join(out)
+
+
 def _ask_multiline(prompt):
     """Read one answer. A blank line submits; the user can type '?' to skip."""
     print(prompt, end="", flush=True)
@@ -166,6 +205,23 @@ def cmd_build(args):
         print()
 
     payload = {"model": model, "max_questions": max_questions}
+    if args.resume:
+        snapshot = graph.get_state(thread)
+        if not snapshot.next:
+            print(_wrap("There is no interrupted build to resume. Start a new one with:",
+                        indent="  "))
+            print(_wrap("careerradar profile build --force", indent="    "))
+            return 1
+        # Resuming means continuing the task the graph is parked on, which LangGraph does
+        # for an input of `None`. Handing it the payload again would enter at START
+        # instead: a second extraction, a fresh set of questions, and every answer asked
+        # again -- with the new answers appended to the old ones, since `turns` reduces by
+        # concatenation.
+        payload = None
+        answered = len(snapshot.values.get("turns") or [])
+        print(_wrap(f"Resuming at '{snapshot.next[0]}' with {answered} answer(s) kept.",
+                    indent="  "))
+        print()
 
     resume_value = None
     try:
@@ -197,6 +253,8 @@ def cmd_build(args):
                 print()
                 print(_style("=" * 88, DIM))
                 print(_render_profile(interrupted["profile"]))
+                if interrupted.get("level_changes"):
+                    print(_render_level_changes(interrupted["level_changes"]))
                 print(_style("=" * 88, DIM))
                 print()
                 print(_wrap("Press enter to approve, or describe what to change.", indent="  "))
@@ -215,6 +273,23 @@ def cmd_build(args):
         return 130
     except MissingApiKey as exc:
         print(f"\n{exc}")
+        return 1
+    except StructuredOutputError as exc:
+        # The interview is the expensive part and it is already checkpointed, so this is a
+        # resume prompt rather than a failure: nothing the user typed is lost.
+        print()
+        print(_wrap(f"{exc}", indent="  "))
+        print()
+        print(_wrap("Your answers are safe. Try again with:", indent="  "))
+        print(_wrap("careerradar profile build --resume", indent="    "))
+        return 1
+    except Exception as exc:
+        logger.exception("Profile build failed")
+        print()
+        print(_wrap(f"Profile build failed: {exc}", indent="  "))
+        print()
+        print(_wrap("Your answers are checkpointed -- resume with:", indent="  "))
+        print(_wrap("careerradar profile build --resume", indent="    "))
         return 1
 
     final = graph.get_state(thread).values
