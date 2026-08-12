@@ -6,9 +6,10 @@ and the dashboard shows it back to the user. It is built once, reviewed by a hum
 versioned -- not recomputed per request like the regex profile it replaces.
 """
 
+import json
 from typing import Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 # Kept identical to the levels the old regex profile used, because `keyword_score.py` and
 # `gap_analysis.py` still index into LEVEL_CREDIT with these numbers. What changes is how a
@@ -153,3 +154,26 @@ class FitVerdict(BaseModel):
     research_worthy: bool = Field(
         description="Whether the company is worth a deep-research pass."
     )
+
+    @field_validator("hard_blockers", "key_gaps", "strengths", mode="before")
+    @classmethod
+    def _accept_a_json_encoded_list(cls, value):
+        """Take a list field the model filled with the *text* of a list.
+
+        V4 does this intermittently -- `'["a", "b"]'` as a string where a list was
+        required -- and strict function calling does not prevent it. The scoring graph
+        retries, so it was invisible except as cost: every occurrence buys the same
+        posting a second full call, and three in a row lose the verdict entirely.
+        Decoding what the model plainly meant is cheaper than another round trip.
+        """
+        if not isinstance(value, str):
+            return value
+        try:
+            decoded = json.loads(value)
+        except ValueError:
+            # Not JSON at all: one blocker written as a bare sentence. Keeping it beats
+            # discarding a verdict over punctuation.
+            return [value] if value.strip() else []
+        if isinstance(decoded, list):
+            return decoded
+        return [str(decoded)] if decoded not in (None, "") else []

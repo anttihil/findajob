@@ -19,6 +19,12 @@ import argparse
 import sys
 
 
+def _cmd_score_stats(args):
+    from careerradar.scoring.stats import run_stats
+
+    return run_stats(args.profile_version)
+
+
 def _cmd_search(args):
     from careerradar.search.runner import run_sync
 
@@ -134,6 +140,11 @@ def build_parser():
     scr.add_argument("--dry-run", action="store_true",
                      help="estimate cost and exit without calling the model")
     scr.set_defaults(func=_cmd_score)
+
+    scs = scosub.add_parser("stats", help="verdict distribution for a scored corpus")
+    scs.add_argument("--profile-version", type=int,
+                     help="defaults to the active profile")
+    scs.set_defaults(func=_cmd_score_stats)
 
     # --- research --------------------------------------------------------------------
     r = sub.add_parser("research", help="build company dossiers for strong matches")

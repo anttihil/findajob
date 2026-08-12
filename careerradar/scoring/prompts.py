@@ -33,6 +33,17 @@ How to score:
   move to. When you record one, QUOTE the phrase from the posting that makes it a
   blocker. A blocker without a quote is a guess, and the candidate will act on it.
 
+- Check every blocker against the candidate's CONSTRAINTS before you record it. A
+  requirement the candidate already meets is not a blocker: a posting demanding US work
+  authorization is nothing at all to a US citizen, and an on-site role in a city they
+  will move to is nothing at all. Record only what THIS candidate fails. A blocker list
+  full of requirements the candidate satisfies is worse than an empty one -- it teaches
+  the candidate to ignore the list.
+
+- A recorded hard blocker means the verdict is `mismatch`, and the reasoning must name
+  the blocker that decided it. If the reasoning would say "no hard blocker", the list is
+  empty.
+
 - Distinguish a blocker from a gap. A missing framework the candidate could learn in a
   fortnight is a gap. Being three levels below the seniority asked for is a blocker.
 

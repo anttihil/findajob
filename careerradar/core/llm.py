@@ -48,19 +48,28 @@ def require_api_key():
     return key
 
 
-def structured_model(model=DEFAULT_SCORING_MODEL, **kwargs):
-    """A model for schema-enforced output. Thinking is OFF.
+def structured_model(model=DEFAULT_SCORING_MODEL, *, temperature=0, **kwargs):
+    """A model for schema-enforced output. Thinking is OFF, sampling is deterministic.
 
     Required: `with_structured_output(..., method="function_calling", strict=True)`
     compiles to a forced `tool_choice`, which the API rejects outright while thinking is
     enabled. `reasoning_effort="none"` is the documented lever and, unlike the
     `extra_body` spelling, it is a first-class parameter so LangChain does not route it
     through `model_kwargs` with a warning.
+
+    `temperature=0` is load-bearing, not tidiness. Left unset, LangChain sends nothing and
+    the API samples at 1.0: scoring the same posting twice gave a mean absolute difference
+    of 5.7 points and a maximum of 15 (measured over 12 postings, 2026-08-11; an earlier
+    24-posting run saw 40). Fit bands are 20 points wide, so at that spread which band a
+    posting lands in is substantially a draw, and re-scoring a corpus produces churn that
+    looks like a changed opinion. At 0 the same posting scored twice was identical 12/12.
     """
     from langchain_deepseek import ChatDeepSeek
 
     require_api_key()
-    return ChatDeepSeek(model=model, reasoning_effort="none", **kwargs)
+    return ChatDeepSeek(
+        model=model, reasoning_effort="none", temperature=temperature, **kwargs
+    )
 
 
 def agentic_model(model=DEFAULT_AGENT_MODEL, **kwargs):

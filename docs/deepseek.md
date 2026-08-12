@@ -68,7 +68,34 @@ invalidates the cache for every request and silently multiplies input cost by 50
 `prompt_cache_hit_tokens > 0` on the second. Zero across consecutive calls means something
 is leaking into the prefix.
 
-## 4. Measured token shape (for cost estimates)
+## 4. Temperature is unset by default, and that is not free
+
+`ChatDeepSeek` sends no `temperature` unless you pass one, so the API samples at its
+default of 1.0. Measured by scoring the same 12 postings twice through the identical
+prompt (2026-08-11):
+
+| | mean abs. difference | max | identical |
+|---|---|---|---|
+| temperature unset (1.0) | 5.7 points | 15 | 5/12 |
+| `temperature=0` | 0.0 points | 0 | 12/12 |
+
+Fit bands are 20 points wide, so a ~6-point spread makes the band a posting lands in
+partly a draw, and makes re-scoring a corpus produce churn that reads as a changed
+opinion. `structured_model()` therefore pins `temperature=0`; callers who want sampling
+pass it explicitly.
+
+Two consequences worth keeping in mind when reading a distribution:
+
+- **Scores are quantised.** Across 5,511 verdicts the model used 53 distinct values, with
+  strong attractors (5, 8, 12, 15, 18, 22, 25, 30, 35, 45, 55, 62, 72, 78, 82). It does
+  not emit 79, 80 or 81 at all, so the `strong` band is reached by jumping 78 -> 82.
+- **An empty top band is not necessarily prompt suppression.** Adding an explicit
+  calibration note about the top band moved the highest-scoring group by +1.1 points,
+  well inside the noise it was competing with. Fix the sampling before rewriting a rubric.
+
+Check any of this with `careerradar score stats`.
+
+## 5. Measured token shape (for cost estimates)
 
 Against real postings from `jobs.db` with a ~700-token profile prefix:
 

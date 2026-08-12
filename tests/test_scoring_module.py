@@ -190,3 +190,82 @@ class GraphTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ListCoercionTests(unittest.TestCase):
+    """V4 fills a list field with the text of a list often enough to cost real money.
+
+    Strict function calling does not prevent it. Before this, every occurrence bought the
+    posting a second full call through the graph's retry edge, and three in a row dropped
+    the verdict and left the posting unscored.
+    """
+
+    def verdict(self, **overrides):
+        from careerradar.profile.models import FitVerdict
+
+        fields = dict(fit_score=50, verdict="stretch", seniority_fit="matched",
+                      reasoning="r", research_worthy=False)
+        fields.update(overrides)
+        return FitVerdict(**fields)
+
+    def test_a_json_encoded_list_is_decoded_rather_than_rejected(self):
+        v = self.verdict(hard_blockers='["needs clearance", "10+ years"]')
+        self.assertEqual(v.hard_blockers, ["needs clearance", "10+ years"])
+
+    def test_a_bare_sentence_becomes_one_item_instead_of_losing_the_verdict(self):
+        v = self.verdict(key_gaps="kubernetes at scale")
+        self.assertEqual(v.key_gaps, ["kubernetes at scale"])
+
+    def test_an_empty_string_is_an_empty_list_not_a_blank_entry(self):
+        """A blank blocker would render as a bullet with nothing after it."""
+        self.assertEqual(self.verdict(strengths="").strengths, [])
+        self.assertEqual(self.verdict(strengths="   ").strengths, [])
+
+    def test_a_real_list_is_untouched(self):
+        v = self.verdict(strengths=["python", "terraform"])
+        self.assertEqual(v.strengths, ["python", "terraform"])
+
+    def test_coercion_does_not_reach_fields_that_are_not_lists(self):
+        """`reasoning` is prose; a JSON-looking sentence must survive verbatim."""
+        v = self.verdict(reasoning='["this is prose, not a list"]')
+        self.assertEqual(v.reasoning, '["this is prose, not a list"]')
+
+
+class SamplingTests(unittest.TestCase):
+    """Scoring must be reproducible: the same posting, twice, is the same verdict.
+
+    Left unset, LangChain sends no temperature and DeepSeek samples at 1.0. Measured over
+    12 postings that produced a mean absolute difference of 5.7 fit points (max 15) between
+    two runs of the identical prompt -- against 20-point-wide bands, which makes the band a
+    posting lands in partly a draw, and makes any re-score churn indistinguishable from a
+    real change of opinion.
+    """
+
+    def setUp(self):
+        self._key = os.environ.get("DEEPSEEK_API_KEY")
+        os.environ["DEEPSEEK_API_KEY"] = "test-key"
+
+    def tearDown(self):
+        if self._key is None:
+            os.environ.pop("DEEPSEEK_API_KEY", None)
+        else:
+            os.environ["DEEPSEEK_API_KEY"] = self._key
+
+    def test_structured_output_is_deterministic_by_default(self):
+        from careerradar.core.llm import structured_model
+
+        self.assertEqual(structured_model("deepseek-v4-flash").temperature, 0)
+
+    def test_a_caller_that_wants_sampling_can_still_ask_for_it(self):
+        from careerradar.core.llm import structured_model
+
+        self.assertEqual(
+            structured_model("deepseek-v4-flash", temperature=0.7).temperature, 0.7
+        )
+
+    def test_thinking_stays_off_so_the_forced_tool_choice_is_still_accepted(self):
+        """Determinism must not cost the constraint the whole module is built around."""
+        from careerradar.core.llm import structured_model
+
+        model = structured_model("deepseek-v4-flash")
+        self.assertEqual(getattr(model, "reasoning_effort", None), "none")

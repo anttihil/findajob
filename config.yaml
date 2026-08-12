@@ -291,7 +291,7 @@ scoring:
   # profile prefix costs ~$0.0004 a posting, so scoring the whole corpus is a couple of
   # dollars rather than a reason to sample.
   model: deepseek-v4-flash
-  concurrency: 8
+  concurrency: 16
   # Pre-flight: if the estimate exceeds this the run ABORTS rather than trimming the
   # queue. A budget that silently drops the tail produces a partial pass that looks
   # complete, and every coverage figure downstream inherits the lie.
