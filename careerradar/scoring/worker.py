@@ -50,6 +50,17 @@ CHARS_PER_TOKEN = 3.0
 EXPECTED_COMPLETION_TOKENS = 1300
 
 
+# Consecutive failed runs before a posting stops being offered.
+#
+# 3, not 1: the graph already spends MAX_ATTEMPTS within a run, so one failed run is
+# usually a real transient -- a 429 storm hits every posting in flight and would quarantine
+# the whole batch at 1. Three separate runs failing the same posting is not a draw.
+#
+# Each run costs up to MAX_ATTEMPTS calls, so this bounds a permanently-broken posting at
+# ~9 calls total rather than 3 a run forever.
+MAX_SCORING_FAILURES = 3
+
+
 def _build_scorer(adapter, taxonomy, config):
     """The deterministic scorer, used here only to produce the prompt's skill hint.
 
@@ -73,6 +84,37 @@ def _now():
     return datetime.now(timezone.utc).isoformat()
 
 
+# The eligibility half of the backlog predicate, in one place.
+#
+# `_select` and `_pending` must ask the same question. They did not: the closing counter
+# read `pipeline_state = 'new'`, which counts rows `_select` can never return -- a
+# duplicate, a stub description, a posting a re-scrape could not find. So it reported a
+# backlog no run could drain and that never reached zero, while the postings actually
+# queued (a stale `verdict_schema_version` on a row already marked 'scored') went unnamed.
+_ELIGIBLE = """
+      FROM jobs j
+      LEFT JOIN v_job_liveness l ON l.job_id = j.id
+     WHERE j.duplicate_of IS NULL
+       AND j.description IS NOT NULL AND length(j.description) > 200
+       AND COALESCE(j.scoring_failures, 0) < {max_failures}
+       {live_clause}
+"""
+
+# The "needs a verdict under this profile" half. Separate because --rescore-all drops it.
+_NO_VERDICT = """
+       AND NOT EXISTS (
+             SELECT 1 FROM job_verdicts v
+              WHERE v.job_id = j.id AND v.profile_version = ?
+                AND COALESCE(v.verdict_schema_version, 1) >= ?
+           )
+"""
+
+
+def _live_clause(include_closed):
+    return "" if include_closed else \
+        "AND COALESCE(l.liveness, 'unknown') != 'likely_closed'"
+
+
 def _select(db, limit, rescore_all, profile_version, include_closed=False):
     """Postings needing a verdict under the active profile.
 
@@ -88,39 +130,96 @@ def _select(db, limit, rescore_all, profile_version, include_closed=False):
     cells scraped in two windows without saturating, roughly half of postings vanish within
     a week; scoring them spends money to rank dead listings at the top of the dashboard.
     """
-    live_clause = "" if include_closed else \
-        "AND COALESCE(l.liveness, 'unknown') != 'likely_closed'"
+    where = _ELIGIBLE.format(live_clause=_live_clause(include_closed),
+                             max_failures=MAX_SCORING_FAILURES)
 
     if rescore_all:
-        query = f"""
-            SELECT j.* FROM jobs j
-             LEFT JOIN v_job_liveness l ON l.job_id = j.id
-             WHERE j.duplicate_of IS NULL
-               AND j.description IS NOT NULL AND length(j.description) > 200
-               {live_clause}
-             ORDER BY j.date_found DESC
-        """
+        query = "SELECT j.*" + where + " ORDER BY j.date_found DESC"
         params = []
     else:
-        query = f"""
-            SELECT j.* FROM jobs j
-             LEFT JOIN v_job_liveness l ON l.job_id = j.id
-             WHERE j.duplicate_of IS NULL
-               AND j.description IS NOT NULL AND length(j.description) > 200
-               {live_clause}
-               AND NOT EXISTS (
-                     SELECT 1 FROM job_verdicts v
-                      WHERE v.job_id = j.id AND v.profile_version = ?
-                        AND COALESCE(v.verdict_schema_version, 1) >= ?
-                   )
-             ORDER BY j.date_found DESC
-        """
+        query = ("SELECT j.*" + where + _NO_VERDICT +
+                 " ORDER BY j.date_found DESC")
         params = [profile_version, VERDICT_SCHEMA_VERSION]
 
     if limit:
         query += " LIMIT ?"
         params.append(limit)
     return [dict(row) for row in db.conn.execute(query, params)]
+
+
+def _pending(db, profile_version, include_closed=False):
+    """How many postings a *next* run would actually select.
+
+    Always the incremental predicate, even after --rescore-all: "what is left to do" is
+    the backlog, not whatever this run chose to redo.
+    """
+    sql = ("SELECT COUNT(*)"
+           + _ELIGIBLE.format(live_clause=_live_clause(include_closed),
+                              max_failures=MAX_SCORING_FAILURES)
+           + _NO_VERDICT)
+    return db.conn.execute(sql, [profile_version, VERDICT_SCHEMA_VERSION]).fetchone()[0]
+
+
+def _ineligible(db):
+    """Postings left in 'new' that no run will ever select, by reason.
+
+    Reported rather than hidden, on the same principle as the analytics gates: suppress
+    with a reason, never silently omit. Otherwise they read as pending work forever.
+
+    The reasons are precedence-ordered -- duplicate, then thin, then closed -- so they sum
+    to the total. Counted independently they would not: a posting is routinely two of the
+    three at once. Under this order `closed` means "unique, substantive, and dead", which
+    is the only one of the three that a future scrape can change.
+    """
+    return db.conn.execute("""
+        SELECT
+          COUNT(*) AS total,
+          SUM(j.duplicate_of IS NOT NULL) AS duplicate,
+          SUM(j.duplicate_of IS NULL
+              AND (j.description IS NULL OR length(j.description) <= 200)) AS thin,
+          SUM(j.duplicate_of IS NULL
+              AND j.description IS NOT NULL AND length(j.description) > 200
+              AND COALESCE(l.liveness, 'unknown') = 'likely_closed') AS closed
+          FROM jobs j
+          LEFT JOIN v_job_liveness l ON l.job_id = j.id
+         WHERE j.pipeline_state = 'new'
+           -- Only the rows that are actually ineligible. `pipeline_state = 'new'` alone
+           -- also holds freshly scraped postings that ARE queued, and counting those here
+           -- would report them twice: once as remaining, once as never scoreable.
+           AND (j.duplicate_of IS NOT NULL
+                OR j.description IS NULL OR length(j.description) <= 200
+                OR COALESCE(l.liveness, 'unknown') = 'likely_closed')
+    """).fetchone()
+
+
+def _record_failure(db, job_id, error):
+    """Count a failed run against the posting, with the reason that failed it.
+
+    Counts RUNS, not attempts: the graph's three tries inside one run are one draw at the
+    same conditions, so counting each would quarantine after a single rate-limit storm.
+    """
+    db.conn.execute(
+        "UPDATE jobs SET scoring_failures = COALESCE(scoring_failures, 0) + 1, "
+        "last_scoring_error = ?, last_scoring_failure_at = ? WHERE id = ?",
+        (str(error)[:500] if error else None, _now(), job_id),
+    )
+
+
+def _quarantined(db):
+    """Postings withdrawn from the queue after failing MAX_SCORING_FAILURES runs.
+
+    Grouped by the error that stopped them, because the useful question is never "which
+    posting" but "what keeps breaking" -- one bad prompt rule and one unparseable posting
+    look identical in a count and nothing alike in a listing.
+    """
+    return db.conn.execute(
+        "SELECT COUNT(*) AS total, "
+        "       MIN(id) AS example, "
+        "       COALESCE(substr(last_scoring_error, 1, 60), '(unrecorded)') AS reason "
+        "  FROM jobs WHERE COALESCE(scoring_failures, 0) >= ? "
+        " GROUP BY reason ORDER BY total DESC",
+        (MAX_SCORING_FAILURES,),
+    ).fetchall()
 
 
 def _persist(db, job, verdict, usage, cost, model, profile_version, phash):
@@ -192,9 +291,12 @@ def _persist(db, job, verdict, usage, cost, model, profile_version, phash):
             phash,
         ),
     )
+    # The failure counter is cleared here rather than by the caller: a posting that just
+    # produced a verdict is not failing, and tying the reset to the write that proves it
+    # means no future success path can forget to do it.
     db.conn.execute(
-        "UPDATE jobs SET fit_score = ?, scored_at = ?, pipeline_state = 'scored' "
-        "WHERE id = ?",
+        "UPDATE jobs SET fit_score = ?, scored_at = ?, pipeline_state = 'scored', "
+        "scoring_failures = 0, last_scoring_error = NULL WHERE id = ?",
         (verdict["fit_score"], _now(), job["id"]),
     )
 
@@ -217,6 +319,32 @@ def _skill_hint(scorer, job):
                for key in result["matched_skills"]]
     missing = [scorer.taxonomy.label(key) for key in result["missing_skills"]]
     return render_skill_hint(matched=format_matched(matched), missing=missing)
+
+
+def run_retry(job_id=None):
+    """Clear the failure counter so quarantined postings are offered again.
+
+    The counter records that the last MAX_SCORING_FAILURES runs failed, which is evidence
+    about the pipeline as it was then -- not a property of the posting. Fix the prompt, fix
+    a validator, add a language the extractor could not handle, and the same posting may
+    score fine. Without this the quarantine is permanent and every such fix is invisible.
+    """
+    db = Database()
+    try:
+        if job_id is not None:
+            cursor = db.conn.execute(
+                "UPDATE jobs SET scoring_failures = 0, last_scoring_error = NULL "
+                "WHERE id = ?", (job_id,))
+        else:
+            cursor = db.conn.execute(
+                "UPDATE jobs SET scoring_failures = 0, last_scoring_error = NULL "
+                "WHERE COALESCE(scoring_failures, 0) > 0")
+        db.conn.commit()
+        print(f"cleared the failure counter on {cursor.rowcount:,} posting(s); "
+              f"the next `score run` will offer them again.")
+        return 0
+    finally:
+        db.close()
 
 
 def run_scoring(limit=None, rescore_all=False, dry_run=False):
@@ -299,6 +427,7 @@ def run_scoring(limit=None, rescore_all=False, dry_run=False):
                 usage = state.get("usage")
                 if verdict is None:
                     results["failed"] += 1
+                    _record_failure(db, job["id"], state.get("error"))
                     logger.warning("No verdict for job %s (%s): %s",
                                    job["id"], job["title"], state.get("error"))
                     continue
@@ -358,10 +487,21 @@ def run_scoring(limit=None, rescore_all=False, dry_run=False):
                     if name == "blocker_contradicts_profile" else ""
                 print(f"  {name:<32} {count:>6}{marker}")
 
-        row = db.conn.execute(
-            "SELECT COUNT(*) FROM jobs WHERE pipeline_state = 'new'"
-        ).fetchone()
-        print(f"remaining:  {row[0]:,} unscored")
+        print(f"remaining:  {_pending(db, profile_version):,} unscored")
+        skipped = _ineligible(db)
+        if skipped["total"]:
+            print(f"excluded:   {skipped['total']:,} never scoreable  "
+                  f"({skipped['duplicate']:,} duplicate, "
+                  f"{skipped['thin']:,} no description, "
+                  f"{skipped['closed']:,} closed)")
+
+        stuck = _quarantined(db)
+        if stuck:
+            total = sum(row["total"] for row in stuck)
+            print(f"quarantined: {total:,} withdrawn after {MAX_SCORING_FAILURES} failed "
+                  f"runs  (`careerradar score retry` to re-offer)")
+            for row in stuck:
+                print(f"  {row['total']:>4}x  job {row['example']}: {row['reason']}")
         return 0
     except MissingApiKey as exc:
         logger.error(str(exc))

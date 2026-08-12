@@ -11,7 +11,7 @@ from careerradar.core.logger import get_logger
 
 logger = get_logger()
 
-SCHEMA_VERSION = 7
+SCHEMA_VERSION = 8
 
 
 def _v1_baseline(cursor):
@@ -749,6 +749,40 @@ def _v7_structured_blockers(cursor):
         logger.info("v7: converted hard_blockers on %d verdict rows", converted)
 
 
+def _v8_scoring_failure_counter(cursor):
+    """Give a posting a memory of its own scoring failures.
+
+    The retry design assumes failure is transient -- a rate limit, or the model answering
+    in prose where a tool call was required. Both get better on another draw, so the graph
+    retries three times and the queue re-offers the posting on the next run.
+
+    Some failures are not draws. Job 5802 is a Czech news item about a research project's
+    advisory board convening; it is not a job ad, so `core_requirements` extracts empty,
+    so the validator in `profile/models.py` rejects it -- correctly, and identically, on
+    every attempt of every run. Three calls a run, forever, with no record anywhere: the
+    posting keeps whatever `pipeline_state` it had, no verdict row appears, and the only
+    evidence is a warning in app.log.
+
+    These columns are that record. The worker increments on failure and clears on success,
+    and `_select` stops offering a posting once the count says the next attempt will fail
+    the same way. That turns an unbounded cost into a bounded, reportable category -- the
+    same treatment duplicates and stub descriptions already get.
+
+    Not a verdict row, deliberately. A failure is the absence of a verdict; writing a
+    placeholder into `job_verdicts` would put rows with no ordinals into every query that
+    reads the table, and `score stats` and `score audit` would both have to learn to skip
+    them.
+    """
+    existing = {row[1] for row in cursor.execute("PRAGMA table_info(jobs)")}
+    if "scoring_failures" not in existing:
+        cursor.execute(
+            "ALTER TABLE jobs ADD COLUMN scoring_failures INTEGER NOT NULL DEFAULT 0")
+    if "last_scoring_error" not in existing:
+        cursor.execute("ALTER TABLE jobs ADD COLUMN last_scoring_error TEXT")
+    if "last_scoring_failure_at" not in existing:
+        cursor.execute("ALTER TABLE jobs ADD COLUMN last_scoring_failure_at TEXT")
+
+
 MIGRATIONS = [
     (1, "baseline jobs table", _v1_baseline),
     (2, "market analytics: cells, observations, skills, stats", _v2_analytics),
@@ -757,6 +791,7 @@ MIGRATIONS = [
     (5, "agentic pipeline: profiles, verdicts, dossiers, pipeline_state", _v5_agentic),
     (6, "ordinal verdicts, derived score, posting liveness", _v6_ordinal_verdicts),
     (7, "hard blockers carry quote and reasoning separately", _v7_structured_blockers),
+    (8, "per-posting scoring failure counter", _v8_scoring_failure_counter),
 ]
 
 

@@ -31,6 +31,12 @@ def _cmd_score_audit(args):
     return run_audit(args.profile_version, limit=args.limit)
 
 
+def _cmd_score_retry(args):
+    from careerradar.scoring.worker import run_retry
+
+    return run_retry(args.job_id)
+
+
 def _cmd_score_rescale(args):
     from careerradar.scoring.rescale import rescale
 
@@ -166,6 +172,13 @@ def build_parser():
                      help="defaults to the active profile")
     sca.add_argument("--limit", type=int, help="cap the verdicts checked")
     sca.set_defaults(func=_cmd_score_audit)
+
+    scy = scosub.add_parser(
+        "retry",
+        help="re-offer postings withdrawn after repeated scoring failures")
+    scy.add_argument("--job-id", type=int,
+                     help="clear one posting; defaults to every quarantined posting")
+    scy.set_defaults(func=_cmd_score_retry)
 
     scl = scosub.add_parser(
         "rescale",
