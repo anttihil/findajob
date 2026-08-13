@@ -1011,7 +1011,21 @@ body {
     transition: opacity 0.4s ease;
 }
 
+/* Open state is read off the drawer's *contents*, not a class on the chrome.
+   htmx swaps only `#drawer-content`, leaving the overlay and panel in the document, so
+   `.active` had nothing left to toggle it. Keying on the rendered header also fixes a
+   pre-existing bug: when the whole drawer was replaced on every page load, the element
+   arrived already at its final transform and the 0.4s slide never played. A persistent
+   element whose computed style changes does animate. */
+/* The skill drawer (`partials/skill_drawer.html`) reuses these classes and still opens by
+   toggling `.active` from JS, so that rule has to stay. Only the job drawer derives its
+   state from its contents. */
 .drawer-overlay.active {
+    opacity: 1;
+    pointer-events: auto;
+}
+
+#drawer-root:has(#drawer-content .drawer-header) .drawer-overlay {
     opacity: 1;
     pointer-events: auto;
 }
@@ -1038,21 +1052,43 @@ body {
     transform: translateX(0);
 }
 
+#drawer-root:has(#drawer-content .drawer-header) .job-drawer {
+    transform: translateX(0);
+}
+
+/* The panel is a flex column and the swapped-in content is now a wrapper inside it, so
+   the wrapper has to carry the column layout the drawer's own children used to get. */
+#drawer-content {
+    display: contents;
+}
+
+/* A 20px glyph was a 20px target, and closing is the most repeated action in the drawer.
+   The padding takes it to ~44px without moving the icon: the offsets shrink by the same
+   amount the padding adds. Esc and a click on the backdrop also close, so this is no
+   longer the only way out. */
 .close-drawer-btn {
     position: absolute;
-    top: 20px;
-    right: 20px;
+    top: 8px;
+    right: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
     background: none;
     border: none;
     color: var(--text-secondary);
     font-size: 20px;
     cursor: pointer;
+    /* Above the header's padding box so the target is not clipped by it. */
+    z-index: 1;
     transition: var(--transition-smooth);
 }
 
 .close-drawer-btn:hover {
     color: var(--text-primary);
-    transform: scale(1.1);
+    background: var(--border-light);
 }
 
 .drawer-header {

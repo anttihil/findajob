@@ -11,7 +11,7 @@ from careerradar.core.logger import get_logger
 
 logger = get_logger()
 
-SCHEMA_VERSION = 8
+SCHEMA_VERSION = 9
 
 
 def _v1_baseline(cursor):
@@ -783,6 +783,29 @@ def _v8_scoring_failure_counter(cursor):
         cursor.execute("ALTER TABLE jobs ADD COLUMN last_scoring_failure_at TEXT")
 
 
+def _v9_feed_indexes(cursor):
+    """Indexes for the two lookups the dashboard does on every render.
+
+    The feed's WHERE is `status = ? AND duplicate_of IS NULL` and its tie-breaker is
+    `date_found DESC`, and nothing indexed any of the three: 5,932 rows were scanned and
+    5,643 survivors sorted in a temp B-tree to return a page of 50. The composite covers
+    the filter and lets the sort read in order.
+
+    `company_display` is indexed because the dossier lookup matches either name. The
+    normalized column already had a unique index and the display column had none, so an
+    `OR` across the pair could not use either and scanned the table; with both indexed the
+    lookup splits into two indexed probes (see `web/app.py:dossier_for`).
+    """
+    cursor.execute(
+        "CREATE INDEX IF NOT EXISTS idx_jobs_feed "
+        "ON jobs(status, duplicate_of, date_found DESC)"
+    )
+    cursor.execute(
+        "CREATE INDEX IF NOT EXISTS idx_dossiers_display "
+        "ON company_dossiers(company_display)"
+    )
+
+
 MIGRATIONS = [
     (1, "baseline jobs table", _v1_baseline),
     (2, "market analytics: cells, observations, skills, stats", _v2_analytics),
@@ -792,6 +815,7 @@ MIGRATIONS = [
     (6, "ordinal verdicts, derived score, posting liveness", _v6_ordinal_verdicts),
     (7, "hard blockers carry quote and reasoning separately", _v7_structured_blockers),
     (8, "per-posting scoring failure counter", _v8_scoring_failure_counter),
+    (9, "feed and dossier lookup indexes", _v9_feed_indexes),
 ]
 
 

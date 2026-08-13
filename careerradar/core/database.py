@@ -1,5 +1,6 @@
 import sqlite3
 import os
+import copy
 import json
 from datetime import datetime, timedelta, timezone
 
@@ -13,6 +14,22 @@ from careerradar.core.paths import DB_PATH  # noqa: F401
 # that repetition and normalises with `strip().casefold()` -- the same normalisation is
 # used here so the dashboard and the validator cannot disagree about which requirement is
 # which.
+# Memoized `get_stats()` results, keyed by database path. See `Database.get_stats`.
+_STATS_CACHE = {}
+
+# Memoized `job_ids_for()` results. See that method for why one entry is enough.
+_FEED_IDS_CACHE = {}
+
+# Bumped by writes made on the same connection that later reads stats, which is the one
+# case `PRAGMA data_version` cannot see.
+_WRITE_GENERATION = 0
+
+
+def _invalidate_stats():
+    global _WRITE_GENERATION
+    _WRITE_GENERATION += 1
+
+
 def _requirement_summary(core, assessments):
     """Must-have counts for one verdict, or None when there is nothing to count.
 
@@ -44,6 +61,9 @@ class Database:
         self.db_path = db_path or DB_PATH
         self.conn = sqlite3.connect(self.db_path)
         self.conn.row_factory = sqlite3.Row
+        # Filled on first use by `_select_columns`, which reads it from PRAGMA table_info
+        # rather than repeating the `jobs` column list in Python.
+        self._jobs_columns = None
         self.create_tables()
 
     def create_tables(self):
@@ -55,6 +75,61 @@ class Database:
         from careerradar.core.migrations import migrate
 
         migrate(self.conn)
+
+    # The liveness rule, inlined rather than joined from `v_job_liveness`.
+    #
+    # The view is defined over the whole of `jobs`, and SQLite materializes it before it
+    # can be joined -- a 5,932-row scan to attach one string to one row already found by
+    # primary key. Because the view also appeared inside the `SELECT COUNT(*) FROM (...)`
+    # wrapper below, a single drawer page built it five times. Measured on the live
+    # database, the by-id lookup went from 18.10ms to 0.02ms once this became a plain join
+    # against `scrape_cells`.
+    #
+    # The view itself stays in the schema for other readers; this is the same CASE, kept
+    # deliberately identical to `migrations._v6_ordinal_verdicts`. If one changes, so must
+    # the other.
+    _LIVENESS_CASE = """
+        CASE
+          WHEN jobs.last_seen_at IS NULL OR cell.last_success_at IS NULL THEN 'unknown'
+          WHEN julianday(cell.last_success_at) - julianday(jobs.last_seen_at) > 0.5
+               THEN 'likely_closed'
+          WHEN julianday('now') - julianday(cell.last_success_at) > 7 THEN 'stale'
+          ELSE 'live'
+        END"""
+
+    _FROM = """
+          FROM jobs
+          LEFT JOIN job_verdicts v
+                 ON v.job_id = jobs.id
+                AND v.profile_version = (
+                    SELECT version FROM profiles WHERE is_active = 1
+                )
+          LEFT JOIN scrape_cells cell ON cell.id = jobs.scrape_cell_id
+    """
+
+    # What a job card actually reads (`macros/job_card.html`, `macros/badges.html`).
+    # `core_requirements` and `requirement_assessments` are here despite their size because
+    # `requirement_summary` is derived from them, and that derivation stays in Python where
+    # the matching normalisation already lives.
+    _VERDICT_LIST_COLUMNS = (
+        "verdict", "eligibility", "role_match", "capability_match", "seniority_gap",
+        "pareto_tier", "core_requirements", "requirement_assessments",
+    )
+    # Everything else only the drawer renders.
+    _VERDICT_DETAIL_COLUMNS = _VERDICT_LIST_COLUMNS + (
+        "seniority_fit", "hard_blockers", "key_gaps", "strengths", "reasoning",
+        "role_summary", "evidence_quality", "audit_flags", "scale_version",
+    )
+
+    # Only the drawer renders the posting text, and at ~6KB a row it was 300KB of every
+    # 50-card page. Named as an exclusion and applied against `PRAGMA table_info` so that a
+    # column added to `jobs` tomorrow still reaches the feed without editing a list here.
+    _LIST_OMITTED_JOB_COLUMNS = frozenset({"description"})
+
+    _JSON_COLUMNS = (
+        "matched_skills", "hard_blockers", "key_gaps", "strengths",
+        "core_requirements", "requirement_assessments",
+    )
 
     # The default ranks WITHOUT inventing an exchange rate between the dimensions.
     # Eligibility partitions -- nothing blocked outranks anything eligible, at any tier --
@@ -74,13 +149,84 @@ class Database:
         "date_found": "date_found DESC",
     }
 
+    def _select_columns(self, detail):
+        """The SELECT list, minus what the caller will not read."""
+        if self._jobs_columns is None:
+            self._jobs_columns = [
+                row[1] for row in self.conn.execute("PRAGMA table_info(jobs)")
+            ]
+        if detail:
+            job_columns = ["jobs.*"]
+        else:
+            job_columns = [
+                f"jobs.{name}" for name in self._jobs_columns
+                if name not in self._LIST_OMITTED_JOB_COLUMNS
+            ]
+        verdict_columns = [
+            f"v.{name} AS {name}" for name in
+            (self._VERDICT_DETAIL_COLUMNS if detail else self._VERDICT_LIST_COLUMNS)
+        ]
+        return ",\n                   ".join(
+            job_columns + verdict_columns + [f"{self._LIVENESS_CASE} AS liveness"]
+        )
+
+    def _feed_filters(self, *, status, country, role_family, seniority, source,
+                      is_remote, has_salary, access, include_duplicates, min_score,
+                      verdict, pipeline_state, min_fit_score, eligibility, role_match,
+                      capability_match, max_tier, liveness, job_id):
+        """The shared WHERE clause, as (sql, params).
+
+        Extracted so that `query_jobs` and `job_ids_for` cannot disagree about what the
+        current feed contains -- the drawer's "next posting" has to be the next one the
+        feed would actually show.
+        """
+        sql = ""
+        params = []
+
+        # Fetching one posting reuses this method so that the drawer sees exactly the row
+        # shape the feed does -- the same verdict join, the same JSON decoding, the same
+        # requirement summary. A second bespoke query is how the two drifted apart before.
+        if job_id is not None:
+            sql += " AND jobs.id = ?"
+            params.append(job_id)
+        if not include_duplicates:
+            sql += " AND duplicate_of IS NULL"
+        for column, value in (
+            ("jobs.status", status), ("jobs.country", country),
+            ("jobs.role_family", role_family), ("jobs.seniority", seniority),
+            ("jobs.source", source), ("jobs.access", access),
+            ("jobs.pipeline_state", pipeline_state), ("v.verdict", verdict),
+            ("v.eligibility", eligibility), ("v.role_match", role_match),
+            ("v.capability_match", capability_match),
+            (self._LIVENESS_CASE, liveness),
+        ):
+            if value:
+                sql += f" AND {column} = ?"
+                params.append(value)
+        if is_remote is not None:
+            sql += " AND jobs.is_remote = ?"
+            params.append(1 if is_remote else 0)
+        if has_salary is not None:
+            sql += (" AND jobs.salary_annual_usd IS NOT NULL" if has_salary
+                    else " AND jobs.salary_annual_usd IS NULL")
+        if min_score is not None:
+            sql += " AND jobs.match_score >= ?"
+            params.append(min_score)
+        if min_fit_score is not None:
+            sql += " AND jobs.fit_score >= ?"
+            params.append(min_fit_score)
+        if max_tier is not None:
+            sql += " AND v.pareto_tier <= ?"
+            params.append(max_tier)
+        return sql, params
+
     def query_jobs(self, status=None, country=None, role_family=None,
                    seniority=None, source=None, is_remote=None, has_salary=None,
                    access=None, include_duplicates=False, min_score=None,
                    verdict=None, pipeline_state=None, min_fit_score=None,
                    eligibility=None, role_match=None, capability_match=None,
                    max_tier=None, liveness=None, job_id=None,
-                   sort="fit", limit=200, offset=0):
+                   sort="fit", limit=200, offset=0, detail=False):
         """Filtered, paginated posting list for the dashboard.
 
         Duplicates are hidden by default: the same requisition cross-posted to both boards
@@ -90,76 +236,33 @@ class Database:
         Joining against the *active* profile rather than the latest verdict means a profile
         rebuild does not retroactively rewrite what the dashboard shows until the backlog
         has actually been re-scored under it.
-        """
-        query = """
-            SELECT jobs.*,
-                   v.verdict        AS verdict,
-                   v.seniority_fit  AS seniority_fit,
-                   v.hard_blockers  AS hard_blockers,
-                   v.key_gaps       AS key_gaps,
-                   v.strengths      AS strengths,
-                   v.reasoning      AS reasoning,
-                   v.role_summary   AS role_summary,
-                   v.eligibility    AS eligibility,
-                   v.role_match     AS role_match,
-                   v.capability_match AS capability_match,
-                   v.seniority_gap  AS seniority_gap,
-                   v.evidence_quality AS evidence_quality,
-                   v.pareto_tier    AS pareto_tier,
-                   v.core_requirements AS core_requirements,
-                   v.requirement_assessments AS requirement_assessments,
-                   v.audit_flags    AS audit_flags,
-                   v.scale_version  AS scale_version,
-                   l.liveness       AS liveness
-              FROM jobs
-              LEFT JOIN job_verdicts v
-                     ON v.job_id = jobs.id
-                    AND v.profile_version = (
-                        SELECT version FROM profiles WHERE is_active = 1
-                    )
-              LEFT JOIN v_job_liveness l ON l.job_id = jobs.id
-             WHERE 1=1
-        """
-        params = []
 
-        # Fetching one posting reuses this method so that the drawer sees exactly the row
-        # shape the feed does -- the same verdict join, the same JSON decoding, the same
-        # requirement summary. A second bespoke query is how the two drifted apart before.
+        `detail` selects the columns only the drawer renders -- the posting text above all.
+        Fetching by `job_id` implies it, so no caller has to remember the pairing.
+        """
         if job_id is not None:
-            query += " AND jobs.id = ?"
-            params.append(job_id)
-        if not include_duplicates:
-            query += " AND duplicate_of IS NULL"
-        for column, value in (
-            ("jobs.status", status), ("jobs.country", country),
-            ("jobs.role_family", role_family), ("jobs.seniority", seniority),
-            ("jobs.source", source), ("jobs.access", access),
-            ("jobs.pipeline_state", pipeline_state), ("v.verdict", verdict),
-            ("v.eligibility", eligibility), ("v.role_match", role_match),
-            ("v.capability_match", capability_match), ("l.liveness", liveness),
-        ):
-            if value:
-                query += f" AND {column} = ?"
-                params.append(value)
-        if is_remote is not None:
-            query += " AND jobs.is_remote = ?"
-            params.append(1 if is_remote else 0)
-        if has_salary is not None:
-            query += (" AND jobs.salary_annual_usd IS NOT NULL" if has_salary
-                      else " AND jobs.salary_annual_usd IS NULL")
-        if min_score is not None:
-            query += " AND jobs.match_score >= ?"
-            params.append(min_score)
-        if min_fit_score is not None:
-            query += " AND jobs.fit_score >= ?"
-            params.append(min_fit_score)
-        if max_tier is not None:
-            query += " AND v.pareto_tier <= ?"
-            params.append(max_tier)
+            detail = True
 
-        total = self.conn.execute(
-            f"SELECT COUNT(*) FROM ({query})", params
-        ).fetchone()[0]
+        where, params = self._feed_filters(
+            status=status, country=country, role_family=role_family,
+            seniority=seniority, source=source, is_remote=is_remote,
+            has_salary=has_salary, access=access,
+            include_duplicates=include_duplicates, min_score=min_score,
+            verdict=verdict, pipeline_state=pipeline_state,
+            min_fit_score=min_fit_score, eligibility=eligibility,
+            role_match=role_match, capability_match=capability_match,
+            max_tier=max_tier, liveness=liveness, job_id=job_id,
+        )
+        query = (f"SELECT {self._select_columns(detail)}{self._FROM}"
+                 f" WHERE 1=1{where}")
+
+        # A by-id lookup returns at most one row, so counting it is a second full execution
+        # of the query to learn something `len()` already knows.
+        total = None
+        if job_id is None:
+            total = self.conn.execute(
+                f"SELECT COUNT(*) FROM ({query})", params
+            ).fetchone()[0]
 
         query += f" ORDER BY {self._SORTS.get(sort, self._SORTS['fit_score'])}"
         query += " LIMIT ? OFFSET ?"
@@ -168,19 +271,22 @@ class Database:
         jobs = []
         for row in self.conn.execute(query, params):
             job = dict(row)
-            job["matched_skills"] = (
-                json.loads(row["matched_skills"]) if row["matched_skills"] else []
-            )
-            for field in ("hard_blockers", "key_gaps", "strengths",
-                          "core_requirements", "requirement_assessments"):
-                job[field] = json.loads(job[field]) if job.get(field) else []
+            # Gated on what was actually selected: the list path never fetches the drawer's
+            # verdict JSON, and decoding a column that is not there would invent an empty
+            # one that the template could not tell from a genuinely empty verdict.
+            for field in self._JSON_COLUMNS:
+                if field in job:
+                    job[field] = json.loads(job[field]) if job[field] else []
             # Derived here, not in the frontend: the join is on normalised requirement text
             # and the normalisation has to match the validator in `profile/models.py`. One
             # implementation, server-side, where the rule already lives.
             job["requirement_summary"] = _requirement_summary(
-                job["core_requirements"], job["requirement_assessments"]
+                job.get("core_requirements"), job.get("requirement_assessments")
             )
             jobs.append(job)
+
+        if total is None:
+            total = len(jobs)
 
         return {
             "jobs": jobs,
@@ -189,6 +295,55 @@ class Database:
             "offset": offset,
             "has_more": offset + len(jobs) < total,
         }
+
+    def job_ids_for(self, status=None, country=None, role_family=None,
+                    seniority=None, source=None, is_remote=None, has_salary=None,
+                    access=None, include_duplicates=False, min_score=None,
+                    verdict=None, pipeline_state=None, min_fit_score=None,
+                    eligibility=None, role_match=None, capability_match=None,
+                    max_tier=None, liveness=None, job_id=None,
+                    sort="fit", limit=200, offset=0, detail=None):
+        """Just the ids on this page of the feed, in feed order.
+
+        What the drawer needs to answer "which posting comes after this one" without
+        fetching a page of rows to find out. Takes the same keyword arguments as
+        `query_jobs` -- `FilterQuery.as_db_kwargs()` is passed to both -- and ignores
+        `detail`, which means nothing when only the id is selected.
+        """
+        where, params = self._feed_filters(
+            status=status, country=country, role_family=role_family,
+            seniority=seniority, source=source, is_remote=is_remote,
+            has_salary=has_salary, access=access,
+            include_duplicates=include_duplicates, min_score=min_score,
+            verdict=verdict, pipeline_state=pipeline_state,
+            min_fit_score=min_fit_score, eligibility=eligibility,
+            role_match=role_match, capability_match=capability_match,
+            max_tier=max_tier, liveness=liveness, job_id=job_id,
+        )
+        query = (f"SELECT jobs.id{self._FROM} WHERE 1=1{where}"
+                 f" ORDER BY {self._SORTS.get(sort, self._SORTS['fit_score'])}"
+                 f" LIMIT ? OFFSET ?")
+        args = [*params, limit, offset]
+
+        # Ranking the whole eligible corpus to slice 50 ids off the top costs ~12ms, and
+        # every drawer opened out of the same feed asks for the same list -- the filter
+        # only changes on a navigation. Cached on the query itself, so a different filter
+        # is a different entry rather than a stale hit, and invalidated by the same
+        # data_version/write-generation pair as `get_stats`.
+        key = (self.db_path, query, tuple(args),
+               self.conn.execute("PRAGMA data_version").fetchone()[0],
+               _WRITE_GENERATION)
+        cached = _FEED_IDS_CACHE.get(key)
+        if cached is not None:
+            return list(cached)
+
+        ids = [row[0] for row in self.conn.execute(query, args)]
+        # One filter at a time is the realistic case; the bound just stops a script that
+        # sweeps filters from growing this without limit.
+        if len(_FEED_IDS_CACHE) > 32:
+            _FEED_IDS_CACHE.clear()
+        _FEED_IDS_CACHE[key] = ids
+        return list(ids)
 
     def update_job_status(self, job_id, status):
         cursor = self.conn.cursor()
@@ -199,18 +354,61 @@ class Database:
         else:
             cursor.execute("UPDATE jobs SET status = ? WHERE id = ?", (status, job_id))
         self.conn.commit()
+        # A status change moves a posting between the counters `get_stats` reports, and it
+        # is the one write the web process makes on the connection that also reads them --
+        # the only case `PRAGMA data_version` will not flag.
+        _invalidate_stats()
         return cursor.rowcount > 0
 
     def get_stats(self):
+        """Dashboard counters, memoized between writes.
+
+        Ten unindexed GROUP BY scans of `jobs` and `job_verdicts`, ~87ms, recomputed on
+        every dashboard render even though nothing it reports changes except when a
+        posting is written. Cached per database file and keyed on two things:
+
+        `PRAGMA data_version`, which SQLite bumps whenever *another* connection commits --
+        so the scoring worker and the sync runner invalidate this without knowing it
+        exists. It deliberately does not change for commits on the connection doing the
+        reading, which is why `_WRITE_GENERATION` covers the one write the web process
+        makes on its own connection (`update_job_status`).
+
+        The result is deep-copied out so a caller that mutates what it renders cannot
+        poison the next request.
+        """
+        key = (
+            self.conn.execute("PRAGMA data_version").fetchone()[0],
+            _WRITE_GENERATION,
+        )
+        cached = _STATS_CACHE.get(self.db_path)
+        if cached is not None and cached[0] == key:
+            return copy.deepcopy(cached[1])
+        stats = self._compute_stats()
+        _STATS_CACHE[self.db_path] = (key, stats)
+        return copy.deepcopy(stats)
+
+    def status_counts(self):
+        """Postings per status, zero-filled.
+
+        Split out of `get_stats` because the drawer's status action needs exactly this and
+        nothing else. Going through `get_stats` for it meant nine other rollups -- ~70ms --
+        to put two numbers on screen, on an action taken once per posting triaged.
+        """
+        counts = {
+            row["status"]: row["count"] for row in self.conn.execute(
+                "SELECT status, COUNT(*) as count FROM jobs GROUP BY status"
+            )
+        }
+        for status in ("unread", "saved", "applied", "rejected"):
+            counts.setdefault(status, 0)
+        return counts
+
+    def _compute_stats(self):
         cursor = self.conn.cursor()
         stats = {}
-        
+
         # Total counts by status
-        cursor.execute("SELECT status, COUNT(*) as count FROM jobs GROUP BY status")
-        stats["status_counts"] = {r["status"]: r["count"] for r in cursor.fetchall()}
-        for s in ["unread", "saved", "applied", "rejected"]:
-            if s not in stats["status_counts"]:
-                stats["status_counts"][s] = 0
+        stats["status_counts"] = self.status_counts()
                 
         # Total crawled
         cursor.execute("SELECT COUNT(*) FROM jobs")
@@ -267,8 +465,12 @@ class Database:
         )
         stats["strong_matches"] = cursor.fetchone()[0]
 
+        # Same inlined rule as `_LIVENESS_CASE`, for the same reason: joining the view
+        # here materialized it a sixth time per dashboard render.
         cursor.execute(
-            "SELECT liveness, COUNT(*) FROM v_job_liveness GROUP BY 1"
+            f"SELECT {Database._LIVENESS_CASE} AS liveness, COUNT(*)"
+            f"  FROM jobs LEFT JOIN scrape_cells cell ON cell.id = jobs.scrape_cell_id"
+            f" GROUP BY 1"
         )
         stats["liveness_counts"] = {r[0]: r[1] for r in cursor.fetchall()}
 

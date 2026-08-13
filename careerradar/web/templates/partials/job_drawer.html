@@ -8,10 +8,16 @@
    drawer -- leaving a half-drawn panel and a console message nobody reads. Jinja renders
    undefined as empty rather than throwing, so the guard has nothing left to guard. #}
 
-<div class="drawer-overlay {{ 'active' if job }}" id="drawer-overlay"></div>
-<div class="job-drawer {{ 'active' if job }}" id="job-drawer">
+{# Rendered on its own by `GET /drawer` and swapped into `#drawer-content`, and rendered
+   in place by `GET /` for a reload, a deep link or a browser with no JavaScript. The
+   outer panel and backdrop are in `base.html`: they persist across swaps. #}
 {% if job %}
-  <a class="close-drawer-btn" href="{{ query.without_job() }}" id="close-drawer-btn">
+  {# `href` first, `hx-get` second: without JavaScript this is still a link that works. #}
+  <a class="close-drawer-btn" href="{{ query.without_job() }}" id="close-drawer-btn"
+     hx-get="{{ query.drawer_close_url() }}"
+     hx-target="#drawer-content"
+     hx-push-url="{{ query.without_job() }}"
+     aria-label="Close">
     <i class="fa-solid fa-xmark"></i>
   </a>
 
@@ -34,10 +40,21 @@
     </div>
   </div>
 
-  {# Status changes are a POST that redirects back to this same URL, so the drawer stays
-     open on exactly the posting you were reading. #}
+  {# Without JavaScript this is a POST that redirects back to this same URL, so the drawer
+     stays open on exactly the posting you were reading.
+
+     With htmx it swaps in the *next* posting instead. Triaging a queue is the job this
+     view exists for, and after saving or rejecting one there is nothing left to read on
+     the current one -- under the default `status=unread` filter it has just left the feed
+     entirely. `next_job_id` is resolved server-side against the feed order this drawer
+     was opened out of (`app.drawer_context`), so the button advances to what the list
+     would actually show next rather than to whatever happens to be in the DOM. #}
   <form class="drawer-actions-row" method="post"
-        action="/jobs/{{ job.id }}/status?next={{ query.with_job(job.id) | urlencode }}">
+        action="/jobs/{{ job.id }}/status?next={{ query.with_job(job.id) | urlencode }}"
+        hx-post="/jobs/{{ job.id }}/status{% if query.filter_qs() %}?{{ query.filter_qs() }}{% endif %}"
+        hx-target="#drawer-content"
+        hx-swap="innerHTML">
+    <input type="hidden" name="next_job_id" value="{{ next_job_id if next_job_id is not none }}">
     <button type="submit" name="status" value="saved"
             class="action-pill text-green {{ 'active' if job.status == 'saved' }}">
       <i class="fa-solid fa-bookmark"></i> Save Job
@@ -95,4 +112,3 @@
     </div>
   </div>
 {% endif %}
-</div>

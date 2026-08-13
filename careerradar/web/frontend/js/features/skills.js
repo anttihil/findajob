@@ -212,8 +212,15 @@ export function setupSkillDrawer() {
         ?.addEventListener('click', closeSkillDrawer);
     document.getElementById('skill-drawer-overlay')
         ?.addEventListener('click', closeSkillDrawer);
+    // Gated on this drawer actually being open. The job drawer closes on Escape too --
+    // declaratively, via an hx-trigger on its backdrop -- and this handler is registered
+    // on `document` for the whole app, so an ungated version ran on every Escape anywhere.
+    // Harmless while it was the only one, but the two now share the key and each should
+    // answer only for its own drawer.
     document.addEventListener('keydown', (e) => {
-        if (e.key === 'Escape') closeSkillDrawer();
+        if (e.key !== 'Escape') return;
+        if (!document.getElementById('skill-drawer')?.classList.contains('active')) return;
+        closeSkillDrawer();
     });
 }
 

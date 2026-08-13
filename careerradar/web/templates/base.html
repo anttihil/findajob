@@ -9,7 +9,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <link rel="stylesheet" href="/static/css/style.css">
+    <link rel="stylesheet" href="{{ static('css/style.css') }}">
 </head>
 <body class="dark-theme">
     <div class="glass-bg"></div>
@@ -45,10 +45,30 @@
         </main>
     </div>
 
-    {% include "partials/job_drawer.html" %}
+    {# The drawer chrome is permanent; only `#drawer-content` is swapped.
+
+       Keeping the panel and the backdrop in the document is what lets the slide animate
+       (a replaced element arrives at its final transform and cannot transition) and what
+       gives the close affordances a stable element to hang off. Open/closed is derived in
+       CSS from whether the content rendered a header -- see `#drawer-root:has(...)`.
+
+       The backdrop closes the drawer on a click or on Escape. The Escape trigger is
+       guarded on the drawer actually being open, otherwise every stray Escape anywhere in
+       the app would fetch an empty drawer and push a history entry for it. #}
+    <div id="drawer-root">
+        <div class="drawer-overlay" id="drawer-overlay"
+             hx-get="{{ query.drawer_close_url() }}"
+             hx-target="#drawer-content"
+             hx-push-url="{{ query.without_job() }}"
+             hx-trigger="click, keyup[key=='Escape' &amp;&amp; !!document.querySelector('#drawer-content .drawer-header')] from:body"></div>
+        <div class="job-drawer" id="job-drawer">
+            <div id="drawer-content">{% include "partials/job_drawer.html" %}</div>
+        </div>
+    </div>
     {% include "partials/skill_drawer.html" %}
 
-    <script src="/static/js/charts.js"></script>
-    <script type="module" src="/static/js/main.js"></script>
+    <script src="{{ static('js/vendor/htmx.min.js') }}"></script>
+    <script src="{{ static('js/charts.js') }}"></script>
+    <script type="module" src="{{ static('js/main.js') }}"></script>
 </body>
 </html>

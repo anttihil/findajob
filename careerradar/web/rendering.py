@@ -102,6 +102,31 @@ class FilterQuery:
         qs = self._query_string({"job": None})
         return f"/?{qs}" if qs else "/"
 
+    # The same two URLs against `/drawer`, which renders the drawer partial and nothing
+    # else. htmx fetches these and pushes the `/?...` pair above into the address bar, so
+    # what the browser shows stays a URL the server can render on its own -- reload, deep
+    # link and the no-JS path all still go through `dashboard()`.
+    #
+    # Derived from the same `_query_string` as the page URLs rather than assembled
+    # separately: the drawer has to be built from the filter the feed is showing, because
+    # "the next posting" is only meaningful relative to that filter.
+    def drawer_url(self, job_id: int) -> str:
+        return f"/drawer?{self._query_string({'job': job_id})}"
+
+    def filter_qs(self) -> str:
+        """The filter alone, as a query string, with no `job`.
+
+        For the drawer's status POST, which has to tell the server which feed it is
+        triaging so the reply can be the next posting in it. `hidden_fields` deliberately
+        drops `offset` -- correct for a form that changes the filter, wrong here, where
+        the page being read is exactly what has to survive.
+        """
+        return self._query_string({"job": None})
+
+    def drawer_close_url(self) -> str:
+        qs = self._query_string({"job": None})
+        return f"/drawer?{qs}" if qs else "/drawer"
+
     def is_active(self, key: str, value: Any) -> bool:
         return self.values.get(key) == value
 
