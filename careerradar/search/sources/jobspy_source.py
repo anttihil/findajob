@@ -1,7 +1,7 @@
 """JobSpy-backed source for LinkedIn and Indeed, behind the BaseJobSource interface.
 
 Wrapping the library rather than calling it directly keeps the blast radius small: board
-markup and endpoints change often, and `backend/sources/base.py` is the seam where a
+markup and endpoints change often, and `sources/base.py` is the seam where a
 hand-rolled fallback can take over.
 
 Two things about the library's real behaviour, verified against a live scrape rather than
@@ -133,16 +133,6 @@ class JobSpySource(BaseJobSource):
         return self._scrape
 
     # -- BaseJobSource -----------------------------------------------------------------
-    def fetch_jobs(self, country, query):
-        """Interface-compatible entry point. Prefer fetch_for_task for real runs."""
-        task = {
-            "source": "indeed", "query": query, "country": country,
-            "indeed_country": _indeed_country(country), "location_label": "",
-            "results_wanted": 25, "is_remote": False, "distance": 50,
-            "hours_old": None, "fetch_description": True,
-        }
-        return self.fetch_for_task(task)
-
     def fetch_for_task(self, task):
         """Run one search and return raw row dicts.
 
@@ -257,8 +247,10 @@ def build_scrape_kwargs(task, description_format="markdown"):
         if not task.get("is_remote") and task.get("distance"):
             kwargs["distance"] = int(task["distance"])
     elif source == "linkedin":
-        # False for the cheap pass; descriptions are fetched separately for the top-scoring
-        # subset only, which is why desc_selection is 'top_k' rather than 'census'.
+        # All-or-nothing, matching the cell's desc_selection: 'census' when the budget
+        # affords a description per posting, 'none' otherwise. Never a top-scoring subset
+        # -- selecting on pre-score correlates with the user's own skills, which is exactly
+        # the bias the skill-demand denominators must not contain.
         kwargs["linkedin_fetch_description"] = bool(task.get("fetch_description"))
 
     if task.get("proxies"):
@@ -286,13 +278,6 @@ def frame_to_rows(frame):
         )
 
     return frame.to_dict(orient="records")
-
-
-def _indeed_country(country_code):
-    return {
-        "US": "usa", "SE": "sweden", "NO": "norway", "DK": "denmark", "FI": "finland",
-        "GB": "uk", "CA": "canada", "DE": "germany",
-    }.get((country_code or "").upper(), "usa")
 
 
 def _slug(text):

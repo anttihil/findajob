@@ -1,12 +1,15 @@
 """Per-source circuit breaker and request pacing.
 
-The central rule here departs deliberately from `backend/http_client.py`, which retries 429
-with exponential backoff. That is correct for a polite API and wrong for LinkedIn: a 429
-there means the IP is flagged, and retrying inside the same run deepens the flag rather than
-recovering from it. So a 429 trips the source for the remainder of the run and persists an
-escalating backoff; only 5xx and timeouts are retried.
+The central rule here departs deliberately from the usual HTTP client policy of retrying a
+429 with exponential backoff. That is correct for a polite API, which is telling you to slow
+down, and wrong for a job board, which is telling you the IP is flagged -- retrying inside
+the same run deepens the flag rather than recovering from it. So a 429 trips the source for
+the remainder of the run and persists an escalating backoff; only 5xx and timeouts are
+retried.
 
-`http_client.py` keeps its original semantics for the fallback scrapers, where they fit.
+The one case where a 429 IS retryable is a rotating proxy pool, because then it flagged one
+exit IP rather than the account and the retry arrives from a different one. That is the
+`rotating_proxies` branch in `on_error`, and nothing else here relaxes the rule.
 """
 
 import random

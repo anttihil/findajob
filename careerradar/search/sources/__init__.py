@@ -1,1 +1,1 @@
-# Marks backend/sources as a Python package
+# Marks careerradar/search/sources as a Python package

@@ -10,7 +10,7 @@
 #
 # The cell matrix is ~252 cells (126 per source). LinkedIn rate-limits around the 10th page
 # on a single IP, so the matrix is rotated across runs rather than swept -- see
-# backend/scheduler.py. At these budgets a full matrix cycle takes roughly 5 days, which is
+# careerradar/search/scheduler.py. At these budgets a full matrix cycle takes roughly 5 days, which is
 # what makes the 30-day minimum analysis window meaningful.
 # ---------------------------------------------------------------------------------------
 scraper:
@@ -72,7 +72,7 @@ scraper:
     # these cells are desc_selection='none' -- they count fully toward role supply (title,
     # company, and location are complete) but contribute nothing to skill demand.
     # Set SCRAPER_PROXIES and the scraper.proxies.with_proxies override flips this to a
-    # full description census. See backend/proxies.py.
+    # full description census. See careerradar/search/proxies.py.
     linkedin:
       searches_per_run: 6
       request_units: 60
@@ -120,7 +120,7 @@ scraper:
     # Retries on a fresh exit IP before tripping, when a rotating pool is configured.
     proxy_rotation_retries: 3
     # A 429 means the IP is flagged. Retrying in-run deepens the flag, so it trips the
-    # source outright instead -- deliberately unlike backend/http_client.py's retry policy.
+    # source outright instead -- deliberately unlike a polite API's retry-with-backoff.
     http_429_trips_immediately: true
     transient_retries: 2
     source_backoff_minutes: [15, 60, 240, 1440]
