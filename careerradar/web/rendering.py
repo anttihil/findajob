@@ -14,7 +14,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any
 from urllib.parse import urlencode, urlparse
 
 from markupsafe import Markup, escape
@@ -27,7 +27,7 @@ IMPORTANCE_RANK = {"must_have": 0, "important": 1, "nice_to_have": 2}
 # of `Database.query_jobs` exactly, which is the point -- a form field whose name is wrong
 # now fails visibly at the route signature instead of being silently dropped by FastAPI,
 # which is how `/api/search-links?resume=...` went unnoticed.
-FILTER_DEFAULTS: Dict[str, Any] = {
+FILTER_DEFAULTS: dict[str, Any] = {
     "status": "unread",
     "access": "",
     "country": "",
@@ -51,8 +51,8 @@ class FilterQuery:
     not expressible here.
     """
 
-    values: Dict[str, Any] = field(default_factory=dict)
-    job: Optional[int] = None
+    values: dict[str, Any] = field(default_factory=dict)
+    job: int | None = None
 
     def __post_init__(self):
         merged = dict(FILTER_DEFAULTS)
@@ -66,7 +66,7 @@ class FilterQuery:
         except KeyError as exc:
             raise AttributeError(name) from exc
 
-    def _query_string(self, overrides: Dict[str, Any]) -> str:
+    def _query_string(self, overrides: dict[str, Any]) -> str:
         merged = dict(self.values)
         merged.update(overrides)
         pairs = [
@@ -130,7 +130,7 @@ class FilterQuery:
     def is_active(self, key: str, value: Any) -> bool:
         return self.values.get(key) == value
 
-    def hidden_fields(self, exclude: str = "") -> List[tuple]:
+    def hidden_fields(self, exclude: str = "") -> list[tuple]:
         """The filter as hidden inputs, for a form that sets one other field.
 
         Paging is left out deliberately: any form that re-submits the filter is changing
@@ -144,7 +144,7 @@ class FilterQuery:
             and value not in (None, "", FILTER_DEFAULTS.get(key))
         ]
 
-    def as_db_kwargs(self) -> Dict[str, Any]:
+    def as_db_kwargs(self) -> dict[str, Any]:
         """The filter, as arguments to `Database.query_jobs`."""
         return {
             key: (value if value != "" else None)
@@ -172,7 +172,7 @@ def hostname(url: str) -> str:
         return url
 
 
-def highlight_terms(description: Optional[str], skills: List[str]) -> Markup:
+def highlight_terms(description: str | None, skills: list[str]) -> Markup:
     """Escape the description, then wrap every matched skill in a highlight span.
 
     Escaping first and inserting markup second is the same order the JS used, and it is
@@ -196,7 +196,7 @@ def highlight_terms(description: Optional[str], skills: List[str]) -> Markup:
     return Markup(text)
 
 
-def requirement_rows(job: Dict[str, Any]) -> List[Dict[str, Any]]:
+def requirement_rows(job: dict[str, Any]) -> list[dict[str, Any]]:
     """Join the posting's stated requirements against the model's assessments.
 
     Display-side join only; the counts on the card come from
@@ -234,7 +234,7 @@ COUNTRY_LABELS = {
 }
 
 
-def country_choices(roles) -> List[tuple]:
+def country_choices(roles) -> list[tuple]:
     """(code, label) for every country the configured locations cover."""
     codes = []
     for location in roles.locations.values():

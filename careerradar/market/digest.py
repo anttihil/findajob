@@ -1,10 +1,11 @@
 import os
-
-from careerradar.core.paths import REPO_ROOT
 import sqlite3
 from datetime import datetime, timedelta
-from careerradar.core.config import load_config
+
 import careerradar.core.database as db_module
+from careerradar.core.config import load_config
+from careerradar.core.paths import REPO_ROOT
+
 
 class DigestGenerator:
     def __init__(self):
@@ -15,10 +16,10 @@ class DigestGenerator:
         # percent, which it never was -- the scale bottoms out around 15.
         self.max_tier = self.digest_config.get("max_tier", 4)
         self.output_dir = os.path.abspath(os.path.join(
-            REPO_ROOT, 
+            REPO_ROOT,
             "digests"
         ))
-        
+
     def generate_digest(self, hours_ago=24) -> str:
         """
         Generates a markdown digest of jobs matched in the last `hours_ago` hours.
@@ -37,7 +38,7 @@ class DigestGenerator:
 
         # Fetch jobs in the timeframe
         time_threshold = (datetime.now() - timedelta(hours=hours_ago)).isoformat()
-        
+
         cursor.execute("""
             SELECT j.*, v.eligibility, v.role_match, v.capability_match,
                    v.pareto_tier, v.role_summary
@@ -53,7 +54,7 @@ class DigestGenerator:
                AND COALESCE(l.liveness, 'unknown') != 'likely_closed'
              ORDER BY v.pareto_tier ASC, j.date_found DESC
         """, (time_threshold, self.max_tier))
-        
+
         rows = cursor.fetchall()
         conn.close()
 
@@ -108,12 +109,11 @@ class DigestGenerator:
         """
         try:
             from careerradar.core.config import load_config
+            from careerradar.core.database import Database
             from careerradar.market.gap_analysis import GapAnalysis
             from careerradar.profile.adapter import load_profile
             from careerradar.taxonomy.roles import load_roles
             from careerradar.taxonomy.skills import load_taxonomy
-
-            from careerradar.core.database import Database
 
             config = load_config()
             if not (config.get("digest") or {}).get("include_skill_gap", True):
@@ -155,7 +155,7 @@ class DigestGenerator:
                 "require this skill.*"
             )
             return md
-        except Exception:
+        except Exception:  # noqa: BLE001 - a broken section must not sink the whole digest
             return []
 
     def list_digests(self) -> list[dict]:
@@ -164,22 +164,22 @@ class DigestGenerator:
         """
         if not os.path.exists(self.output_dir):
             return []
-            
+
         digests = []
         for filename in sorted(os.listdir(self.output_dir), reverse=True):
             if filename.startswith("digest_") and filename.endswith(".md"):
                 path = os.path.join(self.output_dir, filename)
                 stat = os.stat(path)
-                
+
                 # Parse date from name
                 try:
                     # digest_YYYYMMDD_HHMMSS.md
                     date_part = filename.replace("digest_", "").replace(".md", "")
                     dt = datetime.strptime(date_part, "%Y%m%d_%H%M%S")
                     formatted_date = dt.strftime("%B %d, %Y %I:%M %p")
-                except:
+                except ValueError:
                     formatted_date = "Unknown Date"
-                    
+
                 digests.append({
                     "filename": filename,
                     "date_created": formatted_date,
@@ -196,6 +196,6 @@ class DigestGenerator:
         path = os.path.join(self.output_dir, clean_filename)
         if not os.path.exists(path):
             return ""
-            
-        with open(path, "r", encoding="utf-8") as f:
+
+        with open(path, encoding="utf-8") as f:
             return f.read()

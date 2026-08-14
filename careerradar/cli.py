@@ -84,7 +84,7 @@ def _cmd_seed_cells(args):
     return seed_cells(prune=args.prune, queries_per_family=args.queries_per_family)
 
 
-def _cmd_migrate(args):
+def _cmd_migrate(args):  # noqa: ARG001 - argparse handler signature
     import sqlite3
 
     from careerradar.core.migrations import current_version, migrate

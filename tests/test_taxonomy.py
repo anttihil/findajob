@@ -17,7 +17,7 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from careerradar.taxonomy.skills import load_taxonomy  # noqa: E402
+from careerradar.taxonomy.skills import load_taxonomy
 
 
 class TaxonomyIntegrityTests(unittest.TestCase):

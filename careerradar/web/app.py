@@ -2,35 +2,45 @@ import json
 import os
 import threading
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from fastapi import (
-    BackgroundTasks, Depends, FastAPI, Form, HTTPException, Query, Request,
+    BackgroundTasks,
+    Depends,
+    FastAPI,
+    Form,
+    HTTPException,
+    Query,
+    Request,
 )
 from fastapi.responses import (
-    HTMLResponse, JSONResponse, RedirectResponse,
+    HTMLResponse,
+    JSONResponse,
+    RedirectResponse,
 )
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, ConfigDict
 
-from careerradar.market.analytics import MarketAnalytics
 from careerradar.core.config import deep_merge, load_config, save_config
 from careerradar.core.database import Database
 from careerradar.core.logger import get_logger
-from careerradar.market.gap_analysis import GapAnalysis
-from careerradar.profile.adapter import NoActiveProfile, load_profile
-from careerradar.taxonomy.roles import load_roles
-from careerradar.search.scheduler import select_cells, with_location_weights
-from careerradar.search.sources.link_generator import LinkGenerator
+from careerradar.core.paths import FRONTEND_DIR, REPO_ROOT, TEMPLATE_DIR
 from careerradar.core.status_manager import (
     clear_stale_lock,
     is_sync_running,
     load_sync_status,
     set_sync_progress,
 )
-from careerradar.taxonomy.skills import load_taxonomy
+from careerradar.market.analytics import MarketAnalytics
+from careerradar.market.gap_analysis import GapAnalysis
+from careerradar.profile.adapter import NoActiveProfile, load_profile
 from careerradar.search.runner import run_sync
+from careerradar.search.scheduler import select_cells, with_location_weights
+from careerradar.search.sources.link_generator import LinkGenerator
+from careerradar.taxonomy.roles import load_roles
+from careerradar.taxonomy.skills import load_taxonomy
+from careerradar.web import rendering
 
 app = FastAPI(title="Job Search Automation Dashboard")
 
@@ -81,9 +91,6 @@ async def restrict_to_owner(request: Request, call_next):
     )
 
 
-from careerradar.core.paths import FRONTEND_DIR, REPO_ROOT, TEMPLATE_DIR
-from careerradar.web import rendering
-
 BASE_DIR = REPO_ROOT
 
 
@@ -126,7 +133,7 @@ def get_db():
     return db
 
 
-def analytics_context(db):
+def analytics_context(db):  # noqa: ARG001 - endpoint dependency signature
     """Shared objects for the analytics endpoints."""
     config = load_config()
     taxonomy = load_taxonomy()
@@ -157,42 +164,42 @@ class ConfigUpdate(BaseModel):
 
 @app.get("/api/jobs")
 def get_jobs(
-    status: Optional[str] = None,
-    country: Optional[str] = None,
-    role_family: Optional[str] = None,
-    seniority: Optional[str] = None,
-    source: Optional[str] = None,
-    is_remote: Optional[bool] = None,
-    has_salary: Optional[bool] = None,
+    status: str | None = None,
+    country: str | None = None,
+    role_family: str | None = None,
+    seniority: str | None = None,
+    source: str | None = None,
+    is_remote: bool | None = None,
+    has_salary: bool | None = None,
     # commutable | remote | relocation. candidates have local or remote preferences, so this is the
     # filter that matters most: anything neither remote nor within commuting distance
     # requires moving house.
-    access: Optional[str] = Query(None, pattern="^(commutable|remote|relocation)$"),
+    access: str | None = Query(None, pattern="^(commutable|remote|relocation)$"),
     include_duplicates: bool = False,
-    min_score: Optional[int] = None,
+    min_score: int | None = None,
     # The scalar projection of the ordinals. Kept for a coarse cut, but the ordinals below
     # are what the dashboard should filter on -- they say WHY a posting qualifies, and a
     # threshold on a projected scale cannot.
-    min_fit_score: Optional[int] = None,
-    verdict: Optional[str] = Query(
+    min_fit_score: int | None = None,
+    verdict: str | None = Query(
         None, pattern="^(strong|worth_applying|stretch|poor_fit|mismatch)$"
     ),
-    eligibility: Optional[str] = Query(
+    eligibility: str | None = Query(
         None, pattern="^(eligible|conditional|blocked)$"
     ),
-    role_match: Optional[str] = Query(
+    role_match: str | None = Query(
         None, pattern="^(same_role|adjacent|different_domain|different_field)$"
     ),
-    capability_match: Optional[str] = Query(
+    capability_match: str | None = Query(
         None, pattern="^(exceeds|meets|most_with_gaps|major_gaps|not_close)$"
     ),
     # Pareto tier: 1 dominates everything below it. Filtering `max_tier=4` asks for the top
     # four layers without asserting an exchange rate between the dimensions.
-    max_tier: Optional[int] = Query(None, ge=1, le=10),
-    liveness: Optional[str] = Query(
+    max_tier: int | None = Query(None, ge=1, le=10),
+    liveness: str | None = Query(
         None, pattern="^(live|stale|likely_closed|unknown)$"
     ),
-    pipeline_state: Optional[str] = Query(None, pattern="^(new|scored|researched)$"),
+    pipeline_state: str | None = Query(None, pattern="^(new|scored|researched)$"),
     sort: str = Query("fit", pattern="^(fit|fit_score|match_score|date_found)$"),
     # Paginated from the start: the corpus reaches thousands of rows within days, and
     # renderJobCards builds DOM for every row it receives.
@@ -302,9 +309,9 @@ def market_coverage():
 @app.get("/api/skills/gap")
 def skills_gap(
     window_days: int = Query(90, ge=1, le=365),
-    location: Optional[str] = None,
-    role_family: Optional[str] = None,
-    weighting: Optional[str] = Query(None, pattern="^(interest|estimated_supply|observed)$"),
+    location: str | None = None,
+    role_family: str | None = None,
+    weighting: str | None = Query(None, pattern="^(interest|estimated_supply|observed)$"),
 ):
     db = get_db()
     try:
@@ -360,7 +367,7 @@ def get_profile_versions():
 
 # --- Company dossiers ------------------------------------------------------------------
 
-def dossier_for(db, company: Optional[str]) -> Optional[Dict[str, Any]]:
+def dossier_for(db, company: str | None) -> dict[str, Any] | None:
     """The deep-research dossier for one company, or None.
 
     Factored out so the drawer renders the dossier from the same read the JSON endpoint
@@ -423,7 +430,7 @@ def update_current_config(payload: ConfigUpdate):
 
 
 @app.get("/api/search-links")
-def get_search_links(country: str, query: str, role_family: Optional[str] = None):
+def get_search_links(country: str, query: str, role_family: str | None = None):  # noqa: ARG001 - declared query parameter, part of the HTTP contract
     """Boolean search links, built from the profile's strongest skills.
 
     Previously keyed on a parsed resume variant. The profile is now one unified artifact,
@@ -434,7 +441,7 @@ def get_search_links(country: str, query: str, role_family: Optional[str] = None
     try:
         profile = load_profile(taxonomy=taxonomy)
     except NoActiveProfile as exc:
-        raise HTTPException(status_code=404, detail=str(exc))
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
     strongest = [
         taxonomy.label(key)
         for key in sorted(profile.keys(min_level=3))
@@ -582,7 +589,7 @@ templates.env.filters["hostname"] = rendering.hostname
 templates.env.globals["static"] = static_url
 
 
-def drawer_context(db, query: rendering.FilterQuery, job_id: Optional[int]) -> Dict[str, Any]:
+def drawer_context(db, query: rendering.FilterQuery, job_id: int | None) -> dict[str, Any]:
     """Everything `partials/job_drawer.html` renders, for one posting or for none.
 
     Shared by `dashboard()` and `GET /drawer` so the two cannot drift. They render the
@@ -638,8 +645,8 @@ def filter_query(
     status: str = Query("unread", pattern="^(unread|saved|applied|rejected)$"),
     access: str = Query("", pattern="^(commutable|remote|relocation)?$"),
     country: str = "",
-    min_score: Optional[int] = Query(None, ge=0, le=100),
-    max_tier: Optional[int] = Query(None, ge=1, le=10),
+    min_score: int | None = Query(None, ge=0, le=100),
+    max_tier: int | None = Query(None, ge=1, le=10),
     verdict: str = Query("", pattern="^(strong|worth_applying|stretch|poor_fit|mismatch)?$"),
     eligibility: str = Query("", pattern="^(eligible|conditional|blocked)?$"),
     sort: str = Query("fit", pattern="^(fit|fit_score|match_score|date_found)$"),
@@ -660,7 +667,7 @@ def drawer(
     # Which posting to render. Absent means the closed drawer, which is how the close
     # affordances work: one endpoint, and `job_drawer.html` already renders nothing when
     # `job` is undefined.
-    job: Optional[int] = None,
+    job: int | None = None,
 ):
     """The drawer partial on its own -- no feed query, no stats, no page.
 
@@ -691,7 +698,7 @@ def dashboard(
     # htmx now swaps the drawer in without a navigation, but this path is unchanged and
     # still renders it server-side -- it is what a reload, a deep link and a browser with
     # no JavaScript get, and `/drawer` shares its context builder so the two agree.
-    job: Optional[int] = None,
+    job: int | None = None,
 ):
     db = get_db()
     try:

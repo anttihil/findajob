@@ -25,9 +25,9 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from careerradar.core.migrations import apply_pragmas, migrate  # noqa: E402
-from careerradar.profile.models import VERDICT_SCHEMA_VERSION  # noqa: E402
-from careerradar.scoring.worker import _ineligible, _pending, _select  # noqa: E402
+from careerradar.core.migrations import apply_pragmas, migrate
+from careerradar.profile.models import VERDICT_SCHEMA_VERSION
+from careerradar.scoring.worker import _ineligible, _pending, _select
 
 PROFILE = 4
 LONG = "x" * 400

@@ -146,9 +146,9 @@ def render_skill_hint(matched=None, missing=None) -> str:
     if not matched and not missing:
         return ""
     lines = [
-        '<taxonomy_signal note="Regex extraction over a fixed skill list. It over- and '
+        ('<taxonomy_signal note="Regex extraction over a fixed skill list. It over- and '
         'under-fires; the posting text is authoritative. Use this only to avoid missing a '
-        'requirement, never to invent one.">'
+        'requirement, never to invent one.">')
     ]
     if matched:
         lines.append("candidate evidences: " + ", ".join(matched))

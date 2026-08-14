@@ -14,13 +14,11 @@ reason rather than silently vanishing.
 """
 
 import json
-import math
 from datetime import datetime, timedelta, timezone
 
 from careerradar.market.analytics import (
     SUPPRESS_COMPANY_CONCENTRATION,
     SUPPRESS_COVERAGE_INCOMPLETE,
-    SUPPRESS_NO_SALARY_DATA,
     SUPPRESS_SMALL_SAMPLE,
     SUPPRESS_TOO_FEW_COMPANIES,
     build_stratum_weights,
@@ -153,7 +151,7 @@ class GapAnalysis:
             stratum_counts[key] = stratum_counts.get(key, 0) + 1
 
         if mode == "observed":
-            weights_by_stratum = {key: 1.0 for key in stratum_counts}
+            weights_by_stratum = dict.fromkeys(stratum_counts, 1.0)
             diagnostics = {
                 "strata_used": len(stratum_counts),
                 "strata_available": len(stratum_counts),
@@ -316,7 +314,7 @@ class GapAnalysis:
             entry["baseline_salary"] = baseline_salary
         return stats
 
-    def _score_rows(self, stats, n_eff_total, diagnostics):
+    def _score_rows(self, stats, n_eff_total, diagnostics):  # noqa: ARG002 - kept for signature parity with the other row scorers
         min_postings = self.analytics_config.get("min_postings_for_skill", 20)
         min_companies = self.analytics_config.get("min_companies_for_skill", 3)
         max_company_share = self.analytics_config.get("max_company_share", 0.40)

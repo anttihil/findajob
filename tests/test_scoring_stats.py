@@ -17,8 +17,8 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from careerradar.scoring import rubric  # noqa: E402
-from careerradar.scoring.stats import COLLAPSE_SHARE, render  # noqa: E402
+from careerradar.scoring import rubric
+from careerradar.scoring.stats import COLLAPSE_SHARE, render
 
 
 def stats(**overrides):

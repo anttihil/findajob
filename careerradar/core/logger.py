@@ -1,5 +1,4 @@
 import logging
-import os
 from logging.handlers import RotatingFileHandler
 
 from careerradar.core.paths import LOG_PATH

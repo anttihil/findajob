@@ -64,7 +64,7 @@ COMPANY_SUFFIXES = [
     "ab", "asa", "as", "a/s", "aps", "oy", "oyj", "kk", "pty", "pte", "srl", "spa",
 ]
 _SUFFIX_RE = re.compile(
-    r"[\s,]+(?:%s)\.?$" % "|".join(re.escape(s) for s in COMPANY_SUFFIXES),
+    r"[\s,]+(?:{})\.?$".format("|".join(re.escape(s) for s in COMPANY_SUFFIXES)),
     re.IGNORECASE,
 )
 
@@ -145,9 +145,7 @@ def parse_location(raw, country_hint=None, is_remote_query=False, fallback_label
     city = region = ""
     if parts:
         # Drop a trailing country token; the hint is authoritative.
-        if len(parts) >= 3:
-            city, region = parts[0], parts[1]
-        elif len(parts) == 2:
+        if len(parts) >= 3 or len(parts) == 2:
             city, region = parts[0], parts[1]
         else:
             city = parts[0]

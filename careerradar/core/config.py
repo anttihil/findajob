@@ -2,13 +2,14 @@ import os
 
 import yaml
 
-from careerradar.core.paths import CONFIG_PATH, ENV_PATH  # noqa: F401
+from careerradar.core.paths import CONFIG_PATH, ENV_PATH
+
 
 # Simple .env loader
 def load_env():
     env_path = ENV_PATH
     if os.path.exists(env_path):
-        with open(env_path, "r", encoding="utf-8") as f:
+        with open(env_path, encoding="utf-8") as f:
             for line in f:
                 line = line.strip()
                 if line and not line.startswith("#") and "=" in line:
@@ -91,10 +92,10 @@ def load_config():
     if not os.path.exists(CONFIG_PATH):
         return defaults
 
-    with open(CONFIG_PATH, "r", encoding="utf-8") as f:
+    with open(CONFIG_PATH, encoding="utf-8") as f:
         try:
             config = yaml.safe_load(f) or {}
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 - a malformed config.yaml must fall back to defaults, not crash startup
             print(f"Error loading config.yaml: {e}")
             return defaults
 

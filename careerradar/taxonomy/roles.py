@@ -17,14 +17,23 @@ import re
 import yaml
 
 from careerradar.core.paths import DATA_DIR
+
 ROLES_PATH = os.path.join(DATA_DIR, "roles.yaml")
 
 SENIORITY_UNSPECIFIED = "unspecified"
 
 
 class RoleFamily:
-    __slots__ = ("key", "label", "tier", "resume", "query_terms", "order", "_patterns",
-                 "_weak_patterns")
+    __slots__ = (
+        "_patterns",
+        "_weak_patterns",
+        "key",
+        "label",
+        "order",
+        "query_terms",
+        "resume",
+        "tier",
+    )
 
     def __init__(self, key, spec, order):
         self.key = key
@@ -78,8 +87,17 @@ ACCESS_LEVELS = (ACCESS_COMMUTABLE, ACCESS_REMOTE, ACCESS_RELOCATION)
 
 
 class Location:
-    __slots__ = ("id", "label", "search_label", "country", "is_remote", "weight",
-                 "indeed_country", "distance", "access")
+    __slots__ = (
+        "access",
+        "country",
+        "distance",
+        "id",
+        "indeed_country",
+        "is_remote",
+        "label",
+        "search_label",
+        "weight",
+    )
 
     def __init__(self, spec):
         self.id = spec["id"]
@@ -112,7 +130,7 @@ class Location:
 class RoleTaxonomy:
     def __init__(self, path=None):
         self.path = path or ROLES_PATH
-        with open(self.path, "r", encoding="utf-8") as handle:
+        with open(self.path, encoding="utf-8") as handle:
             raw = handle.read()
         data = yaml.safe_load(raw)
 

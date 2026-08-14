@@ -50,7 +50,7 @@ class Document:
 
 
 def _read_markdown(path):
-    with open(path, "r", encoding="utf-8") as handle:
+    with open(path, encoding="utf-8") as handle:
         return handle.read()
 
 

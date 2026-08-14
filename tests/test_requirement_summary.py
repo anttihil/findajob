@@ -14,7 +14,7 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from careerradar.core.database import _requirement_summary  # noqa: E402
+from careerradar.core.database import _requirement_summary
 
 
 def core(requirement, importance="must_have", quote="quoted"):

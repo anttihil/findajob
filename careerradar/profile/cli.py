@@ -6,7 +6,6 @@ a line, hand it back". The graph itself is headless -- a web adapter would drive
 `stream`/`Command(resume=...)` loop, and nothing in `graph.py` knows about a terminal.
 """
 
-import json
 import sys
 import textwrap
 
@@ -309,14 +308,16 @@ def cmd_build(args):
     return 0
 
 
-def cmd_show(args):
+def cmd_show(args):  # noqa: ARG001 - argparse handler signature
     from careerradar.profile.store import load_active_row
 
     record = load_active_row()
     if record is None:
         print("No active profile. Build one with:  careerradar profile build")
         return 1
-    print(_style(f"Profile v{record['version']}  ({record['created_at']}, {record['model']})", BOLD))
+    print(_style(
+        f"Profile v{record['version']}  ({record['created_at']}, {record['model']})", BOLD
+    ))
     print()
     print(_render_profile(record["profile"]))
     print()
@@ -325,7 +326,7 @@ def cmd_show(args):
     return 0
 
 
-def cmd_history(args):
+def cmd_history(args):  # noqa: ARG001 - argparse handler signature
     from careerradar.profile.store import list_versions
 
     versions = list_versions()

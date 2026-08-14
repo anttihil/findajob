@@ -115,8 +115,8 @@ def render(report, show=20):
     status = report["quote_status"]
     verifiable = status.get("verified", 0) + status.get("repaired", 0)
 
-    out = [f"profile v{report['profile_version']} · {report['verdicts']:,} verdicts · "
-           f"{total:,} hard blockers", ""]
+    out = [(f"profile v{report['profile_version']} · {report['verdicts']:,} verdicts · "
+           f"{total:,} hard blockers"), ""]
     out.append("quote verification -- is the phrase actually in the posting?")
     for name in ("verified", "repaired", "too_short", "not_found"):
         n = status.get(name, 0)

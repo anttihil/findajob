@@ -33,7 +33,6 @@ Cost: roughly $0.30 for ~20 rules over 30 base postings.
 """
 
 import argparse
-import json
 import random
 import re
 import sys
@@ -90,7 +89,7 @@ def shuffle_bullets(posting):
     rng = random.Random(SEED)
     shuffled = [lines[i] for i in bullets]
     rng.shuffle(shuffled)
-    for slot, line in zip(bullets, shuffled):
+    for slot, line in zip(bullets, shuffled, strict=True):
         lines[slot] = line
     out = dict(posting)
     out["description"] = "\n".join(lines)

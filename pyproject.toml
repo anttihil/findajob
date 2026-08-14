@@ -36,5 +36,52 @@ python-jobspy = { git = "https://github.com/speedyapply/JobSpy", rev = "fda080a3
 dev = [
     "httpx2>=2.9.1",
     "pytest>=9.1.1",
+    "ruff>=0.16.3",
 ]
 
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = [
+    "E", "W",   # pycodestyle
+    "F",        # pyflakes
+    "I",        # isort
+    "UP",       # pyupgrade
+    "B",        # flake8-bugbear
+    "C4",       # flake8-comprehensions
+    "SIM",      # flake8-simplify
+    "RET",      # flake8-return
+    "ARG",      # flake8-unused-arguments
+    "PIE",      # flake8-pie
+    "BLE",      # flake8-blind-except
+    "G",        # flake8-logging-format
+    "LOG",      # flake8-logging
+    "ISC",      # flake8-implicit-str-concat
+    "RUF",      # ruff-specific
+]
+ignore = [
+    # Timestamps are written naive on purpose: they land in jobs.db columns and in
+    # sync_status.json as bare isoformat strings, and making them tz-aware would append an
+    # offset that every existing stored row and parser would have to be migrated for.
+    "DTZ005", "DTZ007",
+    # Prose in docstrings and user-facing strings uses en/em dashes and curly quotes.
+    "RUF001", "RUF002", "RUF003",
+    # f-strings in log calls are the established style across this codebase.
+    "G004",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Test doubles and eval harnesses mirror real signatures, so they take arguments they
+# deliberately never read.
+# `tempfile.NamedTemporaryFile(delete=False)` + `.close()` is how these tests get a temp
+# database path, so the handle is meant to outlive a `with` block.
+"tests/*" = ["ARG001", "ARG002", "SIM115", "SIM117"]
+"evals/*" = ["ARG001", "ARG002"]
+# `Depends(...)` in a parameter default is the FastAPI dependency-injection idiom.
+"careerradar/web/app.py" = ["B008"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["careerradar"]

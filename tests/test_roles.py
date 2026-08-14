@@ -12,7 +12,7 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from careerradar.taxonomy.roles import SENIORITY_UNSPECIFIED, load_roles  # noqa: E402
+from careerradar.taxonomy.roles import SENIORITY_UNSPECIFIED, load_roles
 
 DB_PATH = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "jobs.db"
@@ -482,8 +482,9 @@ class SearchLabelTests(unittest.TestCase):
 
     def test_planned_cells_carry_the_search_label(self):
         """The bridge that actually broke: cell_specs -> task -> kwargs['location']."""
-        from careerradar.search.scheduler import CellState, _make_task
         from datetime import datetime, timezone
+
+        from careerradar.search.scheduler import CellState, _make_task
 
         cell = CellState(1, "indeed", "ai_engineer", "us_nat", "AI Engineer", tier="core")
         task = _make_task(cell, {}, self.roles, "indeed", datetime.now(timezone.utc))

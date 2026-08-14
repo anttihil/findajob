@@ -14,30 +14,12 @@ kills it.
 
 import argparse
 import json
-import os
 import sys
 from datetime import datetime, timezone
 
 from careerradar.core.config import load_config
 from careerradar.core.database import Database
 from careerradar.core.logger import get_logger
-from careerradar.search.normalizer import normalize_rows
-from careerradar.profile.adapter import NoActiveProfile, load_profile
-from careerradar.search.proxies import apply_proxy_budgets, is_rotating, load_proxies, pin_for
-from careerradar.taxonomy.roles import load_roles
-from careerradar.search.scheduler import (
-    is_saturated,
-    overdue_cells,
-    select_cells,
-    with_location_weights,
-    update_ewma,
-)
-from careerradar.search.keyword_score import JobScorer
-from careerradar.search.guard import (
-    ERROR_TRANSIENT,
-    SourceCircuit,
-    SourceTripped,
-)
 from careerradar.core.status_manager import (
     add_sync_error,
     clear_stale_lock,
@@ -45,6 +27,23 @@ from careerradar.core.status_manager import (
     load_sync_status,
     set_sync_progress,
 )
+from careerradar.profile.adapter import NoActiveProfile, load_profile
+from careerradar.search.guard import (
+    ERROR_TRANSIENT,
+    SourceCircuit,
+    SourceTripped,
+)
+from careerradar.search.keyword_score import JobScorer
+from careerradar.search.normalizer import normalize_rows
+from careerradar.search.proxies import apply_proxy_budgets, is_rotating, load_proxies, pin_for
+from careerradar.search.scheduler import (
+    is_saturated,
+    overdue_cells,
+    select_cells,
+    update_ewma,
+    with_location_weights,
+)
+from careerradar.taxonomy.roles import load_roles
 from careerradar.taxonomy.skills import load_taxonomy
 
 logger = get_logger()
@@ -253,7 +252,7 @@ def run_sync(dry_run=False, backfill=False, limit=None, sources=None,
         return totals
 
     except Exception as exc:
-        logger.error(f"Critical sync failure: {exc}", exc_info=True)
+        logger.exception(f"Critical sync failure: {exc}")
         add_sync_error("Engine", f"Critical failure: {exc}")
         if run_id is not None:
             db.finish_sync_run(run_id, "failed", error_summary=str(exc))

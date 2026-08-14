@@ -17,22 +17,22 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from careerradar.profile.adapter import ProfileAdapter  # noqa: E402
-from careerradar.profile.models import (  # noqa: E402
+from careerradar.profile.adapter import ProfileAdapter
+from careerradar.profile.models import (
     LEVEL_CLAIMED,
     LEVEL_MENTIONED,
     LEVEL_STRONG,
     Profile,
     Skill,
 )
-from careerradar.taxonomy.roles import load_roles  # noqa: E402
-from careerradar.search.keyword_score import (  # noqa: E402
+from careerradar.search.keyword_score import (
     JobScorer,
     seniority_fit,
     skill_coverage,
     title_family_fit,
 )
-from careerradar.taxonomy.skills import load_taxonomy  # noqa: E402
+from careerradar.taxonomy.roles import load_roles
+from careerradar.taxonomy.skills import load_taxonomy
 
 
 def make_profile(levels, taxonomy):

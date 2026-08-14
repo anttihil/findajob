@@ -21,6 +21,7 @@ import re
 import yaml
 
 from careerradar.core.paths import DATA_DIR
+
 SKILLS_PATH = os.path.join(DATA_DIR, "skills.yaml")
 
 # How far from a strict alias a context word must appear to license the match.
@@ -29,9 +30,18 @@ STRICT_CONTEXT_WINDOW = 120
 
 class Skill:
     __slots__ = (
-        "key", "label", "category", "aliases", "strict_aliases", "context",
-        "effort", "user_level", "implies",
-        "_regex", "_strict_regex", "_context_regex",
+        "_context_regex",
+        "_regex",
+        "_strict_regex",
+        "aliases",
+        "category",
+        "context",
+        "effort",
+        "implies",
+        "key",
+        "label",
+        "strict_aliases",
+        "user_level",
     )
 
     def __init__(self, key, spec):
@@ -58,8 +68,8 @@ class Skill:
             self._regex = re.compile(pattern, re.IGNORECASE)
         elif self.aliases:
             self._regex = re.compile(
-                r"\b(?:%s)\b" % "|".join(re.escape(a.strip()) for a in
-                                        sorted(self.aliases, key=len, reverse=True)),
+                r"\b(?:{})\b".format("|".join(re.escape(a.strip()) for a in
+                                        sorted(self.aliases, key=len, reverse=True))),
                 re.IGNORECASE,
             )
         else:
@@ -70,8 +80,8 @@ class Skill:
             # ads shout in headings ("GO TO MARKET") and start sentences with the verb.
             # The context list below is what actually licenses the match.
             self._strict_regex = re.compile(
-                r"\b(?:%s)\b" % "|".join(re.escape(a.strip())
-                                         for a in self.strict_aliases),
+                r"\b(?:{})\b".format("|".join(re.escape(a.strip())
+                                         for a in self.strict_aliases)),
                 re.IGNORECASE,
             )
         else:
@@ -79,13 +89,13 @@ class Skill:
 
         if self.context:
             self._context_regex = re.compile(
-                r"(?:%s)" % "|".join(re.escape(c.strip()) for c in self.context),
+                r"(?:{})".format("|".join(re.escape(c.strip()) for c in self.context)),
                 re.IGNORECASE,
             )
         else:
             self._context_regex = None
 
-    def search(self, text, lowered=None):
+    def search(self, text, lowered=None):  # noqa: ARG002 - accepted so batch callers can pass a prelowered copy
         """Return True if this skill is present in `text`.
 
         `lowered` is accepted so callers scanning many skills over one document do not
@@ -124,16 +134,14 @@ class Skill:
         if self._strict_regex is not None and self._strict_regex.fullmatch(surface):
             return True
         # Fall back to containment for multiword aliases ("local LLM hosting" -> llm_apps).
-        if self._regex is not None and self._regex.search(surface):
-            return True
-        return False
+        return bool(self._regex is not None and self._regex.search(surface))
 
     def __repr__(self):
         return f"<Skill {self.key}>"
 
 
 class Blocker:
-    __slots__ = ("key", "label", "_regex")
+    __slots__ = ("_regex", "key", "label")
 
     def __init__(self, key, spec):
         self.key = key
@@ -150,7 +158,7 @@ class Blocker:
 class Taxonomy:
     def __init__(self, path=None):
         self.path = path or SKILLS_PATH
-        with open(self.path, "r", encoding="utf-8") as handle:
+        with open(self.path, encoding="utf-8") as handle:
             raw = handle.read()
         data = yaml.safe_load(raw)
 

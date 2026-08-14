@@ -16,12 +16,12 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from careerradar.profile.models import (  # noqa: E402
+from careerradar.profile.models import (
     Constraints,
     FitAssessment,
     Profile,
 )
-from careerradar.scoring.audit import (  # noqa: E402
+from careerradar.scoring.audit import (
     audit,
     blocker_contradicts_profile,
     locate,
@@ -45,27 +45,27 @@ POSTING = {
 
 
 def profile(**overrides):
-    fields = dict(
-        work_authorization=["United States (citizen)", "Finland (citizen)"],
-        languages=["English", "Finnish"],
-        locations=["Los Angeles, CA", "remote"],
-    )
+    fields = {
+        "work_authorization": ["United States (citizen)", "Finland (citizen)"],
+        "languages": ["English", "Finnish"],
+        "locations": ["Los Angeles, CA", "remote"],
+    }
     fields.update(overrides)
     return Profile(bio="test", constraints=Constraints(**fields))
 
 
 def assessment(**overrides):
-    fields = dict(
-        role_summary="Platform engineering for a hosting product.",
-        core_requirements=[{"requirement": "Python", "importance": "must_have",
+    fields = {
+        "role_summary": "Platform engineering for a hosting product.",
+        "core_requirements": [{"requirement": "Python", "importance": "must_have",
                             "quote": "5+ years of production Python experience"}],
-        requirement_assessments=[{"requirement": "Python", "status": "met",
+        "requirement_assessments": [{"requirement": "Python", "status": "met",
                                   "candidate_evidence": "FastAPI services"}],
-        eligibility="eligible", role_match="adjacent", capability_match="meets",
-        seniority_gap="matched", evidence_quality="strong",
-        hard_blockers=[], key_gaps=[], strengths=[],
-        reasoning="Fine.", research_worthy=False,
-    )
+        "eligibility": "eligible", "role_match": "adjacent", "capability_match": "meets",
+        "seniority_gap": "matched", "evidence_quality": "strong",
+        "hard_blockers": [], "key_gaps": [], "strengths": [],
+        "reasoning": "Fine.", "research_worthy": False,
+    }
     fields.update(overrides)
     return FitAssessment(**fields)
 
@@ -283,8 +283,8 @@ class AuditTests(unittest.TestCase):
         _a, flags, _fatal = audit(
             assessment(eligibility="blocked",
                        hard_blockers=[
-                           "'Comfortable with both Swedish and English as working "
-                           "languages' — the candidate would need Swedish"]),
+                           ("'Comfortable with both Swedish and English as working "
+                           "languages' — the candidate would need Swedish")]),
             posting=POSTING, profile=profile(languages=["English", "Swedish"]))
         contradictions = [f for f in flags if f["flag"] == "blocker_contradicts_profile"]
         self.assertTrue(contradictions)

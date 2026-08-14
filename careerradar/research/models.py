@@ -5,28 +5,27 @@ ten browser tabs to answer before applying: is this company real, is it growing,
 they actually build, and who would I be talking to.
 """
 
-from typing import Optional
 
 from pydantic import BaseModel, Field
 
 
 class CompanyIntel(BaseModel):
     summary: str = Field(description="Two or three sentences on what the company does.")
-    size: Optional[str] = Field(default=None, description="Headcount or a range.")
-    stage: Optional[str] = Field(
+    size: str | None = Field(default=None, description="Headcount or a range.")
+    stage: str | None = Field(
         default=None, description="Funding stage or public/private status."
     )
-    funding: Optional[str] = Field(default=None, description="Most recent round and date.")
+    funding: str | None = Field(default=None, description="Most recent round and date.")
     tech_stack: list[str] = Field(
         default_factory=list, description="Technologies they are known to use."
     )
     recent_news: list[str] = Field(
         default_factory=list, description="Notable events in the last year or so."
     )
-    engineering_culture: Optional[str] = Field(
+    engineering_culture: str | None = Field(
         default=None, description="What is publicly known about how they build."
     )
-    reputation: Optional[str] = Field(
+    reputation: str | None = Field(
         default=None, description="Employee sentiment, if there is a credible signal."
     )
     concerns: list[str] = Field(
@@ -45,9 +44,9 @@ class Contact(BaseModel):
     """
 
     name: str
-    role: Optional[str] = None
+    role: str | None = None
     relevance: str = Field(description="Why this person is worth contacting for this role.")
-    public_url: Optional[str] = Field(
+    public_url: str | None = Field(
         default=None, description="Where this person was found. Must be a public page."
     )
 
@@ -55,10 +54,10 @@ class Contact(BaseModel):
 class NearbyJob(BaseModel):
     title: str
     company: str
-    location: Optional[str] = None
-    url: Optional[str] = None
+    location: str | None = None
+    url: str | None = None
     source: str = Field(description="'same-company', 'nearby-company', or 'careers-page'")
-    why: Optional[str] = Field(default=None, description="Why it is worth a look.")
+    why: str | None = Field(default=None, description="Why it is worth a look.")
 
 
 class Dossier(BaseModel):
@@ -66,7 +65,7 @@ class Dossier(BaseModel):
     intel: CompanyIntel
     contacts: list[Contact] = Field(default_factory=list)
     nearby_jobs: list[NearbyJob] = Field(default_factory=list)
-    application_angle: Optional[str] = Field(
+    application_angle: str | None = Field(
         default=None,
         description=(
             "Given this candidate's profile and what was learned, the single most useful "

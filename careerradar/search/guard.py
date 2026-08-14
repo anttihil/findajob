@@ -131,7 +131,7 @@ class SourceCircuit:
             raise SourceTripped(f"{self.source} circuit is open: {self.trip_reason}")
 
         if self._last_request_at is not None:
-            low, high = (self.jitter + [0.0, 0.0])[:2]
+            low, high = [*self.jitter, 0.0, 0.0][:2]
             target = self.min_interval + random.uniform(float(low), float(high))
             elapsed = (self._now() - self._last_request_at).total_seconds()
             if elapsed < target:
@@ -149,7 +149,7 @@ class SourceCircuit:
         self.consecutive_errors = 0
         self.searches_ok += 1
 
-    def on_error(self, exc, cell=None):
+    def on_error(self, exc, cell=None):  # noqa: ARG002 - part of the source-guard callback signature
         """Record an error and decide whether the source should trip.
 
         Returns the error class so the caller can decide about retrying: only

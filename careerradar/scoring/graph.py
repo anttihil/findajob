@@ -15,7 +15,7 @@ a posting that fails stays `new` and the next run picks it up. Checkpointing sin
 graphs would add a write per posting to buy a resumability the queue already provides.
 """
 
-from typing import Optional, TypedDict
+from typing import TypedDict
 
 from careerradar.core.llm import DEFAULT_SCORING_MODEL, structured_model
 from careerradar.core.logger import get_logger
@@ -51,10 +51,10 @@ class ScoreState(TypedDict, total=False):
     # worker, which owns the DB and the scorer; the graph must not open a connection.
     skill_hint: str
     rendered: str
-    verdict: Optional[dict]
-    usage: Optional[dict]
+    verdict: dict | None
+    usage: dict | None
     attempts: int
-    error: Optional[str]
+    error: str | None
     # Whether the last failure was the model answering the schema and being rejected,
     # rather than not answering at all. Decides which nudge the retry carries. Must be
     # declared here: LangGraph drops keys a node returns that the state does not name.
@@ -90,7 +90,7 @@ def node_score(state: ScoreState) -> dict:
     attempts = state.get("attempts", 0) + 1
     try:
         result = chain.invoke(messages)
-    except Exception as exc:  # network, rate limit, 400
+    except Exception as exc:  # noqa: BLE001 - network, rate limit, 400
         logger.warning("Scoring call failed (attempt %d): %s", attempts, exc)
         return {"attempts": attempts, "error": str(exc), "verdict": None}
 

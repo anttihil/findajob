@@ -12,13 +12,13 @@ from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from careerradar.core.llm import PRICES, Spend, estimate_cost, usage_cost  # noqa: E402
-from careerradar.profile.models import (  # noqa: E402
+from careerradar.core.llm import PRICES, Spend, estimate_cost, usage_cost
+from careerradar.profile.models import (
     FitAssessment,
     FitVerdict,
 )
-from careerradar.scoring import rubric  # noqa: E402
-from careerradar.scoring.prompts import (  # noqa: E402
+from careerradar.scoring import rubric
+from careerradar.scoring.prompts import (
     MAX_DESCRIPTION_CHARS,
     build_system,
     render_posting,
@@ -164,18 +164,18 @@ class FakeChain:
 
 def assessment(**overrides):
     """A well-formed verdict whose quote really is in `posting()`'s description."""
-    fields = dict(
-        role_summary="Platform engineering for a container hosting product.",
-        core_requirements=[{"requirement": "Kubernetes",
+    fields = {
+        "role_summary": "Platform engineering for a container hosting product.",
+        "core_requirements": [{"requirement": "Kubernetes",
                             "quote": "someone who knows Kubernetes",
                             "importance": "must_have"}],
-        requirement_assessments=[{"requirement": "Kubernetes", "status": "partial",
+        "requirement_assessments": [{"requirement": "Kubernetes", "status": "partial",
                                   "candidate_evidence": "Docker in production"}],
-        eligibility="eligible", role_match="adjacent", capability_match="most_with_gaps",
-        seniority_gap="matched", evidence_quality="adequate",
-        hard_blockers=[], key_gaps=["kubernetes"], strengths=[],
-        reasoning="Solid overlap.", research_worthy=True,
-    )
+        "eligibility": "eligible", "role_match": "adjacent", "capability_match": "most_with_gaps",
+        "seniority_gap": "matched", "evidence_quality": "adequate",
+        "hard_blockers": [], "key_gaps": ["kubernetes"], "strengths": [],
+        "reasoning": "Solid overlap.", "research_worthy": True,
+    }
     fields.update(overrides)
     return FitAssessment(**fields)
 
@@ -321,10 +321,9 @@ class ListCoercionTests(unittest.TestCase):
     """
 
     def verdict(self, **overrides):
-        from careerradar.profile.models import FitVerdict
 
-        fields = dict(fit_score=50, verdict="stretch", seniority_fit="matched",
-                      reasoning="r", research_worthy=False)
+        fields = {"fit_score": 50, "verdict": "stretch", "seniority_fit": "matched",
+                      "reasoning": "r", "research_worthy": False}
         fields.update(overrides)
         return FitVerdict(**fields)
 

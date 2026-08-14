@@ -13,14 +13,14 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from careerradar.search.guard import (  # noqa: E402
+from careerradar.search.guard import (
     ERROR_BLOCKED,
     ERROR_FATAL,
     ERROR_RATE_LIMIT,
     ERROR_TRANSIENT,
     classify_error,
 )
-from careerradar.search.sources.jobspy_source import (  # noqa: E402
+from careerradar.search.sources.jobspy_source import (
     JOBSPY_LOGGERS,
     ScraperReportedError,
     capture_scraper_errors,
@@ -62,9 +62,8 @@ class CaptureTests(unittest.TestCase):
 
     def test_handler_is_removed_even_when_the_scrape_raises(self):
         before = len(self.board.handlers)
-        with self.assertRaises(ValueError):
-            with capture_scraper_errors("linkedin"):
-                raise ValueError("scrape blew up")
+        with self.assertRaises(ValueError), capture_scraper_errors("linkedin"):
+            raise ValueError("scrape blew up")
         self.assertEqual(len(self.board.handlers), before)
 
     def test_records_do_not_leak_between_captures(self):

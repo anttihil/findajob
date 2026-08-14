@@ -14,7 +14,7 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from careerradar.scoring import rubric, scale  # noqa: E402
+from careerradar.scoring import rubric, scale
 
 TUPLES = list(itertools.product(rubric.ELIGIBILITY, rubric.ROLE_MATCH,
                                 rubric.CAPABILITY_MATCH, rubric.SENIORITY_GAP,
@@ -26,7 +26,7 @@ PARETO_POINTS = list(itertools.product(range(len(rubric.ROLE_MATCH)),
 
 
 def as_kwargs(t):
-    return dict(zip(rubric.DIMENSIONS, t))
+    return dict(zip(rubric.DIMENSIONS, t, strict=True))
 
 
 class ParetoTests(unittest.TestCase):
@@ -98,7 +98,7 @@ class EligibilityTests(unittest.TestCase):
     def test_relaxing_eligibility_never_lowers_the_score(self):
         for rest in itertools.product(rubric.ROLE_MATCH, rubric.CAPABILITY_MATCH,
                                       rubric.SENIORITY_GAP, rubric.EVIDENCE_QUALITY):
-            scores = [scale.fit_score(**as_kwargs((e,) + rest))
+            scores = [scale.fit_score(**as_kwargs((e, *rest)))
                       for e in rubric.ELIGIBILITY]
             self.assertEqual(scores, sorted(scores, reverse=True), rest)
 
@@ -106,7 +106,7 @@ class EligibilityTests(unittest.TestCase):
 class ProjectionTests(unittest.TestCase):
     def test_every_tuple_projects_into_range(self):
         for t in TUPLES:
-            self.assertIn(scale.fit_score(**as_kwargs(t)), range(0, 101), t)
+            self.assertIn(scale.fit_score(**as_kwargs(t)), range(101), t)
 
     def test_the_score_is_monotone_on_every_dimension(self):
         """Improving one ordinal, holding the rest fixed, never lowers the score."""
@@ -116,17 +116,18 @@ class ProjectionTests(unittest.TestCase):
             values = rubric.ANCHORS[dimension][0]
             others = [rubric.ANCHORS[d][0] for d in rubric.DIMENSIONS if d != dimension]
             for combo in itertools.product(*others):
-                base = dict(zip([d for d in rubric.DIMENSIONS if d != dimension], combo))
+                base = dict(zip([d for d in rubric.DIMENSIONS if d != dimension], combo,
+                                strict=True))
                 scores = [scale.fit_score(**base, **{dimension: v}) for v in values]
                 self.assertEqual(scores, sorted(scores, reverse=True),
                                  f"{dimension} not monotone at {base}")
 
     def test_a_thin_posting_is_pulled_toward_the_middle_not_downward(self):
         """Thin evidence means we know less, so we should claim less in BOTH directions."""
-        good = dict(eligibility="eligible", role_match="same_role",
-                    capability_match="exceeds", seniority_gap="matched")
-        bad = dict(eligibility="eligible", role_match="different_field",
-                   capability_match="not_close", seniority_gap="matched")
+        good = {"eligibility": "eligible", "role_match": "same_role",
+                    "capability_match": "exceeds", "seniority_gap": "matched"}
+        bad = {"eligibility": "eligible", "role_match": "different_field",
+                   "capability_match": "not_close", "seniority_gap": "matched"}
         self.assertLess(scale.fit_score(**good, evidence_quality="thin"),
                         scale.fit_score(**good, evidence_quality="strong"))
         self.assertGreater(scale.fit_score(**bad, evidence_quality="thin"),

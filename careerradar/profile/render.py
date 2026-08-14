@@ -40,7 +40,7 @@ def render_profile(profile: Profile) -> str:
     if profile.seniority:
         facts.append(f"Seniority: {profile.seniority}")
     if facts:
-        lines.extend(facts + [""])
+        lines.extend([*facts, ""])
 
     for level, heading in _LEVEL_HEADINGS:
         skills = sorted(

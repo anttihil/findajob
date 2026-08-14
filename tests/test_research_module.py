@@ -14,8 +14,8 @@ from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from careerradar.core.llm import StructuredOutputError  # noqa: E402
-from careerradar.research.models import CompanyIntel  # noqa: E402
+from careerradar.core.llm import StructuredOutputError
+from careerradar.research.models import CompanyIntel
 
 
 def prose_response(text="I looked into this company and here is what I found."):

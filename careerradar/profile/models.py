@@ -7,7 +7,7 @@ versioned -- not recomputed per request like the regex profile it replaces.
 """
 
 import json
-from typing import Literal, Optional
+from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -38,7 +38,7 @@ class Skill(BaseModel):
     evidence: str = Field(
         description="What in the documents or interview justifies this level. Be concrete."
     )
-    recency: Optional[str] = Field(
+    recency: str | None = Field(
         default=None, description="When it was last used, if determinable."
     )
 
@@ -47,17 +47,18 @@ class Constraints(BaseModel):
     """Facts that make a posting a non-starter regardless of skill fit."""
 
     work_authorization: list[str] = Field(
-        default_factory=list, description="Where the candidate can already work without sponsorship."
+        default_factory=list,
+        description="Where the candidate can already work without sponsorship.",
     )
     locations: list[str] = Field(
         default_factory=list, description="Where they can work: cities, 'remote', regions."
     )
-    willing_to_relocate: Optional[bool] = None
-    comp_floor_usd: Optional[int] = Field(
+    willing_to_relocate: bool | None = None
+    comp_floor_usd: int | None = Field(
         default=None, description="Annual base below which they would decline."
     )
     languages: list[str] = Field(default_factory=list)
-    notes: Optional[str] = None
+    notes: str | None = None
 
 
 class Preferences(BaseModel):
@@ -66,18 +67,20 @@ class Preferences(BaseModel):
     role_families: list[str] = Field(default_factory=list)
     company_sizes: list[str] = Field(default_factory=list)
     industries: list[str] = Field(default_factory=list)
-    work_mode: Optional[str] = Field(default=None, description="remote / hybrid / onsite")
-    notes: Optional[str] = None
+    work_mode: str | None = Field(default=None, description="remote / hybrid / onsite")
+    notes: str | None = None
 
 
 class Profile(BaseModel):
     """The complete candidate picture."""
 
     bio: str = Field(
-        description="Two or three sentences: who this person is professionally, and their trajectory."
+        description=(
+            "Two or three sentences: who this person is professionally, and their trajectory."
+        )
     )
-    years_experience: Optional[float] = None
-    seniority: Optional[str] = Field(
+    years_experience: float | None = None
+    seniority: str | None = Field(
         default=None, description="junior / mid / senior / staff / lead"
     )
     skills: list[Skill] = Field(default_factory=list)
@@ -104,8 +107,8 @@ class ExtractedClaims(BaseModel):
     """First pass: what the documents alone support, before any interview."""
 
     bio: str
-    years_experience: Optional[float] = None
-    seniority: Optional[str] = None
+    years_experience: float | None = None
+    seniority: str | None = None
     skills: list[Skill] = Field(default_factory=list)
     apparent_strengths: list[str] = Field(default_factory=list)
     contradictions: list[str] = Field(
@@ -215,7 +218,7 @@ class RequirementAssessment(BaseModel):
         description="Must repeat one of the requirements you listed above, word for word."
     )
     status: Literal["met", "partial", "unmet"]
-    candidate_evidence: Optional[str] = Field(
+    candidate_evidence: str | None = Field(
         default=None,
         description="What in the profile shows this, or null if nothing does.",
     )

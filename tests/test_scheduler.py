@@ -18,8 +18,16 @@ from datetime import datetime, timedelta, timezone
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from careerradar.taxonomy.roles import load_roles  # noqa: E402
-from careerradar.search.scheduler import (  # noqa: E402
+from careerradar.search.guard import (
+    ERROR_BLOCKED,
+    ERROR_FATAL,
+    ERROR_RATE_LIMIT,
+    ERROR_TRANSIENT,
+    SourceCircuit,
+    SourceTripped,
+    classify_error,
+)
+from careerradar.search.scheduler import (
     CellState,
     adaptive_hours_old,
     cell_priority,
@@ -32,15 +40,7 @@ from careerradar.search.scheduler import (  # noqa: E402
     update_ewma,
     with_location_weights,
 )
-from careerradar.search.guard import (  # noqa: E402
-    ERROR_BLOCKED,
-    ERROR_FATAL,
-    ERROR_RATE_LIMIT,
-    ERROR_TRANSIENT,
-    SourceCircuit,
-    SourceTripped,
-    classify_error,
-)
+from careerradar.taxonomy.roles import load_roles
 
 NOW = datetime(2026, 7, 29, 12, 0, tzinfo=timezone.utc)
 
@@ -116,8 +116,8 @@ class PriorityTests(unittest.TestCase):
         )
 
     def test_core_tier_outranks_breadth_at_equal_staleness(self):
-        base = dict(last_scraped_at=(NOW - timedelta(days=10)).isoformat(),
-                    total_scrapes=5)
+        base = {"last_scraped_at": (NOW - timedelta(days=10)).isoformat(),
+                    "total_scrapes": 5}
         core = CellState(1, "indeed", "x", "la", "q", tier="core", **base)
         breadth = CellState(2, "indeed", "x", "la", "q", tier="breadth", **base)
         self.assertGreater(
@@ -125,8 +125,8 @@ class PriorityTests(unittest.TestCase):
         )
 
     def test_location_weight_matters(self):
-        base = dict(tier="core", total_scrapes=5,
-                    last_scraped_at=(NOW - timedelta(days=3)).isoformat())
+        base = {"tier": "core", "total_scrapes": 5,
+                    "last_scraped_at": (NOW - timedelta(days=3)).isoformat()}
         high = CellState(1, "indeed", "x", "us_remote", "q", **base)
         low = CellState(2, "indeed", "x", "us_nat", "q", **base)
         self.assertGreater(
@@ -134,7 +134,7 @@ class PriorityTests(unittest.TestCase):
         )
 
     def test_never_scraped_cell_gets_a_novelty_boost(self):
-        base = dict(tier="core", last_scraped_at=(NOW - timedelta(days=3)).isoformat())
+        base = {"tier": "core", "last_scraped_at": (NOW - timedelta(days=3)).isoformat()}
         fresh = CellState(1, "indeed", "x", "la", "q", total_scrapes=0, **base)
         seen = CellState(2, "indeed", "x", "la", "q", total_scrapes=10, **base)
         self.assertGreater(
@@ -142,8 +142,8 @@ class PriorityTests(unittest.TestCase):
         )
 
     def test_saturated_cell_is_revisited_sooner(self):
-        base = dict(tier="core", total_scrapes=5,
-                    last_scraped_at=(NOW - timedelta(days=3)).isoformat())
+        base = {"tier": "core", "total_scrapes": 5,
+                    "last_scraped_at": (NOW - timedelta(days=3)).isoformat()}
         saturated = CellState(1, "indeed", "x", "la", "q", last_saturated=1, **base)
         normal = CellState(2, "indeed", "x", "la", "q", last_saturated=0, **base)
         self.assertGreater(
@@ -151,8 +151,8 @@ class PriorityTests(unittest.TestCase):
         )
 
     def test_repeatedly_empty_cell_is_deprioritised_but_never_zeroed(self):
-        base = dict(tier="core", total_scrapes=5,
-                    last_scraped_at=(NOW - timedelta(days=3)).isoformat())
+        base = {"tier": "core", "total_scrapes": 5,
+                    "last_scraped_at": (NOW - timedelta(days=3)).isoformat()}
         empty = CellState(1, "indeed", "x", "la", "q", consecutive_empty=8, **base)
         normal = CellState(2, "indeed", "x", "la", "q", consecutive_empty=0, **base)
         self.assertLess(
@@ -198,7 +198,7 @@ class BudgetTests(unittest.TestCase):
     def test_respects_searches_per_run(self):
         cells = make_cells("indeed", self.roles)
         tasks = select_cells(cells, CONFIG, self.roles, "indeed", NOW)
-        self.assertLessEqual(tasks and len(tasks) or 0,
+        self.assertLessEqual((tasks and len(tasks)) or 0,
                              CONFIG["budgets"]["indeed"]["searches_per_run"])
 
     def test_respects_linkedin_page_ceiling(self):

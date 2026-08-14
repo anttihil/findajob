@@ -122,7 +122,7 @@ def skill_coverage(required, profile, taxonomy=None):
     return coverage, matched, missing, ratio
 
 
-def title_family_fit(role_family, roles, profile=None):
+def title_family_fit(role_family, roles, profile=None):  # noqa: ARG001 - kept so callers need not special-case this scorer
     """How close the posting's role family sits to the user's stated targets.
 
     This used to ask "does the user have a tailored resume for this family, and is that
@@ -191,7 +191,7 @@ class JobScorer:
 
         return {
             # A coverage index, not a percent. See the module docstring.
-            "score": int(round(total * 100)),
+            "score": round(total * 100),
             "components": components,
             "weights": dict(self.weights),
             "matched_skills": sorted(matched),

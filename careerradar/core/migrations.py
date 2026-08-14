@@ -5,6 +5,7 @@ transaction. Adding a migration means appending to MIGRATIONS -- never editing a
 one, since it may already have run against a live database.
 """
 
+import contextlib
 import sqlite3
 
 from careerradar.core.logger import get_logger
@@ -371,23 +372,19 @@ def _v4_access_and_location_ids(cursor):
 
     for old, new in _V4_LOCATION_RENAMES.items():
         for table in ("scrape_cells", "cell_observations", "role_market_stats"):
-            try:
+            # Table may not exist on a partially-migrated database.
+            with contextlib.suppress(Exception):
                 cursor.execute(
                     f"UPDATE {table} SET location_id = ? WHERE location_id = ?",
                     (new, old),
                 )
-            except Exception:
-                # Table may not exist on a partially-migrated database.
-                pass
     # skill_market_stats stores scope strings like 'location:la'.
     for old, new in _V4_LOCATION_RENAMES.items():
-        try:
+        with contextlib.suppress(Exception):
             cursor.execute(
                 "UPDATE skill_market_stats SET scope = ? WHERE scope = ?",
                 (f"location:{new}", f"location:{old}"),
             )
-        except Exception:
-            pass
 
 
 
@@ -853,7 +850,7 @@ def migrate(conn):
             applied += 1
         except Exception:
             conn.rollback()
-            logger.error(f"Migration v{target} failed and was rolled back", exc_info=True)
+            logger.exception(f"Migration v{target} failed and was rolled back")
             raise
 
     if applied:

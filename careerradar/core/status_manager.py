@@ -1,5 +1,5 @@
-import os
 import json
+import os
 from datetime import datetime, timedelta
 
 from careerradar.core.paths import STATUS_PATH
@@ -19,9 +19,9 @@ def load_sync_status():
             "errors": []
         }
     try:
-        with open(STATUS_FILE, "r", encoding="utf-8") as f:
+        with open(STATUS_FILE, encoding="utf-8") as f:
             return json.load(f)
-    except Exception:
+    except Exception:  # noqa: BLE001 - any unreadable status file falls back to a fresh status
         return {
             "sync_in_progress": False,
             "last_sync_time": None,
@@ -37,7 +37,7 @@ def save_sync_status(status_data):
     try:
         with open(STATUS_FILE, "w", encoding="utf-8") as f:
             json.dump(status_data, f, indent=2)
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - status is best-effort telemetry and must never fail a sync
         print(f"Error saving sync status: {e}")
 
 # A sync that crashes leaves sync_in_progress=True and wedges the Sync button forever, so

@@ -7,9 +7,9 @@ deleted, which keeps cell_observations' foreign keys and past analytics auditabl
     careerradar search seed-cells [--prune] [--queries-per-family N]
 """
 
-from careerradar.core.config import load_config  # noqa: E402
-from careerradar.core.database import Database  # noqa: E402
-from careerradar.taxonomy.roles import load_roles  # noqa: E402
+from careerradar.core.config import load_config
+from careerradar.core.database import Database
+from careerradar.taxonomy.roles import load_roles
 
 
 def seed_cells(prune=False, queries_per_family=1):

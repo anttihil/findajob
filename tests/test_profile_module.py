@@ -16,10 +16,10 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from careerradar.core.migrations import migrate  # noqa: E402
-from careerradar.profile.adapter import ProfileAdapter  # noqa: E402
-from careerradar.profile.canonicalize import canonicalize_skills  # noqa: E402
-from careerradar.profile.models import (  # noqa: E402
+from careerradar.core.migrations import migrate
+from careerradar.profile.adapter import ProfileAdapter
+from careerradar.profile.canonicalize import canonicalize_skills
+from careerradar.profile.models import (
     LEVEL_CLAIMED,
     LEVEL_MENTIONED,
     LEVEL_STRONG,
@@ -27,8 +27,8 @@ from careerradar.profile.models import (  # noqa: E402
     Profile,
     Skill,
 )
-from careerradar.profile.render import render_profile  # noqa: E402
-from careerradar.taxonomy.skills import load_taxonomy  # noqa: E402
+from careerradar.profile.render import render_profile
+from careerradar.taxonomy.skills import load_taxonomy
 
 
 def skill(key, label=None, level=LEVEL_CLAIMED, evidence="test"):

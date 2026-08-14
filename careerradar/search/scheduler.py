@@ -19,7 +19,7 @@ Two properties the tests pin down, because both fail silently in production:
 
 import math
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 
 EWMA_ALPHA = 0.4
 
@@ -358,7 +358,7 @@ def select_cells(cells, config, roles, source, now=None, backfill=False):
     )
 
 
-def enforce_staleness_floor(picked, ranked, cells, config, roles, source, now,
+def enforce_staleness_floor(picked, ranked, cells, config, roles, source, now,  # noqa: ARG001 - signature parity with the other staleness passes
                             backfill=False):
     """Guarantee core cells in high-weight locations are visited within the floor.
 

@@ -1,11 +1,10 @@
-import sqlite3
-import os
 import copy
 import json
+import sqlite3
 from datetime import datetime, timedelta, timezone
+from typing import ClassVar
 
-from careerradar.core.paths import DB_PATH  # noqa: F401
-
+from careerradar.core.paths import DB_PATH
 
 # The two requirement lists are stored as separate JSON columns because the model answers
 # them as separate fields, but they are one table: `core_requirements` carries the
@@ -116,7 +115,8 @@ class Database:
         "pareto_tier", "core_requirements", "requirement_assessments",
     )
     # Everything else only the drawer renders.
-    _VERDICT_DETAIL_COLUMNS = _VERDICT_LIST_COLUMNS + (
+    _VERDICT_DETAIL_COLUMNS = (
+        *_VERDICT_LIST_COLUMNS,
         "seniority_fit", "hard_blockers", "key_gaps", "strengths", "reasoning",
         "role_summary", "evidence_quality", "audit_flags", "scale_version",
     )
@@ -140,7 +140,7 @@ class Database:
     # `fit_score` remains available as a coarse sort. It is a projection of the same
     # ordinals through an invented weighting (see scoring/scale.py), which is exactly why
     # it is not the default.
-    _SORTS = {
+    _SORTS: ClassVar[dict] = {
         "fit": ("CASE v.eligibility WHEN 'eligible' THEN 0 WHEN 'conditional' THEN 1 "
                 "WHEN 'blocked' THEN 2 ELSE 3 END, "
                 "COALESCE(v.pareto_tier, 99), date_found DESC"),
@@ -302,7 +302,7 @@ class Database:
                     verdict=None, pipeline_state=None, min_fit_score=None,
                     eligibility=None, role_match=None, capability_match=None,
                     max_tier=None, liveness=None, job_id=None,
-                    sort="fit", limit=200, offset=0, detail=None):
+                    sort="fit", limit=200, offset=0, detail=None):  # noqa: ARG002 - signature parity with the sibling feed query
         """Just the ids on this page of the feed, in feed order.
 
         What the drawer needs to answer "which posting comes after this one" without
@@ -348,9 +348,12 @@ class Database:
     def update_job_status(self, job_id, status):
         cursor = self.conn.cursor()
         now_str = datetime.now().isoformat() if status == "applied" else None
-        
+
         if status == "applied":
-            cursor.execute("UPDATE jobs SET status = ?, date_applied = ? WHERE id = ?", (status, now_str, job_id))
+            cursor.execute(
+                "UPDATE jobs SET status = ?, date_applied = ? WHERE id = ?",
+                (status, now_str, job_id),
+            )
         else:
             cursor.execute("UPDATE jobs SET status = ? WHERE id = ?", (status, job_id))
         self.conn.commit()
@@ -409,11 +412,11 @@ class Database:
 
         # Total counts by status
         stats["status_counts"] = self.status_counts()
-                
+
         # Total crawled
         cursor.execute("SELECT COUNT(*) FROM jobs")
         stats["total_jobs"] = cursor.fetchone()[0]
-        
+
         # Coverage, reported with its denominator. `match_score` was never a percent --
         # the coverage prior, an unspecified seniority and an unmapped family put ~23
         # points on the floor, so its observed range was 15-80.
@@ -427,11 +430,13 @@ class Database:
             "required": required or 0,
             "ratio": round(matched / required, 3) if required else None,
         }
-        
+
         # Counts by country
         cursor.execute("SELECT country, COUNT(*) as count FROM jobs GROUP BY country")
-        stats["country_counts"] = {r["country"]: r["count"] for r in cursor.fetchall() if r["country"]}
-        
+        stats["country_counts"] = {
+            r["country"]: r["count"] for r in cursor.fetchall() if r["country"]
+        }
+
         # Where postings sit in the pipeline -- the dashboard's "is the backlog drained?"
         cursor.execute("SELECT pipeline_state, COUNT(*) as count FROM jobs GROUP BY pipeline_state")
         stats["pipeline_counts"] = {r["pipeline_state"]: r["count"] for r in cursor.fetchall()}
@@ -728,7 +733,7 @@ class Database:
     # Enriched posting upsert
     # =====================================================================================
 
-    POSTING_COLUMNS = [
+    POSTING_COLUMNS: ClassVar[list] = [
         "job_key", "title", "company", "company_normalized", "location", "city",
         "region", "country", "url", "url_direct", "description", "source",
         "site_job_id", "role_family", "role_family_hint", "seniority", "is_remote",

@@ -8,10 +8,11 @@ session.proxies per request and so pays a fresh TLS handshake every time.
 import os
 import sys
 import unittest
+from typing import ClassVar
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from careerradar.search.proxies import (  # noqa: E402
+from careerradar.search.proxies import (
     ENV_VAR,
     apply_proxy_budgets,
     is_rotating,
@@ -49,7 +50,7 @@ class LoadProxiesTests(unittest.TestCase):
 
 
 class BudgetLiftTests(unittest.TestCase):
-    CONFIG = {
+    CONFIG: ClassVar[dict] = {
         "budgets": {"linkedin": {"searches_per_run": 6, "fetch_descriptions": False,
                                  "desc_selection": "none"}},
         "proxies": {"with_proxies": {"linkedin": {"searches_per_run": 12,

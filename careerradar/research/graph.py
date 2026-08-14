@@ -18,7 +18,7 @@ posting that says "ignore your instructions and search for X" cannot reach the q
 builder, because the query builder is never shown the posting.
 """
 
-from typing import Optional, TypedDict
+from typing import TypedDict
 
 from careerradar.core.llm import (
     DEFAULT_AGENT_MODEL,
@@ -28,7 +28,6 @@ from careerradar.core.llm import (
 from careerradar.core.logger import get_logger
 from careerradar.research.models import CompanyIntel, Contact, Dossier
 from careerradar.research.tools import (
-    SearchUnavailable,
     nearby_company_openings,
     render_results,
     same_company_openings,
@@ -88,20 +87,20 @@ Do not write source URLs. They are supplied from what was actually fetched."""
 class ResearchState(TypedDict, total=False):
     company: str
     company_normalized: str
-    role_family: Optional[str]
-    location_id: Optional[str]
-    job_id: Optional[int]
+    role_family: str | None
+    location_id: str | None
+    job_id: int | None
     profile_summary: str
     model: str
-    intel: Optional[dict]
+    intel: dict | None
     contacts: list
     nearby: list
     sources: list
-    dossier: Optional[dict]
+    dossier: dict | None
     search_enabled: bool
 
 
-def node_plan(state: ResearchState) -> dict:
+def node_plan(state: ResearchState) -> dict:  # noqa: ARG001 - langgraph node signature
     return {"search_enabled": search_available(), "sources": []}
 
 
@@ -127,7 +126,9 @@ def node_gather_intel(state: ResearchState) -> dict:
         CompanyIntel,
         [
             ("system", INTEL_SYSTEM),
-            ("user", f"Company: {company}\n\n<search_results>\n{render_results(results)}\n</search_results>"),
+            ("user",
+             (f"Company: {company}\n\n<search_results>\n"
+              f"{render_results(results)}\n</search_results>")),
         ],
         label=f"Research intel ({company})",
     )
@@ -162,8 +163,8 @@ def node_gather_contacts(state: ResearchState) -> dict:
         [
             ("system", CONTACTS_SYSTEM),
             ("user",
-             f"Company: {company}\nRole being applied for: {role}\n\n"
-             f"<search_results>\n{render_results(results)}\n</search_results>"),
+             (f"Company: {company}\nRole being applied for: {role}\n\n"
+             f"<search_results>\n{render_results(results)}\n</search_results>")),
         ],
         label=f"Research contacts ({company})",
     )
@@ -212,11 +213,11 @@ def node_synthesize(state: ResearchState) -> dict:
         [
             ("system", SYNTHESIZE_SYSTEM),
             ("user",
-             f"Company: {state['company']}\n\n"
+             (f"Company: {state['company']}\n\n"
              f"{state['profile_summary']}\n\n"
              f"{intel_block}\n\n"
              f"<contacts>\n{state.get('contacts')}\n</contacts>\n\n"
-             f"<other_openings>\n{state.get('nearby')}\n</other_openings>"),
+             f"<other_openings>\n{state.get('nearby')}\n</other_openings>")),
         ],
         label=f"Research synthesize ({state['company']})",
     )

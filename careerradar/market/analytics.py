@@ -153,7 +153,7 @@ def build_stratum_weights(stratum_counts, reference_mix, min_stratum_n=10):
 
     if not usable or target_total <= 0:
         # Fall back to equal weights: honest, and flagged via missing_weight.
-        return {key: 1.0 for key in stratum_counts}, diagnostics
+        return dict.fromkeys(stratum_counts, 1.0), diagnostics
 
     n_used = diagnostics["n_used"]
     weights = {}

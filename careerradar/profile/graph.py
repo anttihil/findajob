@@ -16,7 +16,7 @@ once per answered question. A cursor in the state and a conditional edge keeps e
 to exactly one turn of work.
 """
 
-from typing import Annotated, Any, Optional, TypedDict
+from typing import Annotated, TypedDict
 
 from careerradar.core.llm import (
     DEFAULT_AGENT_MODEL,
@@ -120,12 +120,12 @@ def _merge_turns(existing: list, new: list) -> list:
 class ProfileState(TypedDict, total=False):
     corpus: str
     documents: list
-    claims: Optional[dict]
+    claims: dict | None
     questions: list
     cursor: int
     turns: Annotated[list, _merge_turns]
-    draft: Optional[dict]
-    revision: Optional[str]
+    draft: dict | None
+    revision: str | None
     approved: bool
     model: str
     max_questions: int
@@ -134,7 +134,7 @@ class ProfileState(TypedDict, total=False):
 # --- nodes ---------------------------------------------------------------------------
 
 
-def node_ingest(state: ProfileState) -> dict:
+def node_ingest(state: ProfileState) -> dict:  # noqa: ARG001 - langgraph node signature
     documents = collect_documents()
     if not documents:
         raise RuntimeError(
@@ -175,9 +175,9 @@ def node_gaps(state: ProfileState) -> dict:
         [
             ("system", GAPS_SYSTEM),
             ("user",
-             f"{state['corpus']}\n\n"
+             (f"{state['corpus']}\n\n"
              f"<extracted_claims>\n{claims.model_dump_json(indent=2)}\n</extracted_claims>\n\n"
-             f"Produce at most {limit} questions."),
+             f"Produce at most {limit} questions.")),
         ],
         label="Profile gaps",
     )
@@ -235,9 +235,9 @@ def node_synthesize(state: ProfileState) -> dict:
         [
             ("system", SYNTHESIZE_SYSTEM),
             ("user",
-             f"{state['corpus']}\n\n"
+             (f"{state['corpus']}\n\n"
              f"<extracted_claims>\n{claims.model_dump_json(indent=2)}\n</extracted_claims>\n\n"
-             f"<interview>\n{transcript}\n</interview>{instruction}"),
+             f"<interview>\n{transcript}\n</interview>{instruction}")),
         ],
         label="Profile synthesize",
     )
@@ -245,7 +245,7 @@ def node_synthesize(state: ProfileState) -> dict:
     return {"draft": profile.model_dump(), "revision": None}
 
 
-def level_changes(claims: Optional[dict], draft: dict) -> dict:
+def level_changes(claims: dict | None, draft: dict) -> dict:
     """What the interview did to the skill levels the documents alone produced.
 
     Computed here rather than in the terminal wizard because it is the reviewer's main
@@ -322,8 +322,12 @@ def build_graph(checkpointer=None):
     builder.add_edge(START, "ingest")
     builder.add_edge("ingest", "extract")
     builder.add_edge("extract", "gaps")
-    builder.add_conditional_edges("gaps", route_after_gaps, {"ask": "ask", "synthesize": "synthesize"})
-    builder.add_conditional_edges("ask", route_after_ask, {"ask": "ask", "synthesize": "synthesize"})
+    builder.add_conditional_edges(
+        "gaps", route_after_gaps, {"ask": "ask", "synthesize": "synthesize"}
+    )
+    builder.add_conditional_edges(
+        "ask", route_after_ask, {"ask": "ask", "synthesize": "synthesize"}
+    )
     builder.add_edge("synthesize", "review")
     builder.add_conditional_edges(
         "review", route_after_review, {"synthesize": "synthesize", "__end__": END}

@@ -15,8 +15,8 @@ from logging.handlers import RotatingFileHandler
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from careerradar.core.logger import BACKUP_COUNT, MAX_BYTES, get_logger  # noqa: E402
-from careerradar.search.sources.jobspy_source import prune_archives  # noqa: E402
+from careerradar.core.logger import BACKUP_COUNT, MAX_BYTES, get_logger
+from careerradar.search.sources.jobspy_source import prune_archives
 
 
 class ArchivePruningTests(unittest.TestCase):

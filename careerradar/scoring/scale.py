@@ -57,7 +57,7 @@ def _dominates(a: tuple, b: tuple) -> bool:
 
     Coordinates are rank indices, so LOWER is better.
     """
-    return all(x <= y for x, y in zip(a, b)) and a != b
+    return all(x <= y for x, y in zip(a, b, strict=True)) and a != b
 
 
 def _build_tiers() -> dict:
@@ -168,7 +168,7 @@ def fit_score(*, eligibility: str, role_match: str, capability_match: str,
     if evidence_quality == "thin":
         score = THIN_ANCHOR + THIN_SHRINK * (score - THIN_ANCHOR)
     score = min(score, ELIGIBILITY_CEILING[eligibility])
-    return int(round(max(0, min(100, score))))
+    return round(max(0, min(100, score)))
 
 
 def project(verdict: dict) -> dict:
