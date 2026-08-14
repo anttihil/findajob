@@ -151,9 +151,15 @@ and every coverage figure downstream inherits the shortfall.
 ## How the search space is defined
 
 `data/roles.yaml` holds ~28 role families × 7 locations. The cross-product is pruned to
-**252 cells** (126 per source) because LinkedIn rate-limits around the 10th page on a single
-IP. The scheduler *rotates* through those cells rather than sweeping them, so a full matrix
-cycle takes roughly 5 days — which is why `analytics.min_window_days` is 30.
+**252 cells** (126 per source) on the assumption that LinkedIn rate-limits around the 10th
+page on a single IP — a figure carried forward from prior scraping experience, not something
+this project ever measured. A direct probe (`scripts/probe_linkedin_page_wall.py`) found zero
+429s or blocks across 99 consecutive pages (990 results) on one proxied IP; the run stopped at
+page 100 only because that's LinkedIn's own guest-API pagination ceiling (offset ~1000, the
+same wall JobSpy hardcodes as `start < 1000`), not because anything got flagged. See
+`experiments/linkedin_page_wall/`. The scheduler still *rotates* through the 252 cells rather
+than sweeping them, now as a request-budget control rather than a proven rate-limit dodge, so
+a full matrix cycle takes roughly 5 days — which is why `analytics.min_window_days` is 30.
 
 `data/skills.yaml` is the shared vocabulary: 172 canonical skills with aliases. The profile
 and scraped descriptions both map onto these keys, which is what makes a match mean the same

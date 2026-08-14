@@ -48,7 +48,7 @@ def load_config():
     defaults = {
         "scraper": {
             "sources": {"indeed": True, "linkedin": True},
-            "page_size": {"indeed": 15, "linkedin": 25},
+            "page_size": {"indeed": 15, "linkedin": 10},
             "cadence_hours": {"core": 24, "adjacent": 72, "breadth": 168},
             "hours_old_floor": {"core": 72, "adjacent": 168, "breadth": 336},
             "max_hours_old": 336,

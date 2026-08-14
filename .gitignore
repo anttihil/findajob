@@ -32,6 +32,11 @@ app.log
 # scraper.archive_retention_days on every non-dry run; ~300-400MB steady state.
 raw_payloads/
 
+# One-off probe results (scripts/probe_linkedin_page_wall.py). Raw measurement data,
+# not something to commit -- findings belong in README.md/config.yaml comments once
+# analyzed, not the jsonl itself.
+experiments/
+
 # Generated digests
 digests/
 

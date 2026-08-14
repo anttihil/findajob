@@ -8,10 +8,14 @@
 # ---------------------------------------------------------------------------------------
 # Scraping
 #
-# The cell matrix is ~252 cells (126 per source). LinkedIn rate-limits around the 10th page
-# on a single IP, so the matrix is rotated across runs rather than swept -- see
-# careerradar/search/scheduler.py. At these budgets a full matrix cycle takes roughly 5 days, which is
-# what makes the 30-day minimum analysis window meaningful.
+# The cell matrix is ~252 cells (126 per source), rotated across runs rather than swept --
+# see careerradar/search/scheduler.py. That rotation assumed LinkedIn rate-limits around the
+# 10th page on a single IP, but that figure was never actually verified: a direct probe
+# (scripts/probe_linkedin_page_wall.py, 2026-08-14) found zero 429s or blocks across 99
+# consecutive pages on one proxied IP, stopping only at the guest API's own ~1000-result
+# pagination ceiling. See experiments/linkedin_page_wall/. At these budgets a full matrix
+# cycle takes roughly 5 days, which is what makes the 30-day minimum analysis window
+# meaningful.
 # ---------------------------------------------------------------------------------------
 scraper:
   sources:
@@ -20,7 +24,9 @@ scraper:
 
   page_size:
     indeed: 15        # results per GraphQL page
-    linkedin: 25      # results per guest-API page
+    linkedin: 10      # results per guest-API page -- measured 2026-08-14 (see
+                       # experiments/linkedin_page_wall/); JobSpy's own jobs_per_page=25
+                       # constant does not match what the API actually returns per request
 
   # How long raw scrape payloads are kept in raw_payloads/ so a normalizer bug can be
   # replayed without re-scraping. Pruned at the start of every non-dry run. At ~0.6MB per
@@ -68,15 +74,18 @@ scraper:
       desc_selection: census
 
     # LinkedIn without proxies: titles only. Each description costs an extra request, and
-    # on a single IP that spends the entire ~10-page budget on a handful of postings. So
-    # these cells are desc_selection='none' -- they count fully toward role supply (title,
+    # on a single IP that was assumed to spend the entire ~10-page budget on a handful of
+    # postings -- a probe (see below) found that assumption doesn't hold, but descriptions
+    # are still off here since a real IP-flag risk hasn't been ruled out for sustained
+    # description-fetching traffic specifically, only for plain search pagination. So these
+    # cells are desc_selection='none' -- they count fully toward role supply (title,
     # company, and location are complete) but contribute nothing to skill demand.
     # Set SCRAPER_PROXIES and the scraper.proxies.with_proxies override flips this to a
     # full description census. See careerradar/search/proxies.py.
     linkedin:
       searches_per_run: 6
       request_units: 60
-      results_wanted_default: 50      # 2 pages, far under the ~10-page/IP wall
+      results_wanted_default: 50      # 5 pages at the real page_size of 10 (see above)
       max_results_wanted: 75
       max_pages_per_run: 14
       description_fetches_per_run: 40
@@ -94,7 +103,9 @@ scraper:
   # A rotating gateway usually hands out a fresh exit IP per request, which changes what a
   # 429 means: it flagged one exit IP, not the account. So when proxies are configured the
   # circuit retries on a new IP instead of tripping the source outright, and the LinkedIn
-  # budget can be raised — the ~10-page-per-IP wall is what forces it down otherwise.
+  # budget can be raised — the assumed ~10-page-per-IP wall was the reason it was forced
+  # down otherwise, though a direct probe (2026-08-14, see the top of this file) found no
+  # such wall through page 99 on a single proxied IP.
   proxies:
     enabled: true            # only takes effect when SCRAPER_PROXIES is set
     rotating: true           # the gateway rotates exit IPs per request

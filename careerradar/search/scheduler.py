@@ -1,8 +1,16 @@
 """Scrape-budget scheduler: choose which cells to visit this run.
 
-The matrix is ~252 cells (126 per source) and LinkedIn rate-limits around the 10th page on
-a single IP, so the matrix is *rotated* across runs rather than swept. Everything here is a
-pure function over CellState, so the rotation policy is unit-testable without a network.
+The matrix is ~252 cells (126 per source), rotated across runs rather than swept, on the
+assumption that LinkedIn rate-limits around the 10th page on a single IP -- carried forward
+from prior scraping experience but never actually verified against this project's traffic
+(source_state.total_429 sat at 0 across every real run). A direct probe on 2026-08-14
+(scripts/probe_linkedin_page_wall.py, results in experiments/linkedin_page_wall/) found zero
+429s or blocks across 99 consecutive pages on one proxied IP -- the run stopped at page 100
+only because that's the guest API's own pagination ceiling (offset ~1000, same as JobSpy's
+hardcoded start < 1000), not IP-based blocking. So the wall, if it exists at all, is not
+where this comment used to claim. Rotation is kept for now as a request-budget control
+rather than a proven rate-limit avoidance. Everything here is a pure function over
+CellState, so the rotation policy is unit-testable without a network.
 
 Two properties the tests pin down, because both fail silently in production:
 
@@ -248,8 +256,9 @@ def estimate_units(source, results_wanted, config):
     """Cost model that makes the two sources commensurable.
 
     Indeed returns ~15 results per GraphQL page with descriptions included. LinkedIn
-    returns 25 per page but charges one extra request per description, which is why its
-    per-eligible-posting cost is roughly 15x Indeed's.
+    returns 10 per page (measured 2026-08-14; the library's own jobs_per_page=25 constant
+    does not match observed behavior) and charges one extra request per description,
+    which is why its per-eligible-posting cost is roughly 15x Indeed's.
     """
     page_size = (config.get("page_size") or {}).get(source, 25)
     pages = math.ceil(max(results_wanted, 1) / max(page_size, 1))

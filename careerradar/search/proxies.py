@@ -7,8 +7,11 @@ A rotating gateway changes what a 429 means. Without proxies, a 429 says the acc
 IP is flagged and retrying deepens the flag -- so the circuit trips the source for the rest of
 the run. With a rotating pool, it says one exit IP got flagged, and the next request arrives
 from a different one, so retrying is the correct response. That difference is also what lifts
-the LinkedIn budget: the ~10-pages-per-IP wall is the reason it is throttled to 6 searches a
-run in the first place.
+the LinkedIn budget: it was throttled to 6 searches a run on the assumption of a ~10-pages-
+per-IP wall, which a direct probe (scripts/probe_linkedin_page_wall.py, 2026-08-14) found no
+evidence of through 99 consecutive pages on one proxied IP -- see
+experiments/linkedin_page_wall/. The budget stays conservative for now regardless, since
+lifting it is a separate decision from correcting the comment that used to justify it.
 """
 
 import os
@@ -56,7 +59,8 @@ def pin_for(proxies, key, attempt=0):
 
     Pinning one endpoint for the whole cell restores keep-alive without giving up rotation:
     the pool still rotates, just at cell granularity rather than request granularity. That
-    also fits the actual constraint better -- the wall is ~10 pages per IP and a cell is 2.
+    was also thought to fit the per-IP page wall better -- see the module docstring for why
+    that wall's ~10-page figure didn't hold up under direct measurement.
 
     `attempt` shifts the choice, so a retry after a rate-limit lands on a different exit IP
     rather than hammering the one that was just flagged.

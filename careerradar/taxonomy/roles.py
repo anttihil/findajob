@@ -372,9 +372,11 @@ class RoleTaxonomy:
         Cell count is the binding constraint on the whole analytics design, so it is worth
         being explicit about the arithmetic. The unpruned cross-product is 28 families x 7
         locations x 2 sources x up to 4 query terms -- over 500 cells. At the sustainable
-        rate of roughly 52 cells/day (LinkedIn 429s around the 10th page on one IP), that
-        is a 10-day full-matrix cycle, and honest supply comparison needs several complete
-        cycles inside the analysis window. So two prunings apply:
+        rate of roughly 52 cells/day (assuming LinkedIn 429s around the 10th page on one IP
+        -- a figure a direct probe found no evidence for through page 99, see
+        scripts/probe_linkedin_page_wall.py), that is a 10-day full-matrix cycle, and honest
+        supply comparison needs several complete cycles inside the analysis window. So two
+        prunings apply:
 
           tier_locations      breadth families are searched only where volume is highest
           queries_per_family  one search term per family by default
