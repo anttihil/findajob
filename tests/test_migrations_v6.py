@@ -17,6 +17,7 @@ import sqlite3
 import sys
 import tempfile
 import unittest
+from datetime import datetime, timedelta, timezone
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -27,6 +28,12 @@ from careerradar.core.migrations import (
     current_version,
     migrate,
 )
+
+
+def ago(**delta: float) -> str:
+    """A timestamp relative to now. The view measures staleness against `now`, so a fixed
+    date turns the same scrape from live into stale as the calendar moves on."""
+    return (datetime.now(timezone.utc) - timedelta(**delta)).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 class MigrationV6Tests(unittest.TestCase):
@@ -185,8 +192,8 @@ class MigrationV6Tests(unittest.TestCase):
         # `last_seen_at` records the run start and `last_success_at` the cell's completion,
         # so the two are minutes apart on a posting that WAS found. Without a grace window
         # every posting in the corpus reads as closed.
-        self.add_cell(1, "2026-08-05T22:59:00Z")
-        self.place(1, 1, "2026-08-05T22:50:00Z")
+        self.add_cell(1, ago(minutes=1))
+        self.place(1, 1, ago(minutes=10))
         self.assertEqual(self.liveness_of(1), "live")
 
     def test_a_posting_nobody_has_looked_for_is_not_called_closed(self) -> None:
