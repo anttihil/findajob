@@ -489,7 +489,15 @@ def get_search_links(
 
 
 def bg_sync_task():
-    run_sync()
+    # trigger_sync() already validated-and-set the lock synchronously, right before
+    # scheduling this task, specifically to close the check-then-act race between two
+    # rapid clicks. Without force=True, run_sync()'s own internal lock check sees that
+    # same lock -- owner_pid is THIS process, since a FastAPI background task runs
+    # in-process, not as a subprocess -- and refuses, mistaking itself for a concurrent
+    # sync. The refusal returns before run_sync()'s try/finally, so the lock it never
+    # actually held is never released either: every dashboard Sync click silently failed
+    # and stuck sync_in_progress=true for up to 90 minutes.
+    run_sync(force=True)
 
 
 @app.post("/api/sync")
