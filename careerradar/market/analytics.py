@@ -422,13 +422,21 @@ class MarketAnalytics:
         return grouped
 
     def coverage_report(self) -> list[dict[str, Any]]:
-        """Per-cell health, so a silently degrading scraper becomes obvious."""
+        """Per-cell health, so a silently degrading scraper becomes obvious.
+
+        `query` and the two EWMAs are part of the report rather than internal scheduler
+        state: a cell is (source, family, location, QUERY), and without the query term the
+        report cannot answer which phrasing is earning its cell. That question had to be
+        answered by a live A/B probe against the boards once already, purely because the
+        numbers the scheduler was already keeping were not exposed anywhere.
+        """
         rows = self.db.conn.execute(
             """
-            SELECT source, location_id, role_family, tier, enabled,
+            SELECT source, location_id, role_family, tier, enabled, query,
                    last_scraped_at, last_success_at, last_result_count,
                    last_saturated, consecutive_empty, consecutive_error,
-                   total_scrapes, backoff_until
+                   total_scrapes, backoff_until,
+                   ewma_new_per_scrape, ewma_fit_score, quality_samples
               FROM scrape_cells
              ORDER BY source, location_id, role_family
             """

@@ -100,6 +100,12 @@ def _cmd_migrate(args: argparse.Namespace) -> int:  # noqa: ARG001 - argparse ha
     return 0
 
 
+def _cmd_status(args: argparse.Namespace) -> Any:
+    from careerradar.core.status import run_status
+
+    return run_status(as_json=args.json)
+
+
 def _cmd_web(args: argparse.Namespace) -> int:
     import uvicorn
 
@@ -223,6 +229,10 @@ def build_parser() -> argparse.ArgumentParser:
     # --- db / web --------------------------------------------------------------------
     d = sub.add_parser("migrate", help="apply pending schema migrations")
     d.set_defaults(func=_cmd_migrate)
+
+    st = sub.add_parser("status", help="one health report for every stage of the pipeline")
+    st.add_argument("--json", action="store_true", help="machine-readable, for piping over ssh")
+    st.set_defaults(func=_cmd_status)
 
     w = sub.add_parser("web", help="serve the dashboard")
     w.add_argument("--host", default="127.0.0.1")

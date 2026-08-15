@@ -386,15 +386,20 @@ class CellPlanningTests(unittest.TestCase):
     def test_cell_count_supports_a_short_matrix_cycle(self) -> None:
         """Cell count is the binding constraint on the analytics window.
 
-        DEFAULT_QUERIES_PER_FAMILY seeds core-tier families with 2 query phrasings instead
-        of 1 (see roles.py/cell_specs' docstring for why: LinkedIn's page-wall assumption
-        that originally bounded this was empirically refuted), so the matrix is larger than
-        the original ~250-cell/~5-day-cycle design point -- ~450 is still a several-day
-        cycle at the bumped config.yaml budgets, well inside the 30-day minimum analysis
-        window. Materially more than this and supply comparisons stop being honest.
+        DEFAULT_QUERIES_PER_FAMILY seeds core-tier families with several query phrasings
+        instead of 1 (see roles.py/cell_specs' docstring for why: LinkedIn's page-wall
+        assumption that originally bounded this was empirically refuted), so the matrix is
+        larger than the original ~250-cell/~5-day-cycle design point.
+
+        The ceiling is derived from measured throughput rather than guessed: production
+        sustains 64 cells/day (2 runs x ~32 cells, verified over 23 sync_runs on
+        2026-08-15), so 500 cells is a 7.8-day cycle -- still well inside the 30-day
+        minimum analysis window. Materially more than this and supply comparisons stop
+        being honest, because the far end of the matrix is describing a different month
+        from the near end.
         """
         specs = self.roles.cell_specs()
-        self.assertLess(len(specs), 450, f"{len(specs)} cells is too many to cycle")
+        self.assertLess(len(specs), 500, f"{len(specs)} cells is too many to cycle")
         self.assertGreater(len(specs), 150)
 
     def test_cells_are_unique_on_the_schema_key(self) -> None:

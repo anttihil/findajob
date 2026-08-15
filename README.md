@@ -316,6 +316,7 @@ careerradar/
 data/           roles.yaml, skills.yaml
 deploy/         systemd units
 docs/           deepseek.md -- the API constraints the scoring design rests on
+                operations.md -- status, the JSON API over ssh, read-only snapshots
 ```
 
 `core/paths.py` is the single definition of where anything lives. Twelve modules used to

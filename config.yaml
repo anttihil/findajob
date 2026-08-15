@@ -347,8 +347,15 @@ scoring:
   #
   # Raised from 2.50 with the v2 verdict schema: the model now returns a role summary and
   # five to eight quoted requirements with an assessment each, roughly doubling completion
-  # length. A full corpus pass estimates around $3.
-  max_usd_per_run: 4.00
+  # length.
+  #
+  # Raised again to 8.00 on 2026-08-15, off the production backlog. The ceiling is a sanity
+  # guard against a runaway queue, not a budget: at $0.0004 a posting it has to clear a
+  # COLD backlog in one pass or the pre-flight aborts every single run and nothing is ever
+  # scored. Production reached 11,598 unscored postings (~$4.64 estimated) while
+  # careerradar-score.timer sat disabled, which is exactly the state that would have
+  # deadlocked against the old $4.00 ceiling the moment the timer came back on.
+  max_usd_per_run: 8.00
   # Which postings earn a deep-research pass. A predicate rather than a number on a lumpy
   # scale -- and it states its own reasoning, which `fit_score >= 70` never did.
   research_gate:
