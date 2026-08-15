@@ -22,7 +22,14 @@ required with its denominator, and is None -- not 1.0 -- when the posting named 
 recognise.
 """
 
+from typing import TYPE_CHECKING, Any
+
 from careerradar.profile.models import LEVEL_CLAIMED, LEVEL_MENTIONED, LEVEL_STRONG
+
+if TYPE_CHECKING:
+    from careerradar.profile.adapter import ProfileAdapter
+    from careerradar.taxonomy.roles import RoleTaxonomy
+    from careerradar.taxonomy.skills import Taxonomy
 
 # Redistributed proportionally when BM25 was removed (0.45/0.20/0.10 over 0.75), rather
 # than re-tuned. There is nothing to tune against, and inventing a number is how the
@@ -72,7 +79,11 @@ SENIORITY_FIT = {
 IMPLIED_CREDIT = 0.8
 
 
-def skill_coverage(required, profile, taxonomy=None):
+def skill_coverage(
+    required: dict[str, dict[str, Any]] | None,
+    profile: "ProfileAdapter",
+    taxonomy: "Taxonomy | None" = None,
+) -> tuple[float, list[str], list[str], float | None]:
     """Fraction of a posting's required skills the user can evidence, shrunk toward a prior.
 
     Coverage, not count: a posting listing 30 technologies of which the user has 10 is a
@@ -92,19 +103,20 @@ def skill_coverage(required, profile, taxonomy=None):
     that is unknown coverage, not perfect coverage, and the smoothing exists precisely
     because the raw ratio cannot say so.
     """
-    matched = []
-    missing = []
+    matched: list[str] = []
+    missing: list[str] = []
     earned = 0.0
     possible = 0.0
 
     for skill, info in (required or {}).items():
         weight = TITLE_SKILL_MULTIPLIER if info.get("in_title") else 1.0
         possible += weight
-        level = profile.level(skill)
+        level: int = profile.level(skill)
         credit = LEVEL_CREDIT.get(level, 0.5) if level > 0 else 0.0
         if level == 0 and taxonomy is not None:
-            implied = max((profile.level(child)
-                           for child in taxonomy.implied_by(skill)), default=0)
+            implied: int = max(
+                (profile.level(child) for child in taxonomy.implied_by(skill)), default=0
+            )
             if implied > 0:
                 credit = LEVEL_CREDIT.get(implied, 0.5) * IMPLIED_CREDIT
         if credit > 0:
@@ -113,16 +125,19 @@ def skill_coverage(required, profile, taxonomy=None):
         else:
             missing.append(skill)
 
-    coverage = (
-        (earned + COVERAGE_PRIOR_WEIGHT * COVERAGE_PRIOR)
-        / (possible + COVERAGE_PRIOR_WEIGHT)
+    coverage = (earned + COVERAGE_PRIOR_WEIGHT * COVERAGE_PRIOR) / (
+        possible + COVERAGE_PRIOR_WEIGHT
     )
     total = len(matched) + len(missing)
     ratio = (len(matched) / total) if total else None
     return coverage, matched, missing, ratio
 
 
-def title_family_fit(role_family, roles, profile=None):  # noqa: ARG001 - kept so callers need not special-case this scorer
+def title_family_fit(
+    role_family: str | None,
+    roles: "RoleTaxonomy",
+    profile: "ProfileAdapter | None" = None,  # noqa: ARG001 - kept so callers need not special-case this scorer
+) -> float:
     """How close the posting's role family sits to the user's stated targets.
 
     This used to ask "does the user have a tailored resume for this family, and is that
@@ -139,29 +154,32 @@ def title_family_fit(role_family, roles, profile=None):  # noqa: ARG001 - kept s
         return 0.0
     if not roles.resume_for(role_family):
         return 0.2
-    return {"core": 1.0, "adjacent": 0.75, "breadth": 0.5}.get(
-        roles.tier(role_family), 0.5
-    )
+    tier: str | None = roles.tier(role_family)
+    return {"core": 1.0, "adjacent": 0.75, "breadth": 0.5}.get(tier or "", 0.5)
 
 
-def seniority_fit(seniority):
+def seniority_fit(seniority: str | None) -> float:
     return SENIORITY_FIT.get(seniority or "unspecified", 0.7)
 
 
 class JobScorer:
     """Scores postings against the user profile. Deterministic and explainable."""
 
-    def __init__(self, profile, roles, taxonomy, weights=None):
+    def __init__(
+        self,
+        profile: "ProfileAdapter",
+        roles: "RoleTaxonomy",
+        taxonomy: "Taxonomy",
+        weights: dict[str, float] | None = None,
+    ) -> None:
         self.profile = profile
         self.roles = roles
         self.taxonomy = taxonomy
         self.weights = dict(DEFAULT_WEIGHTS)
         if weights:
-            self.weights.update(
-                {k: v for k, v in weights.items() if k in DEFAULT_WEIGHTS}
-            )
+            self.weights.update({k: v for k, v in weights.items() if k in DEFAULT_WEIGHTS})
 
-    def score(self, posting):
+    def score(self, posting: dict[str, Any]) -> dict[str, Any]:
         """Score one posting. Returns a dict with the total and every component.
 
         `posting` needs title, description, role_family, seniority, and optionally a
@@ -179,14 +197,11 @@ class JobScorer:
         )
         components = {
             "skill_coverage": coverage,
-            "title_family": title_family_fit(
-                posting.get("role_family"), self.roles, self.profile
-            ),
+            "title_family": title_family_fit(posting.get("role_family"), self.roles, self.profile),
             "seniority_fit": seniority_fit(posting.get("seniority")),
         }
 
-        total = sum(components[name] * weight
-                    for name, weight in self.weights.items())
+        total = sum(components[name] * weight for name, weight in self.weights.items())
         total = max(0.0, min(1.0, total))
 
         return {
@@ -202,5 +217,5 @@ class JobScorer:
             "resume_match": self.roles.resume_for(posting.get("role_family")),
         }
 
-    def score_many(self, postings):
+    def score_many(self, postings: list[dict[str, Any]]) -> list[dict[str, Any]]:
         return [self.score(posting) for posting in postings]

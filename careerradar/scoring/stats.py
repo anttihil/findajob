@@ -19,6 +19,8 @@ cross-tab. A collapsed marginal is the new "the model is not using its scale", a
 far more diagnosable than a flat score histogram: it says WHICH judgement collapsed.
 """
 
+from typing import Any
+
 from careerradar.core.database import Database
 from careerradar.scoring import rubric, scale
 
@@ -28,14 +30,16 @@ from careerradar.scoring import rubric, scale
 COLLAPSE_SHARE = 0.85
 
 
-def collect(profile_version=None, scale_version=None, db=None):
+def collect(
+    profile_version: int | None = None,
+    scale_version: int | None = None,
+    db: Database | None = None,
+) -> dict[str, Any] | None:
     owned = db is None
     db = db or Database()
     try:
         if profile_version is None:
-            row = db.conn.execute(
-                "SELECT version FROM profiles WHERE is_active = 1"
-            ).fetchone()
+            row = db.conn.execute("SELECT version FROM profiles WHERE is_active = 1").fetchone()
             if row is None:
                 return None
             profile_version = row[0]
@@ -46,7 +50,7 @@ def collect(profile_version=None, scale_version=None, db=None):
             "COALESCE(scale_version, 0) AS scale_version, cost_usd "
             "FROM job_verdicts WHERE profile_version = ?"
         )
-        params = [profile_version]
+        params: list[Any] = [profile_version]
         if scale_version is not None:
             query += " AND COALESCE(scale_version, 0) = ?"
             params.append(scale_version)
@@ -54,16 +58,17 @@ def collect(profile_version=None, scale_version=None, db=None):
         if not rows:
             return {"profile_version": profile_version, "total": 0}
 
-        scale_versions = {}
+        scale_versions: dict[int, int] = {}
         for row in rows:
-            scale_versions[row["scale_version"]] = \
-                scale_versions.get(row["scale_version"], 0) + 1
+            scale_versions[row["scale_version"]] = scale_versions.get(row["scale_version"], 0) + 1
 
-        counts, verdicts, tiers = {}, {}, {}
-        marginals = {name: {} for name in rubric.DIMENSIONS}
-        crosstab = {}
+        counts: dict[int, int] = {}
+        verdicts: dict[str, int] = {}
+        tiers: dict[int, int] = {}
+        marginals: dict[str, dict[str, int]] = {name: {} for name in rubric.DIMENSIONS}
+        crosstab: dict[tuple[str, str], int] = {}
         blockers = 0
-        flags = {}
+        flags: dict[str, int] = {}
         cost = 0.0
 
         for row in rows:
@@ -85,7 +90,8 @@ def collect(profile_version=None, scale_version=None, db=None):
                 flags[flag] = flags.get(flag, 0) + 1
 
         collapsed = [
-            name for name, values in marginals.items()
+            name
+            for name, values in marginals.items()
             if values and max(values.values()) / sum(values.values()) >= COLLAPSE_SHARE
         ]
 
@@ -109,7 +115,7 @@ def collect(profile_version=None, scale_version=None, db=None):
             db.close()
 
 
-def _decode_flags(raw):
+def _decode_flags(raw: str | None) -> list[str]:
     import json
 
     if not raw:
@@ -120,7 +126,7 @@ def _decode_flags(raw):
         return []
 
 
-def render(stats, width=44):
+def render(stats: dict[str, Any] | None, width: int = 44) -> str:
     if stats is None:
         return "No active profile. Build one with:  careerradar profile build"
     if not stats.get("total"):
@@ -144,9 +150,11 @@ def render(stats, width=44):
         )
 
     scale_version = next(iter(versions))
-    out.append(f"profile v{stats['profile_version']} · scale v{scale_version} · "
-               f"{total:,} verdicts · ${stats['cost']:.4f} · "
-               f"{stats['distinct_scores']} distinct scores")
+    out.append(
+        f"profile v{stats['profile_version']} · scale v{scale_version} · "
+        f"{total:,} verdicts · ${stats['cost']:.4f} · "
+        f"{stats['distinct_scores']} distinct scores"
+    )
 
     if scale_version == 0:
         out.append("")
@@ -182,8 +190,7 @@ def render(stats, width=44):
         out.append(f"  {'':<18}{header}")
         for role in rubric.ROLE_MATCH:
             cells = "".join(
-                f"{stats['crosstab'].get((role, cap), 0):>10,}"
-                for cap in rubric.CAPABILITY_MATCH
+                f"{stats['crosstab'].get((role, cap), 0):>10,}" for cap in rubric.CAPABILITY_MATCH
             )
             out.append(f"  {role:<18}{cells}")
 
@@ -195,18 +202,23 @@ def render(stats, width=44):
 
     out.append("")
     out.append("evidence")
-    out.append(f"  verdicts carrying a hard blocker:  {stats['blockers']:>6}"
-               f"  ({stats['blockers'] / total:.1%})")
+    out.append(
+        f"  verdicts carrying a hard blocker:  {stats['blockers']:>6}"
+        f"  ({stats['blockers'] / total:.1%})"
+    )
     if stats["audit_flags"]:
         for flag, n in stats["audit_flags"].items():
-            marker = "   <-- a blocker the candidate does not have" \
-                if flag == "blocker_contradicts_profile" else ""
+            marker = (
+                "   <-- a blocker the candidate does not have"
+                if flag == "blocker_contradicts_profile"
+                else ""
+            )
             out.append(f"  {flag:<32} {n:>6}{marker}")
     else:
         out.append("  no audit flags recorded (pre-v2 verdicts carry none)")
     return "\n".join(out)
 
 
-def run_stats(profile_version=None, scale_version=None):
+def run_stats(profile_version: int | None = None, scale_version: int | None = None) -> int:
     print(render(collect(profile_version, scale_version=scale_version)))
     return 0

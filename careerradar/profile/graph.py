@@ -16,7 +16,7 @@ once per answered question. A cursor in the state and a conditional edge keeps e
 to exactly one turn of work.
 """
 
-from typing import Annotated, TypedDict
+from typing import TYPE_CHECKING, Annotated, Any, TypedDict
 
 from careerradar.core.llm import (
     DEFAULT_AGENT_MODEL,
@@ -27,6 +27,10 @@ from careerradar.core.logger import get_logger
 from careerradar.core.paths import GRAPH_DB_PATH
 from careerradar.profile.ingest import collect_documents, render_corpus
 from careerradar.profile.models import ExtractedClaims, GapQuestions, Profile
+
+if TYPE_CHECKING:
+    from langgraph.checkpoint.base import BaseCheckpointSaver
+    from langgraph.graph.state import CompiledStateGraph
 
 logger = get_logger()
 
@@ -113,18 +117,18 @@ compensation floor. Those turn into hard blockers, and a softened constraint mea
 candidate reads postings they cannot accept."""
 
 
-def _merge_turns(existing: list, new: list) -> list:
+def _merge_turns(existing: list[dict[str, Any]], new: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return (existing or []) + (new or [])
 
 
 class ProfileState(TypedDict, total=False):
     corpus: str
-    documents: list
-    claims: dict | None
-    questions: list
+    documents: list[dict[str, Any]]
+    claims: dict[str, Any] | None
+    questions: list[dict[str, Any]]
     cursor: int
-    turns: Annotated[list, _merge_turns]
-    draft: dict | None
+    turns: Annotated[list[dict[str, Any]], _merge_turns]
+    draft: dict[str, Any] | None
     revision: str | None
     approved: bool
     model: str
@@ -134,7 +138,7 @@ class ProfileState(TypedDict, total=False):
 # --- nodes ---------------------------------------------------------------------------
 
 
-def node_ingest(state: ProfileState) -> dict:  # noqa: ARG001 - langgraph node signature
+def node_ingest(state: ProfileState) -> dict[str, Any]:  # noqa: ARG001 - langgraph node signature
     documents = collect_documents()
     if not documents:
         raise RuntimeError(
@@ -150,34 +154,39 @@ def node_ingest(state: ProfileState) -> dict:  # noqa: ARG001 - langgraph node s
     }
 
 
-def node_extract(state: ProfileState) -> dict:
+def node_extract(state: ProfileState) -> dict[str, Any]:
     model = structured_model(state.get("model", DEFAULT_AGENT_MODEL))
     claims = invoke_structured(
         model,
         ExtractedClaims,
-        [("system", EXTRACT_SYSTEM), ("user", state["corpus"])],
+        [("system", EXTRACT_SYSTEM), ("user", state.get("corpus", ""))],
         label="Profile extract",
     )
     logger.info(
         "Profile: extracted %d skills, %d contradictions",
-        len(claims.skills), len(claims.contradictions),
+        len(claims.skills),
+        len(claims.contradictions),
     )
     return {"claims": claims.model_dump()}
 
 
-def node_gaps(state: ProfileState) -> dict:
+def node_gaps(state: ProfileState) -> dict[str, Any]:
     model = structured_model(state.get("model", DEFAULT_AGENT_MODEL))
-    claims = ExtractedClaims.model_validate(state["claims"])
+    claims = ExtractedClaims.model_validate(state.get("claims"))
     limit = state.get("max_questions", 15)
     result = invoke_structured(
         model,
         GapQuestions,
         [
             ("system", GAPS_SYSTEM),
-            ("user",
-             (f"{state['corpus']}\n\n"
-             f"<extracted_claims>\n{claims.model_dump_json(indent=2)}\n</extracted_claims>\n\n"
-             f"Produce at most {limit} questions.")),
+            (
+                "user",
+                (
+                    f"{state.get('corpus', '')}\n\n"
+                    f"<extracted_claims>\n{claims.model_dump_json(indent=2)}\n</extracted_claims>\n\n"
+                    f"Produce at most {limit} questions."
+                ),
+            ),
         ],
         label="Profile gaps",
     )
@@ -186,46 +195,56 @@ def node_gaps(state: ProfileState) -> dict:
     return {"questions": questions, "cursor": 0}
 
 
-def node_ask(state: ProfileState) -> dict:
+def node_ask(state: ProfileState) -> dict[str, Any]:
     """Surface one question to the human and suspend until it is answered."""
     cursor = state.get("cursor", 0)
-    question = state["questions"][cursor]
+    questions = state.get("questions", [])
+    question = questions[cursor]
 
-    answer = interrupt({
-        "kind": "question",
-        "index": cursor,
-        "total": len(state["questions"]),
-        "topic": question["topic"],
-        "question": question["question"],
-        "why": question["why"],
-    })
+    answer = interrupt(
+        {
+            "kind": "question",
+            "index": cursor,
+            "total": len(questions),
+            "topic": question["topic"],
+            "question": question["question"],
+            "why": question["why"],
+        }
+    )
 
     return {
         "cursor": cursor + 1,
-        "turns": [{
-            "topic": question["topic"],
-            "question": question["question"],
-            "answer": (answer or "").strip(),
-        }],
+        "turns": [
+            {
+                "topic": question["topic"],
+                "question": question["question"],
+                "answer": (answer or "").strip(),
+            }
+        ],
     }
 
 
-def node_synthesize(state: ProfileState) -> dict:
+def node_synthesize(state: ProfileState) -> dict[str, Any]:
     model = structured_model(state.get("model", DEFAULT_AGENT_MODEL))
 
-    transcript = "\n\n".join(
-        f"Q ({t['topic']}): {t['question']}\nA: {t['answer']}"
-        for t in state.get("turns", []) if t.get("answer")
-    ) or "(no interview answers)"
+    transcript = (
+        "\n\n".join(
+            f"Q ({t['topic']}): {t['question']}\nA: {t['answer']}"
+            for t in state.get("turns", [])
+            if t.get("answer")
+        )
+        or "(no interview answers)"
+    )
 
-    claims = ExtractedClaims.model_validate(state["claims"])
+    claims = ExtractedClaims.model_validate(state.get("claims"))
     instruction = ""
-    if state.get("revision"):
+    revision = state.get("revision")
+    if revision:
         # A revision re-runs synthesis with the human's correction appended, rather than
         # patching the draft. Patching a structured object from free text is a second
         # extraction problem; regenerating with the correction in context is one.
         instruction = (
-            f"\n\n<requested_changes>\n{state['revision']}\n</requested_changes>\n"
+            f"\n\n<requested_changes>\n{revision}\n</requested_changes>\n"
             "Apply these changes. Keep everything else as it was."
         )
 
@@ -234,10 +253,14 @@ def node_synthesize(state: ProfileState) -> dict:
         Profile,
         [
             ("system", SYNTHESIZE_SYSTEM),
-            ("user",
-             (f"{state['corpus']}\n\n"
-             f"<extracted_claims>\n{claims.model_dump_json(indent=2)}\n</extracted_claims>\n\n"
-             f"<interview>\n{transcript}\n</interview>{instruction}")),
+            (
+                "user",
+                (
+                    f"{state.get('corpus', '')}\n\n"
+                    f"<extracted_claims>\n{claims.model_dump_json(indent=2)}\n</extracted_claims>\n\n"
+                    f"<interview>\n{transcript}\n</interview>{instruction}"
+                ),
+            ),
         ],
         label="Profile synthesize",
     )
@@ -245,7 +268,7 @@ def node_synthesize(state: ProfileState) -> dict:
     return {"draft": profile.model_dump(), "revision": None}
 
 
-def level_changes(claims: dict | None, draft: dict) -> dict:
+def level_changes(claims: dict[str, Any] | None, draft: dict[str, Any]) -> dict[str, Any]:
     """What the interview did to the skill levels the documents alone produced.
 
     Computed here rather than in the terminal wizard because it is the reviewer's main
@@ -255,18 +278,31 @@ def level_changes(claims: dict | None, draft: dict) -> dict:
     interview that was never applied.
     """
     before = {s["key"]: s for s in ((claims or {}).get("skills") or [])}
-    raised, lowered, added = [], [], []
+    raised: list[dict[str, Any]] = []
+    lowered: list[dict[str, Any]] = []
+    added: list[dict[str, Any]] = []
     for skill in draft.get("skills") or []:
         previous = before.get(skill["key"])
         if previous is None:
-            added.append({"key": skill["key"], "label": skill["label"],
-                          "to": skill["level"]})
+            added.append({"key": skill["key"], "label": skill["label"], "to": skill["level"]})
         elif skill["level"] > previous["level"]:
-            raised.append({"key": skill["key"], "label": skill["label"],
-                           "from": previous["level"], "to": skill["level"]})
+            raised.append(
+                {
+                    "key": skill["key"],
+                    "label": skill["label"],
+                    "from": previous["level"],
+                    "to": skill["level"],
+                }
+            )
         elif skill["level"] < previous["level"]:
-            lowered.append({"key": skill["key"], "label": skill["label"],
-                            "from": previous["level"], "to": skill["level"]})
+            lowered.append(
+                {
+                    "key": skill["key"],
+                    "label": skill["label"],
+                    "from": previous["level"],
+                    "to": skill["level"],
+                }
+            )
     return {
         "raised": raised,
         "lowered": lowered,
@@ -275,13 +311,16 @@ def level_changes(claims: dict | None, draft: dict) -> dict:
     }
 
 
-def node_review(state: ProfileState) -> dict:
+def node_review(state: ProfileState) -> dict[str, Any]:
     """Show the draft and wait. Only a human decision leaves this node."""
-    decision = interrupt({
-        "kind": "review",
-        "profile": state["draft"],
-        "level_changes": level_changes(state.get("claims"), state["draft"]),
-    })
+    draft = state.get("draft") or {}
+    decision = interrupt(
+        {
+            "kind": "review",
+            "profile": draft,
+            "level_changes": level_changes(state.get("claims"), draft),
+        }
+    )
     if isinstance(decision, dict):
         if decision.get("approve"):
             return {"approved": True}
@@ -308,7 +347,9 @@ def route_after_review(state: ProfileState) -> str:
     return "__end__" if state.get("approved") else "synthesize"
 
 
-def build_graph(checkpointer=None):
+def build_graph(
+    checkpointer: "BaseCheckpointSaver[Any] | None" = None,
+) -> "CompiledStateGraph[Any, Any, Any, Any]":
     from langgraph.graph import END, START, StateGraph
 
     builder = StateGraph(ProfileState)

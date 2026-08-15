@@ -23,8 +23,10 @@ import json
 import logging
 import os
 import warnings
+from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import datetime, timezone
+from typing import Any
 
 from careerradar.core.logger import get_logger
 from careerradar.search.sources.base import BaseJobSource
@@ -62,7 +64,7 @@ class ScraperReportedError(RuntimeError):
     ourselves.
     """
 
-    def __init__(self, message, board_messages=()):
+    def __init__(self, message: str, board_messages: tuple[str, ...] | list[str] = ()):
         super().__init__(message)
         self.board_messages = list(board_messages)
         self.classify_text = "; ".join(self.board_messages)
@@ -71,11 +73,11 @@ class ScraperReportedError(RuntimeError):
 class _ErrorRecorder(logging.Handler):
     """Collects ERROR-level records emitted by a board's logger."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__(level=logging.ERROR)
-        self.messages = []
+        self.messages: list[str] = []
 
-    def emit(self, record):
+    def emit(self, record: logging.LogRecord) -> None:
         try:
             self.messages.append(record.getMessage())
         except Exception:  # noqa: BLE001 - a broken log record must not fail a scrape
@@ -83,7 +85,7 @@ class _ErrorRecorder(logging.Handler):
 
 
 @contextmanager
-def capture_scraper_errors(source):
+def capture_scraper_errors(source: str | None) -> Iterator[_ErrorRecorder]:
     """Watch a board's JobSpy logger for the duration of one scrape.
 
     Records arrive from JobSpy's worker thread rather than this one (scrape_jobs runs each
@@ -103,27 +105,50 @@ def capture_scraper_errors(source):
     finally:
         board_logger.removeHandler(recorder)
 
+
 # Columns JobSpy actually returns, verified live on 2026-07-29. Recorded here so a future
 # library upgrade that drops one is visible rather than silently producing empty fields.
 EXPECTED_COLUMNS = {
-    "id", "site", "job_url", "job_url_direct", "title", "company", "location",
-    "date_posted", "job_type", "salary_source", "interval", "min_amount", "max_amount",
-    "currency", "is_remote", "job_level", "job_function", "listing_type", "emails",
-    "description", "company_industry", "company_url", "company_logo",
-    "company_url_direct", "company_addresses", "company_num_employees",
-    "company_revenue", "company_description",
+    "id",
+    "site",
+    "job_url",
+    "job_url_direct",
+    "title",
+    "company",
+    "location",
+    "date_posted",
+    "job_type",
+    "salary_source",
+    "interval",
+    "min_amount",
+    "max_amount",
+    "currency",
+    "is_remote",
+    "job_level",
+    "job_function",
+    "listing_type",
+    "emails",
+    "description",
+    "company_industry",
+    "company_url",
+    "company_logo",
+    "company_url_direct",
+    "company_addresses",
+    "company_num_employees",
+    "company_revenue",
+    "company_description",
 }
 
 
 class JobSpySource(BaseJobSource):
     """Fetches postings for one scrape task."""
 
-    def __init__(self, archive_dir=None, description_format="markdown"):
+    def __init__(self, archive_dir: str | None = None, description_format: str = "markdown"):
         self.description_format = description_format
         self.archive_dir = archive_dir
-        self._scrape = None
+        self._scrape: Any = None
 
-    def _loader(self):
+    def _loader(self) -> Any:
         if self._scrape is None:
             # Imported lazily so the rest of the app -- and the whole test suite -- runs
             # without pandas/numpy/tls-client present.
@@ -133,7 +158,7 @@ class JobSpySource(BaseJobSource):
         return self._scrape
 
     # -- BaseJobSource -----------------------------------------------------------------
-    def fetch_for_task(self, task):
+    def fetch_for_task(self, task: dict[str, Any]) -> list[dict[str, Any]]:
         """Run one search and return raw row dicts.
 
         Raises on failure so the caller's SourceCircuit can classify it -- a 429 must trip
@@ -144,8 +169,11 @@ class JobSpySource(BaseJobSource):
 
         logger.info(
             "[%s] %r in %s (want %d, hours_old=%s, desc=%s)",
-            task.get("source"), task.get("query"), task.get("location_label"),
-            kwargs.get("results_wanted"), kwargs.get("hours_old"),
+            task.get("source"),
+            task.get("query"),
+            task.get("location_label"),
+            kwargs.get("results_wanted"),
+            kwargs.get("hours_old"),
             kwargs.get("linkedin_fetch_description", True),
         )
 
@@ -171,13 +199,14 @@ class JobSpySource(BaseJobSource):
             )
         return rows
 
-    def _archive(self, task, rows):
+    def _archive(self, task: dict[str, Any], rows: list[dict[str, Any]]) -> None:
         """Persist the raw payload so normalizer bugs can be replayed without re-scraping."""
+        if not self.archive_dir:
+            return
         try:
             os.makedirs(self.archive_dir, exist_ok=True)
             stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
-            slug = _slug(f"{task.get('source')}-{task.get('query')}-"
-                         f"{task.get('location_id')}")
+            slug = _slug(f"{task.get('source')}-{task.get('query')}-{task.get('location_id')}")
             path = os.path.join(self.archive_dir, f"{stamp}-{slug}.json")
             with open(path, "w", encoding="utf-8") as handle:
                 json.dump({"task": task, "rows": rows}, handle, default=str)
@@ -185,7 +214,7 @@ class JobSpySource(BaseJobSource):
             logger.warning(f"could not archive raw payload: {exc}")
 
 
-def prune_archives(archive_dir, max_age_days=14):
+def prune_archives(archive_dir: str | None, max_age_days: float = 14) -> tuple[int, int]:
     """Delete raw payloads older than the retention window. Returns (removed, freed_bytes).
 
     The archive exists so a normalizer bug can be replayed without re-scraping, which is
@@ -223,10 +252,12 @@ def prune_archives(archive_dir, max_age_days=14):
     return removed, freed
 
 
-def build_scrape_kwargs(task, description_format="markdown"):
+def build_scrape_kwargs(
+    task: dict[str, Any], description_format: str = "markdown"
+) -> dict[str, Any]:
     """Translate a ScrapeTask dict into scrape_jobs() arguments."""
     source = task.get("source", "indeed")
-    kwargs = {
+    kwargs: dict[str, Any] = {
         "site_name": [source],
         "search_term": task.get("query"),
         "location": task.get("location_label") or None,
@@ -259,7 +290,7 @@ def build_scrape_kwargs(task, description_format="markdown"):
     return kwargs
 
 
-def frame_to_rows(frame):
+def frame_to_rows(frame: Any) -> list[dict[str, Any]]:
     """Convert a JobSpy DataFrame into plain dicts, warning on unexpected schema drift."""
     if frame is None:
         return []
@@ -273,12 +304,11 @@ def frame_to_rows(frame):
         # Not fatal -- board-specific columns are legitimately absent -- but a large gap
         # means the library changed and the normalizer may be reading nothing.
         logger.warning(
-            f"JobSpy returned {len(missing)} fewer columns than expected: "
-            f"{sorted(missing)[:8]}"
+            f"JobSpy returned {len(missing)} fewer columns than expected: {sorted(missing)[:8]}"
         )
 
     return frame.to_dict(orient="records")
 
 
-def _slug(text):
+def _slug(text: Any) -> str:
     return "".join(c if c.isalnum() or c in "-_" else "-" for c in str(text))[:80]

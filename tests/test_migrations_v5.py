@@ -22,17 +22,17 @@ from careerradar.core.migrations import (
 
 
 class MigrationV5Tests(unittest.TestCase):
-    def setUp(self):
+    def setUp(self) -> None:
         self.tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
         self.tmp.close()
         self.conn = sqlite3.connect(self.tmp.name)
         self.conn.row_factory = sqlite3.Row
 
-    def tearDown(self):
+    def tearDown(self) -> None:
         self.conn.close()
         os.unlink(self.tmp.name)
 
-    def migrate_to(self, version):
+    def migrate_to(self, version: int) -> None:
         """Apply migrations up to `version`, the way a real older database arrives."""
         from careerradar.core.migrations import apply_pragmas
 
@@ -45,25 +45,23 @@ class MigrationV5Tests(unittest.TestCase):
             cursor.execute(f"PRAGMA user_version = {int(target)}")
         self.conn.commit()
 
-    def columns(self, table="jobs"):
+    def columns(self, table: str = "jobs") -> set[str]:
         return {r[1] for r in self.conn.execute(f"PRAGMA table_info({table})")}
 
-    def tables(self):
+    def tables(self) -> set[str]:
         return {
-            r[0] for r in self.conn.execute(
-                "SELECT name FROM sqlite_master WHERE type='table'"
-            )
+            r[0] for r in self.conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
         }
 
     # --- the migration itself ---------------------------------------------------------
 
-    def test_a_v4_database_migrates_to_the_current_version(self):
+    def test_a_v4_database_migrates_to_the_current_version(self) -> None:
         self.migrate_to(4)
         self.assertEqual(current_version(self.conn), 4)
         migrate(self.conn)
         self.assertEqual(current_version(self.conn), SCHEMA_VERSION)
 
-    def test_existing_postings_survive_and_queue_for_scoring(self):
+    def test_existing_postings_survive_and_queue_for_scoring(self) -> None:
         self.migrate_to(4)
         self.conn.execute(
             "INSERT INTO jobs (job_key, title, company, url, match_score) "
@@ -82,7 +80,7 @@ class MigrationV5Tests(unittest.TestCase):
         self.assertEqual(row["pipeline_state"], "new")
         self.assertIsNone(row["fit_score"])
 
-    def test_superseded_columns_are_dropped(self):
+    def test_superseded_columns_are_dropped(self) -> None:
         self.migrate_to(4)
         self.assertIn("llm_verdict", self.columns())
         self.assertIn("resume_match", self.columns())
@@ -90,43 +88,63 @@ class MigrationV5Tests(unittest.TestCase):
         self.assertNotIn("llm_verdict", self.columns())
         self.assertNotIn("resume_match", self.columns())
 
-    def test_the_analytics_columns_the_market_module_needs_are_kept(self):
+    def test_the_analytics_columns_the_market_module_needs_are_kept(self) -> None:
         self.migrate_to(4)
         migrate(self.conn)
-        for column in ("match_score", "matched_skills", "role_family", "desc_selection",
-                       "description_quality", "duplicate_of", "sync_run_id"):
+        for column in (
+            "match_score",
+            "matched_skills",
+            "role_family",
+            "desc_selection",
+            "description_quality",
+            "duplicate_of",
+            "sync_run_id",
+        ):
             self.assertIn(column, self.columns())
 
-    def test_the_scrape_history_is_untouched(self):
+    def test_the_scrape_history_is_untouched(self) -> None:
         """The coverage cycle is expensive to rebuild -- ~5 days of scraping."""
         self.migrate_to(4)
         migrate(self.conn)
-        for table in ("scrape_cells", "cell_observations", "sync_runs", "source_state",
-                      "job_skills", "job_blockers", "skill_market_stats",
-                      "role_market_stats"):
+        for table in (
+            "scrape_cells",
+            "cell_observations",
+            "sync_runs",
+            "source_state",
+            "job_skills",
+            "job_blockers",
+            "skill_market_stats",
+            "role_market_stats",
+        ):
             self.assertIn(table, self.tables())
 
-    def test_the_new_tables_exist(self):
+    def test_the_new_tables_exist(self) -> None:
         self.migrate_to(4)
         migrate(self.conn)
-        for table in ("profiles", "profile_documents", "interview_turns", "job_verdicts",
-                      "company_dossiers", "research_runs"):
+        for table in (
+            "profiles",
+            "profile_documents",
+            "interview_turns",
+            "job_verdicts",
+            "company_dossiers",
+            "research_runs",
+        ):
             self.assertIn(table, self.tables())
 
-    def test_migration_is_idempotent(self):
+    def test_migration_is_idempotent(self) -> None:
         self.migrate_to(4)
         migrate(self.conn)
         self.assertEqual(migrate(self.conn), 0)
         self.assertEqual(current_version(self.conn), SCHEMA_VERSION)
 
-    def test_a_fresh_database_reaches_the_current_version(self):
+    def test_a_fresh_database_reaches_the_current_version(self) -> None:
         migrate(self.conn)
         self.assertEqual(current_version(self.conn), SCHEMA_VERSION)
         self.assertIn("pipeline_state", self.columns())
 
     # --- invariants the schema is supposed to enforce ---------------------------------
 
-    def test_only_one_profile_can_be_active(self):
+    def test_only_one_profile_can_be_active(self) -> None:
         migrate(self.conn)
         self.conn.execute(
             "INSERT INTO profiles (version, created_at, is_active, profile_json, "
@@ -138,11 +156,9 @@ class MigrationV5Tests(unittest.TestCase):
                 "summary_text) VALUES (2, 'now', 1, '{}', 's')"
             )
 
-    def test_a_posting_has_at_most_one_verdict_per_profile_version(self):
+    def test_a_posting_has_at_most_one_verdict_per_profile_version(self) -> None:
         migrate(self.conn)
-        self.conn.execute(
-            "INSERT INTO jobs (id, job_key, title) VALUES (1, 'k', 'T')"
-        )
+        self.conn.execute("INSERT INTO jobs (id, job_key, title) VALUES (1, 'k', 'T')")
         insert = (
             "INSERT INTO job_verdicts (job_id, profile_version, model, fit_score, "
             "verdict, created_at) VALUES (1, 1, 'm', ?, 'stretch', 'now')"
@@ -151,7 +167,7 @@ class MigrationV5Tests(unittest.TestCase):
         with self.assertRaises(sqlite3.IntegrityError):
             self.conn.execute(insert, (60,))
 
-    def test_verdicts_are_removed_with_their_posting(self):
+    def test_verdicts_are_removed_with_their_posting(self) -> None:
         migrate(self.conn)
         self.conn.execute("PRAGMA foreign_keys=ON")
         self.conn.execute("INSERT INTO jobs (id, job_key, title) VALUES (1, 'k', 'T')")
@@ -163,10 +179,11 @@ class MigrationV5Tests(unittest.TestCase):
         remaining = self.conn.execute("SELECT COUNT(*) FROM job_verdicts").fetchone()[0]
         self.assertEqual(remaining, 0)
 
-    def test_one_dossier_per_company(self):
+    def test_one_dossier_per_company(self) -> None:
         migrate(self.conn)
-        insert = ("INSERT INTO company_dossiers (company_normalized, generated_at) "
-                  "VALUES ('acme', 'now')")
+        insert = (
+            "INSERT INTO company_dossiers (company_normalized, generated_at) VALUES ('acme', 'now')"
+        )
         self.conn.execute(insert)
         with self.assertRaises(sqlite3.IntegrityError):
             self.conn.execute(insert)

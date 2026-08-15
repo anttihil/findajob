@@ -13,9 +13,7 @@ change where it thinks the database is.
 import os
 
 # careerradar/core/paths.py -> careerradar/core -> careerradar -> repo root
-REPO_ROOT = os.path.dirname(
-    os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-)
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 PACKAGE_ROOT = os.path.join(REPO_ROOT, "careerradar")
 DATA_DIR = os.path.join(REPO_ROOT, "data")

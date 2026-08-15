@@ -20,6 +20,7 @@ lives in `scoring/scale.py`, computed from the answers.
 """
 
 import hashlib
+from typing import Any
 
 from careerradar.scoring import rubric
 
@@ -130,7 +131,7 @@ def prompt_hash(profile_summary: str = "") -> str:
     return hashlib.sha256((RULES + profile_summary).encode()).hexdigest()[:16]
 
 
-def render_skill_hint(matched=None, missing=None) -> str:
+def render_skill_hint(matched: list[str] | None = None, missing: list[str] | None = None) -> str:
     """The deterministic extractor's read on this posting, as a hint.
 
     Emitted OUTSIDE the `<posting>` element on purpose. It is derived by us, not scraped,
@@ -146,9 +147,11 @@ def render_skill_hint(matched=None, missing=None) -> str:
     if not matched and not missing:
         return ""
     lines = [
-        ('<taxonomy_signal note="Regex extraction over a fixed skill list. It over- and '
-        'under-fires; the posting text is authoritative. Use this only to avoid missing a '
-        'requirement, never to invent one.">')
+        (
+            '<taxonomy_signal note="Regex extraction over a fixed skill list. It over- and '
+            "under-fires; the posting text is authoritative. Use this only to avoid missing a "
+            'requirement, never to invent one.">'
+        )
     ]
     if matched:
         lines.append("candidate evidences: " + ", ".join(matched))
@@ -158,13 +161,13 @@ def render_skill_hint(matched=None, missing=None) -> str:
     return "\n".join(lines)
 
 
-def format_matched(matched_levels) -> list:
+def format_matched(matched_levels: list[tuple[str, int]]) -> list[str]:
     """`[(label, level), ...]` -> `['Python(STRONG)', ...]`, strongest first."""
     ordered = sorted(matched_levels, key=lambda pair: (-pair[1], pair[0].lower()))
     return [f"{label}({_LEVEL_NAMES.get(level, 'FAMILIAR')})" for label, level in ordered]
 
 
-def render_posting(posting: dict, *, skill_hint: str = "") -> str:
+def render_posting(posting: dict[str, Any], *, skill_hint: str = "") -> str:
     """The volatile half. One posting, delimited as untrusted data."""
     description = (posting.get("description") or "")[:MAX_DESCRIPTION_CHARS]
 
@@ -191,5 +194,5 @@ def render_posting(posting: dict, *, skill_hint: str = "") -> str:
     return f"{rendered}\n{skill_hint}" if skill_hint else rendered
 
 
-def estimate_prompt_chars(posting: dict) -> int:
+def estimate_prompt_chars(posting: dict[str, Any]) -> int:
     return len(render_posting(posting))

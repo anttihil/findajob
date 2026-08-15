@@ -18,18 +18,26 @@ invisible to the keyword layer, which is the honest outcome for a skill the taxo
 never heard of.
 """
 
+from typing import TYPE_CHECKING, Any
+
 from careerradar.core.logger import get_logger
+
+if TYPE_CHECKING:
+    from careerradar.profile.models import Profile, Skill
+    from careerradar.taxonomy.skills import Taxonomy
 
 logger = get_logger()
 
 
-def canonicalize_skills(skills, taxonomy):
+def canonicalize_skills(
+    skills: list["Skill"], taxonomy: "Taxonomy | None"
+) -> tuple[list["Skill"], dict[str, list[Any]]]:
     """Rewrite skill keys to taxonomy keys. Returns (skills, report)."""
     if taxonomy is None:
         return skills, {"mapped": [], "unmatched": [], "merged": []}
 
-    by_key = {}
-    report = {"mapped": [], "unmatched": [], "merged": []}
+    by_key: dict[str, Skill] = {}
+    report: dict[str, list[Any]] = {"mapped": [], "unmatched": [], "merged": []}
 
     for skill in skills:
         # Order matters, and getting it wrong is worse than not canonicalizing at all.
@@ -45,10 +53,7 @@ def canonicalize_skills(skills, taxonomy):
         if skill.key in taxonomy:
             canonical = skill.key
         else:
-            candidates = (
-                taxonomy.canonicalize([skill.label])
-                or taxonomy.canonicalize([skill.key])
-            )
+            candidates = taxonomy.canonicalize([skill.label]) or taxonomy.canonicalize([skill.key])
             canonical = candidates[0] if candidates else None
 
         if canonical and canonical != skill.key:
@@ -65,9 +70,7 @@ def canonicalize_skills(skills, taxonomy):
         # Two surfaces collapsed onto one key ("React" and "React Hooks"). Keep the
         # stronger claim and concatenate the evidence rather than dropping one silently.
         report["merged"].append(skill.key)
-        winner, loser = (
-            (existing, skill) if existing.level >= skill.level else (skill, existing)
-        )
+        winner, loser = (existing, skill) if existing.level >= skill.level else (skill, existing)
         merged_evidence = winner.evidence
         if loser.evidence and loser.evidence not in merged_evidence:
             merged_evidence = f"{merged_evidence} | {loser.evidence}"
@@ -84,12 +87,15 @@ def canonicalize_skills(skills, taxonomy):
     if report["unmatched"]:
         logger.info(
             "Profile: %d skills outside the taxonomy, kept as-is: %s",
-            len(report["unmatched"]), ", ".join(report["unmatched"][:8]),
+            len(report["unmatched"]),
+            ", ".join(report["unmatched"][:8]),
         )
     return ordered, report
 
 
-def canonicalize_profile(profile, taxonomy):
+def canonicalize_profile(
+    profile: "Profile", taxonomy: "Taxonomy | None"
+) -> tuple["Profile", dict[str, list[Any]]]:
     """Return `profile` with its skill keys canonicalized."""
     skills, report = canonicalize_skills(profile.skills, taxonomy)
     return profile.model_copy(update={"skills": skills}), report

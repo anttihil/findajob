@@ -23,6 +23,11 @@ calls -- so the rates are watchable over time for free.
 import difflib
 import re
 import unicodedata
+from typing import Any
+
+from careerradar.profile.adapter import ProfileAdapter
+from careerradar.profile.models import Constraints, FitAssessment, Profile
+from careerradar.taxonomy.skills import Taxonomy
 
 # Below this ratio a quote is not a garbled version of anything in the posting. 0.85
 # accepts the usual damage -- a smart quote, a collapsed line break, a trimmed bullet --
@@ -59,14 +64,14 @@ def normalize(text: str) -> str:
 _WORD = re.compile(r"\S+")
 
 
-def _tokens(text: str):
+def _tokens(text: str) -> list[tuple[str, int, int]]:
     """`[(normalized_word, start, end), ...]` with offsets into the ORIGINAL string.
 
     Matching on words rather than characters is what keeps a repaired span readable. A
     fixed-width character window lands mid-word and returns things like "st hold an active
     TS/SCI clearance\n*", which is worse than the typo it replaced.
     """
-    out = []
+    out: list[tuple[str, int, int]] = []
     for match in _WORD.finditer(text):
         word = normalize(match.group())
         if word:
@@ -74,7 +79,7 @@ def _tokens(text: str):
     return out
 
 
-def locate(quote: str, haystack: str):
+def locate(quote: str, haystack: str) -> tuple[str, str | None]:
     """Find `quote` in `haystack`. Returns `(status, verbatim_span or None)`.
 
     Status is `verified`, `repaired`, `too_short` or `not_found`. A repair returns the span
@@ -97,7 +102,7 @@ def locate(quote: str, haystack: str):
     # Only windows sharing a word with the quote are worth scoring. Sweeping every start
     # position made a 500-verdict pass take minutes: a 6,000-character description is ~900
     # tokens, and three window lengths over all of them is ~2,700 ratio() calls per quote.
-    positions = {}
+    positions: dict[str, list[int]] = {}
     for index, (word, _s, _e) in enumerate(tokens):
         positions.setdefault(word, []).append(index)
 
@@ -109,13 +114,14 @@ def locate(quote: str, haystack: str):
         return "not_found", None
 
     matcher = difflib.SequenceMatcher(a=needle, autojunk=False)
-    best_ratio, best_span = 0.0, None
+    best_ratio: float = 0.0
+    best_span: tuple[int, int] | None = None
     # Let the window breathe by one word either way: the model's paraphrase is usually the
     # same phrase with an article added or a bullet marker dropped.
     lengths = sorted({max(1, len(words) - 1), len(words), len(words) + 1})
     for start in sorted(starts):
         for length in lengths:
-            window = tokens[start:start + length]
+            window = tokens[start : start + length]
             if not window:
                 continue
             candidate = " ".join(word for word, _s, _e in window)
@@ -127,7 +133,7 @@ def locate(quote: str, haystack: str):
                 best_ratio, best_span = ratio, (window[0][1], window[-1][2])
 
     if best_ratio >= FUZZY_THRESHOLD and best_span is not None:
-        return "repaired", haystack[best_span[0]:best_span[1]].strip() or None
+        return "repaired", haystack[best_span[0] : best_span[1]].strip() or None
     return "not_found", None
 
 
@@ -157,8 +163,17 @@ _QUOTED = re.compile(r"['\"«»]([^'\"«»]{6,})['\"«»]")
 # language four to one, and Finnish is the one the candidate actually speaks, so it is the
 # one where a false blocker is possible.
 LANGUAGE_SURFACES = {
-    "finnish": ("finnish", "finska", "finsk", "suomi", "suomen", "suomea", "suomeksi",
-                "finnische", "finnois"),
+    "finnish": (
+        "finnish",
+        "finska",
+        "finsk",
+        "suomi",
+        "suomen",
+        "suomea",
+        "suomeksi",
+        "finnische",
+        "finnois",
+    ),
     "english": ("english", "engelska", "engelsk", "englanti", "englannin", "englisch"),
     "swedish": ("swedish", "svenska", "svensk", "ruotsi", "ruotsin", "schwedisch"),
     "norwegian": ("norwegian", "norsk", "norska", "norja", "norjan"),
@@ -174,13 +189,28 @@ LANGUAGE_SURFACES = {
 # Authorization surfaces, same idea. The candidate is a dual US/Finnish citizen, so a
 # requirement naming only US or EU eligibility asks for nothing they lack.
 AUTHORIZATION_SURFACES = {
-    "united states": ("us citizen", "u.s. citizen", "us citizenship", "u.s. citizenship",
-                      "united states citizen", "authorized to work in the us",
-                      "authorized to work in the united states", "green card",
-                      "permanent resident", "us work authorization"),
-    "european union": ("eu citizen", "eu citizenship", "eu/eea", "eea citizen",
-                       "right to work in the eu", "eu work authorization",
-                       "authorised to work in the eu", "authorized to work in the eu"),
+    "united states": (
+        "us citizen",
+        "u.s. citizen",
+        "us citizenship",
+        "u.s. citizenship",
+        "united states citizen",
+        "authorized to work in the us",
+        "authorized to work in the united states",
+        "green card",
+        "permanent resident",
+        "us work authorization",
+    ),
+    "european union": (
+        "eu citizen",
+        "eu citizenship",
+        "eu/eea",
+        "eea citizen",
+        "right to work in the eu",
+        "eu work authorization",
+        "authorised to work in the eu",
+        "authorized to work in the eu",
+    ),
 }
 
 # A clearance is a separate blocker that a work-authorization requirement often sits next
@@ -208,13 +238,13 @@ _NOT_A_LANGUAGE_REQUIREMENT = re.compile(
 )
 
 
-def quoted_spans(text: str) -> list:
+def quoted_spans(text: str) -> list[str]:
     """The quoted requirement(s) inside a blocker, or the whole thing if none are marked."""
     found = [match.group(1) for match in _QUOTED.finditer(text or "")]
     return found or [text or ""]
 
 
-def _surfaces_in(text: str, table: dict) -> set:
+def _surfaces_in(text: str, table: dict[str, tuple[str, ...]]) -> set[str]:
     hit = set()
     for canonical, surfaces in table.items():
         if any(re.search(rf"\b{re.escape(s)}", text) for s in surfaces):
@@ -222,14 +252,14 @@ def _surfaces_in(text: str, table: dict) -> set:
     return hit
 
 
-def _candidate_languages(constraints) -> set:
+def _candidate_languages(constraints: Constraints) -> set[str]:
     spoken = set()
     for value in getattr(constraints, "languages", None) or []:
         spoken |= _surfaces_in(normalize(value), LANGUAGE_SURFACES)
     return spoken
 
 
-def _candidate_authorizations(constraints) -> set:
+def _candidate_authorizations(constraints: Constraints) -> set[str]:
     held = set()
     for value in getattr(constraints, "work_authorization", None) or []:
         text = normalize(value)
@@ -243,14 +273,41 @@ def _candidate_authorizations(constraints) -> set:
 
 
 _EU_MEMBERS = (
-    "austria", "belgium", "bulgaria", "croatia", "cyprus", "czech", "denmark", "estonia",
-    "finland", "france", "germany", "greece", "hungary", "ireland", "italy", "latvia",
-    "lithuania", "luxembourg", "malta", "netherlands", "poland", "portugal", "romania",
-    "slovakia", "slovenia", "spain", "sweden", "european union", "eu",
+    "austria",
+    "belgium",
+    "bulgaria",
+    "croatia",
+    "cyprus",
+    "czech",
+    "denmark",
+    "estonia",
+    "finland",
+    "france",
+    "germany",
+    "greece",
+    "hungary",
+    "ireland",
+    "italy",
+    "latvia",
+    "lithuania",
+    "luxembourg",
+    "malta",
+    "netherlands",
+    "poland",
+    "portugal",
+    "romania",
+    "slovakia",
+    "slovenia",
+    "spain",
+    "sweden",
+    "european union",
+    "eu",
 )
 
 
-def blocker_contradicts_profile(blocker: str, profile) -> list:
+def blocker_contradicts_profile(
+    blocker: str, profile: "ProfileAdapter | Profile | None"
+) -> list[dict[str, str]]:
     """Requirements in this blocker that the candidate demonstrably already satisfies.
 
     Conservative by construction. Every rule below fires only when the quoted requirement
@@ -263,7 +320,7 @@ def blocker_contradicts_profile(blocker: str, profile) -> list:
 
     spoken = _candidate_languages(constraints)
     held = _candidate_authorizations(constraints)
-    hits = []
+    hits: list[dict[str, str]] = []
 
     for span in quoted_spans(blocker):
         text = normalize(span)
@@ -271,16 +328,29 @@ def blocker_contradicts_profile(blocker: str, profile) -> list:
             continue
 
         demanded = _surfaces_in(text, LANGUAGE_SURFACES)
-        if (demanded and demanded <= spoken and _LANGUAGE_CONTEXT.search(text)
-                and not _NOT_A_LANGUAGE_REQUIREMENT.search(text)):
-            hits.append({"field": "languages", "value": ", ".join(sorted(demanded)),
-                         "quote": span.strip()[:160]})
+        if (
+            demanded
+            and demanded <= spoken
+            and _LANGUAGE_CONTEXT.search(text)
+            and not _NOT_A_LANGUAGE_REQUIREMENT.search(text)
+        ):
+            hits.append(
+                {
+                    "field": "languages",
+                    "value": ", ".join(sorted(demanded)),
+                    "quote": span.strip()[:160],
+                }
+            )
 
         required = _surfaces_in(text, AUTHORIZATION_SURFACES)
         if required and required <= held:
-            hits.append({"field": "work_authorization",
-                         "value": ", ".join(sorted(required)),
-                         "quote": span.strip()[:160]})
+            hits.append(
+                {
+                    "field": "work_authorization",
+                    "value": ", ".join(sorted(required)),
+                    "quote": span.strip()[:160],
+                }
+            )
 
     return hits
 
@@ -308,7 +378,7 @@ _SEPARATOR = re.compile(
 )
 
 
-def _candidate_spans(blocker: str) -> list:
+def _candidate_spans(blocker: str) -> list[str]:
     spans = [span.strip() for span in _QUOTED.findall(blocker)]
     # The whole string stays a candidate even when it does split. Splitting is there to
     # rescue a quote buried in prose; a blocker that is verbatim *across* a sentence
@@ -322,7 +392,7 @@ def _candidate_spans(blocker: str) -> list:
     return sorted({s for s in spans if s}, key=len, reverse=True)
 
 
-def locate_blocker(blocker: str, haystack: str):
+def locate_blocker(blocker: str, haystack: str) -> tuple[str, str | None]:
     """Locate a blocker, which is usually prose wrapped around a quote.
 
     The model writes `Posting requires 'based within commuting distance of our hubs'
@@ -358,7 +428,7 @@ def locate_blocker(blocker: str, haystack: str):
     # Only the genuinely unlocatable reach the fuzzy sweep, and only the longest few: the
     # span that rescues a blocker is the one carrying the requirement, and a quote does not
     # hide in the shortest fragment of its own text.
-    best = ("not_found", None)
+    best: tuple[str, str | None] = ("not_found", None)
     for span in spans[:MAX_FUZZY_SPANS]:
         status, located = locate(span, haystack)
         if status == "verified":
@@ -368,7 +438,13 @@ def locate_blocker(blocker: str, haystack: str):
     return best
 
 
-def audit(assessment, *, posting: dict, profile=None, taxonomy=None):  # noqa: ARG001
+def audit(
+    assessment: FitAssessment,
+    *,
+    posting: dict[str, Any],
+    profile: "ProfileAdapter | Profile | None" = None,
+    taxonomy: Taxonomy | None = None,  # noqa: ARG001
+) -> tuple[FitAssessment, list[dict[str, Any]], str | None]:
     """Check one parsed assessment. Returns `(assessment, flags, fatal_reason)`.
 
     `assessment` is mutated where a quote can be repaired. `fatal_reason` is not None when
@@ -378,14 +454,17 @@ def audit(assessment, *, posting: dict, profile=None, taxonomy=None):  # noqa: A
 
     # The model only ever saw the truncated description, so a quote must be checked against
     # what it was shown, not against the full row.
-    seen = "\n".join([
-        posting.get("title") or "",
-        posting.get("company") or "",
-        posting.get("location") or "",
-        (posting.get("description") or "")[:MAX_DESCRIPTION_CHARS],
-    ])
+    seen = "\n".join(
+        [
+            posting.get("title") or "",
+            posting.get("company") or "",
+            posting.get("location") or "",
+            (posting.get("description") or "")[:MAX_DESCRIPTION_CHARS],
+        ]
+    )
 
-    flags, fatal = [], None
+    flags: list[dict[str, Any]] = []
+    fatal: str | None = None
     decisive = assessment.eligibility != "eligible"
 
     # Only `quote` is checked. `why` is the model's argument for the blocker and is
@@ -394,12 +473,14 @@ def audit(assessment, *, posting: dict, profile=None, taxonomy=None):  # noqa: A
     for blocker in assessment.hard_blockers:
         status, span = locate_blocker(blocker.quote, seen)
         if status == "repaired" and span:
-            flags.append({"flag": "quote_repaired", "where": "hard_blockers",
-                          "text": blocker.quote})
+            flags.append(
+                {"flag": "quote_repaired", "where": "hard_blockers", "text": blocker.quote}
+            )
             blocker.quote = span
         if status in ("not_found", "too_short"):
-            flags.append({"flag": f"quote_{status}", "where": "hard_blockers",
-                          "text": blocker.quote})
+            flags.append(
+                {"flag": f"quote_{status}", "where": "hard_blockers", "text": blocker.quote}
+            )
             if decisive and fatal is None:
                 fatal = (
                     f"hard_blocker quote not found in the posting: "
@@ -409,29 +490,47 @@ def audit(assessment, *, posting: dict, profile=None, taxonomy=None):  # noqa: A
                 )
         if profile is not None:
             for hit in blocker_contradicts_profile(blocker.quote, profile):
-                flags.append({"flag": "blocker_contradicts_profile",
-                              "where": "hard_blockers",
-                              "text": blocker.quote[:200], **hit})
+                flags.append(
+                    {
+                        "flag": "blocker_contradicts_profile",
+                        "where": "hard_blockers",
+                        "text": blocker.quote[:200],
+                        **hit,
+                    }
+                )
 
     for requirement in assessment.core_requirements:
         status, span = locate(requirement.quote, seen)
         if status == "repaired" and span:
             requirement.quote = span
-            flags.append({"flag": "quote_repaired", "where": "core_requirements",
-                          "text": requirement.requirement})
+            flags.append(
+                {
+                    "flag": "quote_repaired",
+                    "where": "core_requirements",
+                    "text": requirement.requirement,
+                }
+            )
         elif status in ("not_found", "too_short"):
-            flags.append({"flag": f"quote_{status}", "where": "core_requirements",
-                          "text": requirement.requirement})
+            flags.append(
+                {
+                    "flag": f"quote_{status}",
+                    "where": "core_requirements",
+                    "text": requirement.requirement,
+                }
+            )
 
-    assessed = {a.requirement.strip().casefold()
-                for a in assessment.requirement_assessments}
+    assessed = {a.requirement.strip().casefold() for a in assessment.requirement_assessments}
     for requirement in assessment.core_requirements:
         if requirement.requirement.strip().casefold() not in assessed:
             # must_have gaps already raise in the schema; these softer ones degrade the
             # explanation rather than the ordinals, so they are only recorded.
-            flags.append({"flag": "assessment_incomplete",
-                          "where": "requirement_assessments",
-                          "text": requirement.requirement})
+            flags.append(
+                {
+                    "flag": "assessment_incomplete",
+                    "where": "requirement_assessments",
+                    "text": requirement.requirement,
+                }
+            )
 
     # There was a `strength_for_unmentioned_skill` check here: a claimed strength naming
     # a skill the posting never mentions. It was removed after measuring it -- it fired
@@ -444,9 +543,9 @@ def audit(assessment, *, posting: dict, profile=None, taxonomy=None):  # noqa: A
     return assessment, flags, fatal
 
 
-def summarize(flag_lists) -> dict:
+def summarize(flag_lists: list[list[dict[str, Any]]]) -> dict[str, int]:
     """Flag counts across many verdicts, for `careerradar score audit`."""
-    counts = {}
+    counts: dict[str, int] = {}
     for flags in flag_lists:
         for flag in flags or []:
             counts[flag["flag"]] = counts.get(flag["flag"], 0) + 1

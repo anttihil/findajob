@@ -11,15 +11,19 @@ between bands is a different decision from one that moves 30, and the number is 
 thing that distinguishes them.
 """
 
+from typing import Any
+
 from careerradar.core.database import Database
 from careerradar.scoring import rubric, scale
 
 
-def rescale(profile_version=None, dry_run=False, db=None):
+def rescale(
+    profile_version: int | None = None, dry_run: bool = False, db: Database | None = None
+) -> int:
     owned = db is None
     db = db or Database()
     try:
-        params = []
+        params: list[Any] = []
         where = "WHERE scale_version >= 1"
         if profile_version is not None:
             where += " AND profile_version = ?"
@@ -37,26 +41,39 @@ def rescale(profile_version=None, dry_run=False, db=None):
             ).fetchone()[0]
             print("No verdicts carry ordinals yet.")
             if skipped:
-                print(f"{skipped:,} verdict(s) are at scale 0 -- the model emitted those "
-                      "numbers directly, so there is nothing to recompute from.")
+                print(
+                    f"{skipped:,} verdict(s) are at scale 0 -- the model emitted those "
+                    "numbers directly, so there is nothing to recompute from."
+                )
                 print("Re-score them with:  careerradar score run")
             return 0
 
-        migration, changed, updates = {}, 0, []
+        migration: dict[tuple[str, str], int] = {}
+        changed = 0
+        updates: list[tuple[int, str, int, int, int, int]] = []
         for row in rows:
             ordinals = {name: row[name] for name in rubric.DIMENSIONS}
             if any(value is None for value in ordinals.values()):
                 continue
             projected = scale.project(ordinals)
-            if (projected["fit_score"] != row["fit_score"]
-                    or projected["scale_version"] != row["scale_version"]):
+            if (
+                projected["fit_score"] != row["fit_score"]
+                or projected["scale_version"] != row["scale_version"]
+            ):
                 changed += 1
             if projected["verdict"] != row["verdict"]:
                 cell = (row["verdict"], projected["verdict"])
                 migration[cell] = migration.get(cell, 0) + 1
-            updates.append((projected["fit_score"], projected["verdict"],
-                            projected["pareto_tier"], projected["scale_version"],
-                            row["job_id"], row["id"]))
+            updates.append(
+                (
+                    projected["fit_score"],
+                    projected["verdict"],
+                    projected["pareto_tier"],
+                    projected["scale_version"],
+                    row["job_id"],
+                    row["id"],
+                )
+            )
 
         print(f"verdicts with ordinals: {len(updates):,}")
         print(f"score changes:          {changed:,}")
@@ -80,9 +97,7 @@ def rescale(profile_version=None, dry_run=False, db=None):
             )
             # `jobs.fit_score` is a denormalized copy for sorting without a join; it has to
             # move with the verdict or the two disagree.
-            db.conn.execute(
-                "UPDATE jobs SET fit_score = ? WHERE id = ?", (fit, job_id)
-            )
+            db.conn.execute("UPDATE jobs SET fit_score = ? WHERE id = ?", (fit, job_id))
         db.conn.commit()
         print(f"\nrewritten at scale v{scale.SCALE_VERSION}")
         return 0

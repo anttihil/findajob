@@ -7,8 +7,10 @@ process.
 """
 
 import json
+import sqlite3
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
+from typing import TYPE_CHECKING, Any
 
 from careerradar.core.config import load_config
 from careerradar.core.database import Database
@@ -20,7 +22,7 @@ from careerradar.core.llm import (
     usage_cost,
 )
 from careerradar.core.logger import get_logger
-from careerradar.profile.adapter import NoActiveProfile, load_profile
+from careerradar.profile.adapter import NoActiveProfile, ProfileAdapter, load_profile
 from careerradar.profile.models import VERDICT_SCHEMA_VERSION
 from careerradar.profile.store import load_active
 from careerradar.scoring.graph import build_graph
@@ -31,7 +33,10 @@ from careerradar.scoring.prompts import (
     render_posting,
     render_skill_hint,
 )
-from careerradar.taxonomy.skills import load_taxonomy
+from careerradar.taxonomy.skills import Taxonomy, load_taxonomy
+
+if TYPE_CHECKING:
+    from careerradar.search.keyword_score import JobScorer
 
 logger = get_logger()
 
@@ -61,7 +66,9 @@ EXPECTED_COMPLETION_TOKENS = 1300
 MAX_SCORING_FAILURES = 3
 
 
-def _build_scorer(adapter, taxonomy, config):
+def _build_scorer(
+    adapter: ProfileAdapter, taxonomy: Taxonomy, config: dict[str, Any]
+) -> "JobScorer | None":
     """The deterministic scorer, used here only to produce the prompt's skill hint.
 
     Its number is not consulted. What the scoring agent gets is the extracted requirement
@@ -72,15 +79,18 @@ def _build_scorer(adapter, taxonomy, config):
     try:
         from careerradar.search.keyword_score import JobScorer
         from careerradar.taxonomy.roles import load_roles
-        return JobScorer(adapter, load_roles(), taxonomy,
-                         weights=(config.get("matching") or {}).get("weights"))
+
+        return JobScorer(
+            adapter, load_roles(), taxonomy, weights=(config.get("matching") or {}).get("weights")
+        )
     except Exception:
-        logger.warning("Deterministic scorer unavailable; scoring without a skill hint",
-                       exc_info=True)
+        logger.warning(
+            "Deterministic scorer unavailable; scoring without a skill hint", exc_info=True
+        )
         return None
 
 
-def _now():
+def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
@@ -110,12 +120,17 @@ _NO_VERDICT = """
 """
 
 
-def _live_clause(include_closed):
-    return "" if include_closed else \
-        "AND COALESCE(l.liveness, 'unknown') != 'likely_closed'"
+def _live_clause(include_closed: bool) -> str:
+    return "" if include_closed else "AND COALESCE(l.liveness, 'unknown') != 'likely_closed'"
 
 
-def _select(db, limit, rescore_all, profile_version, include_closed=False):
+def _select(
+    db: Database,
+    limit: int | None,
+    rescore_all: bool,
+    profile_version: int,
+    include_closed: bool = False,
+) -> list[dict[str, Any]]:
     """Postings needing a verdict under the active profile.
 
     `rescore_all` re-scores everything; the default picks up postings with no verdict for
@@ -130,15 +145,15 @@ def _select(db, limit, rescore_all, profile_version, include_closed=False):
     cells scraped in two windows without saturating, roughly half of postings vanish within
     a week; scoring them spends money to rank dead listings at the top of the dashboard.
     """
-    where = _ELIGIBLE.format(live_clause=_live_clause(include_closed),
-                             max_failures=MAX_SCORING_FAILURES)
+    where = _ELIGIBLE.format(
+        live_clause=_live_clause(include_closed), max_failures=MAX_SCORING_FAILURES
+    )
 
     if rescore_all:
         query = "SELECT j.*" + where + " ORDER BY j.date_found DESC"
-        params = []
+        params: list[Any] = []
     else:
-        query = ("SELECT j.*" + where + _NO_VERDICT +
-                 " ORDER BY j.date_found DESC")
+        query = "SELECT j.*" + where + _NO_VERDICT + " ORDER BY j.date_found DESC"
         params = [profile_version, VERDICT_SCHEMA_VERSION]
 
     if limit:
@@ -147,20 +162,23 @@ def _select(db, limit, rescore_all, profile_version, include_closed=False):
     return [dict(row) for row in db.conn.execute(query, params)]
 
 
-def _pending(db, profile_version, include_closed=False):
+def _pending(db: Database, profile_version: int, include_closed: bool = False) -> int:
     """How many postings a *next* run would actually select.
 
     Always the incremental predicate, even after --rescore-all: "what is left to do" is
     the backlog, not whatever this run chose to redo.
     """
-    sql = ("SELECT COUNT(*)"
-           + _ELIGIBLE.format(live_clause=_live_clause(include_closed),
-                              max_failures=MAX_SCORING_FAILURES)
-           + _NO_VERDICT)
+    sql = (
+        "SELECT COUNT(*)"
+        + _ELIGIBLE.format(
+            live_clause=_live_clause(include_closed), max_failures=MAX_SCORING_FAILURES
+        )
+        + _NO_VERDICT
+    )
     return db.conn.execute(sql, [profile_version, VERDICT_SCHEMA_VERSION]).fetchone()[0]
 
 
-def _ineligible(db):
+def _ineligible(db: Database) -> sqlite3.Row:
     """Postings left in 'new' that no run will ever select, by reason.
 
     Reported rather than hidden, on the same principle as the analytics gates: suppress
@@ -192,7 +210,7 @@ def _ineligible(db):
     """).fetchone()
 
 
-def _record_failure(db, job_id, error):
+def _record_failure(db: Database, job_id: int, error: str | BaseException | None) -> None:
     """Count a failed run against the posting, with the reason that failed it.
 
     Counts RUNS, not attempts: the graph's three tries inside one run are one draw at the
@@ -205,7 +223,7 @@ def _record_failure(db, job_id, error):
     )
 
 
-def _quarantined(db):
+def _quarantined(db: Database) -> list[sqlite3.Row]:
     """Postings withdrawn from the queue after failing MAX_SCORING_FAILURES runs.
 
     Grouped by the error that stopped them, because the useful question is never "which
@@ -222,7 +240,16 @@ def _quarantined(db):
     ).fetchall()
 
 
-def _persist(db, job, verdict, usage, cost, model, profile_version, phash):
+def _persist(
+    db: Database,
+    job: dict[str, Any],
+    verdict: dict[str, Any],
+    usage: dict[str, int] | None,
+    cost: float,
+    model: str,
+    profile_version: int,
+    phash: str,
+) -> None:
     """Write the ordinals AND the projection.
 
     Both, deliberately. The ordinals are the record -- `careerradar score rescale`
@@ -271,23 +298,36 @@ def _persist(db, job, verdict, usage, cost, model, profile_version, phash):
             prompt_hash = excluded.prompt_hash
         """,
         (
-            job["id"], profile_version, model, verdict["fit_score"], verdict["verdict"],
+            job["id"],
+            profile_version,
+            model,
+            verdict["fit_score"],
+            verdict["verdict"],
             # `seniority_fit` is the v1 column name and keeps its meaning; the new value is
             # explicit about whose level it describes.
-            verdict["seniority_gap"], json.dumps(verdict["hard_blockers"]),
-            json.dumps(verdict["key_gaps"]), json.dumps(verdict["strengths"]),
-            verdict["reasoning"], 1 if verdict["research_worthy"] else 0,
+            verdict["seniority_gap"],
+            json.dumps(verdict["hard_blockers"]),
+            json.dumps(verdict["key_gaps"]),
+            json.dumps(verdict["strengths"]),
+            verdict["reasoning"],
+            1 if verdict["research_worthy"] else 0,
             usage["prompt"] if usage else None,
             usage["cache_hit"] if usage else None,
             usage["completion"] if usage else None,
-            cost, _now(),
-            verdict["role_summary"], verdict["eligibility"], verdict["role_match"],
-            verdict["capability_match"], verdict["seniority_gap"],
+            cost,
+            _now(),
+            verdict["role_summary"],
+            verdict["eligibility"],
+            verdict["role_match"],
+            verdict["capability_match"],
+            verdict["seniority_gap"],
             verdict["evidence_quality"],
             json.dumps(verdict["core_requirements"]),
             json.dumps(verdict["requirement_assessments"]),
             json.dumps(verdict.get("audit_flags") or []),
-            verdict["scale_version"], VERDICT_SCHEMA_VERSION, verdict["pareto_tier"],
+            verdict["scale_version"],
+            VERDICT_SCHEMA_VERSION,
+            verdict["pareto_tier"],
             phash,
         ),
     )
@@ -301,7 +341,7 @@ def _persist(db, job, verdict, usage, cost, model, profile_version, phash):
     )
 
 
-def _skill_hint(scorer, job):
+def _skill_hint(scorer: "JobScorer | None", job: dict[str, Any]) -> str:
     """The extractor's read on one posting, rendered for the prompt.
 
     Returns "" when there is nothing to say. An empty hint block would still cost tokens
@@ -315,13 +355,14 @@ def _skill_hint(scorer, job):
     except Exception:  # a scorer failure must not cost the posting its verdict
         logger.debug("Skill hint unavailable for job %s", job.get("id"), exc_info=True)
         return ""
-    matched = [(scorer.taxonomy.label(key), scorer.profile.level(key))
-               for key in result["matched_skills"]]
+    matched = [
+        (scorer.taxonomy.label(key), scorer.profile.level(key)) for key in result["matched_skills"]
+    ]
     missing = [scorer.taxonomy.label(key) for key in result["missing_skills"]]
     return render_skill_hint(matched=format_matched(matched), missing=missing)
 
 
-def run_retry(job_id=None):
+def run_retry(job_id: int | None = None) -> int:
     """Clear the failure counter so quarantined postings are offered again.
 
     The counter records that the last MAX_SCORING_FAILURES runs failed, which is evidence
@@ -333,21 +374,25 @@ def run_retry(job_id=None):
     try:
         if job_id is not None:
             cursor = db.conn.execute(
-                "UPDATE jobs SET scoring_failures = 0, last_scoring_error = NULL "
-                "WHERE id = ?", (job_id,))
+                "UPDATE jobs SET scoring_failures = 0, last_scoring_error = NULL WHERE id = ?",
+                (job_id,),
+            )
         else:
             cursor = db.conn.execute(
                 "UPDATE jobs SET scoring_failures = 0, last_scoring_error = NULL "
-                "WHERE COALESCE(scoring_failures, 0) > 0")
+                "WHERE COALESCE(scoring_failures, 0) > 0"
+            )
         db.conn.commit()
-        print(f"cleared the failure counter on {cursor.rowcount:,} posting(s); "
-              f"the next `score run` will offer them again.")
+        print(
+            f"cleared the failure counter on {cursor.rowcount:,} posting(s); "
+            f"the next `score run` will offer them again."
+        )
         return 0
     finally:
         db.close()
 
 
-def run_scoring(limit=None, rescore_all=False, dry_run=False):
+def run_scoring(limit: int | None = None, rescore_all: bool = False, dry_run: bool = False) -> int:
     config = load_config()
     scoring_config = config.get("scoring") or {}
     model = scoring_config.get("model", DEFAULT_SCORING_MODEL)
@@ -365,6 +410,9 @@ def run_scoring(limit=None, rescore_all=False, dry_run=False):
         jobs = _select(db, limit, rescore_all, profile_version)
         taxonomy = load_taxonomy()
         adapter = load_profile(db=db, taxonomy=taxonomy)
+        # `required=True` (the default) means load_profile never actually returns None --
+        # it raises NoActiveProfile instead. The signature just doesn't say so yet.
+        assert adapter is not None
         scorer = _build_scorer(adapter, taxonomy, config)
         if not jobs:
             print("Nothing to score. The backlog is drained.")
@@ -375,8 +423,7 @@ def run_scoring(limit=None, rescore_all=False, dry_run=False):
         system_tokens = int(len(system) / CHARS_PER_TOKEN)
         hints = {job["id"]: _skill_hint(scorer, job) for job in jobs}
         posting_tokens = sum(
-            int(len(render_posting(j, skill_hint=hints[j["id"]])) / CHARS_PER_TOKEN)
-            for j in jobs
+            int(len(render_posting(j, skill_hint=hints[j["id"]])) / CHARS_PER_TOKEN) for j in jobs
         )
 
         # The system half is paid uncached exactly once, then read from cache. Modelling
@@ -384,10 +431,15 @@ def run_scoring(limit=None, rescore_all=False, dry_run=False):
         # ceiling useless.
         estimate = (
             estimate_cost(model, system_tokens, 0)
-            + estimate_cost(model, posting_tokens, EXPECTED_COMPLETION_TOKENS * len(jobs),
-                            cached_tokens=0)
-            + estimate_cost(model, system_tokens * (len(jobs) - 1), 0,
-                            cached_tokens=system_tokens * (len(jobs) - 1))
+            + estimate_cost(
+                model, posting_tokens, EXPECTED_COMPLETION_TOKENS * len(jobs), cached_tokens=0
+            )
+            + estimate_cost(
+                model,
+                system_tokens * (len(jobs) - 1),
+                0,
+                cached_tokens=system_tokens * (len(jobs) - 1),
+            )
         )
 
         print(f"profile v{profile_version} · model {model}")
@@ -399,8 +451,9 @@ def run_scoring(limit=None, rescore_all=False, dry_run=False):
             # Abort rather than trim. Trimming produces a partial pass that looks complete,
             # and every coverage number downstream silently inherits the shortfall.
             print()
-            print(f"ABORT: estimate ${estimate:.2f} exceeds scoring.max_usd_per_run "
-                  f"${max_usd:.2f}.")
+            print(
+                f"ABORT: estimate ${estimate:.2f} exceeds scoring.max_usd_per_run ${max_usd:.2f}."
+            )
             print("Raise the ceiling in config.yaml, or scope the run with --limit.")
             return 1
 
@@ -414,12 +467,17 @@ def run_scoring(limit=None, rescore_all=False, dry_run=False):
         first_usage = []
         flagged = {}
 
-        def score_one(job):
-            return job, graph.invoke({
-                "system": system, "posting": job, "model": model,
-                "skill_hint": hints.get(job["id"], ""),
-                "profile": adapter, "taxonomy": taxonomy,
-            })
+        def score_one(job: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
+            return job, graph.invoke(
+                {
+                    "system": system,
+                    "posting": job,
+                    "model": model,
+                    "skill_hint": hints.get(job["id"], ""),
+                    "profile": adapter,
+                    "taxonomy": taxonomy,
+                }
+            )
 
         with ThreadPoolExecutor(max_workers=concurrency) as pool:
             for job, state in pool.map(score_one, jobs):
@@ -428,8 +486,12 @@ def run_scoring(limit=None, rescore_all=False, dry_run=False):
                 if verdict is None:
                     results["failed"] += 1
                     _record_failure(db, job["id"], state.get("error"))
-                    logger.warning("No verdict for job %s (%s): %s",
-                                   job["id"], job["title"], state.get("error"))
+                    logger.warning(
+                        "No verdict for job %s (%s): %s",
+                        job["id"],
+                        job["title"],
+                        state.get("error"),
+                    )
                     continue
 
                 cost = usage_cost(model, usage) if usage else 0.0
@@ -449,8 +511,7 @@ def run_scoring(limit=None, rescore_all=False, dry_run=False):
 
                 if results["scored"] % 25 == 0:
                     db.conn.commit()
-                    print(f"  {results['scored']:,}/{len(jobs):,} scored  "
-                          f"${spend.usd:.4f}")
+                    print(f"  {results['scored']:,}/{len(jobs):,} scored  ${spend.usd:.4f}")
 
                 if spend.exhausted():
                     print(f"\nStopping: spent ${spend.usd:.2f}, ceiling is ${max_usd:.2f}.")
@@ -464,10 +525,12 @@ def run_scoring(limit=None, rescore_all=False, dry_run=False):
         if results["failed"]:
             print(f"failed:     {results['failed']:,}  (left as 'new'; the next run retries)")
         print(f"cost:       ${summary_stats['usd']:.4f}")
-        print(f"tokens:     {summary_stats['tokens_in']:,} in "
-              f"({summary_stats['tokens_cached']:,} cached, "
-              f"{summary_stats['cache_rate']:.0%}) / "
-              f"{summary_stats['tokens_out']:,} out")
+        print(
+            f"tokens:     {summary_stats['tokens_in']:,} in "
+            f"({summary_stats['tokens_cached']:,} cached, "
+            f"{summary_stats['cache_rate']:.0%}) / "
+            f"{summary_stats['tokens_out']:,} out"
+        )
 
         # The regression check from docs/deepseek.md. A zero cache rate across a
         # multi-posting run means something per-posting leaked into the system half, and
@@ -476,30 +539,38 @@ def run_scoring(limit=None, rescore_all=False, dry_run=False):
             logger.warning(
                 "Prefix cache hit rate is %.0f%% across %d calls. Something per-posting "
                 "is leaking into the system prompt -- see docs/deepseek.md.",
-                summary_stats["cache_rate"] * 100, summary_stats["calls"],
+                summary_stats["cache_rate"] * 100,
+                summary_stats["calls"],
             )
 
         if flagged:
             print()
             print("audit flags (see `careerradar score audit` for detail)")
             for name, count in sorted(flagged.items(), key=lambda kv: -kv[1]):
-                marker = "  <-- a blocker the candidate does not actually have" \
-                    if name == "blocker_contradicts_profile" else ""
+                marker = (
+                    "  <-- a blocker the candidate does not actually have"
+                    if name == "blocker_contradicts_profile"
+                    else ""
+                )
                 print(f"  {name:<32} {count:>6}{marker}")
 
         print(f"remaining:  {_pending(db, profile_version):,} unscored")
         skipped = _ineligible(db)
         if skipped["total"]:
-            print(f"excluded:   {skipped['total']:,} never scoreable  "
-                  f"({skipped['duplicate']:,} duplicate, "
-                  f"{skipped['thin']:,} no description, "
-                  f"{skipped['closed']:,} closed)")
+            print(
+                f"excluded:   {skipped['total']:,} never scoreable  "
+                f"({skipped['duplicate']:,} duplicate, "
+                f"{skipped['thin']:,} no description, "
+                f"{skipped['closed']:,} closed)"
+            )
 
         stuck = _quarantined(db)
         if stuck:
             total = sum(row["total"] for row in stuck)
-            print(f"quarantined: {total:,} withdrawn after {MAX_SCORING_FAILURES} failed "
-                  f"runs  (`careerradar score retry` to re-offer)")
+            print(
+                f"quarantined: {total:,} withdrawn after {MAX_SCORING_FAILURES} failed "
+                f"runs  (`careerradar score retry` to re-offer)"
+            )
             for row in stuck:
                 print(f"  {row['total']:>4}x  job {row['example']}: {row['reason']}")
         return 0

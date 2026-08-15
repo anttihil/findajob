@@ -10,6 +10,7 @@ import logging
 import os
 import sys
 import unittest
+from typing import Any
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -38,35 +39,35 @@ BAD_PROXY_MESSAGE = "LinkedIn: Bad proxy"
 
 
 class CaptureTests(unittest.TestCase):
-    def setUp(self):
+    def setUp(self) -> None:
         self.board = logging.getLogger(JOBSPY_LOGGERS["linkedin"])
 
-    def test_error_records_are_collected(self):
+    def test_error_records_are_collected(self) -> None:
         with capture_scraper_errors("linkedin") as reported:
             self.board.error(TIMEOUT_MESSAGE)
         self.assertEqual(len(reported.messages), 1)
         self.assertIn("Read timed out", reported.messages[0])
 
-    def test_info_and_warning_are_ignored(self):
+    def test_info_and_warning_are_ignored(self) -> None:
         """Only failures. JobSpy logs 'finished scraping' at INFO on every single run."""
         with capture_scraper_errors("linkedin") as reported:
             self.board.info("finished scraping")
             self.board.warning("something mildly interesting")
         self.assertEqual(reported.messages, [])
 
-    def test_handler_is_removed_afterwards(self):
+    def test_handler_is_removed_afterwards(self) -> None:
         before = len(self.board.handlers)
         with capture_scraper_errors("linkedin"):
             self.assertEqual(len(self.board.handlers), before + 1)
         self.assertEqual(len(self.board.handlers), before)
 
-    def test_handler_is_removed_even_when_the_scrape_raises(self):
+    def test_handler_is_removed_even_when_the_scrape_raises(self) -> None:
         before = len(self.board.handlers)
         with self.assertRaises(ValueError), capture_scraper_errors("linkedin"):
             raise ValueError("scrape blew up")
         self.assertEqual(len(self.board.handlers), before)
 
-    def test_records_do_not_leak_between_captures(self):
+    def test_records_do_not_leak_between_captures(self) -> None:
         with capture_scraper_errors("linkedin") as first:
             self.board.error(TIMEOUT_MESSAGE)
         with capture_scraper_errors("linkedin") as second:
@@ -74,21 +75,21 @@ class CaptureTests(unittest.TestCase):
         self.assertEqual(len(first.messages), 1)
         self.assertEqual(second.messages, [])
 
-    def test_unknown_source_is_inert_rather_than_fatal(self):
+    def test_unknown_source_is_inert_rather_than_fatal(self) -> None:
         with capture_scraper_errors("glassdoor") as reported:
             self.assertEqual(reported.messages, [])
 
-    def test_none_source_is_inert(self):
+    def test_none_source_is_inert(self) -> None:
         with capture_scraper_errors(None) as reported:
             self.assertEqual(reported.messages, [])
 
-    def test_indeed_logger_is_watched_too(self):
+    def test_indeed_logger_is_watched_too(self) -> None:
         indeed = logging.getLogger(JOBSPY_LOGGERS["indeed"])
         with capture_scraper_errors("indeed") as reported:
             indeed.error("Indeed: something went wrong")
         self.assertEqual(len(reported.messages), 1)
 
-    def test_capture_is_scoped_to_the_requested_board(self):
+    def test_capture_is_scoped_to_the_requested_board(self) -> None:
         indeed = logging.getLogger(JOBSPY_LOGGERS["indeed"])
         with capture_scraper_errors("linkedin") as reported:
             indeed.error("Indeed: unrelated failure")
@@ -98,40 +99,38 @@ class CaptureTests(unittest.TestCase):
 class ClassificationTests(unittest.TestCase):
     """The captured wording must survive into the right circuit-breaker decision."""
 
-    def _classify(self, board_message, rows=0):
+    def _classify(self, board_message: str, rows: int = 0) -> str:
         exc = ScraperReportedError(
             f"linkedin reported 1 error(s) after {rows} row(s): {board_message}",
             board_messages=[board_message],
         )
         return classify_error(exc)
 
-    def test_timeout_is_retryable(self):
+    def test_timeout_is_retryable(self) -> None:
         self.assertEqual(self._classify(TIMEOUT_MESSAGE, rows=25), ERROR_TRANSIENT)
 
-    def test_rate_limit_beats_the_word_blocked(self):
+    def test_rate_limit_beats_the_word_blocked(self) -> None:
         """The 429 text also contains 'Blocked'; it must not classify as a block."""
         self.assertEqual(self._classify(RATE_LIMIT_MESSAGE), ERROR_RATE_LIMIT)
 
-    def test_forbidden_is_blocked(self):
+    def test_forbidden_is_blocked(self) -> None:
         self.assertEqual(
             self._classify("LinkedIn response status code 403 - Forbidden"),
             ERROR_BLOCKED,
         )
 
-    def test_bad_proxy_is_retryable(self):
+    def test_bad_proxy_is_retryable(self) -> None:
         """Pinning means the retry uses a different exit IP, so this is worth retrying."""
         self.assertEqual(self._classify(BAD_PROXY_MESSAGE), ERROR_TRANSIENT)
 
-    def test_server_error_is_retryable(self):
-        self.assertEqual(
-            self._classify("LinkedIn response status code 503"), ERROR_TRANSIENT
-        )
+    def test_server_error_is_retryable(self) -> None:
+        self.assertEqual(self._classify("LinkedIn response status code 503"), ERROR_TRANSIENT)
 
-    def test_unrecognised_wording_stays_fatal(self):
+    def test_unrecognised_wording_stays_fatal(self) -> None:
         """Unknown failures must not be quietly retried against a board."""
         self.assertEqual(self._classify("something entirely unexpected"), ERROR_FATAL)
 
-    def test_wrapper_text_does_not_itself_trigger_a_marker(self):
+    def test_wrapper_text_does_not_itself_trigger_a_marker(self) -> None:
         """Our own row/error counts must not be able to trip the source.
 
         Caught a real defect: classification read the whole formatted message, so
@@ -144,7 +143,7 @@ class ClassificationTests(unittest.TestCase):
         )
         self.assertEqual(classify_error(exc), ERROR_FATAL)
 
-    def test_classification_ignores_the_wrapper_entirely(self):
+    def test_classification_ignores_the_wrapper_entirely(self) -> None:
         """A board timeout stays transient however alarming the surrounding prose is."""
         exc = ScraperReportedError(
             "linkedin reported 403 error(s) after 429 row(s): read timed out",
@@ -152,12 +151,10 @@ class ClassificationTests(unittest.TestCase):
         )
         self.assertEqual(classify_error(exc), ERROR_TRANSIENT)
 
-    def test_plain_exceptions_still_classify_on_their_text(self):
+    def test_plain_exceptions_still_classify_on_their_text(self) -> None:
         """No classify_text attribute: fall back to the exception's own message."""
         self.assertEqual(classify_error(TimeoutError("read timed out")), ERROR_TRANSIENT)
-        self.assertEqual(
-            classify_error(RuntimeError("429 too many requests")), ERROR_RATE_LIMIT
-        )
+        self.assertEqual(classify_error(RuntimeError("429 too many requests")), ERROR_RATE_LIMIT)
 
 
 if __name__ == "__main__":
@@ -171,7 +168,7 @@ class FetchWiringTests(unittest.TestCase):
     suite runnable without pandas/numpy/tls-client as the module docstring intends.
     """
 
-    def setUp(self):
+    def setUp(self) -> None:
         import careerradar.search.sources.jobspy_source as module
 
         self.module = module
@@ -182,18 +179,24 @@ class FetchWiringTests(unittest.TestCase):
         module.frame_to_rows = lambda frame: list(frame or [])
         self.addCleanup(setattr, module, "frame_to_rows", self._real_frame_to_rows)
 
-    def _task(self):
+    def _task(self) -> dict[str, Any]:
         return {
-            "source": "linkedin", "query": "AI Engineer", "country": "US",
-            "indeed_country": "usa", "location_label": "Los Angeles, CA",
-            "results_wanted": 50, "is_remote": False, "distance": 50,
-            "hours_old": 336, "fetch_description": True,
+            "source": "linkedin",
+            "query": "AI Engineer",
+            "country": "US",
+            "indeed_country": "usa",
+            "location_label": "Los Angeles, CA",
+            "results_wanted": 50,
+            "is_remote": False,
+            "distance": 50,
+            "hours_old": 336,
+            "fetch_description": True,
         }
 
-    def test_logged_failure_becomes_an_exception(self):
-        def fake_scrape(**kwargs):
+    def test_logged_failure_becomes_an_exception(self) -> None:
+        def fake_scrape(**kwargs: Any) -> list[dict[str, Any]]:
             self.board.error(TIMEOUT_MESSAGE)
-            return [{"title": "partial row"}]        # what JobSpy actually returns
+            return [{"title": "partial row"}]  # what JobSpy actually returns
 
         self.source._scrape = fake_scrape
         with self.assertRaises(ScraperReportedError) as caught:
@@ -203,9 +206,10 @@ class FetchWiringTests(unittest.TestCase):
         self.assertEqual(classify_error(caught.exception), ERROR_TRANSIENT)
         self.assertIn("Read timed out", caught.exception.classify_text)
 
-    def test_partial_row_count_is_reported(self):
+    def test_partial_row_count_is_reported(self) -> None:
         """The operator needs to see it was truncated, not merely that it failed."""
-        def fake_scrape(**kwargs):
+
+        def fake_scrape(**kwargs: Any) -> list[dict[str, Any]]:
             self.board.error(TIMEOUT_MESSAGE)
             return [{"title": "a"}, {"title": "b"}]
 
@@ -214,15 +218,15 @@ class FetchWiringTests(unittest.TestCase):
             self.source.fetch_for_task(self._task())
         self.assertIn("after 2 row(s)", str(caught.exception))
 
-    def test_clean_scrape_still_returns_rows(self):
-        def fake_scrape(**kwargs):
+    def test_clean_scrape_still_returns_rows(self) -> None:
+        def fake_scrape(**kwargs: Any) -> list[dict[str, Any]]:
             self.board.info("finished scraping")
             return [{"title": "a"}]
 
         self.source._scrape = fake_scrape
         self.assertEqual(self.source.fetch_for_task(self._task()), [{"title": "a"}])
 
-    def test_payload_is_archived_before_raising(self):
+    def test_payload_is_archived_before_raising(self) -> None:
         """A truncated payload is exactly the one worth replaying."""
         import tempfile
 
@@ -230,7 +234,7 @@ class FetchWiringTests(unittest.TestCase):
         self.addCleanup(__import__("shutil").rmtree, archive, True)
         source = self.module.JobSpySource(archive_dir=archive)
 
-        def fake_scrape(**kwargs):
+        def fake_scrape(**kwargs: Any) -> list[dict[str, Any]]:
             self.board.error(TIMEOUT_MESSAGE)
             return [{"title": "partial"}]
 

@@ -19,7 +19,7 @@ logger.setLevel(logging.DEBUG)
 # Create handlers
 c_handler = logging.StreamHandler()
 f_handler = RotatingFileHandler(
-    LOG_FILE, maxBytes=MAX_BYTES, backupCount=BACKUP_COUNT, encoding='utf-8'
+    LOG_FILE, maxBytes=MAX_BYTES, backupCount=BACKUP_COUNT, encoding="utf-8"
 )
 
 c_handler.setLevel(logging.INFO)
@@ -27,8 +27,8 @@ f_handler.setLevel(logging.DEBUG)
 
 # Create formatters and add them to handlers
 log_format = logging.Formatter(
-    '[%(asctime)s] [%(levelname)s] [%(filename)s:%(lineno)d]: %(message)s',
-    datefmt='%Y-%m-%d %H:%M:%S'
+    "[%(asctime)s] [%(levelname)s] [%(filename)s:%(lineno)d]: %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
 )
 c_handler.setFormatter(log_format)
 f_handler.setFormatter(log_format)
@@ -37,6 +37,7 @@ f_handler.setFormatter(log_format)
 if not logger.handlers:
     logger.addHandler(c_handler)
     logger.addHandler(f_handler)
+
 
 def get_logger():
     return logger

@@ -15,6 +15,7 @@ lifting it is a separate decision from correcting the comment that used to justi
 """
 
 import os
+from typing import Any
 
 from careerradar.core.logger import get_logger
 
@@ -23,7 +24,7 @@ logger = get_logger()
 ENV_VAR = "SCRAPER_PROXIES"
 
 
-def load_proxies(config=None):
+def load_proxies(config: dict[str, Any] | None = None) -> list[str]:
     """Proxy list from the environment, or [] when unset or disabled.
 
     Accepts a single endpoint or a comma-separated list. JobSpy wants
@@ -47,7 +48,7 @@ def load_proxies(config=None):
     return proxies
 
 
-def pin_for(proxies, key, attempt=0):
+def pin_for(proxies: list[str], key: int | str, attempt: int = 0) -> list[str]:
     """Pick ONE endpoint from the pool, as a single-element list.
 
     JobSpy reassigns `session.proxies` from its cycle on every request (util.py), so handing
@@ -70,12 +71,12 @@ def pin_for(proxies, key, attempt=0):
     return [proxies[(int(key) + int(attempt)) % len(proxies)]]
 
 
-def is_rotating(config=None):
+def is_rotating(config: dict[str, Any] | None = None) -> bool:
     settings = ((config or {}).get("scraper", {}) or {}).get("proxies") or {}
     return bool(settings.get("rotating", True))
 
 
-def apply_proxy_budgets(scraper_config, proxies):
+def apply_proxy_budgets(scraper_config: dict[str, Any], proxies: list[str]) -> dict[str, Any]:
     """Return a scraper config with the with-proxies budget overrides applied.
 
     Returns the input unchanged when no proxies are available, so the conservative
@@ -89,8 +90,7 @@ def apply_proxy_budgets(scraper_config, proxies):
         return scraper_config
 
     merged = dict(scraper_config)
-    budgets = {name: dict(values) for name, values in
-               (scraper_config.get("budgets") or {}).items()}
+    budgets = {name: dict(values) for name, values in (scraper_config.get("budgets") or {}).items()}
     for source, changes in overrides.items():
         budgets.setdefault(source, {}).update(changes)
         logger.info(f"Proxy budgets applied to {source}: {changes}")
@@ -98,7 +98,7 @@ def apply_proxy_budgets(scraper_config, proxies):
     return merged
 
 
-def redact(proxy):
+def redact(proxy: str | None) -> str | None:
     """Hide credentials before a proxy string reaches a log line."""
     if not proxy or "@" not in proxy:
         return proxy

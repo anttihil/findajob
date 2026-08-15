@@ -7,7 +7,7 @@ versioned -- not recomputed per request like the regex profile it replaces.
 """
 
 import json
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -27,7 +27,8 @@ class Skill(BaseModel):
     key: str = Field(description="snake_case canonical key, e.g. 'kubernetes'")
     label: str = Field(description="Human-readable name, e.g. 'Kubernetes'")
     level: int = Field(
-        ge=0, le=3,
+        ge=0,
+        le=3,
         description=(
             "3 = built and shipped substantial work with it; "
             "2 = used it in real work; "
@@ -38,9 +39,7 @@ class Skill(BaseModel):
     evidence: str = Field(
         description="What in the documents or interview justifies this level. Be concrete."
     )
-    recency: str | None = Field(
-        default=None, description="When it was last used, if determinable."
-    )
+    recency: str | None = Field(default=None, description="When it was last used, if determinable.")
 
 
 class Constraints(BaseModel):
@@ -80,9 +79,7 @@ class Profile(BaseModel):
         )
     )
     years_experience: float | None = None
-    seniority: str | None = Field(
-        default=None, description="junior / mid / senior / staff / lead"
-    )
+    seniority: str | None = Field(default=None, description="junior / mid / senior / staff / lead")
     skills: list[Skill] = Field(default_factory=list)
     strengths: list[str] = Field(
         default_factory=list,
@@ -156,13 +153,11 @@ class FitVerdict(BaseModel):
         default_factory=list, description="Where this candidate is a strong answer to the posting."
     )
     reasoning: str = Field(description="Two or three sentences. Blunt and specific.")
-    research_worthy: bool = Field(
-        description="Whether the company is worth a deep-research pass."
-    )
+    research_worthy: bool = Field(description="Whether the company is worth a deep-research pass.")
 
     @field_validator("hard_blockers", "key_gaps", "strengths", mode="before")
     @classmethod
-    def _accept_a_json_encoded_list(cls, value):
+    def _accept_a_json_encoded_list(cls, value: Any) -> Any:
         """Take a list field the model filled with the *text* of a list.
 
         V4 does this intermittently -- `'["a", "b"]'` as a string where a list was
@@ -191,9 +186,7 @@ class FitVerdict(BaseModel):
 # `--rescore-all` that starts over on every interruption.
 VERDICT_SCHEMA_VERSION = 2
 
-_ANCHORED = "  ".join(
-    f"{value}: {text}" for value, text in rubric.IMPORTANCE_ANCHORS.items()
-)
+_ANCHORED = "  ".join(f"{value}: {text}" for value, text in rubric.IMPORTANCE_ANCHORS.items())
 
 
 class CoreRequirement(BaseModel):
@@ -205,12 +198,8 @@ class CoreRequirement(BaseModel):
     """
 
     requirement: str = Field(description="The requirement, in your own words, one line.")
-    quote: str = Field(
-        description="The phrase from the posting that states it, copied verbatim."
-    )
-    importance: Literal["must_have", "important", "nice_to_have"] = Field(
-        description=_ANCHORED
-    )
+    quote: str = Field(description="The phrase from the posting that states it, copied verbatim.")
+    importance: Literal["must_have", "important", "nice_to_have"] = Field(description=_ANCHORED)
 
 
 class RequirementAssessment(BaseModel):
@@ -301,12 +290,12 @@ class FitAssessment(BaseModel):
     eligibility: Literal["eligible", "conditional", "blocked"] = Field(
         description=rubric.render_scale("eligibility")
     )
-    role_match: Literal[
-        "same_role", "adjacent", "different_domain", "different_field"
-    ] = Field(description=rubric.render_scale("role_match"))
-    capability_match: Literal[
-        "exceeds", "meets", "most_with_gaps", "major_gaps", "not_close"
-    ] = Field(description=rubric.render_scale("capability_match"))
+    role_match: Literal["same_role", "adjacent", "different_domain", "different_field"] = Field(
+        description=rubric.render_scale("role_match")
+    )
+    capability_match: Literal["exceeds", "meets", "most_with_gaps", "major_gaps", "not_close"] = (
+        Field(description=rubric.render_scale("capability_match"))
+    )
     seniority_gap: Literal["matched", "candidate_above", "candidate_below"] = Field(
         description=rubric.render_scale("seniority_gap")
     )
@@ -329,17 +318,15 @@ class FitAssessment(BaseModel):
         description="Where this candidate is a strong answer to the posting.",
     )
     reasoning: str = Field(description="Two or three sentences. Blunt and specific.")
-    research_worthy: bool = Field(
-        description="Whether the company is worth a deep-research pass."
-    )
+    research_worthy: bool = Field(description="Whether the company is worth a deep-research pass.")
 
-    _accept_a_json_encoded_list = field_validator(
-        "key_gaps", "strengths", mode="before"
-    )(FitVerdict._accept_a_json_encoded_list.__func__)
+    _accept_a_json_encoded_list = field_validator("key_gaps", "strengths", mode="before")(
+        FitVerdict._accept_a_json_encoded_list.__func__
+    )
 
     @field_validator("hard_blockers", mode="before")
     @classmethod
-    def _accept_a_blocker_written_as_a_string(cls, value):
+    def _accept_a_blocker_written_as_a_string(cls, value: Any) -> Any:
         """Take the old flat shape and the JSON-encoded-list shape both.
 
         Two callers need this. The model still occasionally emits a bare string where the
@@ -354,8 +341,7 @@ class FitAssessment(BaseModel):
         value = FitVerdict._accept_a_json_encoded_list.__func__(cls, value)
         if not isinstance(value, list):
             return value
-        return [{"quote": item, "why": ""} if isinstance(item, str) else item
-                for item in value]
+        return [{"quote": item, "why": ""} if isinstance(item, str) else item for item in value]
 
     @model_validator(mode="after")
     def _repair_and_check(self):
@@ -384,11 +370,12 @@ class FitAssessment(BaseModel):
                 "actionable."
             )
 
-        assessed = {a.requirement.strip().casefold()
-                    for a in self.requirement_assessments}
-        unassessed_must = [r.requirement for r in self.core_requirements
-                           if r.importance == "must_have"
-                           and r.requirement.strip().casefold() not in assessed]
+        assessed = {a.requirement.strip().casefold() for a in self.requirement_assessments}
+        unassessed_must = [
+            r.requirement
+            for r in self.core_requirements
+            if r.importance == "must_have" and r.requirement.strip().casefold() not in assessed
+        ]
         if unassessed_must:
             raise ValueError(
                 "every must_have needs a requirement_assessment; missing: "
@@ -396,10 +383,16 @@ class FitAssessment(BaseModel):
             )
 
         if self.capability_match == "exceeds":
-            unmet = {a.requirement.strip().casefold()
-                     for a in self.requirement_assessments if a.status == "unmet"}
-            must = {r.requirement.strip().casefold() for r in self.core_requirements
-                    if r.importance == "must_have"}
+            unmet = {
+                a.requirement.strip().casefold()
+                for a in self.requirement_assessments
+                if a.status == "unmet"
+            }
+            must = {
+                r.requirement.strip().casefold()
+                for r in self.core_requirements
+                if r.importance == "must_have"
+            }
             if unmet & must:
                 raise ValueError(
                     "capability_match is 'exceeds' while a must_have is unmet -- these "
@@ -412,5 +405,5 @@ class FitAssessment(BaseModel):
 
         return self
 
-    def ordinals(self) -> dict:
+    def ordinals(self) -> dict[str, Any]:
         return {name: getattr(self, name) for name in rubric.DIMENSIONS}

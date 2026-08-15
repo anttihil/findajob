@@ -24,6 +24,8 @@ The tuple space is 4 x 5 x 3 = 60, so both views are precomputed lookup tables b
 at import. Ranking a corpus is a dict hit per row, never a pairwise sweep.
 """
 
+from typing import Any
+
 from careerradar.scoring import rubric
 
 # Bumped when any table below changes. Stored on each verdict row so a corpus scored under
@@ -37,8 +39,10 @@ SCALE_VERSION = 1
 # tentatively-judged good one.
 PARETO_DIMENSIONS = ("role_match", "capability_match", "seniority_gap")
 
-_RANKS = {name: {value: i for i, value in enumerate(rubric.ANCHORS[name][0])}
-          for name in rubric.DIMENSIONS}
+_RANKS = {
+    name: {value: i for i, value in enumerate(rubric.ANCHORS[name][0])}
+    for name in rubric.DIMENSIONS
+}
 
 
 def eligibility_rank(eligibility: str) -> int:
@@ -52,7 +56,7 @@ def eligibility_rank(eligibility: str) -> int:
     return _RANKS["eligibility"][eligibility]
 
 
-def _dominates(a: tuple, b: tuple) -> bool:
+def _dominates(a: tuple[int, ...], b: tuple[int, ...]) -> bool:
     """`a` is at least as good as `b` everywhere and strictly better somewhere.
 
     Coordinates are rank indices, so LOWER is better.
@@ -60,7 +64,7 @@ def _dominates(a: tuple, b: tuple) -> bool:
     return all(x <= y for x, y in zip(a, b, strict=True)) and a != b
 
 
-def _build_tiers() -> dict:
+def _build_tiers() -> dict[tuple[int, int, int], int]:
     """Peel Pareto layers off the 60-point grid.
 
     Layer 1 is the non-dominated front, layer 2 the front of what remains, and so on. The
@@ -72,10 +76,10 @@ def _build_tiers() -> dict:
         for c in range(len(rubric.CAPABILITY_MATCH))
         for s in range(len(rubric.SENIORITY_GAP))
     }
-    tiers, tier = {}, 1
+    tiers: dict[tuple[int, int, int], int] = {}
+    tier = 1
     while remaining:
-        front = {p for p in remaining
-                 if not any(_dominates(q, p) for q in remaining if q != p)}
+        front = {p for p in remaining if not any(_dominates(q, p) for q in remaining if q != p)}
         # A finite strict partial order always has maximal elements, so `front` cannot be
         # empty. Assert rather than risk an infinite loop if a future edit breaks that.
         assert front, "empty Pareto front -- dominance is no longer a strict partial order"
@@ -92,21 +96,29 @@ MAX_TIER = max(_TIERS.values())
 
 def pareto_tier(*, role_match: str, capability_match: str, seniority_gap: str) -> int:
     """1 (best) .. MAX_TIER. Equal tiers are incomparable, not equal in quality."""
-    return _TIERS[(_RANKS["role_match"][role_match],
-                   _RANKS["capability_match"][capability_match],
-                   _RANKS["seniority_gap"][seniority_gap])]
+    return _TIERS[
+        (
+            _RANKS["role_match"][role_match],
+            _RANKS["capability_match"][capability_match],
+            _RANKS["seniority_gap"][seniority_gap],
+        )
+    ]
 
 
-def sort_key(verdict: dict) -> tuple:
+def sort_key(verdict: dict[str, Any]) -> tuple[int, int]:
     """The default list order. Lower sorts first.
 
     Eligibility partitions, then tier. Ties inside a tier are genuine -- the caller adds
     recency or another tiebreak, and must not read anything into the resulting order.
     """
-    return (eligibility_rank(verdict["eligibility"]),
-            pareto_tier(role_match=verdict["role_match"],
-                        capability_match=verdict["capability_match"],
-                        seniority_gap=verdict["seniority_gap"]))
+    return (
+        eligibility_rank(verdict["eligibility"]),
+        pareto_tier(
+            role_match=verdict["role_match"],
+            capability_match=verdict["capability_match"],
+            seniority_gap=verdict["seniority_gap"],
+        ),
+    )
 
 
 # --- the scalar projection ------------------------------------------------------------
@@ -118,10 +130,10 @@ def sort_key(verdict: dict) -> tuple:
 # GRID[role_match][capability_match], before seniority and eligibility adjust it.
 GRID = {
     #                    exceeds  meets  most_with_gaps  major_gaps  not_close
-    "same_role":        (    92,    85,             70,         48,        28),
-    "adjacent":         (    82,    74,             60,         40,        22),
-    "different_domain": (    66,    58,             46,         30,        15),
-    "different_field":  (    42,    36,             28,         16,         6),
+    "same_role": (92, 85, 70, 48, 28),
+    "adjacent": (82, 74, 60, 40, 22),
+    "different_domain": (66, 58, 46, 30, 15),
+    "different_field": (42, 36, 28, 16, 6),
 }
 
 SENIORITY_DELTA = {"matched": 0, "candidate_above": -5, "candidate_below": -12}
@@ -149,8 +161,7 @@ ELIGIBILITY_CEILING = {
 # Kept at the values the old prompt used, and the same edges `stats.py` and the UI colours
 # already key off. Moving the scale and the boundaries in one change would make the
 # rollout undiagnosable.
-BANDS = (("strong", 80), ("worth_applying", 60), ("stretch", 40), ("poor_fit", 20),
-         ("mismatch", 0))
+BANDS = (("strong", 80), ("worth_applying", 60), ("stretch", 40), ("poor_fit", 20), ("mismatch", 0))
 
 
 def band_for(score: int) -> str:
@@ -160,8 +171,14 @@ def band_for(score: int) -> str:
     return BANDS[-1][0]
 
 
-def fit_score(*, eligibility: str, role_match: str, capability_match: str,
-              seniority_gap: str, evidence_quality: str) -> int:
+def fit_score(
+    *,
+    eligibility: str,
+    role_match: str,
+    capability_match: str,
+    seniority_gap: str,
+    evidence_quality: str,
+) -> int:
     """Project the tuple onto 0-100. Order of operations is fixed and load-bearing."""
     score = GRID[role_match][_RANKS["capability_match"][capability_match]]
     score += SENIORITY_DELTA[seniority_gap]
@@ -171,16 +188,18 @@ def fit_score(*, eligibility: str, role_match: str, capability_match: str,
     return round(max(0, min(100, score)))
 
 
-def project(verdict: dict) -> dict:
+def project(verdict: dict[str, Any]) -> dict[str, Any]:
     """Everything derived from one verdict's ordinals, for persistence and display."""
     ordinals = {name: verdict[name] for name in rubric.DIMENSIONS}
     score = fit_score(**ordinals)
     return {
         "fit_score": score,
         "verdict": band_for(score),
-        "pareto_tier": pareto_tier(role_match=verdict["role_match"],
-                                   capability_match=verdict["capability_match"],
-                                   seniority_gap=verdict["seniority_gap"]),
+        "pareto_tier": pareto_tier(
+            role_match=verdict["role_match"],
+            capability_match=verdict["capability_match"],
+            seniority_gap=verdict["seniority_gap"],
+        ),
         "eligibility_rank": eligibility_rank(verdict["eligibility"]),
         "scale_version": SCALE_VERSION,
     }

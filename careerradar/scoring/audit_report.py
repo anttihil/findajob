@@ -13,6 +13,7 @@ found in the posting at all.
 """
 
 import json
+from typing import Any
 
 from careerradar.core.database import Database
 from careerradar.profile.adapter import load_profile
@@ -20,14 +21,16 @@ from careerradar.scoring.audit import blocker_contradicts_profile, locate_blocke
 from careerradar.scoring.prompts import MAX_DESCRIPTION_CHARS
 
 
-def collect(profile_version=None, limit=None, db=None):
+def collect(
+    profile_version: int | None = None,
+    limit: int | None = None,
+    db: Database | None = None,
+) -> dict[str, Any] | None:
     owned = db is None
     db = db or Database()
     try:
         if profile_version is None:
-            row = db.conn.execute(
-                "SELECT version FROM profiles WHERE is_active = 1"
-            ).fetchone()
+            row = db.conn.execute("SELECT version FROM profiles WHERE is_active = 1").fetchone()
             if row is None:
                 return None
             profile_version = row[0]
@@ -41,21 +44,25 @@ def collect(profile_version=None, limit=None, db=None):
                AND j.description IS NOT NULL
              ORDER BY v.job_id
         """
-        params = [profile_version]
+        params: list[Any] = [profile_version]
         if limit:
             query += " LIMIT ?"
             params.append(limit)
         rows = db.conn.execute(query, params).fetchall()
 
-        quote_status = {}
-        contradictions = []
+        quote_status: dict[str, int] = {}
+        contradictions: list[dict[str, Any]] = []
         blockers_total = 0
 
         for row in rows:
-            seen = "\n".join([
-                row["title"] or "", row["company"] or "", row["location"] or "",
-                (row["description"] or "")[:MAX_DESCRIPTION_CHARS],
-            ])
+            seen = "\n".join(
+                [
+                    row["title"] or "",
+                    row["company"] or "",
+                    row["location"] or "",
+                    (row["description"] or "")[:MAX_DESCRIPTION_CHARS],
+                ]
+            )
             for blocker in _decode(row["hard_blockers"]):
                 blockers_total += 1
                 # `locate_blocker`, not `locate`: the auditor is what decides whether
@@ -66,10 +73,14 @@ def collect(profile_version=None, limit=None, db=None):
                 status, _span = locate_blocker(blocker, seen)
                 quote_status[status] = quote_status.get(status, 0) + 1
                 for hit in blocker_contradicts_profile(blocker, profile):
-                    contradictions.append({
-                        "job_id": row["job_id"], "title": row["title"],
-                        "eligibility": row["eligibility"], **hit,
-                    })
+                    contradictions.append(
+                        {
+                            "job_id": row["job_id"],
+                            "title": row["title"],
+                            "eligibility": row["eligibility"],
+                            **hit,
+                        }
+                    )
 
         return {
             "profile_version": profile_version,
@@ -83,7 +94,7 @@ def collect(profile_version=None, limit=None, db=None):
             db.close()
 
 
-def _decode(raw):
+def _decode(raw: str | None) -> list[str]:
     """The quote text of each stored blocker, whichever shape the row is in.
 
     Migration v7 rewrote blockers as `{"quote": ..., "why": ...}`, but this command is the
@@ -100,23 +111,29 @@ def _decode(raw):
         return [raw]
     if not isinstance(decoded, list):
         return [str(decoded)]
-    return [item.get("quote") or "" if isinstance(item, dict) else str(item)
-            for item in decoded]
+    return [item.get("quote") or "" if isinstance(item, dict) else str(item) for item in decoded]
 
 
-def render(report, show=20):
+def render(report: dict[str, Any] | None, show: int = 20) -> str:
     if report is None:
         return "No active profile. Build one with:  careerradar profile build"
     if not report["blockers"]:
-        return (f"profile v{report['profile_version']}: "
-                f"{report['verdicts']:,} verdicts, no hard blockers to check.")
+        return (
+            f"profile v{report['profile_version']}: "
+            f"{report['verdicts']:,} verdicts, no hard blockers to check."
+        )
 
     total = report["blockers"]
     status = report["quote_status"]
     verifiable = status.get("verified", 0) + status.get("repaired", 0)
 
-    out = [(f"profile v{report['profile_version']} · {report['verdicts']:,} verdicts · "
-           f"{total:,} hard blockers"), ""]
+    out = [
+        (
+            f"profile v{report['profile_version']} · {report['verdicts']:,} verdicts · "
+            f"{total:,} hard blockers"
+        ),
+        "",
+    ]
     out.append("quote verification -- is the phrase actually in the posting?")
     for name in ("verified", "repaired", "too_short", "not_found"):
         n = status.get(name, 0)
@@ -130,13 +147,14 @@ def render(report, show=20):
     out.append("     deletes an opportunity and the candidate never learns it existed")
     out.append(f"  count: {len(contradictions)}")
     for hit in contradictions[:show]:
-        out.append(f"    job {hit['job_id']:>6}  [{hit['field']}={hit['value']}]  "
-                   f"{hit['quote'][:70]}")
+        out.append(
+            f"    job {hit['job_id']:>6}  [{hit['field']}={hit['value']}]  {hit['quote'][:70]}"
+        )
     if len(contradictions) > show:
         out.append(f"    ... and {len(contradictions) - show} more")
     return "\n".join(out)
 
 
-def run_audit(profile_version=None, limit=None):
+def run_audit(profile_version: int | None = None, limit: int | None = None) -> int:
     print(render(collect(profile_version, limit=limit)))
     return 0

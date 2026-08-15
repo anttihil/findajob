@@ -14,8 +14,11 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from urllib.parse import urlencode, urlparse
+
+if TYPE_CHECKING:
+    from careerradar.taxonomy.roles import RoleTaxonomy
 
 from markupsafe import Markup, escape
 
@@ -54,7 +57,7 @@ class FilterQuery:
     values: dict[str, Any] = field(default_factory=dict)
     job: int | None = None
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         merged = dict(FILTER_DEFAULTS)
         merged.update({k: v for k, v in self.values.items() if v is not None})
         self.values = merged
@@ -78,7 +81,7 @@ class FilterQuery:
         ]
         return urlencode(pairs)
 
-    def url(self, **overrides) -> str:
+    def url(self, **overrides: Any) -> str:
         """A link to the dashboard with some filters changed.
 
         Changing any filter drops the open drawer and returns to the first page: the
@@ -130,7 +133,7 @@ class FilterQuery:
     def is_active(self, key: str, value: Any) -> bool:
         return self.values.get(key) == value
 
-    def hidden_fields(self, exclude: str = "") -> list[tuple]:
+    def hidden_fields(self, exclude: str = "") -> list[tuple[str, Any]]:
         """The filter as hidden inputs, for a form that sets one other field.
 
         Paging is left out deliberately: any form that re-submits the filter is changing
@@ -140,20 +143,16 @@ class FilterQuery:
         return [
             (key, value)
             for key, value in self.values.items()
-            if key not in skip
-            and value not in (None, "", FILTER_DEFAULTS.get(key))
+            if key not in skip and value not in (None, "", FILTER_DEFAULTS.get(key))
         ]
 
     def as_db_kwargs(self) -> dict[str, Any]:
         """The filter, as arguments to `Database.query_jobs`."""
-        return {
-            key: (value if value != "" else None)
-            for key, value in self.values.items()
-        }
+        return {key: (value if value != "" else None) for key, value in self.values.items()}
 
 
 def short_date(value: Any) -> str:
-    """"Jul 15", the format the job cards used via `toLocaleDateString`."""
+    """ "Jul 15", the format the job cards used via `toLocaleDateString`."""
     if not value:
         return ""
     if isinstance(value, str):
@@ -216,13 +215,15 @@ def requirement_rows(job: dict[str, Any]) -> list[dict[str, Any]]:
     rows = []
     for req in sorted(core, key=lambda r: IMPORTANCE_RANK.get(r.get("importance"), 3)):
         assessment = by_requirement.get((req.get("requirement") or "").strip().lower())
-        rows.append({
-            "requirement": req.get("requirement") or "",
-            "importance": req.get("importance") or "",
-            "quote": req.get("quote") or "",
-            "status": (assessment or {}).get("status") or "unassessed",
-            "evidence": (assessment or {}).get("candidate_evidence") or "",
-        })
+        rows.append(
+            {
+                "requirement": req.get("requirement") or "",
+                "importance": req.get("importance") or "",
+                "quote": req.get("quote") or "",
+                "status": (assessment or {}).get("status") or "unassessed",
+                "evidence": (assessment or {}).get("candidate_evidence") or "",
+            }
+        )
     return rows
 
 
@@ -230,13 +231,17 @@ def requirement_rows(job: dict[str, Any]) -> list[dict[str, Any]]:
 # derived from the locations rather than restated, so adding a location cannot leave the
 # dashboard filtering on a country it never offers.
 COUNTRY_LABELS = {
-    "US": "USA", "FI": "Finland", "SE": "Sweden", "NO": "Norway", "DK": "Denmark",
+    "US": "USA",
+    "FI": "Finland",
+    "SE": "Sweden",
+    "NO": "Norway",
+    "DK": "Denmark",
 }
 
 
-def country_choices(roles) -> list[tuple]:
+def country_choices(roles: RoleTaxonomy) -> list[tuple[str, str]]:
     """(code, label) for every country the configured locations cover."""
-    codes = []
+    codes: list[str] = []
     for location in roles.locations.values():
         if location.country not in codes:
             codes.append(location.country)

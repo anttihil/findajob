@@ -93,9 +93,7 @@ SENIORITY_GAP_ANCHORS = {
 }
 
 EVIDENCE_QUALITY_ANCHORS = {
-    "strong": (
-        "The posting says enough about the actual work to judge fit with confidence."
-    ),
+    "strong": ("The posting says enough about the actual work to judge fit with confidence."),
     "adequate": "Enough to judge, with some inference about what the day-to-day is.",
     "thin": (
         "A boilerplate or near-empty posting. Say so rather than guessing -- a confident "
@@ -120,8 +118,7 @@ ANCHORS = {
 # The dimensions the model answers, in the order the prompt asks for them. `models.py`
 # declares its fields in this order too, and a test pins the two together: function calling
 # fills fields in declaration order, so this sequence *is* the reasoning order.
-DIMENSIONS = ("eligibility", "role_match", "capability_match",
-              "seniority_gap", "evidence_quality")
+DIMENSIONS = ("eligibility", "role_match", "capability_match", "seniority_gap", "evidence_quality")
 
 
 def render_scale(dimension: str, indent: str = "  ") -> str:

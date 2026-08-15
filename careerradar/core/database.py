@@ -2,9 +2,15 @@ import copy
 import json
 import sqlite3
 from datetime import datetime, timedelta, timezone
-from typing import ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar
 
 from careerradar.core.paths import DB_PATH
+
+if TYPE_CHECKING:
+    from careerradar.search.scheduler import CellState
+
+# Memoized `get_stats()` results, keyed by database path: (data_version, write_generation) -> stats.
+_StatsCacheEntry = tuple[tuple[int, int], dict[str, Any]]
 
 # The two requirement lists are stored as separate JSON columns because the model answers
 # them as separate fields, but they are one table: `core_requirements` carries the
@@ -14,22 +20,24 @@ from careerradar.core.paths import DB_PATH
 # used here so the dashboard and the validator cannot disagree about which requirement is
 # which.
 # Memoized `get_stats()` results, keyed by database path. See `Database.get_stats`.
-_STATS_CACHE = {}
+_STATS_CACHE: dict[str, _StatsCacheEntry] = {}
 
 # Memoized `job_ids_for()` results. See that method for why one entry is enough.
-_FEED_IDS_CACHE = {}
+_FEED_IDS_CACHE: dict[tuple[Any, ...], list[int]] = {}
 
 # Bumped by writes made on the same connection that later reads stats, which is the one
 # case `PRAGMA data_version` cannot see.
 _WRITE_GENERATION = 0
 
 
-def _invalidate_stats():
+def _invalidate_stats() -> None:
     global _WRITE_GENERATION
     _WRITE_GENERATION += 1
 
 
-def _requirement_summary(core, assessments):
+def _requirement_summary(
+    core: list[dict[str, Any]] | None, assessments: list[dict[str, Any]] | None
+) -> dict[str, Any] | None:
     """Must-have counts for one verdict, or None when there is nothing to count.
 
     None rather than a zeroed dict: a verdict written before the ordinal schema has no
@@ -38,34 +46,37 @@ def _requirement_summary(core, assessments):
     """
     if not core:
         return None
-    status = {a.get("requirement", "").strip().casefold(): a.get("status")
-              for a in assessments or []}
+    status = {
+        a.get("requirement", "").strip().casefold(): a.get("status") for a in assessments or []
+    }
     counts = {"met": 0, "partial": 0, "unmet": 0, "unassessed": 0}
     for requirement in core:
         if requirement.get("importance") != "must_have":
             continue
-        counts[status.get(requirement.get("requirement", "").strip().casefold())
-               or "unassessed"] += 1
+        counts[
+            status.get(requirement.get("requirement", "").strip().casefold()) or "unassessed"
+        ] += 1
     total = sum(counts.values())
     if not total:
         return None
     return {"must_total": total, **{f"must_{k}": v for k, v in counts.items()}}
 
 
-def _utcnow():
+def _utcnow() -> str:
     return datetime.now(timezone.utc).isoformat()
 
+
 class Database:
-    def __init__(self, db_path=None):
+    def __init__(self, db_path: str | None = None) -> None:
         self.db_path = db_path or DB_PATH
         self.conn = sqlite3.connect(self.db_path)
         self.conn.row_factory = sqlite3.Row
         # Filled on first use by `_select_columns`, which reads it from PRAGMA table_info
         # rather than repeating the `jobs` column list in Python.
-        self._jobs_columns = None
+        self._jobs_columns: list[str] | None = None
         self.create_tables()
 
-    def create_tables(self):
+    def create_tables(self) -> None:
         """Bring the schema up to date via the versioned migration runner.
 
         Migrations are idempotent, so calling this on every connection is cheap: once
@@ -111,14 +122,27 @@ class Database:
     # `requirement_summary` is derived from them, and that derivation stays in Python where
     # the matching normalisation already lives.
     _VERDICT_LIST_COLUMNS = (
-        "verdict", "eligibility", "role_match", "capability_match", "seniority_gap",
-        "pareto_tier", "core_requirements", "requirement_assessments",
+        "verdict",
+        "eligibility",
+        "role_match",
+        "capability_match",
+        "seniority_gap",
+        "pareto_tier",
+        "core_requirements",
+        "requirement_assessments",
     )
     # Everything else only the drawer renders.
     _VERDICT_DETAIL_COLUMNS = (
         *_VERDICT_LIST_COLUMNS,
-        "seniority_fit", "hard_blockers", "key_gaps", "strengths", "reasoning",
-        "role_summary", "evidence_quality", "audit_flags", "scale_version",
+        "seniority_fit",
+        "hard_blockers",
+        "key_gaps",
+        "strengths",
+        "reasoning",
+        "role_summary",
+        "evidence_quality",
+        "audit_flags",
+        "scale_version",
     )
 
     # Only the drawer renders the posting text, and at ~6KB a row it was 300KB of every
@@ -127,8 +151,12 @@ class Database:
     _LIST_OMITTED_JOB_COLUMNS = frozenset({"description"})
 
     _JSON_COLUMNS = (
-        "matched_skills", "hard_blockers", "key_gaps", "strengths",
-        "core_requirements", "requirement_assessments",
+        "matched_skills",
+        "hard_blockers",
+        "key_gaps",
+        "strengths",
+        "core_requirements",
+        "requirement_assessments",
     )
 
     # The default ranks WITHOUT inventing an exchange rate between the dimensions.
@@ -140,40 +168,60 @@ class Database:
     # `fit_score` remains available as a coarse sort. It is a projection of the same
     # ordinals through an invented weighting (see scoring/scale.py), which is exactly why
     # it is not the default.
-    _SORTS: ClassVar[dict] = {
-        "fit": ("CASE v.eligibility WHEN 'eligible' THEN 0 WHEN 'conditional' THEN 1 "
-                "WHEN 'blocked' THEN 2 ELSE 3 END, "
-                "COALESCE(v.pareto_tier, 99), date_found DESC"),
+    _SORTS: ClassVar[dict[str, str]] = {
+        "fit": (
+            "CASE v.eligibility WHEN 'eligible' THEN 0 WHEN 'conditional' THEN 1 "
+            "WHEN 'blocked' THEN 2 ELSE 3 END, "
+            "COALESCE(v.pareto_tier, 99), date_found DESC"
+        ),
         "fit_score": "fit_score DESC, match_score DESC, date_found DESC",
         "match_score": "match_score DESC, date_found DESC",
         "date_found": "date_found DESC",
     }
 
-    def _select_columns(self, detail):
+    def _select_columns(self, detail: bool) -> str:
         """The SELECT list, minus what the caller will not read."""
         if self._jobs_columns is None:
-            self._jobs_columns = [
-                row[1] for row in self.conn.execute("PRAGMA table_info(jobs)")
-            ]
+            self._jobs_columns = [row[1] for row in self.conn.execute("PRAGMA table_info(jobs)")]
         if detail:
             job_columns = ["jobs.*"]
         else:
             job_columns = [
-                f"jobs.{name}" for name in self._jobs_columns
+                f"jobs.{name}"
+                for name in self._jobs_columns
                 if name not in self._LIST_OMITTED_JOB_COLUMNS
             ]
         verdict_columns = [
-            f"v.{name} AS {name}" for name in
-            (self._VERDICT_DETAIL_COLUMNS if detail else self._VERDICT_LIST_COLUMNS)
+            f"v.{name} AS {name}"
+            for name in (self._VERDICT_DETAIL_COLUMNS if detail else self._VERDICT_LIST_COLUMNS)
         ]
         return ",\n                   ".join(
             job_columns + verdict_columns + [f"{self._LIVENESS_CASE} AS liveness"]
         )
 
-    def _feed_filters(self, *, status, country, role_family, seniority, source,
-                      is_remote, has_salary, access, include_duplicates, min_score,
-                      verdict, pipeline_state, min_fit_score, eligibility, role_match,
-                      capability_match, max_tier, liveness, job_id):
+    def _feed_filters(
+        self,
+        *,
+        status: str | None,
+        country: str | None,
+        role_family: str | None,
+        seniority: str | None,
+        source: str | None,
+        is_remote: bool | None,
+        has_salary: bool | None,
+        access: str | None,
+        include_duplicates: bool,
+        min_score: int | None,
+        verdict: str | None,
+        pipeline_state: str | None,
+        min_fit_score: int | None,
+        eligibility: str | None,
+        role_match: str | None,
+        capability_match: str | None,
+        max_tier: int | None,
+        liveness: str | None,
+        job_id: int | None,
+    ) -> tuple[str, list[Any]]:
         """The shared WHERE clause, as (sql, params).
 
         Extracted so that `query_jobs` and `job_ids_for` cannot disagree about what the
@@ -181,7 +229,7 @@ class Database:
         feed would actually show.
         """
         sql = ""
-        params = []
+        params: list[Any] = []
 
         # Fetching one posting reuses this method so that the drawer sees exactly the row
         # shape the feed does -- the same verdict join, the same JSON decoding, the same
@@ -192,11 +240,16 @@ class Database:
         if not include_duplicates:
             sql += " AND duplicate_of IS NULL"
         for column, value in (
-            ("jobs.status", status), ("jobs.country", country),
-            ("jobs.role_family", role_family), ("jobs.seniority", seniority),
-            ("jobs.source", source), ("jobs.access", access),
-            ("jobs.pipeline_state", pipeline_state), ("v.verdict", verdict),
-            ("v.eligibility", eligibility), ("v.role_match", role_match),
+            ("jobs.status", status),
+            ("jobs.country", country),
+            ("jobs.role_family", role_family),
+            ("jobs.seniority", seniority),
+            ("jobs.source", source),
+            ("jobs.access", access),
+            ("jobs.pipeline_state", pipeline_state),
+            ("v.verdict", verdict),
+            ("v.eligibility", eligibility),
+            ("v.role_match", role_match),
             ("v.capability_match", capability_match),
             (self._LIVENESS_CASE, liveness),
         ):
@@ -207,8 +260,11 @@ class Database:
             sql += " AND jobs.is_remote = ?"
             params.append(1 if is_remote else 0)
         if has_salary is not None:
-            sql += (" AND jobs.salary_annual_usd IS NOT NULL" if has_salary
-                    else " AND jobs.salary_annual_usd IS NULL")
+            sql += (
+                " AND jobs.salary_annual_usd IS NOT NULL"
+                if has_salary
+                else " AND jobs.salary_annual_usd IS NULL"
+            )
         if min_score is not None:
             sql += " AND jobs.match_score >= ?"
             params.append(min_score)
@@ -220,13 +276,32 @@ class Database:
             params.append(max_tier)
         return sql, params
 
-    def query_jobs(self, status=None, country=None, role_family=None,
-                   seniority=None, source=None, is_remote=None, has_salary=None,
-                   access=None, include_duplicates=False, min_score=None,
-                   verdict=None, pipeline_state=None, min_fit_score=None,
-                   eligibility=None, role_match=None, capability_match=None,
-                   max_tier=None, liveness=None, job_id=None,
-                   sort="fit", limit=200, offset=0, detail=False):
+    def query_jobs(
+        self,
+        status: str | None = None,
+        country: str | None = None,
+        role_family: str | None = None,
+        seniority: str | None = None,
+        source: str | None = None,
+        is_remote: bool | None = None,
+        has_salary: bool | None = None,
+        access: str | None = None,
+        include_duplicates: bool = False,
+        min_score: int | None = None,
+        verdict: str | None = None,
+        pipeline_state: str | None = None,
+        min_fit_score: int | None = None,
+        eligibility: str | None = None,
+        role_match: str | None = None,
+        capability_match: str | None = None,
+        max_tier: int | None = None,
+        liveness: str | None = None,
+        job_id: int | None = None,
+        sort: str = "fit",
+        limit: int = 200,
+        offset: int = 0,
+        detail: bool = False,
+    ) -> dict[str, Any]:
         """Filtered, paginated posting list for the dashboard.
 
         Duplicates are hidden by default: the same requisition cross-posted to both boards
@@ -244,31 +319,39 @@ class Database:
             detail = True
 
         where, params = self._feed_filters(
-            status=status, country=country, role_family=role_family,
-            seniority=seniority, source=source, is_remote=is_remote,
-            has_salary=has_salary, access=access,
-            include_duplicates=include_duplicates, min_score=min_score,
-            verdict=verdict, pipeline_state=pipeline_state,
-            min_fit_score=min_fit_score, eligibility=eligibility,
-            role_match=role_match, capability_match=capability_match,
-            max_tier=max_tier, liveness=liveness, job_id=job_id,
+            status=status,
+            country=country,
+            role_family=role_family,
+            seniority=seniority,
+            source=source,
+            is_remote=is_remote,
+            has_salary=has_salary,
+            access=access,
+            include_duplicates=include_duplicates,
+            min_score=min_score,
+            verdict=verdict,
+            pipeline_state=pipeline_state,
+            min_fit_score=min_fit_score,
+            eligibility=eligibility,
+            role_match=role_match,
+            capability_match=capability_match,
+            max_tier=max_tier,
+            liveness=liveness,
+            job_id=job_id,
         )
-        query = (f"SELECT {self._select_columns(detail)}{self._FROM}"
-                 f" WHERE 1=1{where}")
+        query = f"SELECT {self._select_columns(detail)}{self._FROM} WHERE 1=1{where}"
 
         # A by-id lookup returns at most one row, so counting it is a second full execution
         # of the query to learn something `len()` already knows.
         total = None
         if job_id is None:
-            total = self.conn.execute(
-                f"SELECT COUNT(*) FROM ({query})", params
-            ).fetchone()[0]
+            total = self.conn.execute(f"SELECT COUNT(*) FROM ({query})", params).fetchone()[0]
 
         query += f" ORDER BY {self._SORTS.get(sort, self._SORTS['fit_score'])}"
         query += " LIMIT ? OFFSET ?"
         params.extend([limit, offset])
 
-        jobs = []
+        jobs: list[dict[str, Any]] = []
         for row in self.conn.execute(query, params):
             job = dict(row)
             # Gated on what was actually selected: the list path never fetches the drawer's
@@ -296,13 +379,32 @@ class Database:
             "has_more": offset + len(jobs) < total,
         }
 
-    def job_ids_for(self, status=None, country=None, role_family=None,
-                    seniority=None, source=None, is_remote=None, has_salary=None,
-                    access=None, include_duplicates=False, min_score=None,
-                    verdict=None, pipeline_state=None, min_fit_score=None,
-                    eligibility=None, role_match=None, capability_match=None,
-                    max_tier=None, liveness=None, job_id=None,
-                    sort="fit", limit=200, offset=0, detail=None):  # noqa: ARG002 - signature parity with the sibling feed query
+    def job_ids_for(
+        self,
+        status: str | None = None,
+        country: str | None = None,
+        role_family: str | None = None,
+        seniority: str | None = None,
+        source: str | None = None,
+        is_remote: bool | None = None,
+        has_salary: bool | None = None,
+        access: str | None = None,
+        include_duplicates: bool = False,
+        min_score: int | None = None,
+        verdict: str | None = None,
+        pipeline_state: str | None = None,
+        min_fit_score: int | None = None,
+        eligibility: str | None = None,
+        role_match: str | None = None,
+        capability_match: str | None = None,
+        max_tier: int | None = None,
+        liveness: str | None = None,
+        job_id: int | None = None,
+        sort: str = "fit",
+        limit: int = 200,
+        offset: int = 0,
+        detail: bool | None = None,  # noqa: ARG002 - signature parity with the sibling feed query
+    ) -> list[int]:
         """Just the ids on this page of the feed, in feed order.
 
         What the drawer needs to answer "which posting comes after this one" without
@@ -311,28 +413,45 @@ class Database:
         `detail`, which means nothing when only the id is selected.
         """
         where, params = self._feed_filters(
-            status=status, country=country, role_family=role_family,
-            seniority=seniority, source=source, is_remote=is_remote,
-            has_salary=has_salary, access=access,
-            include_duplicates=include_duplicates, min_score=min_score,
-            verdict=verdict, pipeline_state=pipeline_state,
-            min_fit_score=min_fit_score, eligibility=eligibility,
-            role_match=role_match, capability_match=capability_match,
-            max_tier=max_tier, liveness=liveness, job_id=job_id,
+            status=status,
+            country=country,
+            role_family=role_family,
+            seniority=seniority,
+            source=source,
+            is_remote=is_remote,
+            has_salary=has_salary,
+            access=access,
+            include_duplicates=include_duplicates,
+            min_score=min_score,
+            verdict=verdict,
+            pipeline_state=pipeline_state,
+            min_fit_score=min_fit_score,
+            eligibility=eligibility,
+            role_match=role_match,
+            capability_match=capability_match,
+            max_tier=max_tier,
+            liveness=liveness,
+            job_id=job_id,
         )
-        query = (f"SELECT jobs.id{self._FROM} WHERE 1=1{where}"
-                 f" ORDER BY {self._SORTS.get(sort, self._SORTS['fit_score'])}"
-                 f" LIMIT ? OFFSET ?")
-        args = [*params, limit, offset]
+        query = (
+            f"SELECT jobs.id{self._FROM} WHERE 1=1{where}"
+            f" ORDER BY {self._SORTS.get(sort, self._SORTS['fit_score'])}"
+            f" LIMIT ? OFFSET ?"
+        )
+        args: list[Any] = [*params, limit, offset]
 
         # Ranking the whole eligible corpus to slice 50 ids off the top costs ~12ms, and
         # every drawer opened out of the same feed asks for the same list -- the filter
         # only changes on a navigation. Cached on the query itself, so a different filter
         # is a different entry rather than a stale hit, and invalidated by the same
         # data_version/write-generation pair as `get_stats`.
-        key = (self.db_path, query, tuple(args),
-               self.conn.execute("PRAGMA data_version").fetchone()[0],
-               _WRITE_GENERATION)
+        key = (
+            self.db_path,
+            query,
+            tuple(args),
+            self.conn.execute("PRAGMA data_version").fetchone()[0],
+            _WRITE_GENERATION,
+        )
         cached = _FEED_IDS_CACHE.get(key)
         if cached is not None:
             return list(cached)
@@ -345,7 +464,7 @@ class Database:
         _FEED_IDS_CACHE[key] = ids
         return list(ids)
 
-    def update_job_status(self, job_id, status):
+    def update_job_status(self, job_id: int, status: str) -> bool:
         cursor = self.conn.cursor()
         now_str = datetime.now().isoformat() if status == "applied" else None
 
@@ -363,7 +482,7 @@ class Database:
         _invalidate_stats()
         return cursor.rowcount > 0
 
-    def get_stats(self):
+    def get_stats(self) -> dict[str, Any]:
         """Dashboard counters, memoized between writes.
 
         Ten unindexed GROUP BY scans of `jobs` and `job_verdicts`, ~87ms, recomputed on
@@ -390,7 +509,7 @@ class Database:
         _STATS_CACHE[self.db_path] = (key, stats)
         return copy.deepcopy(stats)
 
-    def status_counts(self):
+    def status_counts(self) -> dict[str, int]:
         """Postings per status, zero-filled.
 
         Split out of `get_stats` because the drawer's status action needs exactly this and
@@ -398,7 +517,8 @@ class Database:
         to put two numbers on screen, on an action taken once per posting triaged.
         """
         counts = {
-            row["status"]: row["count"] for row in self.conn.execute(
+            row["status"]: row["count"]
+            for row in self.conn.execute(
                 "SELECT status, COUNT(*) as count FROM jobs GROUP BY status"
             )
         }
@@ -406,9 +526,9 @@ class Database:
             counts.setdefault(status, 0)
         return counts
 
-    def _compute_stats(self):
+    def _compute_stats(self) -> dict[str, Any]:
         cursor = self.conn.cursor()
-        stats = {}
+        stats: dict[str, Any] = {}
 
         # Total counts by status
         stats["status_counts"] = self.status_counts()
@@ -421,8 +541,7 @@ class Database:
         # the coverage prior, an unspecified seniority and an unmapped family put ~23
         # points on the floor, so its observed range was 15-80.
         cursor.execute(
-            "SELECT SUM(matched_count), SUM(required_count) FROM jobs "
-            "WHERE required_count > 0"
+            "SELECT SUM(matched_count), SUM(required_count) FROM jobs WHERE required_count > 0"
         )
         matched, required = cursor.fetchone()
         stats["skill_coverage"] = {
@@ -446,8 +565,7 @@ class Database:
         # it is the new "the model is not using its scale".
         active = "(SELECT version FROM profiles WHERE is_active = 1)"
         stats["ordinals"] = {}
-        for dimension in ("eligibility", "role_match", "capability_match",
-                          "evidence_quality"):
+        for dimension in ("eligibility", "role_match", "capability_match", "evidence_quality"):
             cursor.execute(
                 f"SELECT {dimension}, COUNT(*) c FROM job_verdicts "
                 f"WHERE profile_version = {active} AND {dimension} IS NOT NULL "
@@ -485,7 +603,7 @@ class Database:
     # Scrape cells
     # =====================================================================================
 
-    def seed_cells(self, specs):
+    def seed_cells(self, specs: list[dict[str, Any]]) -> int:
         """Insert any missing cells, preserving the state of existing ones.
 
         Re-runnable after every roles.yaml edit: an existing cell keeps its scrape history
@@ -502,71 +620,89 @@ class Database:
                 VALUES (?, ?, ?, ?, ?, ?)
                 ON CONFLICT (source, role_family, location_id, query) DO NOTHING
                 """,
-                (spec["source"], spec["role_family"], spec["location_id"],
-                 spec["query"], spec["tier"], now),
+                (
+                    spec["source"],
+                    spec["role_family"],
+                    spec["location_id"],
+                    spec["query"],
+                    spec["tier"],
+                    now,
+                ),
             )
             inserted += cursor.rowcount
         self.conn.commit()
         return inserted
 
-    def prune_cells(self, specs):
+    def prune_cells(self, specs: list[dict[str, Any]]) -> int:
         """Disable cells no longer present in the taxonomy.
 
         Disabled rather than deleted, so cell_observations keeps its foreign key and past
         analytics stay auditable.
         """
-        wanted = {
-            (s["source"], s["role_family"], s["location_id"], s["query"]) for s in specs
-        }
+        wanted = {(s["source"], s["role_family"], s["location_id"], s["query"]) for s in specs}
         cursor = self.conn.cursor()
         disabled = 0
         for row in cursor.execute(
-            "SELECT id, source, role_family, location_id, query FROM scrape_cells "
-            "WHERE enabled = 1"
+            "SELECT id, source, role_family, location_id, query FROM scrape_cells WHERE enabled = 1"
         ).fetchall():
             key = (row["source"], row["role_family"], row["location_id"], row["query"])
             if key not in wanted:
-                self.conn.execute(
-                    "UPDATE scrape_cells SET enabled = 0 WHERE id = ?", (row["id"],)
-                )
+                self.conn.execute("UPDATE scrape_cells SET enabled = 0 WHERE id = ?", (row["id"],))
                 disabled += 1
         self.conn.commit()
         return disabled
 
-    def get_cells(self, source=None, enabled_only=True):
+    def get_cells(self, source: str | None = None, enabled_only: bool = True) -> list["CellState"]:
         """Load cells as scheduler.CellState objects."""
         from careerradar.search.scheduler import CellState
 
         query = "SELECT * FROM scrape_cells WHERE 1=1"
-        params = []
+        params: list[Any] = []
         if source:
             query += " AND source = ?"
             params.append(source)
         if enabled_only:
             query += " AND enabled = 1"
 
-        cells = []
+        cells: list[CellState] = []
         for row in self.conn.execute(query, params):
-            cells.append(CellState(
-                id=row["id"], source=row["source"], role_family=row["role_family"],
-                location_id=row["location_id"], query=row["query"], tier=row["tier"],
-                enabled=row["enabled"],
-                last_scraped_at=row["last_scraped_at"],
-                last_success_at=row["last_success_at"],
-                last_result_count=row["last_result_count"] or 0,
-                last_saturated=row["last_saturated"] or 0,
-                last_hours_old=row["last_hours_old"],
-                ewma_new_per_scrape=row["ewma_new_per_scrape"],
-                consecutive_empty=row["consecutive_empty"] or 0,
-                consecutive_error=row["consecutive_error"] or 0,
-                total_scrapes=row["total_scrapes"] or 0,
-                backoff_until=row["backoff_until"],
-            ))
+            cells.append(
+                CellState(
+                    id=row["id"],
+                    source=row["source"],
+                    role_family=row["role_family"],
+                    location_id=row["location_id"],
+                    query=row["query"],
+                    tier=row["tier"],
+                    enabled=row["enabled"],
+                    last_scraped_at=row["last_scraped_at"],
+                    last_success_at=row["last_success_at"],
+                    last_result_count=row["last_result_count"] or 0,
+                    last_saturated=row["last_saturated"] or 0,
+                    last_hours_old=row["last_hours_old"],
+                    ewma_new_per_scrape=row["ewma_new_per_scrape"],
+                    consecutive_empty=row["consecutive_empty"] or 0,
+                    consecutive_error=row["consecutive_error"] or 0,
+                    total_scrapes=row["total_scrapes"] or 0,
+                    backoff_until=row["backoff_until"],
+                )
+            )
         return cells
 
-    def record_cell_attempt(self, cell_id, observed_at, hours_old, requested,
-                            returned=0, new_unique=0, saturated=0, status="ok",
-                            error=None, backoff_until=None, ewma=None):
+    def record_cell_attempt(
+        self,
+        cell_id: int,
+        observed_at: str,
+        hours_old: int | None,
+        requested: int,
+        returned: int = 0,
+        new_unique: int = 0,
+        saturated: int = 0,
+        status: str = "ok",
+        error: str | None = None,
+        backoff_until: str | None = None,
+        ewma: float | None = None,
+    ) -> None:
         """Update a cell after an attempt.
 
         INVARIANT: last_scraped_at advances on every attempt, last_success_at only on
@@ -587,8 +723,15 @@ class Database:
             "total_scrapes = total_scrapes + 1",
             "total_postings = total_postings + ?",
         ]
-        params = [observed_at, requested, returned, new_unique, saturated, hours_old,
-                  returned]
+        params: list[Any] = [
+            observed_at,
+            requested,
+            returned,
+            new_unique,
+            saturated,
+            hours_old,
+            returned,
+        ]
 
         if succeeded:
             fields.append("last_success_at = ?")
@@ -612,28 +755,28 @@ class Database:
             params.append(error[:500])
 
         params.append(cell_id)
-        cursor.execute(
-            f"UPDATE scrape_cells SET {', '.join(fields)} WHERE id = ?", params
-        )
+        cursor.execute(f"UPDATE scrape_cells SET {', '.join(fields)} WHERE id = ?", params)
         self.conn.commit()
 
     # =====================================================================================
     # Source circuit-breaker state
     # =====================================================================================
 
-    def get_source_backoff(self, source):
+    def get_source_backoff(self, source: str) -> str | None:
         row = self.conn.execute(
             "SELECT backoff_until FROM source_state WHERE source = ?", (source,)
         ).fetchone()
         return row["backoff_until"] if row else None
 
-    def get_source_trips(self, source):
+    def get_source_trips(self, source: str) -> int:
         row = self.conn.execute(
             "SELECT consecutive_trips FROM source_state WHERE source = ?", (source,)
         ).fetchone()
         return (row["consecutive_trips"] if row else 0) or 0
 
-    def set_source_backoff(self, source, until, reason=None, escalate=False):
+    def set_source_backoff(
+        self, source: str, until: str, reason: str | None = None, escalate: bool = False
+    ) -> None:
         now = datetime.now(timezone.utc).isoformat()
         self.conn.execute(
             """
@@ -648,15 +791,23 @@ class Database:
                 last_trip_reason = excluded.last_trip_reason,
                 total_429 = source_state.total_429 + ?
             """,
-            (source, until, 1 if escalate else 0, now, reason, 1 if escalate else 0,
-             1 if escalate else 0, 1 if escalate else 0),
+            (
+                source,
+                until,
+                1 if escalate else 0,
+                now,
+                reason,
+                1 if escalate else 0,
+                1 if escalate else 0,
+                1 if escalate else 0,
+            ),
         )
         self.conn.commit()
 
-    def reset_source_trips(self, source):
+    def reset_source_trips(self, source: str) -> None:
         self.conn.execute(
-            "UPDATE source_state SET consecutive_trips = 0, backoff_until = NULL "
-            "WHERE source = ?", (source,)
+            "UPDATE source_state SET consecutive_trips = 0, backoff_until = NULL WHERE source = ?",
+            (source,),
         )
         self.conn.commit()
 
@@ -664,7 +815,9 @@ class Database:
     # Sync runs and cell observations
     # =====================================================================================
 
-    def start_sync_run(self, mode, taxonomy_hash=None, plan_hash=None):
+    def start_sync_run(
+        self, mode: str, taxonomy_hash: str | None = None, plan_hash: str | None = None
+    ) -> int | None:
         cursor = self.conn.cursor()
         cursor.execute(
             "INSERT INTO sync_runs (started_at, mode, status, taxonomy_hash, plan_hash) "
@@ -674,29 +827,44 @@ class Database:
         self.conn.commit()
         return cursor.lastrowid
 
-    def finish_sync_run(self, run_id, status, **counters):
+    def finish_sync_run(self, run_id: int, status: str, **counters: Any) -> None:
         allowed = {
-            "cells_planned", "cells_succeeded", "cells_skipped", "postings_fetched",
-            "postings_new", "duplicates_merged", "llm_cost_usd", "error_summary",
+            "cells_planned",
+            "cells_succeeded",
+            "cells_skipped",
+            "postings_fetched",
+            "postings_new",
+            "duplicates_merged",
+            "llm_cost_usd",
+            "error_summary",
         }
         fields = ["finished_at = ?", "status = ?"]
-        params = [datetime.now(timezone.utc).isoformat(), status]
+        params: list[Any] = [datetime.now(timezone.utc).isoformat(), status]
         for key, value in counters.items():
             if key in allowed:
                 fields.append(f"{key} = ?")
                 params.append(
-                    json.dumps(value) if key == "error_summary"
-                    and not isinstance(value, str) else value
+                    json.dumps(value)
+                    if key == "error_summary" and not isinstance(value, str)
+                    else value
                 )
         params.append(run_id)
-        self.conn.execute(
-            f"UPDATE sync_runs SET {', '.join(fields)} WHERE id = ?", params
-        )
+        self.conn.execute(f"UPDATE sync_runs SET {', '.join(fields)} WHERE id = ?", params)
         self.conn.commit()
 
-    def record_observation(self, run_id, task, observed_at, returned=0,
-                           returned_on_topic=0, new_unique=0, saturated=0,
-                           descriptions_full=0, status="ok", error=None):
+    def record_observation(
+        self,
+        run_id: int | None,
+        task: dict[str, Any],
+        observed_at: str,
+        returned: int = 0,
+        returned_on_topic: int = 0,
+        new_unique: int = 0,
+        saturated: int = 0,
+        descriptions_full: int = 0,
+        status: str = "ok",
+        error: str | BaseException | None = None,
+    ) -> None:
         """Write the sampling denominator for one cell visit.
 
         `returned` drives saturation (did the board truncate us?), `returned_on_topic`
@@ -719,13 +887,27 @@ class Database:
                  desc_selection, descriptions_full, status, error)
             VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             """,
-            (run_id, task.get("cell_id"), task.get("source"),
-             task.get("role_family") or "", task.get("location_id") or "",
-             task.get("query") or "", observed_at, task.get("hours_old"),
-             window_start, observed_at, task.get("results_wanted") or 0,
-             returned, returned_on_topic, new_unique, saturated,
-             task.get("desc_selection", "none"), descriptions_full, status,
-             (error or None) and str(error)[:500]),
+            (
+                run_id,
+                task.get("cell_id"),
+                task.get("source"),
+                task.get("role_family") or "",
+                task.get("location_id") or "",
+                task.get("query") or "",
+                observed_at,
+                task.get("hours_old"),
+                window_start,
+                observed_at,
+                task.get("results_wanted") or 0,
+                returned,
+                returned_on_topic,
+                new_unique,
+                saturated,
+                task.get("desc_selection", "none"),
+                descriptions_full,
+                status,
+                (error or None) and str(error)[:500],
+            ),
         )
         self.conn.commit()
 
@@ -733,21 +915,59 @@ class Database:
     # Enriched posting upsert
     # =====================================================================================
 
-    POSTING_COLUMNS: ClassVar[list] = [
-        "job_key", "title", "company", "company_normalized", "location", "city",
-        "region", "country", "url", "url_direct", "description", "source",
-        "site_job_id", "role_family", "role_family_hint", "seniority", "is_remote",
-        "date_posted", "date_precision", "posted_window_start", "posted_window_end",
-        "salary_min", "salary_max", "salary_currency", "salary_interval",
-        "salary_annual_usd", "salary_currency_inferred", "salary_source",
-        "description_quality", "desc_selection", "content_hash", "is_agency",
-        "company_num_employees", "company_industry", "access",
-        "scrape_cell_id", "sync_run_id",
-        "taxonomy_hash", "match_score", "matched_skills", "matched_count",
-        "required_count", "scorer_version", "pipeline_state",
+    POSTING_COLUMNS: ClassVar[list[str]] = [
+        "job_key",
+        "title",
+        "company",
+        "company_normalized",
+        "location",
+        "city",
+        "region",
+        "country",
+        "url",
+        "url_direct",
+        "description",
+        "source",
+        "site_job_id",
+        "role_family",
+        "role_family_hint",
+        "seniority",
+        "is_remote",
+        "date_posted",
+        "date_precision",
+        "posted_window_start",
+        "posted_window_end",
+        "salary_min",
+        "salary_max",
+        "salary_currency",
+        "salary_interval",
+        "salary_annual_usd",
+        "salary_currency_inferred",
+        "salary_source",
+        "description_quality",
+        "desc_selection",
+        "content_hash",
+        "is_agency",
+        "company_num_employees",
+        "company_industry",
+        "access",
+        "scrape_cell_id",
+        "sync_run_id",
+        "taxonomy_hash",
+        "match_score",
+        "matched_skills",
+        "matched_count",
+        "required_count",
+        "scorer_version",
+        "pipeline_state",
     ]
 
-    def upsert_posting(self, posting, run_id=None, taxonomy_hash=None):
+    def upsert_posting(
+        self,
+        posting: dict[str, Any],
+        run_id: int | None = None,
+        taxonomy_hash: str | None = None,
+    ) -> tuple[int | None, bool]:
         """Insert or refresh one posting. Returns (job_id, is_new).
 
         Dedup order matters: the board's own id is the strongest key, then the URL, then
@@ -772,8 +992,9 @@ class Database:
 
         if existing is not None:
             job_id = existing["id"]
-            updatable = [c for c in self.POSTING_COLUMNS
-                         if c in record and c not in ("job_key", "url")]
+            updatable = [
+                c for c in self.POSTING_COLUMNS if c in record and c not in ("job_key", "url")
+            ]
             # Re-finding a posting is evidence it is still open, and it was previously
             # thrown away: `sync_run_id` was overwritten and nothing recorded WHEN the
             # posting was last actually seen. Without that, a posting missing from a scrape
@@ -797,21 +1018,18 @@ class Database:
         values.append(datetime.now(timezone.utc).isoformat())
 
         cursor.execute(
-            f"INSERT INTO jobs ({', '.join(columns)}) "
-            f"VALUES ({', '.join('?' for _ in columns)})",
+            f"INSERT INTO jobs ({', '.join(columns)}) VALUES ({', '.join('?' for _ in columns)})",
             values,
         )
         self.conn.commit()
         return cursor.lastrowid, True
 
-    def find_duplicate(self, content_hash, exclude_id=None):
+    def find_duplicate(self, content_hash: str | None, exclude_id: int | None = None) -> int | None:
         """Earliest non-duplicate posting sharing a content hash."""
         if not content_hash:
             return None
-        query = (
-            "SELECT id FROM jobs WHERE content_hash = ? AND duplicate_of IS NULL"
-        )
-        params = [content_hash]
+        query = "SELECT id FROM jobs WHERE content_hash = ? AND duplicate_of IS NULL"
+        params: list[Any] = [content_hash]
         if exclude_id is not None:
             query += " AND id != ?"
             params.append(exclude_id)
@@ -819,26 +1037,22 @@ class Database:
         row = self.conn.execute(query, params).fetchone()
         return row["id"] if row else None
 
-    def mark_duplicate(self, job_id, canonical_id):
-        self.conn.execute(
-            "UPDATE jobs SET duplicate_of = ? WHERE id = ?", (canonical_id, job_id)
-        )
+    def mark_duplicate(self, job_id: int, canonical_id: int) -> None:
+        self.conn.execute("UPDATE jobs SET duplicate_of = ? WHERE id = ?", (canonical_id, job_id))
         self.conn.commit()
 
-    def replace_job_skills(self, job_id, skills):
+    def replace_job_skills(self, job_id: int, skills: dict[str, dict[str, Any]]) -> None:
         """Rewrite a posting's skill rows. `skills` is {key: {"in_title": bool}}."""
         cursor = self.conn.cursor()
         cursor.execute("DELETE FROM job_skills WHERE job_id = ?", (job_id,))
         if skills:
             cursor.executemany(
-                "INSERT OR REPLACE INTO job_skills (job_id, skill, in_title) "
-                "VALUES (?, ?, ?)",
-                [(job_id, key, 1 if info.get("in_title") else 0)
-                 for key, info in skills.items()],
+                "INSERT OR REPLACE INTO job_skills (job_id, skill, in_title) VALUES (?, ?, ?)",
+                [(job_id, key, 1 if info.get("in_title") else 0) for key, info in skills.items()],
             )
         self.conn.commit()
 
-    def replace_job_blockers(self, job_id, blockers):
+    def replace_job_blockers(self, job_id: int, blockers: list[str]) -> None:
         cursor = self.conn.cursor()
         cursor.execute("DELETE FROM job_blockers WHERE job_id = ?", (job_id,))
         if blockers:
@@ -848,7 +1062,7 @@ class Database:
             )
         self.conn.commit()
 
-    def record_skill_candidates(self, terms):
+    def record_skill_candidates(self, terms: dict[str, int]) -> None:
         """Accumulate unmatched capitalized n-grams for taxonomy review.
 
         Nothing is auto-promoted; reviewing this table is a manual step.
@@ -868,11 +1082,11 @@ class Database:
         )
         self.conn.commit()
 
-    def close(self):
+    def close(self) -> None:
         self.conn.close()
 
 
-def _parse_iso(value):
+def _parse_iso(value: datetime | str) -> datetime:
     if isinstance(value, datetime):
         return value
     return datetime.fromisoformat(str(value))

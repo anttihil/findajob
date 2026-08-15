@@ -6,24 +6,36 @@ so "why did this posting's score change?" stays answerable after a rebuild.
 """
 
 import json
+import sqlite3
 from datetime import datetime, timezone
+from typing import TYPE_CHECKING, Any
 
 from careerradar.core.database import Database
+from careerradar.profile.ingest import Document
 from careerradar.profile.models import Profile
 from careerradar.profile.render import render_profile
 
+if TYPE_CHECKING:
+    from careerradar.taxonomy.skills import Taxonomy
 
-def _now():
+
+def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def next_version(conn):
+def next_version(conn: sqlite3.Connection) -> int:
     row = conn.execute("SELECT MAX(version) FROM profiles").fetchone()
     return (row[0] or 0) + 1
 
 
-def save_profile(profile: Profile, model, documents=None, turns=None, db=None,
-                 taxonomy=None):
+def save_profile(
+    profile: Profile,
+    model: str,
+    documents: list[Document] | None = None,
+    turns: list[dict[str, Any]] | None = None,
+    db: Database | None = None,
+    taxonomy: "Taxonomy | None" = None,
+) -> int:
     """Write a new profile version and make it active. Returns the version number.
 
     Skill keys are canonicalized against the taxonomy on the way in, so a profile can
@@ -35,6 +47,7 @@ def save_profile(profile: Profile, model, documents=None, turns=None, db=None,
 
     if taxonomy is None:
         from careerradar.taxonomy.skills import load_taxonomy
+
         taxonomy = load_taxonomy()
     profile, _report = canonicalize_profile(profile, taxonomy)
 
@@ -71,8 +84,14 @@ def save_profile(profile: Profile, model, documents=None, turns=None, db=None,
                     (profile_version, path, kind, sha256, chars, ingested_at)
                 VALUES (?, ?, ?, ?, ?, ?)
                 """,
-                (version, document.path, document.kind, document.sha256,
-                 len(document.text), _now()),
+                (
+                    version,
+                    document.path,
+                    document.kind,
+                    document.sha256,
+                    len(document.text),
+                    _now(),
+                ),
             )
 
         for seq, turn in enumerate(turns or []):
@@ -82,8 +101,14 @@ def save_profile(profile: Profile, model, documents=None, turns=None, db=None,
                     (profile_version, seq, topic, question, answer, asked_at)
                 VALUES (?, ?, ?, ?, ?, ?)
                 """,
-                (version, seq, turn.get("topic"), turn.get("question"),
-                 turn.get("answer"), turn.get("asked_at") or _now()),
+                (
+                    version,
+                    seq,
+                    turn.get("topic"),
+                    turn.get("question"),
+                    turn.get("answer"),
+                    turn.get("asked_at") or _now(),
+                ),
             )
 
         conn.commit()
@@ -93,7 +118,7 @@ def save_profile(profile: Profile, model, documents=None, turns=None, db=None,
             db.close()
 
 
-def load_active(db=None):
+def load_active(db: Database | None = None) -> tuple[int, Profile, str] | None:
     """The active profile, or None. Returns (version, Profile, summary_text)."""
     owned = db is None
     db = db or Database()
@@ -109,7 +134,7 @@ def load_active(db=None):
             db.close()
 
 
-def load_active_row(db=None):
+def load_active_row(db: Database | None = None) -> dict[str, Any] | None:
     """The active profile row as a dict, for the API. None if no profile exists."""
     owned = db is None
     db = db or Database()
@@ -138,7 +163,7 @@ def load_active_row(db=None):
             db.close()
 
 
-def list_versions(db=None):
+def list_versions(db: Database | None = None) -> list[dict[str, Any]]:
     owned = db is None
     db = db or Database()
     try:
@@ -160,7 +185,7 @@ def list_versions(db=None):
             db.close()
 
 
-def corpus_changed(documents, db=None):
+def corpus_changed(documents: list[Document], db: Database | None = None) -> bool | None:
     """Whether the corpus differs from what the active profile was built on.
 
     None means there is no active profile to compare against.
@@ -170,9 +195,7 @@ def corpus_changed(documents, db=None):
     owned = db is None
     db = db or Database()
     try:
-        row = db.conn.execute(
-            "SELECT corpus_hash FROM profiles WHERE is_active = 1"
-        ).fetchone()
+        row = db.conn.execute("SELECT corpus_hash FROM profiles WHERE is_active = 1").fetchone()
         if row is None or row["corpus_hash"] is None:
             return None
         return row["corpus_hash"] != corpus_hash(documents)

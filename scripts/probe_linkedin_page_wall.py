@@ -51,12 +51,15 @@ import json
 import os
 import sys
 import time
+from collections.abc import Callable
 from datetime import datetime, timezone
+from typing import Any
 
 from bs4 import BeautifulSoup
 
-EXPERIMENTS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                                "experiments", "linkedin_page_wall")
+EXPERIMENTS_DIR = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "experiments", "linkedin_page_wall"
+)
 SEARCH_URL = "https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search"
 
 # Minutes-after-first-anomaly to re-probe with a single request, to measure backoff
@@ -65,14 +68,14 @@ SEARCH_URL = "https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/se
 RECOVERY_CHECKPOINTS_MIN = [5, 15, 30, 60, 120]
 
 
-def redact(proxy):
+def redact(proxy: str | None) -> str | None:
     """Same redaction as search/proxies.py -- credentials never reach stdout or the log."""
     if not proxy or "@" not in proxy:
         return proxy
     return "***@" + proxy.rsplit("@", 1)[1]
 
 
-def pick_proxy(proxy_arg, proxy_index):
+def pick_proxy(proxy_arg: str | None, proxy_index: int) -> str | None:
     if proxy_arg:
         return proxy_arg
     raw = os.environ.get("SCRAPER_PROXIES", "").strip()
@@ -82,12 +85,14 @@ def pick_proxy(proxy_arg, proxy_index):
     if not pool:
         return None
     if proxy_index >= len(pool):
-        raise SystemExit(f"--proxy-index {proxy_index} out of range: "
-                          f"pool has {len(pool)} entr{'y' if len(pool) == 1 else 'ies'}.")
+        raise SystemExit(
+            f"--proxy-index {proxy_index} out of range: "
+            f"pool has {len(pool)} entr{'y' if len(pool) == 1 else 'ies'}."
+        )
     return pool[proxy_index]
 
 
-def build_session(proxy):
+def build_session(proxy: str | None) -> Any:
     # Same session JobSpy's LinkedIn scraper builds: RequestsRotating, no TLS
     # fingerprinting, retry on transient network errors, cookies cleared per request.
     # A single-element list means proxy_cycle always yields this one entry -- pinned for
@@ -95,14 +100,24 @@ def build_session(proxy):
     from jobspy.linkedin.constant import headers
     from jobspy.util import create_session
 
-    session = create_session(proxies=[proxy] if proxy else None, is_tls=False,
-                              has_retry=True, delay=5, clear_cookies=True)
+    # create_session's declared type is `dict | str | None`, but RequestsRotating's
+    # underlying RotatingProxySession accepts a list to build its proxy_cycle -- the
+    # stub is narrower than what the runtime actually does.
+    session = create_session(
+        proxies=[proxy] if proxy else None,  # type: ignore[arg-type]
+        is_tls=False,
+        has_retry=True,
+        delay=5,
+        clear_cookies=True,
+    )
     session.headers.update(headers)
     return session
 
 
-def fetch_page(session, query, location, start, hours_old):
-    params = {
+def fetch_page(
+    session: Any, query: str, location: str, start: int, hours_old: int | None
+) -> dict[str, Any]:
+    params: dict[str, Any] = {
         "keywords": query,
         "location": location,
         "pageNum": 0,
@@ -140,13 +155,14 @@ def fetch_page(session, query, location, start, hours_old):
         # interstitial, or a suspicious empty 200 -- so normal runs stay small.
         "body_snippet": resp.text[:500] if anomaly else None,
         "headers": {
-            k: v for k, v in resp.headers.items()
+            k: v
+            for k, v in resp.headers.items()
             if k.lower() in ("retry-after", "x-li-uuid", "x-fs-uuid", "content-length")
         },
     }
 
 
-def run_probe(args, writer):
+def run_probe(args: argparse.Namespace, writer: Callable[[dict[str, Any]], None]) -> None:
     session = build_session(args.proxy)
     start = 0
     consecutive_anomalies = 0
@@ -168,24 +184,33 @@ def run_probe(args, writer):
             **result,
         }
         writer(record)
-        print(f"  page {page:>3} (start={start:>4}): "
-              f"status={result['status_code']} cards={result['job_cards']} "
-              f"{result['elapsed_ms']}ms"
-              + (f"  <-- ANOMALY" if result["job_cards"] == 0
-                 or result["status_code"] not in range(200, 400) else ""))
+        print(
+            f"  page {page:>3} (start={start:>4}): "
+            f"status={result['status_code']} cards={result['job_cards']} "
+            f"{result['elapsed_ms']}ms"
+            + (
+                "  <-- ANOMALY"
+                if result["job_cards"] == 0 or result["status_code"] not in range(200, 400)
+                else ""
+            )
+        )
 
-        is_anomaly = (result["status_code"] is None
-                      or result["status_code"] not in range(200, 400)
-                      or result["job_cards"] == 0)
+        is_anomaly = (
+            result["status_code"] is None
+            or result["status_code"] not in range(200, 400)
+            or result["job_cards"] == 0
+        )
         if is_anomaly:
             consecutive_anomalies += 1
             if first_anomaly_page is None:
                 first_anomaly_page = page
             if consecutive_anomalies >= 2:
                 wall_confirmed = True
-                print(f"\nWall hit: 2 consecutive anomalies starting at page "
-                      f"{first_anomaly_page} (start_offset="
-                      f"{start - (result['job_cards'] or 0)}).")
+                print(
+                    f"\nWall hit: 2 consecutive anomalies starting at page "
+                    f"{first_anomaly_page} (start_offset="
+                    f"{start - (result['job_cards'] or 0)})."
+                )
                 break
         else:
             consecutive_anomalies = 0
@@ -199,13 +224,17 @@ def run_probe(args, writer):
             # LinkedIn's own guest-API pagination ceiling (JobSpy hardcodes start < 1000),
             # a generic end-of-result-window every search engine has, not IP-based
             # blocking. Don't chase it into a multi-hour recovery check.
-            print(f"\nNo wall found in {args.max_pages} pages. One trailing anomaly at "
-                  f"page {first_anomaly_page} -- likely the API's own result-window "
-                  f"ceiling (start reached ~1000), not a block. Raise --max-pages only "
-                  f"if start_offset was well under 1000 when this printed.")
+            print(
+                f"\nNo wall found in {args.max_pages} pages. One trailing anomaly at "
+                f"page {first_anomaly_page} -- likely the API's own result-window "
+                f"ceiling (start reached ~1000), not a block. Raise --max-pages only "
+                f"if start_offset was well under 1000 when this printed."
+            )
         else:
-            print(f"\nNo wall found in {args.max_pages} pages -- raise --max-pages to "
-                  f"look further, or the wall is above what was tested.")
+            print(
+                f"\nNo wall found in {args.max_pages} pages -- raise --max-pages to "
+                f"look further, or the wall is above what was tested."
+            )
 
     if not wall_confirmed or args.no_recovery_check:
         return
@@ -224,20 +253,22 @@ def run_probe(args, writer):
             **result,
         }
         writer(record)
-        recovered = (result["status_code"] in range(200, 400)
-                     and result["job_cards"] > 0)
-        print(f"  +{minutes}min: status={result['status_code']} "
-              f"cards={result['job_cards']} "
-              f"{'RECOVERED' if recovered else 'still blocked'}")
+        recovered = result["status_code"] in range(200, 400) and result["job_cards"] > 0
+        print(
+            f"  +{minutes}min: status={result['status_code']} "
+            f"cards={result['job_cards']} "
+            f"{'RECOVERED' if recovered else 'still blocked'}"
+        )
         if recovered:
-            print(f"\nBackoff duration: recovered within {minutes} minutes of first "
-                  f"anomaly.")
+            print(f"\nBackoff duration: recovered within {minutes} minutes of first anomaly.")
             return
-    print("\nStill blocked after all checkpoints -- backoff exceeds "
-          f"{RECOVERY_CHECKPOINTS_MIN[-1]} minutes.")
+    print(
+        "\nStill blocked after all checkpoints -- backoff exceeds "
+        f"{RECOVERY_CHECKPOINTS_MIN[-1]} minutes."
+    )
 
 
-def summarize():
+def summarize() -> None:
     if not os.path.isdir(EXPERIMENTS_DIR):
         print(f"No runs yet -- {EXPERIMENTS_DIR} does not exist.")
         return
@@ -260,51 +291,88 @@ def summarize():
     for run_id, records in runs.items():
         proxy = records[0].get("proxy") or "(none - local IP)"
         ascend = [r for r in records if r["phase"] == "ascend"]
-        anomaly_pages = [r["page"] for r in ascend
-                          if r["job_cards"] == 0
-                          or r["status_code"] not in range(200, 400)]
+        anomaly_pages = [
+            r["page"]
+            for r in ascend
+            if r["job_cards"] == 0 or r["status_code"] not in range(200, 400)
+        ]
         first_anomaly = anomaly_pages[0] if anomaly_pages else "none in range"
-        recovery = [r for r in records if r["phase"] == "recovery"
-                    and r["status_code"] in range(200, 400) and r["job_cards"] > 0]
+        recovery = [
+            r
+            for r in records
+            if r["phase"] == "recovery"
+            and r["status_code"] in range(200, 400)
+            and r["job_cards"] > 0
+        ]
         recovered_at = f"{recovery[0]['checkpoint_minutes']}min" if recovery else "-"
-        print(f"{run_id:<22} {proxy:<24} {str(first_anomaly):<20} {recovered_at:<15}")
+        print(f"{run_id:<22} {proxy:<24} {first_anomaly!s:<20} {recovered_at:<15}")
 
 
-def main():
-    parser = argparse.ArgumentParser(description=__doc__,
-                                      formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--query", default="software engineer",
-                         help="Broad, high-volume query so exhausting real results "
-                              "before the wall is unlikely.")
-    parser.add_argument("--location", default="United States",
-                         help="Broad location, same reasoning as --query.")
-    parser.add_argument("--hours-old", type=int, default=336,
-                         help="Matches the backfill_hours_old prod actually uses.")
-    parser.add_argument("--max-pages", type=int, default=40,
-                         help="~25 results/page; LinkedIn's guest API caps start<1000, "
-                              "i.e. ~40 pages is the hard ceiling anyway.")
-    parser.add_argument("--pace-seconds", type=float, default=5.0,
-                         help="Delay between pages. JobSpy's own internal pacing during "
-                              "a real scrape is random 3-7s -- default matches that so "
-                              "the probe measures the wall under real operating "
-                              "conditions, not an artificially slow or fast one.")
-    parser.add_argument("--no-recovery-check", action="store_true",
-                         help="Skip measuring how long the block lasts after it's hit.")
-    parser.add_argument("--proxy", default=None,
-                         help="Explicit 'user:pass@host:port' to pin for the whole run. "
-                              "Defaults to entry --proxy-index of $SCRAPER_PROXIES, the "
-                              "same env var production reads.")
-    parser.add_argument("--proxy-index", type=int, default=0,
-                         help="Which entry of $SCRAPER_PROXIES to pin when --proxy is "
-                              "not given (0-based). Ignored if --proxy is set.")
-    parser.add_argument("--no-proxy", action="store_true",
-                         help="Hit LinkedIn directly from this machine's own IP instead "
-                              "of a proxy. Off by default: production's un-proxied "
-                              "traffic doesn't exist (SCRAPER_PROXIES is always set), so "
-                              "this measures an IP nothing actually scrapes from.")
+def main() -> None:
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    parser.add_argument(
+        "--query",
+        default="software engineer",
+        help="Broad, high-volume query so exhausting real results before the wall is unlikely.",
+    )
+    parser.add_argument(
+        "--location", default="United States", help="Broad location, same reasoning as --query."
+    )
+    parser.add_argument(
+        "--hours-old",
+        type=int,
+        default=336,
+        help="Matches the backfill_hours_old prod actually uses.",
+    )
+    parser.add_argument(
+        "--max-pages",
+        type=int,
+        default=40,
+        help="~25 results/page; LinkedIn's guest API caps start<1000, "
+        "i.e. ~40 pages is the hard ceiling anyway.",
+    )
+    parser.add_argument(
+        "--pace-seconds",
+        type=float,
+        default=5.0,
+        help="Delay between pages. JobSpy's own internal pacing during "
+        "a real scrape is random 3-7s -- default matches that so "
+        "the probe measures the wall under real operating "
+        "conditions, not an artificially slow or fast one.",
+    )
+    parser.add_argument(
+        "--no-recovery-check",
+        action="store_true",
+        help="Skip measuring how long the block lasts after it's hit.",
+    )
+    parser.add_argument(
+        "--proxy",
+        default=None,
+        help="Explicit 'user:pass@host:port' to pin for the whole run. "
+        "Defaults to entry --proxy-index of $SCRAPER_PROXIES, the "
+        "same env var production reads.",
+    )
+    parser.add_argument(
+        "--proxy-index",
+        type=int,
+        default=0,
+        help="Which entry of $SCRAPER_PROXIES to pin when --proxy is "
+        "not given (0-based). Ignored if --proxy is set.",
+    )
+    parser.add_argument(
+        "--no-proxy",
+        action="store_true",
+        help="Hit LinkedIn directly from this machine's own IP instead "
+        "of a proxy. Off by default: production's un-proxied "
+        "traffic doesn't exist (SCRAPER_PROXIES is always set), so "
+        "this measures an IP nothing actually scrapes from.",
+    )
     parser.add_argument("--run-id", default=None)
-    parser.add_argument("--summarize", action="store_true",
-                         help="Print results from all prior runs and exit.")
+    parser.add_argument(
+        "--summarize", action="store_true", help="Print results from all prior runs and exit."
+    )
     args = parser.parse_args()
 
     if args.summarize:
@@ -325,15 +393,17 @@ def main():
     os.makedirs(EXPERIMENTS_DIR, exist_ok=True)
     out_path = os.path.join(EXPERIMENTS_DIR, f"{args.run_id}.jsonl")
 
-    print(f"Probing LinkedIn page wall.")
+    print("Probing LinkedIn page wall.")
     print(f"  proxy={redact(args.proxy) if args.proxy else '(none - local IP)'}")
     print(f"  query={args.query!r} location={args.location!r} pace={args.pace_seconds}s")
     print(f"  writing to {out_path}\n")
 
     with open(out_path, "a", encoding="utf-8") as fh:
-        def writer(record):
+
+        def writer(record: dict[str, Any]) -> None:
             fh.write(json.dumps(record) + "\n")
             fh.flush()
+
         try:
             run_probe(args, writer)
         except KeyboardInterrupt:

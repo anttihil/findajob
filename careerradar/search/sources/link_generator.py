@@ -1,26 +1,26 @@
 import urllib.parse
-from typing import ClassVar
+from typing import Any, ClassVar
 
 
 class LinkGenerator:
-    COUNTRY_LOCATIONS: ClassVar[dict] = {
+    COUNTRY_LOCATIONS: ClassVar[dict[str, str]] = {
         "US": "United States",
         "FI": "Finland",
         "SE": "Sweden",
         "NO": "Norway",
-        "DK": "Denmark"
+        "DK": "Denmark",
     }
 
-    INDEED_DOMAINS: ClassVar[dict] = {
+    INDEED_DOMAINS: ClassVar[dict[str, str]] = {
         "US": "www.indeed.com",
         "FI": "fi.indeed.com",
         "SE": "se.indeed.com",
         "NO": "no.indeed.com",
-        "DK": "dk.indeed.com"
+        "DK": "dk.indeed.com",
     }
 
     @staticmethod
-    def generate_links(skills, country, query):
+    def generate_links(skills: list[str], country: str, query: str) -> dict[str, Any]:
         """
         Generates LinkedIn and Indeed search links based on keywords and target country.
         """
@@ -30,11 +30,27 @@ class LinkGenerator:
         # Select the top 4-5 skills to keep the search query concise and highly relevant
         # Filter for known major tech terms
         major_skills = [
-            s for s in skills
-            if s.lower() in [
-                "python", "typescript", "react", "fastapi", "docker", "terraform", "aws",
-                "postgresql", "ansible", "kubernetes", "django", "node.js", "php", "web sockets",
-                "vllm", "ollama", "devops"
+            s
+            for s in skills
+            if s.lower()
+            in [
+                "python",
+                "typescript",
+                "react",
+                "fastapi",
+                "docker",
+                "terraform",
+                "aws",
+                "postgresql",
+                "ansible",
+                "kubernetes",
+                "django",
+                "node.js",
+                "php",
+                "web sockets",
+                "vllm",
+                "ollama",
+                "devops",
             ]
         ]
         major_skills = skills[:4] if not major_skills else major_skills[:4]
@@ -59,5 +75,5 @@ class LinkGenerator:
             "linkedin": linkedin_url,
             "indeed": indeed_url,
             "search_query_used": keywords,
-            "location_used": location
+            "location_used": location,
         }

@@ -17,17 +17,28 @@ an empty mapping so `keyword_score._resume_component` degrades to its documented
 "mapped-but-missing" branch rather than raising.
 """
 
+from typing import TYPE_CHECKING, Any
+
 from careerradar.profile.models import LEVEL_MENTIONED, Profile
+
+if TYPE_CHECKING:
+    from careerradar.core.database import Database
+    from careerradar.taxonomy.skills import Taxonomy
 
 
 class ProfileAdapter:
     """A Profile wearing the old UserProfile interface."""
 
-    def __init__(self, profile: Profile, version=None, taxonomy=None):
+    def __init__(
+        self,
+        profile: Profile,
+        version: int | None = None,
+        taxonomy: "Taxonomy | None" = None,
+    ) -> None:
         self.profile = profile
         self.version = version
         self.taxonomy = taxonomy
-        self.skills = {
+        self.skills: dict[str, dict[str, Any]] = {
             skill.key: {
                 "level": skill.level,
                 "label": skill.label,
@@ -37,30 +48,30 @@ class ProfileAdapter:
             for skill in profile.skills
         }
         # The unified profile has no resume variants; see the module docstring.
-        self.variants = {}
+        self.variants: dict[str, Any] = {}
         self.sources = [f"profile v{version}"] if version else ["profile"]
 
-    def has(self, key, min_level=LEVEL_MENTIONED):
+    def has(self, key: str, min_level: int = LEVEL_MENTIONED) -> bool:
         return self.level(key) >= min_level
 
-    def level(self, key):
+    def level(self, key: str) -> int:
         record = self.skills.get(key)
         return record["level"] if record else 0
 
-    def keys(self, min_level=LEVEL_MENTIONED):
+    def keys(self, min_level: int = LEVEL_MENTIONED) -> set[str]:
         return {k for k, v in self.skills.items() if v["level"] >= min_level}
 
-    def evidence(self, key):
+    def evidence(self, key: str) -> list[str]:
         record = self.skills.get(key)
         return record["evidence"] if record else []
 
-    def by_category(self):
+    def by_category(self) -> dict[str, list[dict[str, Any]]]:
         """Group skills by taxonomy category, for the dashboard.
 
         Falls back to a single bucket when no taxonomy is attached, rather than failing --
         callers use this for display only.
         """
-        grouped = {}
+        grouped: dict[str, list[dict[str, Any]]] = {}
         for key, record in self.skills.items():
             # `taxonomy.skills[key]` is a Skill object with __slots__, not a mapping, so
             # the .get() this used to do raised AttributeError for every known key -- the
@@ -76,7 +87,7 @@ class ProfileAdapter:
             entries.sort(key=lambda e: (-e["level"], e["key"]))
         return grouped
 
-    def to_dict(self):
+    def to_dict(self) -> dict[str, Any]:
         return {
             "version": self.version,
             "bio": self.profile.bio,
@@ -95,10 +106,10 @@ class ProfileAdapter:
             "by_category": self.by_category(),
         }
 
-    def __len__(self):
+    def __len__(self) -> int:
         return len(self.skills)
 
-    def __contains__(self, key):
+    def __contains__(self, key: str) -> bool:
         return key in self.skills
 
 
@@ -111,16 +122,18 @@ class NoActiveProfile(RuntimeError):
     """
 
 
-def load_profile(db=None, taxonomy=None, required=True):
+def load_profile(
+    db: "Database | None" = None,
+    taxonomy: "Taxonomy | None" = None,
+    required: bool = True,
+) -> ProfileAdapter | None:
     """Load the active profile as a ProfileAdapter."""
     from careerradar.profile.store import load_active
 
     loaded = load_active(db=db)
     if loaded is None:
         if required:
-            raise NoActiveProfile(
-                "No active profile. Build one first:  careerradar profile build"
-            )
+            raise NoActiveProfile("No active profile. Build one first:  careerradar profile build")
         return None
     version, profile, _summary = loaded
     return ProfileAdapter(profile, version=version, taxonomy=taxonomy)

@@ -28,6 +28,10 @@ Two properties the tests pin down, because both fail silently in production:
 import math
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from careerradar.taxonomy.roles import RoleTaxonomy
 
 EWMA_ALPHA = 0.4
 
@@ -52,16 +56,16 @@ class CellState:
     query: str
     tier: str = "breadth"
     enabled: int = 1
-    last_scraped_at: str = None
-    last_success_at: str = None
+    last_scraped_at: str | None = None
+    last_success_at: str | None = None
     last_result_count: int = 0
     last_saturated: int = 0
-    last_hours_old: int = None
-    ewma_new_per_scrape: float = None
+    last_hours_old: int | None = None
+    ewma_new_per_scrape: float | None = None
     consecutive_empty: int = 0
     consecutive_error: int = 0
     total_scrapes: int = 0
-    backoff_until: str = None
+    backoff_until: str | None = None
 
 
 @dataclass
@@ -71,7 +75,7 @@ class ScrapeTask:
     query: str
     location_id: str
     location_label: str
-    country: str
+    country: str | None
     indeed_country: str
     is_remote: bool
     distance: int
@@ -81,32 +85,39 @@ class ScrapeTask:
     desc_selection: str
     # Provenance only. role_family is re-derived from each posting's title, because the
     # query is a poor predictor of what the board returns.
-    role_family: str = None
-    tier: str = None
+    role_family: str | None = None
+    tier: str | None = None
     est_request_units: float = 0.0
     # The cell's persisted EWMA of new-postings-per-scrape, carried through so the
     # observation writer can smooth against it. Without it the writer has no prior and the
     # stored value degenerates to "whatever the last run returned".
-    ewma_new_per_scrape: float = None
-    extra: dict = field(default_factory=dict)
+    ewma_new_per_scrape: float | None = None
+    extra: dict[str, Any] = field(default_factory=dict)
 
-    def to_dict(self):
+    def to_dict(self) -> dict[str, Any]:
         return {
-            "cell_id": self.cell_id, "source": self.source, "query": self.query,
-            "location_id": self.location_id, "location_label": self.location_label,
-            "country": self.country, "indeed_country": self.indeed_country,
-            "is_remote": self.is_remote, "distance": self.distance,
-            "results_wanted": self.results_wanted, "hours_old": self.hours_old,
+            "cell_id": self.cell_id,
+            "source": self.source,
+            "query": self.query,
+            "location_id": self.location_id,
+            "location_label": self.location_label,
+            "country": self.country,
+            "indeed_country": self.indeed_country,
+            "is_remote": self.is_remote,
+            "distance": self.distance,
+            "results_wanted": self.results_wanted,
+            "hours_old": self.hours_old,
             "fetch_description": self.fetch_description,
             "desc_selection": self.desc_selection,
-            "role_family": self.role_family, "tier": self.tier,
+            "role_family": self.role_family,
+            "tier": self.tier,
             "est_request_units": self.est_request_units,
             "ewma_new_per_scrape": self.ewma_new_per_scrape,
             "proxies": self.extra.get("proxies") or [],
         }
 
 
-def with_location_weights(scraper_config, roles):
+def with_location_weights(scraper_config: dict[str, Any], roles: "RoleTaxonomy") -> dict[str, Any]:
     """Copy of `scraper_config` carrying roles.yaml's per-location weights.
 
     Weights are declared in roles.yaml but consumed here, off the scraper config. Every
@@ -123,7 +134,7 @@ def with_location_weights(scraper_config, roles):
     return merged
 
 
-def _parse(value):
+def _parse(value: datetime | str | None) -> datetime | None:
     if value is None:
         return None
     if isinstance(value, datetime):
@@ -135,21 +146,21 @@ def _parse(value):
     return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
 
 
-def hours_since(value, now, default=1e4):
+def hours_since(value: datetime | str | None, now: datetime, default: float = 1e4) -> float:
     parsed = _parse(value)
     if parsed is None:
         return default
     return max(0.0, (now - parsed).total_seconds() / 3600.0)
 
 
-def is_eligible(cell, now):
+def is_eligible(cell: CellState, now: datetime) -> bool:
     if not cell.enabled:
         return False
     backoff = _parse(cell.backoff_until)
     return backoff is None or backoff <= now
 
 
-def cell_priority(cell, config, now):
+def cell_priority(cell: CellState, config: dict[str, Any], now: datetime) -> float:
     """Higher is more urgent.
 
     `urgency` is deliberately UNBOUNDED. An earlier version capped it, which looked like
@@ -167,15 +178,11 @@ def cell_priority(cell, config, now):
     urgency = staleness / max(cadence, 1)
 
     tier_weight = TIER_WEIGHT.get(cell.tier, 0.3)
-    location_weight = (
-        (config.get("locations") or {}).get(cell.location_id, {}).get("weight", 1.0)
-    )
+    location_weight = (config.get("locations") or {}).get(cell.location_id, {}).get("weight", 1.0)
 
     # Log-damped so one hot cell cannot monopolise the rotation.
     yield_estimate = (
-        cell.ewma_new_per_scrape
-        if cell.ewma_new_per_scrape is not None
-        else DEFAULT_NEW_PER_SCRAPE
+        cell.ewma_new_per_scrape if cell.ewma_new_per_scrape is not None else DEFAULT_NEW_PER_SCRAPE
     )
     productivity = math.log1p(max(yield_estimate, 0.0)) / math.log1p(20.0)
 
@@ -197,7 +204,9 @@ def cell_priority(cell, config, now):
     )
 
 
-def starved_cells(cells, config, now, source=None):
+def starved_cells(
+    cells: list[CellState], config: dict[str, Any], now: datetime, source: str | None = None
+) -> list[CellState]:
     """Cells past their tier's hard deadline, which must be scheduled regardless of rank.
 
     This is an explicit guarantee rather than an emergent one. Deadline is
@@ -218,14 +227,13 @@ def starved_cells(cells, config, now, source=None):
     # Most overdue relative to its own deadline first.
     return sorted(
         out,
-        key=lambda c: -(
-            hours_since(c.last_scraped_at, now)
-            / max(cadences.get(c.tier, 168) * multiple, 1)
+        key=lambda c: (
+            -(hours_since(c.last_scraped_at, now) / max(cadences.get(c.tier, 168) * multiple, 1))
         ),
     )
 
 
-def adaptive_hours_old(cell, config, now):
+def adaptive_hours_old(cell: CellState, config: dict[str, Any], now: datetime) -> int:
     """Derive hours_old from the ACTUAL revisit gap, not from a static config value.
 
     Overlap is desirable: dedup absorbs it, and overlap is what keeps the exposure-interval
@@ -233,14 +241,12 @@ def adaptive_hours_old(cell, config, now):
     """
     floors = config.get("hours_old_floor") or {}
     floor = floors.get(cell.tier, 168)
-    gap = hours_since(
-        cell.last_success_at, now, default=config.get("backfill_hours_old", 336)
-    )
+    gap = hours_since(cell.last_success_at, now, default=config.get("backfill_hours_old", 336))
     ceiling = config.get("max_hours_old", 336)
     return int(min(ceiling, max(floor, 1.5 * gap)))
 
 
-def results_wanted_for(cell, config, source):
+def results_wanted_for(cell: CellState, config: dict[str, Any], source: str) -> int:
     budget = (config.get("budgets") or {}).get(source, {})
     default = budget.get("results_wanted_default", 50)
     maximum = budget.get("max_results_wanted", 200)
@@ -252,7 +258,7 @@ def results_wanted_for(cell, config, source):
     return int(min(maximum, max(25, wanted)))
 
 
-def estimate_units(source, results_wanted, config):
+def estimate_units(source: str, results_wanted: int, config: dict[str, Any]) -> float:
     """Cost model that makes the two sources commensurable.
 
     Indeed returns ~15 results per GraphQL page with descriptions included. LinkedIn
@@ -265,7 +271,14 @@ def estimate_units(source, results_wanted, config):
     return float(pages)
 
 
-def _make_task(cell, config, roles, source, now, backfill=False):
+def _make_task(
+    cell: CellState,
+    config: dict[str, Any],
+    roles: "RoleTaxonomy",
+    source: str,
+    now: datetime,
+    backfill: bool = False,
+) -> ScrapeTask:
     location = roles.locations.get(cell.location_id)
     budget = (config.get("budgets") or {}).get(source, {})
     fetch_setting = budget.get("fetch_descriptions", False)
@@ -320,7 +333,14 @@ def _make_task(cell, config, roles, source, now, backfill=False):
     )
 
 
-def select_cells(cells, config, roles, source, now=None, backfill=False):
+def select_cells(
+    cells: list[CellState],
+    config: dict[str, Any],
+    roles: "RoleTaxonomy",
+    source: str,
+    now: datetime | None = None,
+    backfill: bool = False,
+) -> list[ScrapeTask]:
     """Pick this run's cells for one source, within budget.
 
     `cells` is every persisted cell for the source; filtering, ranking, and budgeting all
@@ -333,9 +353,7 @@ def select_cells(cells, config, roles, source, now=None, backfill=False):
     max_pages = budget.get("max_pages_per_run")
 
     eligible = [c for c in cells if is_eligible(c, now)]
-    ranked = sorted(
-        eligible, key=lambda c: (-cell_priority(c, config, now), c.id)
-    )
+    ranked = sorted(eligible, key=lambda c: (-cell_priority(c, config, now), c.id))
 
     # Cells past their tier deadline go first, then the priority ranking fills the rest.
     # Coverage is therefore an explicit guarantee, not something emerging from the product
@@ -367,8 +385,16 @@ def select_cells(cells, config, roles, source, now=None, backfill=False):
     )
 
 
-def enforce_staleness_floor(picked, ranked, cells, config, roles, source, now,  # noqa: ARG001 - signature parity with the other staleness passes
-                            backfill=False):
+def enforce_staleness_floor(
+    picked: list[ScrapeTask],
+    ranked: list[CellState],
+    cells: list[CellState],  # noqa: ARG001 - signature parity with the other staleness passes
+    config: dict[str, Any],
+    roles: "RoleTaxonomy",
+    source: str,
+    now: datetime,
+    backfill: bool = False,
+) -> list[ScrapeTask]:
     """Guarantee core cells in high-weight locations are visited within the floor.
 
     Keys on last_SUCCESS_at, not last_scraped_at: a repeatedly-failing cell must still read
@@ -379,7 +405,8 @@ def enforce_staleness_floor(picked, ranked, cells, config, roles, source, now,  
     chosen_ids = {t.cell_id for t in picked}
 
     overdue = [
-        c for c in ranked
+        c
+        for c in ranked
         if c.tier == "core"
         and location_weights.get(c.location_id, {}).get("weight", 1.0) >= 1.0
         and hours_since(c.last_success_at, now) > floor
@@ -394,14 +421,14 @@ def enforce_staleness_floor(picked, ranked, cells, config, roles, source, now,  
             break
         # `picked` is priority-ordered, so the last entry is the cheapest to drop.
         result.pop()
-        result.append(
-            _make_task(cell, config, roles, source, now, backfill=backfill)
-        )
+        result.append(_make_task(cell, config, roles, source, now, backfill=backfill))
 
     return result
 
 
-def overdue_cells(cells, config, now=None):
+def overdue_cells(
+    cells: list[CellState], config: dict[str, Any], now: datetime | None = None
+) -> list[CellState]:
     """Core cells past the staleness floor, for the coverage warning and for suppression.
 
     A scheduler coverage failure must surface as a *suppression reason* on the affected
@@ -411,7 +438,8 @@ def overdue_cells(cells, config, now=None):
     floor = config.get("max_staleness_hours", 72)
     weights = config.get("locations") or {}
     return [
-        c for c in cells
+        c
+        for c in cells
         if c.enabled
         and c.tier == "core"
         and weights.get(c.location_id, {}).get("weight", 1.0) >= 1.0
@@ -419,13 +447,13 @@ def overdue_cells(cells, config, now=None):
     ]
 
 
-def update_ewma(previous, observed, alpha=EWMA_ALPHA):
+def update_ewma(previous: float | None, observed: float, alpha: float = EWMA_ALPHA) -> float:
     if previous is None:
         return float(observed)
     return alpha * float(observed) + (1 - alpha) * float(previous)
 
 
-def is_saturated(returned, requested, threshold=0.95):
+def is_saturated(returned: int, requested: int, threshold: float = 0.95) -> bool:
     """Saturation is right-censoring: the board truncated us, so the count is a lower bound.
 
     This is the informative case, not a nuisance -- an unsaturated cell saw essentially

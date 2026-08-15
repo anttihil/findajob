@@ -17,33 +17,34 @@ what it produces.
 
 import argparse
 import sys
+from typing import Any
 
 
-def _cmd_score_stats(args):
+def _cmd_score_stats(args: argparse.Namespace) -> Any:
     from careerradar.scoring.stats import run_stats
 
     return run_stats(args.profile_version, scale_version=args.scale_version)
 
 
-def _cmd_score_audit(args):
+def _cmd_score_audit(args: argparse.Namespace) -> Any:
     from careerradar.scoring.audit_report import run_audit
 
     return run_audit(args.profile_version, limit=args.limit)
 
 
-def _cmd_score_retry(args):
+def _cmd_score_retry(args: argparse.Namespace) -> Any:
     from careerradar.scoring.worker import run_retry
 
     return run_retry(args.job_id)
 
 
-def _cmd_score_rescale(args):
+def _cmd_score_rescale(args: argparse.Namespace) -> Any:
     from careerradar.scoring.rescale import rescale
 
     return rescale(args.profile_version, dry_run=args.dry_run)
 
 
-def _cmd_search(args):
+def _cmd_search(args: argparse.Namespace) -> Any:
     from careerradar.search.runner import run_sync
 
     return run_sync(
@@ -56,7 +57,7 @@ def _cmd_search(args):
     )
 
 
-def _cmd_score(args):
+def _cmd_score(args: argparse.Namespace) -> Any:
     from careerradar.scoring.worker import run_scoring
 
     return run_scoring(
@@ -66,25 +67,25 @@ def _cmd_score(args):
     )
 
 
-def _cmd_research(args):
+def _cmd_research(args: argparse.Namespace) -> Any:
     from careerradar.research.worker import run_research
 
     return run_research(company=args.company, limit=args.limit, dry_run=args.dry_run)
 
 
-def _cmd_profile(args):
+def _cmd_profile(args: argparse.Namespace) -> Any:
     from careerradar.profile.cli import run_profile_command
 
     return run_profile_command(args)
 
 
-def _cmd_seed_cells(args):
+def _cmd_seed_cells(args: argparse.Namespace) -> Any:
     from careerradar.search.seed import seed_cells
 
     return seed_cells(prune=args.prune, queries_per_family=args.queries_per_family)
 
 
-def _cmd_migrate(args):  # noqa: ARG001 - argparse handler signature
+def _cmd_migrate(args: argparse.Namespace) -> int:  # noqa: ARG001 - argparse handler signature
     import sqlite3
 
     from careerradar.core.migrations import current_version, migrate
@@ -99,29 +100,31 @@ def _cmd_migrate(args):  # noqa: ARG001 - argparse handler signature
     return 0
 
 
-def _cmd_web(args):
+def _cmd_web(args: argparse.Namespace) -> int:
     import uvicorn
 
-    uvicorn.run(
-        "careerradar.web.app:app", host=args.host, port=args.port, reload=args.reload
-    )
+    uvicorn.run("careerradar.web.app:app", host=args.host, port=args.port, reload=args.reload)
     return 0
 
 
-def build_parser():
-    parser = argparse.ArgumentParser(prog="careerradar", description=__doc__.split("\n")[0])
+def build_parser() -> argparse.ArgumentParser:
+    doc = __doc__ or ""
+    parser = argparse.ArgumentParser(prog="careerradar", description=doc.split("\n")[0])
     sub = parser.add_subparsers(dest="command", required=True)
 
     # --- profile ---------------------------------------------------------------------
     p = sub.add_parser("profile", help="build or inspect the candidate profile")
     psub = p.add_subparsers(dest="subcommand", required=True)
     pb = psub.add_parser("build", help="run the document ingest + interview wizard")
-    pb.add_argument("--resume", action="store_true",
-                    help="continue an interview left unfinished")
-    pb.add_argument("--force", action="store_true",
-                    help="rebuild even if the corpus has not changed")
-    pb.add_argument("--no-interview", action="store_true",
-                    help="build from the documents alone, skipping the interview")
+    pb.add_argument("--resume", action="store_true", help="continue an interview left unfinished")
+    pb.add_argument(
+        "--force", action="store_true", help="rebuild even if the corpus has not changed"
+    )
+    pb.add_argument(
+        "--no-interview",
+        action="store_true",
+        help="build from the documents alone, skipping the interview",
+    )
     psub.add_parser("show", help="print the active profile")
     psub.add_parser("history", help="list every profile version")
     p.set_defaults(func=_cmd_profile)
@@ -130,21 +133,29 @@ def build_parser():
     s = sub.add_parser("search", help="scrape job boards")
     ssub = s.add_subparsers(dest="subcommand", required=True)
     sr = ssub.add_parser("run", help="run one scrape pass")
-    sr.add_argument("--dry-run", action="store_true",
-                    help="plan and fetch, but write nothing")
-    sr.add_argument("--backfill", action="store_true",
-                    help="widen the recency window to seed a cold corpus")
+    sr.add_argument("--dry-run", action="store_true", help="plan and fetch, but write nothing")
+    sr.add_argument(
+        "--backfill", action="store_true", help="widen the recency window to seed a cold corpus"
+    )
     sr.add_argument("--limit", type=int, help="cap the number of cells scraped")
-    sr.add_argument("--source", action="append", dest="sources",
-                    choices=["indeed", "linkedin"], help="restrict to one source (repeatable)")
-    sr.add_argument("--rescore-only", action="store_true",
-                    help="recompute keyword scores over stored postings; no scraping")
-    sr.add_argument("--force", action="store_true",
-                    help="ignore the sync lock")
+    sr.add_argument(
+        "--source",
+        action="append",
+        dest="sources",
+        choices=["indeed", "linkedin"],
+        help="restrict to one source (repeatable)",
+    )
+    sr.add_argument(
+        "--rescore-only",
+        action="store_true",
+        help="recompute keyword scores over stored postings; no scraping",
+    )
+    sr.add_argument("--force", action="store_true", help="ignore the sync lock")
     sr.set_defaults(func=_cmd_search)
     sc = ssub.add_parser("seed-cells", help="rebuild the scrape cell matrix from roles.yaml")
-    sc.add_argument("--prune", action="store_true",
-                    help="disable cells no longer implied by roles.yaml")
+    sc.add_argument(
+        "--prune", action="store_true", help="disable cells no longer implied by roles.yaml"
+    )
     sc.add_argument("--queries-per-family", type=int, default=1)
     sc.set_defaults(func=_cmd_seed_cells)
 
@@ -153,40 +164,46 @@ def build_parser():
     scosub = sco.add_subparsers(dest="subcommand", required=True)
     scr = scosub.add_parser("run", help="drain unscored postings")
     scr.add_argument("--limit", type=int, help="cap the number of postings scored")
-    scr.add_argument("--rescore-all", action="store_true",
-                     help="re-score every posting, not just unscored ones")
-    scr.add_argument("--dry-run", action="store_true",
-                     help="estimate cost and exit without calling the model")
+    scr.add_argument(
+        "--rescore-all", action="store_true", help="re-score every posting, not just unscored ones"
+    )
+    scr.add_argument(
+        "--dry-run", action="store_true", help="estimate cost and exit without calling the model"
+    )
     scr.set_defaults(func=_cmd_score)
 
     scs = scosub.add_parser("stats", help="verdict distribution for a scored corpus")
-    scs.add_argument("--profile-version", type=int,
-                     help="defaults to the active profile")
-    scs.add_argument("--scale-version", type=int,
-                     help="restrict to one scale; 0 is the pre-v6 model-emitted score")
+    scs.add_argument("--profile-version", type=int, help="defaults to the active profile")
+    scs.add_argument(
+        "--scale-version",
+        type=int,
+        help="restrict to one scale; 0 is the pre-v6 model-emitted score",
+    )
     scs.set_defaults(func=_cmd_score_stats)
 
     sca = scosub.add_parser(
-        "audit", help="re-check stored verdicts against their own evidence (no API calls)")
-    sca.add_argument("--profile-version", type=int,
-                     help="defaults to the active profile")
+        "audit", help="re-check stored verdicts against their own evidence (no API calls)"
+    )
+    sca.add_argument("--profile-version", type=int, help="defaults to the active profile")
     sca.add_argument("--limit", type=int, help="cap the verdicts checked")
     sca.set_defaults(func=_cmd_score_audit)
 
     scy = scosub.add_parser(
-        "retry",
-        help="re-offer postings withdrawn after repeated scoring failures")
-    scy.add_argument("--job-id", type=int,
-                     help="clear one posting; defaults to every quarantined posting")
+        "retry", help="re-offer postings withdrawn after repeated scoring failures"
+    )
+    scy.add_argument(
+        "--job-id", type=int, help="clear one posting; defaults to every quarantined posting"
+    )
     scy.set_defaults(func=_cmd_score_retry)
 
     scl = scosub.add_parser(
         "rescale",
-        help="recompute fit_score from stored ordinals after a scale change (no API calls)")
-    scl.add_argument("--profile-version", type=int,
-                     help="defaults to every profile version")
-    scl.add_argument("--dry-run", action="store_true",
-                     help="print the band migration without writing")
+        help="recompute fit_score from stored ordinals after a scale change (no API calls)",
+    )
+    scl.add_argument("--profile-version", type=int, help="defaults to every profile version")
+    scl.add_argument(
+        "--dry-run", action="store_true", help="print the band migration without writing"
+    )
     scl.set_defaults(func=_cmd_score_rescale)
 
     # --- research --------------------------------------------------------------------
@@ -195,8 +212,7 @@ def build_parser():
     rr = rsub.add_parser("run", help="research companies behind high-scoring postings")
     rr.add_argument("--company", help="research one named company, ignoring the queue")
     rr.add_argument("--limit", type=int, help="cap the number of companies researched")
-    rr.add_argument("--dry-run", action="store_true",
-                    help="show what would be researched and exit")
+    rr.add_argument("--dry-run", action="store_true", help="show what would be researched and exit")
     rr.set_defaults(func=_cmd_research)
 
     # --- db / web --------------------------------------------------------------------
@@ -212,7 +228,7 @@ def build_parser():
     return parser
 
 
-def main(argv=None):
+def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     return args.func(args) or 0
 

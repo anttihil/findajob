@@ -33,18 +33,18 @@ from careerradar.profile.models import VERDICT_SCHEMA_VERSION
 
 
 class MigrationV7Tests(unittest.TestCase):
-    def setUp(self):
+    def setUp(self) -> None:
         self.tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
         self.tmp.close()
         self.conn = sqlite3.connect(self.tmp.name)
         self.conn.row_factory = sqlite3.Row
         self.migrate_to(6)
 
-    def tearDown(self):
+    def tearDown(self) -> None:
         self.conn.close()
         os.unlink(self.tmp.name)
 
-    def migrate_to(self, version):
+    def migrate_to(self, version: int) -> None:
         apply_pragmas(self.conn)
         cursor = self.conn.cursor()
         for target, _description, fn in MIGRATIONS:
@@ -54,7 +54,7 @@ class MigrationV7Tests(unittest.TestCase):
             cursor.execute(f"PRAGMA user_version = {int(target)}")
         self.conn.commit()
 
-    def seed(self, job_id, hard_blockers):
+    def seed(self, job_id: int, hard_blockers: str | None) -> None:
         self.conn.execute(
             "INSERT INTO jobs (id, job_key, title, url, description, sync_run_id) "
             "VALUES (?, ?, 'Platform Engineer', ?, 'desc', 1)",
@@ -69,7 +69,7 @@ class MigrationV7Tests(unittest.TestCase):
         )
         self.conn.commit()
 
-    def blockers(self, job_id):
+    def blockers(self, job_id: int) -> list[dict[str, str]] | None:
         row = self.conn.execute(
             "SELECT hard_blockers FROM job_verdicts WHERE job_id = ?", (job_id,)
         ).fetchone()
@@ -77,78 +77,81 @@ class MigrationV7Tests(unittest.TestCase):
 
     # -- the conversion ------------------------------------------------------------------
 
-    def test_the_migration_reaches_the_declared_version(self):
+    def test_the_migration_reaches_the_declared_version(self) -> None:
         migrate(self.conn)
         self.assertEqual(current_version(self.conn), SCHEMA_VERSION)
         self.assertGreaterEqual(SCHEMA_VERSION, 7)
 
-    def test_a_string_blocker_becomes_a_quote_with_no_reasoning(self):
+    def test_a_string_blocker_becomes_a_quote_with_no_reasoning(self) -> None:
         self.seed(1, json.dumps(["Must hold an active TS/SCI clearance"]))
         migrate(self.conn)
         self.assertEqual(
-            self.blockers(1),
-            [{"quote": "Must hold an active TS/SCI clearance", "why": ""}])
+            self.blockers(1), [{"quote": "Must hold an active TS/SCI clearance", "why": ""}]
+        )
 
-    def test_the_text_survives_character_for_character(self):
+    def test_the_text_survives_character_for_character(self) -> None:
         """The audit re-runs `locate` over these, so a reworded quote moves the rates."""
         original = "För denna position krävs svenskt medborgarskap — inte uppfyllt"
         self.seed(1, json.dumps([original]))
         migrate(self.conn)
-        self.assertEqual(self.blockers(1)[0]["quote"], original)
+        blockers = self.blockers(1)
+        assert blockers is not None
+        self.assertEqual(blockers[0]["quote"], original)
 
-    def test_every_blocker_in_a_multi_entry_row_is_converted(self):
+    def test_every_blocker_in_a_multi_entry_row_is_converted(self) -> None:
         self.seed(1, json.dumps(["needs clearance", "10+ years required"]))
         migrate(self.conn)
-        self.assertEqual([b["quote"] for b in self.blockers(1)],
-                         ["needs clearance", "10+ years required"])
+        blockers = self.blockers(1)
+        assert blockers is not None
+        self.assertEqual([b["quote"] for b in blockers], ["needs clearance", "10+ years required"])
 
-    def test_an_empty_list_is_left_alone(self):
+    def test_an_empty_list_is_left_alone(self) -> None:
         self.seed(1, "[]")
         migrate(self.conn)
         self.assertEqual(self.blockers(1), [])
 
-    def test_a_null_is_left_alone(self):
+    def test_a_null_is_left_alone(self) -> None:
         self.seed(1, None)
         migrate(self.conn)
         self.assertIsNone(self.blockers(1))
 
-    def test_a_row_already_in_the_new_shape_is_untouched(self):
-        already = [{"quote": "Must hold an active TS/SCI clearance",
-                    "why": "The candidate has none."}]
+    def test_a_row_already_in_the_new_shape_is_untouched(self) -> None:
+        already = [
+            {"quote": "Must hold an active TS/SCI clearance", "why": "The candidate has none."}
+        ]
         self.seed(1, json.dumps(already))
         migrate(self.conn)
         self.assertEqual(self.blockers(1), already)
 
-    def test_a_blocker_stored_as_bare_text_rather_than_json_is_carried_over(self):
+    def test_a_blocker_stored_as_bare_text_rather_than_json_is_carried_over(self) -> None:
         """An early row wrote one blocker unencoded. It is still a blocker."""
         self.seed(1, "Must hold an active TS/SCI clearance")
         migrate(self.conn)
         self.assertEqual(
-            self.blockers(1),
-            [{"quote": "Must hold an active TS/SCI clearance", "why": ""}])
+            self.blockers(1), [{"quote": "Must hold an active TS/SCI clearance", "why": ""}]
+        )
 
     # -- what it must not do -------------------------------------------------------------
 
-    def test_the_verdict_itself_is_not_touched(self):
+    def test_the_verdict_itself_is_not_touched(self) -> None:
         self.seed(1, json.dumps(["needs clearance"]))
         migrate(self.conn)
         row = self.conn.execute(
-            "SELECT fit_score, verdict, verdict_schema_version FROM job_verdicts "
-            "WHERE job_id = 1").fetchone()
+            "SELECT fit_score, verdict, verdict_schema_version FROM job_verdicts WHERE job_id = 1"
+        ).fetchone()
         self.assertEqual(row["fit_score"], 72)
         self.assertEqual(row["verdict"], "worth_applying")
         self.assertEqual(row["verdict_schema_version"], 2)
 
-    def test_the_schema_version_does_not_force_a_rescore(self):
+    def test_the_schema_version_does_not_force_a_rescore(self) -> None:
         """Raising this re-drains the whole backlog. The shape change did not need that."""
         self.assertEqual(VERDICT_SCHEMA_VERSION, 2)
 
-    def test_applying_it_twice_is_safe(self):
+    def test_applying_it_twice_is_safe(self) -> None:
         self.seed(1, json.dumps(["needs clearance"]))
         migrate(self.conn)
         self.assertEqual(migrate(self.conn), 0)
-        self.assertEqual(self.blockers(1),
-                         [{"quote": "needs clearance", "why": ""}])
+        self.assertEqual(self.blockers(1), [{"quote": "needs clearance", "why": ""}])
 
 
 if __name__ == "__main__":

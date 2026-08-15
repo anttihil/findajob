@@ -6,8 +6,10 @@ a line, hand it back". The graph itself is headless -- a web adapter would drive
 `stream`/`Command(resume=...)` loop, and nothing in `graph.py` knows about a terminal.
 """
 
+import argparse
 import sys
 import textwrap
+from typing import Any
 
 from careerradar.core.config import load_config
 from careerradar.core.llm import DEFAULT_AGENT_MODEL, MissingApiKey, StructuredOutputError
@@ -22,27 +24,28 @@ DIM = "\033[2m"
 RESET = "\033[0m"
 
 
-def _supports_colour():
+def _supports_colour() -> bool:
     return sys.stdout.isatty()
 
 
-def _style(text, code):
+def _style(text: Any, code: str) -> str:
     return f"{code}{text}{RESET}" if _supports_colour() else text
 
 
-def _wrap(text, indent="  "):
+def _wrap(text: Any, indent: str = "  ") -> str:
     return "\n".join(
         textwrap.fill(line, width=88, initial_indent=indent, subsequent_indent=indent)
-        if line.strip() else ""
+        if line.strip()
+        else ""
         for line in str(text).split("\n")
     )
 
 
-def _render_profile(profile: dict) -> str:
-    out = []
+def _render_profile(profile: dict[str, Any]) -> str:
+    out: list[str] = []
     out.append(_style("BIO", BOLD))
     out.append(_wrap(profile.get("bio", "")))
-    facts = []
+    facts: list[str] = []
     if profile.get("years_experience") is not None:
         facts.append(f"{profile['years_experience']:g} years")
     if profile.get("seniority"):
@@ -98,7 +101,7 @@ def _render_profile(profile: dict) -> str:
 LEVEL_NAMES = {0: "absent", 1: "familiar", 2: "working", 3: "strong"}
 
 
-def _render_level_changes(changes: dict) -> str:
+def _render_level_changes(changes: dict[str, Any]) -> str:
     """Show what the interview moved -- and say so plainly when it moved nothing.
 
     Without this the reviewer is comparing a 39-skill list against a memory of what they
@@ -113,28 +116,42 @@ def _render_level_changes(changes: dict) -> str:
     out = [""]
     if not moved:
         out.append(_style("LEVEL CHANGES FROM THE INTERVIEW", BOLD))
-        out.append(_wrap("None. Every skill kept the level the documents alone gave it. "
-                         "If an answer should have changed one, say so below and it will "
-                         "be re-synthesized."))
+        out.append(
+            _wrap(
+                "None. Every skill kept the level the documents alone gave it. "
+                "If an answer should have changed one, say so below and it will "
+                "be re-synthesized."
+            )
+        )
         return "\n".join(out)
 
-    out.append(_style(
-        f"LEVEL CHANGES FROM THE INTERVIEW ({moved} of {changes.get('total', 0)} skills)",
-        BOLD,
-    ))
+    out.append(
+        _style(
+            f"LEVEL CHANGES FROM THE INTERVIEW ({moved} of {changes.get('total', 0)} skills)",
+            BOLD,
+        )
+    )
     width = max((len(c["label"]) for c in raised + lowered + added), default=0)
     for change in sorted(raised, key=lambda c: (-c["to"], c["label"])):
-        out.append(_wrap(f"{change['label']:<{width}}  {LEVEL_NAMES[change['from']]} -> "
-                         f"{LEVEL_NAMES[change['to']]}"))
+        out.append(
+            _wrap(
+                f"{change['label']:<{width}}  {LEVEL_NAMES[change['from']]} -> "
+                f"{LEVEL_NAMES[change['to']]}"
+            )
+        )
     for change in sorted(lowered, key=lambda c: (-c["to"], c["label"])):
-        out.append(_wrap(f"{change['label']:<{width}}  {LEVEL_NAMES[change['from']]} -> "
-                         f"{LEVEL_NAMES[change['to']]}  (lowered)"))
+        out.append(
+            _wrap(
+                f"{change['label']:<{width}}  {LEVEL_NAMES[change['from']]} -> "
+                f"{LEVEL_NAMES[change['to']]}  (lowered)"
+            )
+        )
     for change in sorted(added, key=lambda c: (-c["to"], c["label"])):
         out.append(_wrap(f"{change['label']:<{width}}  new, {LEVEL_NAMES[change['to']]}"))
     return "\n".join(out)
 
 
-def _ask_multiline(prompt):
+def _ask_multiline(prompt: str) -> str:
     """Read one answer. A blank line submits; the user can type '?' to skip."""
     print(prompt, end="", flush=True)
     try:
@@ -143,7 +160,8 @@ def _ask_multiline(prompt):
         return ""
 
 
-def cmd_build(args):
+def cmd_build(args: argparse.Namespace) -> int:
+    from langchain_core.runnables import RunnableConfig
     from langgraph.types import Command
 
     from careerradar.profile.graph import build_graph, open_checkpointer
@@ -161,20 +179,18 @@ def cmd_build(args):
         print(f"{exc}")
         return 1
     if not documents:
-        print("The corpus is empty. List your documents under `profile.corpus` in "
-              "config.yaml.")
+        print("The corpus is empty. List your documents under `profile.corpus` in config.yaml.")
         return 1
 
     changed = corpus_changed(documents)
     if changed is False and not (args.force or args.resume):
-        print("An active profile already exists and the corpus has not changed since it "
-              "was built.")
+        print("An active profile already exists and the corpus has not changed since it was built.")
         print("Rebuild anyway with:  careerradar profile build --force")
         return 0
 
     checkpointer = open_checkpointer()
     graph = build_graph(checkpointer=checkpointer)
-    thread = {"configurable": {"thread_id": THREAD_ID}}
+    thread: RunnableConfig = {"configurable": {"thread_id": THREAD_ID}}
 
     if not args.resume:
         # Start clean. Without this, a *finished* build leaves a checkpoint whose graph has
@@ -193,22 +209,30 @@ def cmd_build(args):
     print(_wrap(f"{len(documents)} document(s) · model {model}", indent="  "))
     print()
 
-    max_questions = 0 if getattr(args, "no_interview", False) else profile_config.get(
-        "max_interview_questions", 15
+    max_questions = (
+        0
+        if getattr(args, "no_interview", False)
+        else profile_config.get("max_interview_questions", 15)
     )
     if max_questions == 0:
-        print(_wrap("Skipping the interview: building from the documents alone. "
-                    "The documents cannot state compensation, work authorization, or what "
-                    "you would refuse, so those constraints will be empty until you run "
-                    "the interview.", indent="  "))
+        print(
+            _wrap(
+                "Skipping the interview: building from the documents alone. "
+                "The documents cannot state compensation, work authorization, or what "
+                "you would refuse, so those constraints will be empty until you run "
+                "the interview.",
+                indent="  ",
+            )
+        )
         print()
 
     payload = {"model": model, "max_questions": max_questions}
     if args.resume:
         snapshot = graph.get_state(thread)
         if not snapshot.next:
-            print(_wrap("There is no interrupted build to resume. Start a new one with:",
-                        indent="  "))
+            print(
+                _wrap("There is no interrupted build to resume. Start a new one with:", indent="  ")
+            )
             print(_wrap("careerradar profile build --force", indent="    "))
             return 1
         # Resuming means continuing the task the graph is parked on, which LangGraph does
@@ -218,16 +242,15 @@ def cmd_build(args):
         # concatenation.
         payload = None
         answered = len(snapshot.values.get("turns") or [])
-        print(_wrap(f"Resuming at '{snapshot.next[0]}' with {answered} answer(s) kept.",
-                    indent="  "))
+        print(
+            _wrap(f"Resuming at '{snapshot.next[0]}' with {answered} answer(s) kept.", indent="  ")
+        )
         print()
 
     resume_value = None
     try:
         while True:
-            stream_input = (
-                Command(resume=resume_value) if resume_value is not None else payload
-            )
+            stream_input = Command(resume=resume_value) if resume_value is not None else payload
             interrupted = None
             for chunk in graph.stream(stream_input, thread, stream_mode="updates"):
                 if "__interrupt__" in chunk:
@@ -297,27 +320,29 @@ def cmd_build(args):
         return 1
 
     profile = Profile.model_validate(final["draft"])
-    version = save_profile(
-        profile, model=model, documents=documents, turns=final.get("turns", [])
-    )
+    version = save_profile(profile, model=model, documents=documents, turns=final.get("turns", []))
     print(_style(f"Saved profile v{version} (active).", BOLD))
-    print(_wrap(f"{len(profile.skills)} skills · {len(final.get('turns', []))} "
-                f"interview answers", indent="  "))
+    print(
+        _wrap(
+            f"{len(profile.skills)} skills · {len(final.get('turns', []))} interview answers",
+            indent="  ",
+        )
+    )
     print()
     print(_wrap("Next:  careerradar score run --dry-run", indent="  "))
     return 0
 
 
-def cmd_show(args):  # noqa: ARG001 - argparse handler signature
+def cmd_show(args: argparse.Namespace) -> int:  # noqa: ARG001 - argparse handler signature
     from careerradar.profile.store import load_active_row
 
     record = load_active_row()
     if record is None:
         print("No active profile. Build one with:  careerradar profile build")
         return 1
-    print(_style(
-        f"Profile v{record['version']}  ({record['created_at']}, {record['model']})", BOLD
-    ))
+    print(
+        _style(f"Profile v{record['version']}  ({record['created_at']}, {record['model']})", BOLD)
+    )
     print()
     print(_render_profile(record["profile"]))
     print()
@@ -326,7 +351,7 @@ def cmd_show(args):  # noqa: ARG001 - argparse handler signature
     return 0
 
 
-def cmd_history(args):  # noqa: ARG001 - argparse handler signature
+def cmd_history(args: argparse.Namespace) -> int:  # noqa: ARG001 - argparse handler signature
     from careerradar.profile.store import list_versions
 
     versions = list_versions()
@@ -335,13 +360,13 @@ def cmd_history(args):  # noqa: ARG001 - argparse handler signature
         return 1
     print(f"{'ver':>4}  {'active':^6}  {'created':<26} {'model':<18} {'docs':>4} {'turns':>5}")
     for row in versions:
-        print(f"{row['version']:>4}  {'  *   ' if row['is_active'] else '      '}  "
-              f"{row['created_at'][:25]:<26} {(row['model'] or '-'):<18} "
-              f"{row['documents']:>4} {row['turns']:>5}")
+        print(
+            f"{row['version']:>4}  {'  *   ' if row['is_active'] else '      '}  "
+            f"{row['created_at'][:25]:<26} {(row['model'] or '-'):<18} "
+            f"{row['documents']:>4} {row['turns']:>5}"
+        )
     return 0
 
 
-def run_profile_command(args):
-    return {"build": cmd_build, "show": cmd_show, "history": cmd_history}[
-        args.subcommand
-    ](args)
+def run_profile_command(args: argparse.Namespace) -> int:
+    return {"build": cmd_build, "show": cmd_show, "history": cmd_history}[args.subcommand](args)

@@ -15,9 +15,14 @@ exit IP rather than the account and the retry arrives from a different one. That
 import random
 import re
 import time
+from collections.abc import Callable
 from datetime import datetime, timedelta, timezone
+from typing import TYPE_CHECKING, Any
 
 from careerradar.core.logger import get_logger
+
+if TYPE_CHECKING:
+    from careerradar.core.database import Database
 
 logger = get_logger()
 
@@ -32,7 +37,8 @@ _RATE_LIMIT_MARKERS = re.compile(
 )
 _BLOCKED_MARKERS = re.compile(
     r"\b(?:403|forbidden|captcha|challenge|access denied|unusual traffic|"
-    r"blocked|bot detection)\b", re.IGNORECASE
+    r"blocked|bot detection)\b",
+    re.IGNORECASE,
 )
 _TRANSIENT_MARKERS = re.compile(
     r"\b(?:50[0-9]|timeout|timed out|connection (?:reset|aborted|error)|"
@@ -41,11 +47,12 @@ _TRANSIENT_MARKERS = re.compile(
     # shifts to a different endpoint (proxies.pin_for), so the bad one is simply not used
     # again. Without these, JobSpy's "Bad proxy" wording matches nothing and classifies
     # fatal, which is not retried and counts toward tripping the source.
-    r"bad proxy|proxy responded|proxy error)\b", re.IGNORECASE
+    r"bad proxy|proxy responded|proxy error)\b",
+    re.IGNORECASE,
 )
 
 
-def classify_error(exc):
+def classify_error(exc: BaseException) -> str:
     """Classify a scrape exception. Rate-limit and blocked are NOT retryable.
 
     An exception may carry `classify_text` to narrow what is matched to the wording that
@@ -70,8 +77,15 @@ class SourceTripped(Exception):
 class SourceCircuit:
     """Tracks one source's health across a run and persists backoff across runs."""
 
-    def __init__(self, source, config, db=None, now=None, sleep=time.sleep,
-                 rotating_proxies=False):
+    def __init__(
+        self,
+        source: str,
+        config: dict[str, Any] | None,
+        db: "Database | None" = None,
+        now: Callable[[], datetime] | None = None,
+        sleep: Callable[[float], None] = time.sleep,
+        rotating_proxies: bool = False,
+    ) -> None:
         self.source = source
         # A rotating pool changes what a 429 means: one exit IP got flagged, not the
         # account, and the next request arrives from a different IP. Retrying is then the
@@ -84,15 +98,9 @@ class SourceCircuit:
 
         breaker = self.config.get("circuit_breaker", {})
         self.errors_to_trip = breaker.get("consecutive_errors_to_trip", 3)
-        self.rate_limit_trips_immediately = breaker.get(
-            "http_429_trips_immediately", True
-        )
-        self.source_backoff_minutes = breaker.get(
-            "source_backoff_minutes", [15, 60, 240, 1440]
-        )
-        self.cell_backoff_minutes = breaker.get(
-            "cell_backoff_minutes", [60, 360, 1440]
-        )
+        self.rate_limit_trips_immediately = breaker.get("http_429_trips_immediately", True)
+        self.source_backoff_minutes = breaker.get("source_backoff_minutes", [15, 60, 240, 1440])
+        self.cell_backoff_minutes = breaker.get("cell_backoff_minutes", [60, 360, 1440])
         self.max_retries = breaker.get("transient_retries", 2)
         self.proxy_rotation_retries = breaker.get("proxy_rotation_retries", 3)
         self.rotation_attempts = 0
@@ -102,19 +110,19 @@ class SourceCircuit:
         self.jitter = budget.get("jitter_seconds", [0.5, 2.0])
 
         self.tripped = False
-        self.trip_reason = None
+        self.trip_reason: str | None = None
         self.consecutive_errors = 0
         self.searches_ok = 0
         self.rate_limit_hits = 0
-        self.errors = []
-        self._last_request_at = None
+        self.errors: list[dict[str, Any]] = []
+        self._last_request_at: datetime | None = None
 
     # -- state ------------------------------------------------------------------------
     @property
-    def is_open(self):
+    def is_open(self) -> bool:
         return self.tripped
 
-    def persisted_backoff_active(self):
+    def persisted_backoff_active(self) -> bool:
         """Whether a previous run left this source in backoff."""
         if self.db is None:
             return False
@@ -123,13 +131,13 @@ class SourceCircuit:
             return False
         return _parse(until) > self._now()
 
-    def backoff_until(self):
+    def backoff_until(self) -> str | None:
         if self.db is None:
             return None
         return self.db.get_source_backoff(self.source)
 
     # -- pacing -----------------------------------------------------------------------
-    def before_request(self):
+    def before_request(self) -> None:
         if self.tripped:
             raise SourceTripped(f"{self.source} circuit is open: {self.trip_reason}")
 
@@ -142,17 +150,17 @@ class SourceCircuit:
         self._last_request_at = self._now()
 
     # -- outcomes ---------------------------------------------------------------------
-    def on_success(self, returned=0):
+    def on_success(self, returned: int = 0) -> int:
         self.consecutive_errors = 0
         self.searches_ok += 1
         return returned
 
-    def on_empty(self):
+    def on_empty(self) -> None:
         """An empty result is not an error -- the query simply matched nothing."""
         self.consecutive_errors = 0
         self.searches_ok += 1
 
-    def on_error(self, exc, cell=None):  # noqa: ARG002 - part of the source-guard callback signature
+    def on_error(self, exc: BaseException, cell: int | None = None) -> str:  # noqa: ARG002 - part of the source-guard callback signature
         """Record an error and decide whether the source should trip.
 
         Returns the error class so the caller can decide about retrying: only
@@ -185,7 +193,7 @@ class SourceCircuit:
             )
         return error_class
 
-    def _trip(self, reason, escalate):
+    def _trip(self, reason: str, escalate: bool) -> None:
         self.tripped = True
         self.trip_reason = reason
 
@@ -195,24 +203,21 @@ class SourceCircuit:
 
         trips = self.db.get_source_trips(self.source) if escalate else 0
         index = min(trips, len(self.source_backoff_minutes) - 1)
-        minutes = self.source_backoff_minutes[index] if escalate else \
-            self.source_backoff_minutes[0]
+        minutes = self.source_backoff_minutes[index] if escalate else self.source_backoff_minutes[0]
         until = self._now() + timedelta(minutes=minutes)
-        self.db.set_source_backoff(
-            self.source, until.isoformat(), reason=reason, escalate=escalate
-        )
+        self.db.set_source_backoff(self.source, until.isoformat(), reason=reason, escalate=escalate)
         logger.warning(
             f"[{self.source}] circuit tripped ({reason}); "
             f"backing off {minutes}m until {until.isoformat(timespec='seconds')}"
         )
 
-    def cell_backoff(self, consecutive):
+    def cell_backoff(self, consecutive: int) -> str:
         """How long to sideline a single cell after `consecutive` bad outcomes."""
         index = min(max(consecutive - 1, 0), len(self.cell_backoff_minutes) - 1)
         minutes = self.cell_backoff_minutes[index]
         return (self._now() + timedelta(minutes=minutes)).isoformat()
 
-    def note_clean_run(self):
+    def note_clean_run(self) -> None:
         """Decay the escalation counter after a healthy run.
 
         Without this, one bad afternoon leaves the source pinned at a 24-hour backoff
@@ -223,7 +228,7 @@ class SourceCircuit:
         if self.searches_ok >= 5 and not self.rate_limit_hits:
             self.db.reset_source_trips(self.source)
 
-    def summary(self):
+    def summary(self) -> dict[str, Any]:
         return {
             "source": self.source,
             "tripped": self.tripped,
@@ -235,7 +240,7 @@ class SourceCircuit:
         }
 
 
-def _parse(value):
+def _parse(value: datetime | str) -> datetime:
     if isinstance(value, datetime):
         return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
     try:

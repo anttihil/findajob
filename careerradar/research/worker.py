@@ -7,6 +7,7 @@ scoring.
 
 import json
 from datetime import datetime, timedelta, timezone
+from typing import Any
 
 from careerradar.core.config import load_config
 from careerradar.core.database import Database
@@ -20,25 +21,26 @@ logger = get_logger()
 
 
 # Mirrors `scoring.research_gate` in config.yaml, for a config that predates the key.
-DEFAULT_RESEARCH_GATE = {
+DEFAULT_RESEARCH_GATE: dict[str, list[str]] = {
     "eligibility": ["eligible"],
     "role_match": ["same_role", "adjacent"],
     "capability_match": ["exceeds", "meets", "most_with_gaps"],
 }
 
 
-def _now():
+def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _gate_sql(gate):
+def _gate_sql(gate: dict[str, list[str]]) -> tuple[str, list[Any]]:
     """The research gate as SQL, from the named ordinal values in config.
 
     A predicate rather than `fit_score >= 70`. The old threshold sat between two of the
     scale's quantisation attractors (62 and 72), so part of what it measured was where the
     model liked to round; and it could never say *why* a company qualified.
     """
-    clauses, params = [], []
+    clauses: list[str] = []
+    params: list[Any] = []
     for column in ("eligibility", "role_match", "capability_match"):
         allowed = gate.get(column)
         if not allowed:
@@ -48,7 +50,13 @@ def _gate_sql(gate):
     return (" AND " + " AND ".join(clauses)) if clauses else "", params
 
 
-def _candidates(db, gate, refresh_days, limit, company=None):
+def _candidates(
+    db: Database,
+    gate: dict[str, list[str]],
+    refresh_days: int,
+    limit: int | None,
+    company: str | None = None,
+) -> list[dict[str, Any]]:
     """Companies worth researching, best posting first.
 
     Grouped by `company_normalized` so a company with a dozen strong postings is one unit
@@ -61,6 +69,7 @@ def _candidates(db, gate, refresh_days, limit, company=None):
     """
     cutoff = (datetime.now(timezone.utc) - timedelta(days=refresh_days)).isoformat()
 
+    params: list[Any]
     if company:
         where = "AND (j.company_normalized = ? OR j.company = ?)"
         params = [company, company]
@@ -100,7 +109,14 @@ def _candidates(db, gate, refresh_days, limit, company=None):
     return [dict(r) for r in db.conn.execute(query, params)]
 
 
-def _persist(db, row, dossier, model, profile_version, cost):
+def _persist(
+    db: Database,
+    row: dict[str, Any],
+    dossier: dict[str, Any],
+    model: str,
+    profile_version: int,
+    cost: float,
+) -> None:
     db.conn.execute(
         """
         INSERT INTO company_dossiers
@@ -119,10 +135,17 @@ def _persist(db, row, dossier, model, profile_version, cost):
             cost_usd         = excluded.cost_usd
         """,
         (
-            row["company_normalized"], dossier.get("company") or row["company"], _now(),
-            profile_version, model,
-            json.dumps({**(dossier.get("intel") or {}),
-                        "application_angle": dossier.get("application_angle")}),
+            row["company_normalized"],
+            dossier.get("company") or row["company"],
+            _now(),
+            profile_version,
+            model,
+            json.dumps(
+                {
+                    **(dossier.get("intel") or {}),
+                    "application_angle": dossier.get("application_angle"),
+                }
+            ),
             json.dumps(dossier.get("contacts") or []),
             json.dumps(dossier.get("nearby_jobs") or []),
             json.dumps(dossier.get("sources") or []),
@@ -140,7 +163,9 @@ def _persist(db, row, dossier, model, profile_version, cost):
     )
 
 
-def run_research(company=None, limit=None, dry_run=False):
+def run_research(
+    company: str | None = None, limit: int | None = None, dry_run: bool = False
+) -> int:
     config = load_config()
     research_config = config.get("research") or {}
     scoring_config = config.get("scoring") or {}
@@ -168,16 +193,20 @@ def run_research(company=None, limit=None, dry_run=False):
                 print(f"No postings found for {company!r}.")
             else:
                 criteria = "; ".join(f"{k} in {v}" for k, v in gate.items())
-                print("Nothing to research: no company has a live posting matching the "
-                      f"research gate ({criteria}) without a dossier newer than "
-                      f"{refresh_days} days.")
+                print(
+                    "Nothing to research: no company has a live posting matching the "
+                    f"research gate ({criteria}) without a dossier newer than "
+                    f"{refresh_days} days."
+                )
             return 0
 
         print(f"profile v{profile_version} · model {model}")
         print(f"companies to research: {len(rows)}")
         for row in rows:
-            print(f"  {row['company'][:44]:<46} tier {row['best_tier']}  "
-                  f"({row['postings']} posting(s))")
+            print(
+                f"  {row['company'][:44]:<46} tier {row['best_tier']}  "
+                f"({row['postings']} posting(s))"
+            )
 
         if dry_run:
             print("\n(dry run -- nothing researched, nothing written)")
@@ -194,15 +223,17 @@ def run_research(company=None, limit=None, dry_run=False):
         for row in rows:
             print(f"\nresearching {row['company']}…")
             try:
-                state = graph.invoke({
-                    "company": row["company"],
-                    "company_normalized": row["company_normalized"],
-                    "role_family": row["role_family"],
-                    "location_id": row["location_id"],
-                    "job_id": row["job_id"],
-                    "profile_summary": summary,
-                    "model": model,
-                })
+                state = graph.invoke(
+                    {
+                        "company": row["company"],
+                        "company_normalized": row["company_normalized"],
+                        "role_family": row["role_family"],
+                        "location_id": row["location_id"],
+                        "job_id": row["job_id"],
+                        "profile_summary": summary,
+                        "model": model,
+                    }
+                )
             except Exception:
                 logger.warning("Research failed for %s", row["company"], exc_info=True)
                 continue
@@ -218,15 +249,16 @@ def run_research(company=None, limit=None, dry_run=False):
 
             intel = dossier.get("intel") or {}
             print(f"  {intel.get('summary', '')[:150]}")
-            print(f"  contacts: {len(dossier.get('contacts') or [])} · "
-                  f"other openings: {len(dossier.get('nearby_jobs') or [])} · "
-                  f"sources: {len(dossier.get('sources') or [])}")
+            print(
+                f"  contacts: {len(dossier.get('contacts') or [])} · "
+                f"other openings: {len(dossier.get('nearby_jobs') or [])} · "
+                f"sources: {len(dossier.get('sources') or [])}"
+            )
             if dossier.get("application_angle"):
                 print(f"  angle: {dossier['application_angle'][:170]}")
 
         db.conn.execute(
-            "UPDATE research_runs SET finished_at = ?, companies = ?, status = 'ok' "
-            "WHERE id = ?",
+            "UPDATE research_runs SET finished_at = ?, companies = ?, status = 'ok' WHERE id = ?",
             (_now(), done, run_id),
         )
         db.conn.commit()

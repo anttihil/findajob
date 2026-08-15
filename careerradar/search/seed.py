@@ -12,12 +12,12 @@ from careerradar.core.database import Database
 from careerradar.taxonomy.roles import load_roles
 
 
-def seed_cells(prune=False, queries_per_family=1):
+def seed_cells(prune: bool = False, queries_per_family: int = 1) -> int:
     config = load_config()
     scraper = config.get("scraper", {})
-    enabled_sources = tuple(
-        name for name, on in (scraper.get("sources") or {}).items() if on
-    ) or ("indeed",)
+    enabled_sources = tuple(name for name, on in (scraper.get("sources") or {}).items() if on) or (
+        "indeed",
+    )
 
     roles = load_roles()
     problems = roles.validate()
@@ -27,9 +27,7 @@ def seed_cells(prune=False, queries_per_family=1):
             print(f"  - {problem}")
         return 1
 
-    specs = roles.cell_specs(
-        sources=enabled_sources, queries_per_family=queries_per_family
-    )
+    specs = roles.cell_specs(sources=enabled_sources, queries_per_family=queries_per_family)
 
     db = Database()
     try:
@@ -44,21 +42,22 @@ def seed_cells(prune=False, queries_per_family=1):
             print(f"cells disabled: {disabled}")
         print(f"cells enabled:  {total}")
 
-        by_source = {}
+        by_source: dict[str, int] = {}
         for cell in db.get_cells():
             by_source[cell.source] = by_source.get(cell.source, 0) + 1
         print(f"by source:      {by_source}")
 
         budgets = scraper.get("budgets") or {}
-        per_day = sum(
-            (budgets.get(s, {}).get("searches_per_run", 0)) * 2
-            for s in enabled_sources
-        )
+        per_day = sum((budgets.get(s, {}).get("searches_per_run", 0)) * 2 for s in enabled_sources)
         if per_day:
-            print(f"\nat 2 runs/day ({per_day} cells/day) a full matrix cycle takes "
-                  f"~{total / per_day:.1f} days")
-            print(f"analytics.min_window_days is "
-                  f"{config.get('analytics', {}).get('min_window_days', 30)}")
+            print(
+                f"\nat 2 runs/day ({per_day} cells/day) a full matrix cycle takes "
+                f"~{total / per_day:.1f} days"
+            )
+            print(
+                f"analytics.min_window_days is "
+                f"{config.get('analytics', {}).get('min_window_days', 30)}"
+            )
     finally:
         db.close()
     return 0

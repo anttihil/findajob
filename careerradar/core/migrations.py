@@ -7,6 +7,7 @@ one, since it may already have run against a live database.
 
 import contextlib
 import sqlite3
+from collections.abc import Callable
 
 from careerradar.core.logger import get_logger
 
@@ -15,7 +16,7 @@ logger = get_logger()
 SCHEMA_VERSION = 9
 
 
-def _v1_baseline(cursor):
+def _v1_baseline(cursor: sqlite3.Cursor) -> None:
     """Create the original jobs table if this is a fresh database.
 
     Existing databases already have this table (created by Database.create_tables), so the
@@ -92,7 +93,7 @@ _V2_JOB_COLUMNS = [
 # analytics therefore accept 'census' only. See v_skill_eligible below.
 
 
-def _v2_analytics(cursor):
+def _v2_analytics(cursor: sqlite3.Cursor) -> None:
     existing = {row[1] for row in cursor.execute("PRAGMA table_info(jobs)")}
     for name, decl in _V2_JOB_COLUMNS:
         if name not in existing:
@@ -333,7 +334,7 @@ def _v2_analytics(cursor):
     )
 
 
-def _v3_llm_verdict(cursor):
+def _v3_llm_verdict(cursor: sqlite3.Cursor) -> None:
     """Store the optional Claude reranker's verdict alongside the deterministic score.
 
     Kept separate from match_score on purpose: the deterministic score stays reproducible,
@@ -356,7 +357,7 @@ _V4_LOCATION_RENAMES = {
 }
 
 
-def _v4_access_and_location_ids(cursor):
+def _v4_access_and_location_ids(cursor: sqlite3.Cursor) -> None:
     """Add posting-level `access` and spell out abbreviated location ids.
 
     `access` (commutable | remote | relocation) is the distinction that governs whether a
@@ -387,8 +388,7 @@ def _v4_access_and_location_ids(cursor):
             )
 
 
-
-def _v5_agentic(cursor):
+def _v5_agentic(cursor: sqlite3.Cursor) -> None:
     """Replace the single-shot scoring columns with the four-stage agentic pipeline.
 
     The old shape assumed one pass: scrape, score, store, done. `sync.py` computed a
@@ -428,8 +428,7 @@ def _v5_agentic(cursor):
             cursor.execute(f"ALTER TABLE jobs ADD COLUMN {column} {ddl}")
 
     cursor.execute(
-        "CREATE INDEX IF NOT EXISTS idx_jobs_pipeline_state "
-        "ON jobs(pipeline_state, fit_score DESC)"
+        "CREATE INDEX IF NOT EXISTS idx_jobs_pipeline_state ON jobs(pipeline_state, fit_score DESC)"
     )
 
     for column in ("llm_verdict", "resume_match"):
@@ -524,9 +523,7 @@ def _v5_agentic(cursor):
         )
         """
     )
-    cursor.execute(
-        "CREATE INDEX IF NOT EXISTS idx_verdicts_score ON job_verdicts(fit_score DESC)"
-    )
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_verdicts_score ON job_verdicts(fit_score DESC)")
 
     cursor.execute(
         """
@@ -564,8 +561,7 @@ def _v5_agentic(cursor):
     )
 
 
-
-def _v6_ordinal_verdicts(cursor):
+def _v6_ordinal_verdicts(cursor: sqlite3.Cursor) -> None:
     """Store the scoring agent's answers, not just the number derived from them.
 
     The previous schema kept `fit_score INTEGER` and a band label. Measured across 5,511
@@ -653,9 +649,7 @@ def _v6_ordinal_verdicts(cursor):
         """
     )
 
-    cursor.execute(
-        "CREATE INDEX IF NOT EXISTS idx_jobs_last_seen ON jobs(last_seen_at)"
-    )
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_jobs_last_seen ON jobs(last_seen_at)")
 
     # Liveness cannot be a stored column: it depends on when the posting's CELL was last
     # scraped, which changes without the posting row changing.
@@ -689,7 +683,7 @@ def _v6_ordinal_verdicts(cursor):
     )
 
 
-def _v7_structured_blockers(cursor):
+def _v7_structured_blockers(cursor: sqlite3.Cursor) -> None:
     """Give a stored hard blocker the same shape the model now emits: quote plus why.
 
     `hard_blockers` was a JSON array of strings that each had to be a verbatim posting
@@ -733,20 +727,17 @@ def _v7_structured_blockers(cursor):
         if all(isinstance(item, dict) for item in decoded):
             continue
         rebuilt = [
-            item if isinstance(item, dict) else {"quote": str(item), "why": ""}
-            for item in decoded
+            item if isinstance(item, dict) else {"quote": str(item), "why": ""} for item in decoded
         ]
         updates.append((json.dumps(rebuilt), row_id))
         converted += 1
 
-    cursor.executemany(
-        "UPDATE job_verdicts SET hard_blockers = ? WHERE id = ?", updates
-    )
+    cursor.executemany("UPDATE job_verdicts SET hard_blockers = ? WHERE id = ?", updates)
     if converted:
         logger.info("v7: converted hard_blockers on %d verdict rows", converted)
 
 
-def _v8_scoring_failure_counter(cursor):
+def _v8_scoring_failure_counter(cursor: sqlite3.Cursor) -> None:
     """Give a posting a memory of its own scoring failures.
 
     The retry design assumes failure is transient -- a rate limit, or the model answering
@@ -772,15 +763,14 @@ def _v8_scoring_failure_counter(cursor):
     """
     existing = {row[1] for row in cursor.execute("PRAGMA table_info(jobs)")}
     if "scoring_failures" not in existing:
-        cursor.execute(
-            "ALTER TABLE jobs ADD COLUMN scoring_failures INTEGER NOT NULL DEFAULT 0")
+        cursor.execute("ALTER TABLE jobs ADD COLUMN scoring_failures INTEGER NOT NULL DEFAULT 0")
     if "last_scoring_error" not in existing:
         cursor.execute("ALTER TABLE jobs ADD COLUMN last_scoring_error TEXT")
     if "last_scoring_failure_at" not in existing:
         cursor.execute("ALTER TABLE jobs ADD COLUMN last_scoring_failure_at TEXT")
 
 
-def _v9_feed_indexes(cursor):
+def _v9_feed_indexes(cursor: sqlite3.Cursor) -> None:
     """Indexes for the two lookups the dashboard does on every render.
 
     The feed's WHERE is `status = ? AND duplicate_of IS NULL` and its tie-breaker is
@@ -794,16 +784,14 @@ def _v9_feed_indexes(cursor):
     lookup splits into two indexed probes (see `web/app.py:dossier_for`).
     """
     cursor.execute(
-        "CREATE INDEX IF NOT EXISTS idx_jobs_feed "
-        "ON jobs(status, duplicate_of, date_found DESC)"
+        "CREATE INDEX IF NOT EXISTS idx_jobs_feed ON jobs(status, duplicate_of, date_found DESC)"
     )
     cursor.execute(
-        "CREATE INDEX IF NOT EXISTS idx_dossiers_display "
-        "ON company_dossiers(company_display)"
+        "CREATE INDEX IF NOT EXISTS idx_dossiers_display ON company_dossiers(company_display)"
     )
 
 
-MIGRATIONS = [
+MIGRATIONS: list[tuple[int, str, Callable[[sqlite3.Cursor], None]]] = [
     (1, "baseline jobs table", _v1_baseline),
     (2, "market analytics: cells, observations, skills, stats", _v2_analytics),
     (3, "optional LLM verdict column", _v3_llm_verdict),
@@ -816,7 +804,7 @@ MIGRATIONS = [
 ]
 
 
-def apply_pragmas(conn):
+def apply_pragmas(conn: sqlite3.Connection) -> None:
     """WAL so a 20-minute scrape does not block dashboard reads."""
     conn.execute("PRAGMA journal_mode=WAL")
     # 30s, not 5s. WAL gives concurrent readers but still one writer, and the pipeline now
@@ -827,11 +815,11 @@ def apply_pragmas(conn):
     conn.execute("PRAGMA foreign_keys=ON")
 
 
-def current_version(conn):
+def current_version(conn: sqlite3.Connection) -> int:
     return conn.execute("PRAGMA user_version").fetchone()[0]
 
 
-def migrate(conn):
+def migrate(conn: sqlite3.Connection) -> int:
     """Apply pending migrations. Returns the number applied."""
     apply_pragmas(conn)
     version = current_version(conn)

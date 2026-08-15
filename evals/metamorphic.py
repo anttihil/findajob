@@ -37,6 +37,7 @@ import random
 import re
 import sys
 from concurrent.futures import ThreadPoolExecutor
+from typing import Any
 
 from careerradar.core.config import load_config
 from careerradar.core.database import Database
@@ -51,8 +52,7 @@ from careerradar.taxonomy.skills import load_taxonomy
 SEED = 20260811
 
 # Ordinal ranks, so "must not improve" is expressible. Lower is better, as in scale.py.
-RANK = {name: {v: i for i, v in enumerate(rubric.ANCHORS[name][0])}
-        for name in rubric.DIMENSIONS}
+RANK = {name: {v: i for i, v in enumerate(rubric.ANCHORS[name][0])} for name in rubric.DIMENSIONS}
 
 
 # --- perturbations ----------------------------------------------------------------------
@@ -60,7 +60,8 @@ RANK = {name: {v: i for i, v in enumerate(rubric.ANCHORS[name][0])}
 # Each returns a modified posting. They are deliberately crude text edits: a perturbation
 # clever enough to need its own review would be one more thing to trust.
 
-def rename_company(posting):
+
+def rename_company(posting: dict[str, Any]) -> dict[str, Any]:
     """Change the company field only.
 
     An earlier version also substituted the name throughout the description, which rewrote
@@ -72,18 +73,17 @@ def rename_company(posting):
     return out
 
 
-def change_salary(posting):
+def change_salary(posting: dict[str, Any]) -> dict[str, Any]:
     out = dict(posting)
     out["salary_annual_usd"] = 143_000
     return out
 
 
-def shuffle_bullets(posting):
+def shuffle_bullets(posting: dict[str, Any]) -> dict[str, Any] | None:
     """Reorder the bullet lines. Same requirements, different order."""
-    description = posting.get("description") or ""
+    description: str = posting.get("description") or ""
     lines = description.split("\n")
-    bullets = [i for i, line in enumerate(lines)
-               if re.match(r"^\s*([-*•]|\d+[.)])\s+", line)]
+    bullets = [i for i, line in enumerate(lines) if re.match(r"^\s*([-*•]|\d+[.)])\s+", line)]
     if len(bullets) < 3:
         return None
     rng = random.Random(SEED)
@@ -96,7 +96,7 @@ def shuffle_bullets(posting):
     return out
 
 
-def add_clearance(posting):
+def add_clearance(posting: dict[str, Any]) -> dict[str, Any]:
     out = dict(posting)
     out["description"] = (posting.get("description") or "") + (
         "\n\nAdditional requirement: applicants must hold an active TS/SCI security "
@@ -106,7 +106,7 @@ def add_clearance(posting):
     return out
 
 
-def add_unspoken_language(posting):
+def add_unspoken_language(posting: dict[str, Any]) -> dict[str, Any]:
     out = dict(posting)
     out["description"] = (posting.get("description") or "") + (
         "\n\nAdditional requirement: fluent written and spoken Japanese is required, as "
@@ -115,7 +115,7 @@ def add_unspoken_language(posting):
     return out
 
 
-def add_unmet_requirement(posting):
+def add_unmet_requirement(posting: dict[str, Any]) -> dict[str, Any]:
     out = dict(posting)
     out["description"] = (posting.get("description") or "") + (
         "\n\nRequired: 12+ years of professional Erlang and OTP experience building "
@@ -125,7 +125,7 @@ def add_unmet_requirement(posting):
     return out
 
 
-def swap_domain(posting):
+def swap_domain(posting: dict[str, Any]) -> dict[str, Any]:
     """Same skills, different product. The `role_match` probe.
 
     The paragraph is PREPENDED, not substituted: there is no reliable way to strip the
@@ -148,28 +148,33 @@ def swap_domain(posting):
 
 # `check(before, after) -> None if it held, else the failure text`.
 
-def unchanged(before, after):
+
+def unchanged(before: dict[str, Any], after: dict[str, Any]) -> str | None:
     moved = [name for name in rubric.DIMENSIONS if before[name] != after[name]]
     if moved:
         return ", ".join(f"{n}: {before[n]} -> {after[n]}" for n in moved)
     return None
 
 
-def must_be_blocked(before, after):
+def must_be_blocked(before: dict[str, Any], after: dict[str, Any]) -> str | None:
     if after["eligibility"] != "blocked":
         return f"eligibility is {after['eligibility']}, expected blocked"
     return None
 
 
-def capability_must_not_improve(before, after):
-    if RANK["capability_match"][after["capability_match"]] < \
-            RANK["capability_match"][before["capability_match"]]:
-        return (f"capability_match improved: {before['capability_match']} -> "
-                f"{after['capability_match']} after adding a requirement they lack")
+def capability_must_not_improve(before: dict[str, Any], after: dict[str, Any]) -> str | None:
+    if (
+        RANK["capability_match"][after["capability_match"]]
+        < RANK["capability_match"][before["capability_match"]]
+    ):
+        return (
+            f"capability_match improved: {before['capability_match']} -> "
+            f"{after['capability_match']} after adding a requirement they lack"
+        )
     return None
 
 
-def role_match_must_not_improve(before, after):
+def role_match_must_not_improve(before: dict[str, Any], after: dict[str, Any]) -> str | None:
     """Bolting warehouse robotics onto a posting cannot make it a closer match.
 
     The candidate has robotics-adjacent history (a robot UI at BrainCorp), so a move
@@ -178,8 +183,10 @@ def role_match_must_not_improve(before, after):
     schema exists to avoid.
     """
     if RANK["role_match"][after["role_match"]] < RANK["role_match"][before["role_match"]]:
-        return (f"role_match improved: {before['role_match']} -> {after['role_match']} "
-                "after the product domain was replaced with warehouse robotics")
+        return (
+            f"role_match improved: {before['role_match']} -> {after['role_match']} "
+            "after the product domain was replaced with warehouse robotics"
+        )
     return None
 
 
@@ -189,13 +196,12 @@ RULES = [
     ("invariance", "bullets reordered", shuffle_bullets, unchanged),
     ("directional", "TS/SCI clearance added", add_clearance, must_be_blocked),
     ("directional", "unspoken language added", add_unspoken_language, must_be_blocked),
-    ("directional", "unmet requirement added", add_unmet_requirement,
-     capability_must_not_improve),
+    ("directional", "unmet requirement added", add_unmet_requirement, capability_must_not_improve),
     ("directional", "product domain swapped", swap_domain, role_match_must_not_improve),
 ]
 
 
-def sample_postings(db, limit):
+def sample_postings(db: Database, limit: int) -> list[dict[str, Any]]:
     """Full descriptions with real bullets, spread across role families.
 
     Sampled deterministically. A metamorphic suite whose base set moves between runs
@@ -231,9 +237,10 @@ def sample_postings(db, limit):
     return picked
 
 
-def run(limit=12, dry_run=False, model=None):
+def run(limit: int = 12, dry_run: bool = False, model: str | None = None) -> int:
     config = load_config()
     model = model or (config.get("scoring") or {}).get("model", DEFAULT_SCORING_MODEL)
+    assert isinstance(model, str)
 
     loaded = load_active()
     if loaded is None:
@@ -253,7 +260,7 @@ def run(limit=12, dry_run=False, model=None):
         system = build_system(summary)
         graph = build_graph()
 
-        jobs = []
+        jobs: list[tuple[Any, str, str | None, dict[str, Any]]] = []
         for posting in postings:
             jobs.append((posting["id"], "baseline", None, posting))
             for kind, name, perturb, _check in RULES:
@@ -261,23 +268,32 @@ def run(limit=12, dry_run=False, model=None):
                 if variant is not None:
                     jobs.append((posting["id"], name, kind, variant))
 
-        print(f"base postings: {len(postings)}   variants: {len(jobs) - len(postings)}"
-              f"   calls: {len(jobs)}")
+        print(
+            f"base postings: {len(postings)}   variants: {len(jobs) - len(postings)}"
+            f"   calls: {len(jobs)}"
+        )
         if dry_run:
             print("(dry run -- nothing called)")
             return 0
 
         spend = Spend(model, max_usd=None)
 
-        def score(item):
+        def score(
+            item: tuple[Any, str, str | None, dict[str, Any]],
+        ) -> tuple[Any, str, str | None, dict[str, Any]]:
             job_id, name, kind, posting = item
-            state = graph.invoke({
-                "system": system, "posting": posting, "model": model,
-                "profile": adapter, "taxonomy": taxonomy,
-            })
+            state = graph.invoke(
+                {
+                    "system": system,
+                    "posting": posting,
+                    "model": model,
+                    "profile": adapter,
+                    "taxonomy": taxonomy,
+                }
+            )
             return job_id, name, kind, state
 
-        results = {}
+        results: dict[tuple[Any, str], dict[str, Any] | None] = {}
         with ThreadPoolExecutor(max_workers=8) as pool:
             for job_id, name, _kind, state in pool.map(score, jobs):
                 verdict = state.get("verdict")
@@ -291,7 +307,11 @@ def run(limit=12, dry_run=False, model=None):
         db.close()
 
 
-def report(postings, results, spend):
+def report(
+    postings: list[dict[str, Any]],
+    results: dict[tuple[Any, str], dict[str, Any] | None],
+    spend: Spend,
+) -> int:
     outcomes = {}
     failures = []
     unscored = 0
@@ -320,11 +340,11 @@ def report(postings, results, spend):
                 failures.append((name, posting["id"], posting["title"], problem))
 
     moved = sum(
-        1 for posting in postings
-        if results.get((posting["id"], "baseline"))
-        and results.get((posting["id"], "product domain swapped"))
-        and results[(posting["id"], "baseline")]["role_match"]
-        != results[(posting["id"], "product domain swapped")]["role_match"]
+        1
+        for posting in postings
+        if (baseline := results.get((posting["id"], "baseline")))
+        and (after := results.get((posting["id"], "product domain swapped")))
+        and baseline["role_match"] != after["role_match"]
     )
     print()
     print("rule                          held  broke   rate")
@@ -342,8 +362,7 @@ def report(postings, results, spend):
             seen = rank_moves.get(name)
             if seen and seen["total"]:
                 extra = f"   rank held {seen['same_tier'] / seen['total']:.0%}"
-        print(f"  {name:<28}{bucket['held']:>4}{bucket['broke']:>7}  "
-              f"{rate:>5.0%}{extra}{marker}")
+        print(f"  {name:<28}{bucket['held']:>4}{bucket['broke']:>7}  {rate:>5.0%}{extra}{marker}")
         if kind == "directional":
             directional_broke += bucket["broke"]
 
@@ -355,9 +374,11 @@ def report(postings, results, spend):
             print(f"      {problem}")
 
     print()
-    print(f"role_match moved on {moved}/{len(postings)} domain swaps -- reported, not "
-          "gated: the swap prepends context rather than replacing it, so a posting that "
-          "keeps its original reading is defensible")
+    print(
+        f"role_match moved on {moved}/{len(postings)} domain swaps -- reported, not "
+        "gated: the swap prepends context rather than replacing it, so a posting that "
+        "keeps its original reading is defensible"
+    )
 
     if unscored:
         print(f"\n{unscored} baseline posting(s) produced no verdict")
@@ -373,12 +394,15 @@ def report(postings, results, spend):
     return 0
 
 
-def main(argv=None):
-    parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    parser.add_argument("--limit", type=int, default=12,
-                        help="base postings to perturb (default 12)")
-    parser.add_argument("--dry-run", action="store_true",
-                        help="report the call count without calling")
+def main(argv: list[str] | None = None) -> int:
+    doc = __doc__ or ""
+    parser = argparse.ArgumentParser(description=doc.split("\n")[0])
+    parser.add_argument(
+        "--limit", type=int, default=12, help="base postings to perturb (default 12)"
+    )
+    parser.add_argument(
+        "--dry-run", action="store_true", help="report the call count without calling"
+    )
     parser.add_argument("--model")
     args = parser.parse_args(argv)
     return run(limit=args.limit, dry_run=args.dry_run, model=args.model)

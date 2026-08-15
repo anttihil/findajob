@@ -1,4 +1,5 @@
 import os
+from typing import Any
 
 import yaml
 
@@ -6,7 +7,7 @@ from careerradar.core.paths import CONFIG_PATH, ENV_PATH
 
 
 # Simple .env loader
-def load_env():
+def load_env() -> None:
     env_path = ENV_PATH
     if os.path.exists(env_path):
         with open(env_path, encoding="utf-8") as f:
@@ -16,10 +17,11 @@ def load_env():
                     key, val = line.split("=", 1)
                     os.environ[key.strip()] = val.strip().strip('"').strip("'")
 
+
 load_env()
 
 
-def deep_merge(base, incoming):
+def deep_merge(base: dict[str, Any], incoming: dict[str, Any]) -> dict[str, Any]:
     """Recursively merge `incoming` over `base` without dropping keys absent from `incoming`.
 
     Used for two things that used to be separate and inconsistent: layering config.yaml
@@ -40,12 +42,11 @@ def deep_merge(base, incoming):
     return result
 
 
-
-def load_config():
+def load_config() -> dict[str, Any]:
     # Fallback defaults only, for a missing config.yaml. The real configuration lives in
     # config.yaml; the search space itself now comes from data/roles.yaml (role families x
     # locations), not from a flat query list.
-    defaults = {
+    defaults: dict[str, Any] = {
         "scraper": {
             "sources": {"indeed": True, "linkedin": True},
             "page_size": {"indeed": 15, "linkedin": 10},
@@ -56,14 +57,23 @@ def load_config():
             "max_staleness_hours": 72,
             "starvation_multiple": 4,
             "budgets": {
-                "indeed": {"searches_per_run": 20, "request_units": 200,
-                           "results_wanted_default": 75, "max_results_wanted": 200,
-                           "fetch_descriptions": True, "desc_selection": "census"},
-                "linkedin": {"searches_per_run": 6, "request_units": 60,
-                             "results_wanted_default": 50, "max_results_wanted": 75,
-                             "max_pages_per_run": 14,
-                             "fetch_descriptions": "budgeted",
-                             "desc_selection": "top_k"},
+                "indeed": {
+                    "searches_per_run": 20,
+                    "request_units": 200,
+                    "results_wanted_default": 75,
+                    "max_results_wanted": 200,
+                    "fetch_descriptions": True,
+                    "desc_selection": "census",
+                },
+                "linkedin": {
+                    "searches_per_run": 6,
+                    "request_units": 60,
+                    "results_wanted_default": 50,
+                    "max_results_wanted": 75,
+                    "max_pages_per_run": 14,
+                    "fetch_descriptions": "budgeted",
+                    "desc_selection": "top_k",
+                },
             },
         },
         "matching": {
@@ -72,8 +82,7 @@ def load_config():
             # like a working safety valve but is not is worse than no key. The `llm`
             # reranker block went with it: it pointed at backend/llm_scorer.py, which no
             # longer exists.
-            "weights": {"skill_coverage": 0.62, "title_family": 0.24,
-                        "seniority_fit": 0.14},
+            "weights": {"skill_coverage": 0.62, "title_family": 0.24, "seniority_fit": 0.14},
         },
         "analytics": {
             "windows": [30, 90],
@@ -101,7 +110,7 @@ def load_config():
 
     return deep_merge(defaults, config)
 
-def save_config(config_data):
+
+def save_config(config_data: dict[str, Any]) -> None:
     with open(CONFIG_PATH, "w", encoding="utf-8") as f:
         yaml.safe_dump(config_data, f, default_flow_style=False, sort_keys=False)
-

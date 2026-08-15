@@ -20,11 +20,11 @@ from careerradar.search.sources.jobspy_source import prune_archives
 
 
 class ArchivePruningTests(unittest.TestCase):
-    def setUp(self):
+    def setUp(self) -> None:
         self.dir = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, self.dir, True)
 
-    def _payload(self, name, age_days, size=1024):
+    def _payload(self, name: str, age_days: float, size: int = 1024) -> str:
         path = os.path.join(self.dir, name)
         with open(path, "wb") as handle:
             handle.write(b"x" * size)
@@ -32,41 +32,41 @@ class ArchivePruningTests(unittest.TestCase):
         os.utime(path, (stamp, stamp))
         return path
 
-    def test_old_payloads_are_removed(self):
+    def test_old_payloads_are_removed(self) -> None:
         self._payload("old.json", age_days=20)
         removed, freed = prune_archives(self.dir, max_age_days=14)
         self.assertEqual(removed, 1)
         self.assertEqual(freed, 1024)
         self.assertEqual(os.listdir(self.dir), [])
 
-    def test_recent_payloads_survive(self):
+    def test_recent_payloads_survive(self) -> None:
         self._payload("fresh.json", age_days=3)
         removed, _ = prune_archives(self.dir, max_age_days=14)
         self.assertEqual(removed, 0)
         self.assertEqual(os.listdir(self.dir), ["fresh.json"])
 
-    def test_boundary_is_not_off_by_a_day(self):
+    def test_boundary_is_not_off_by_a_day(self) -> None:
         """13d survives, 15d does not -- the window means what it says."""
         self._payload("day13.json", age_days=13)
         self._payload("day15.json", age_days=15)
         prune_archives(self.dir, max_age_days=14)
         self.assertEqual(sorted(os.listdir(self.dir)), ["day13.json"])
 
-    def test_zero_retention_keeps_everything(self):
+    def test_zero_retention_keeps_everything(self) -> None:
         """0 must mean 'keep', not 'delete all' -- the destructive misreading."""
         self._payload("ancient.json", age_days=900)
         removed, _ = prune_archives(self.dir, max_age_days=0)
         self.assertEqual(removed, 0)
         self.assertEqual(os.listdir(self.dir), ["ancient.json"])
 
-    def test_missing_directory_is_not_an_error(self):
+    def test_missing_directory_is_not_an_error(self) -> None:
         """Housekeeping must never be what fails a scrape run."""
         self.assertEqual(prune_archives("/nonexistent/path", 14), (0, 0))
 
-    def test_none_directory_is_not_an_error(self):
+    def test_none_directory_is_not_an_error(self) -> None:
         self.assertEqual(prune_archives(None, 14), (0, 0))
 
-    def test_subdirectories_are_left_alone(self):
+    def test_subdirectories_are_left_alone(self) -> None:
         os.mkdir(os.path.join(self.dir, "keep_me"))
         old = time.time() - (100 * 86400)
         os.utime(os.path.join(self.dir, "keep_me"), (old, old))
@@ -76,14 +76,13 @@ class ArchivePruningTests(unittest.TestCase):
 
 
 class LogRotationTests(unittest.TestCase):
-    def test_file_handler_rotates(self):
-        handlers = [h for h in get_logger().handlers
-                    if isinstance(h, RotatingFileHandler)]
+    def test_file_handler_rotates(self) -> None:
+        handlers = [h for h in get_logger().handlers if isinstance(h, RotatingFileHandler)]
         self.assertEqual(len(handlers), 1, "expected exactly one rotating file handler")
         self.assertEqual(handlers[0].maxBytes, MAX_BYTES)
         self.assertEqual(handlers[0].backupCount, BACKUP_COUNT)
 
-    def test_total_log_footprint_is_bounded(self):
+    def test_total_log_footprint_is_bounded(self) -> None:
         """The point of rotating at all: a fixed ceiling, not merely smaller files."""
         ceiling_mb = MAX_BYTES * (BACKUP_COUNT + 1) / 1048576
         self.assertLessEqual(ceiling_mb, 32)

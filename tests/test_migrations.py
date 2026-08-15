@@ -42,12 +42,12 @@ CREATE TABLE jobs (
 
 
 class MigrationTests(unittest.TestCase):
-    def setUp(self):
+    def setUp(self) -> None:
         handle, self.path = tempfile.mkstemp(suffix=".db")
         os.close(handle)
         os.unlink(self.path)
 
-    def tearDown(self):
+    def tearDown(self) -> None:
         for suffix in ("", "-wal", "-shm"):
             candidate = self.path + suffix
             if os.path.exists(candidate):
@@ -58,13 +58,37 @@ class MigrationTests(unittest.TestCase):
         conn = sqlite3.connect(self.path)
         conn.executescript(V1_SCHEMA)
         rows = [
-            ("jt-1", "Senior Fullstack Engineer", "Spotify", "Stockholm", "SE",
-             "https://example.test/1", "x" * 3000, "JobTech Sweden"),
-            ("hn-2", "Platform Engineer", "Acme", "Remote", "US",
-             "https://example.test/2", "y" * 500, "HackerNews"),
+            (
+                "jt-1",
+                "Senior Fullstack Engineer",
+                "Spotify",
+                "Stockholm",
+                "SE",
+                "https://example.test/1",
+                "x" * 3000,
+                "JobTech Sweden",
+            ),
+            (
+                "hn-2",
+                "Platform Engineer",
+                "Acme",
+                "Remote",
+                "US",
+                "https://example.test/2",
+                "y" * 500,
+                "HackerNews",
+            ),
             # A genuinely short description, to prove the quality backfill discriminates.
-            ("wwr-3", "Product Manager", "Globex", "Remote", "US",
-             "https://example.test/3", "short", "WeWorkRemotely"),
+            (
+                "wwr-3",
+                "Product Manager",
+                "Globex",
+                "Remote",
+                "US",
+                "https://example.test/3",
+                "short",
+                "WeWorkRemotely",
+            ),
         ]
         conn.executemany(
             "INSERT INTO jobs (job_key, title, company, location, country, url,"
@@ -74,7 +98,7 @@ class MigrationTests(unittest.TestCase):
         conn.commit()
         return conn
 
-    def test_fresh_database_reaches_head(self):
+    def test_fresh_database_reaches_head(self) -> None:
         conn = sqlite3.connect(self.path)
         try:
             applied = migrate(conn)
@@ -83,21 +107,19 @@ class MigrationTests(unittest.TestCase):
         finally:
             conn.close()
 
-    def test_v1_database_is_upgraded_without_data_loss(self):
+    def test_v1_database_is_upgraded_without_data_loss(self) -> None:
         conn = self._v1_db_with_rows()
         try:
             migrate(conn)
             self.assertEqual(current_version(conn), SCHEMA_VERSION)
             self.assertEqual(conn.execute("SELECT COUNT(*) FROM jobs").fetchone()[0], 3)
             # Original values survive the ALTER TABLEs.
-            title = conn.execute(
-                "SELECT title FROM jobs WHERE job_key = 'jt-1'"
-            ).fetchone()[0]
+            title = conn.execute("SELECT title FROM jobs WHERE job_key = 'jt-1'").fetchone()[0]
             self.assertEqual(title, "Senior Fullstack Engineer")
         finally:
             conn.close()
 
-    def test_migration_is_idempotent(self):
+    def test_migration_is_idempotent(self) -> None:
         conn = sqlite3.connect(self.path)
         try:
             migrate(conn)
@@ -106,22 +128,18 @@ class MigrationTests(unittest.TestCase):
         finally:
             conn.close()
 
-    def test_description_quality_backfill_discriminates(self):
+    def test_description_quality_backfill_discriminates(self) -> None:
         conn = self._v1_db_with_rows()
         try:
             migrate(conn)
-            quality = dict(
-                conn.execute(
-                    "SELECT job_key, description_quality FROM jobs"
-                ).fetchall()
-            )
+            quality = dict(conn.execute("SELECT job_key, description_quality FROM jobs").fetchall())
             self.assertEqual(quality["jt-1"], "full")
             self.assertEqual(quality["hn-2"], "full")
             self.assertEqual(quality["wwr-3"], "snippet")
         finally:
             conn.close()
 
-    def test_legacy_rows_excluded_from_both_eligibility_views(self):
+    def test_legacy_rows_excluded_from_both_eligibility_views(self) -> None:
         """Legacy rows have full descriptions but no cell provenance.
 
         They must stay browsable yet contribute to no statistic -- enforced by
@@ -133,13 +151,11 @@ class MigrationTests(unittest.TestCase):
             self.assertEqual(
                 conn.execute("SELECT COUNT(*) FROM v_supply_eligible").fetchone()[0], 0
             )
-            self.assertEqual(
-                conn.execute("SELECT COUNT(*) FROM v_skill_eligible").fetchone()[0], 0
-            )
+            self.assertEqual(conn.execute("SELECT COUNT(*) FROM v_skill_eligible").fetchone()[0], 0)
         finally:
             conn.close()
 
-    def test_skill_eligible_requires_census_descriptions(self):
+    def test_skill_eligible_requires_census_descriptions(self) -> None:
         """A top_k row must never reach skill demand, even with a full description.
 
         top_k descriptions are selected by pre-score, which correlates with the user's own
@@ -166,27 +182,21 @@ class MigrationTests(unittest.TestCase):
                 conn.execute("SELECT COUNT(*) FROM v_supply_eligible").fetchone()[0], 2
             )
             # Only the census row counts for skill demand.
-            skill_keys = [
-                r[0] for r in conn.execute("SELECT job_key FROM v_skill_eligible")
-            ]
+            skill_keys = [r[0] for r in conn.execute("SELECT job_key FROM v_skill_eligible")]
             self.assertEqual(skill_keys, ["c1"])
         finally:
             conn.close()
 
-    def test_wal_and_busy_timeout_enabled(self):
+    def test_wal_and_busy_timeout_enabled(self) -> None:
         conn = sqlite3.connect(self.path)
         try:
             migrate(conn)
-            self.assertEqual(
-                conn.execute("PRAGMA journal_mode").fetchone()[0].lower(), "wal"
-            )
-            self.assertGreaterEqual(
-                conn.execute("PRAGMA busy_timeout").fetchone()[0], 5000
-            )
+            self.assertEqual(conn.execute("PRAGMA journal_mode").fetchone()[0].lower(), "wal")
+            self.assertGreaterEqual(conn.execute("PRAGMA busy_timeout").fetchone()[0], 5000)
         finally:
             conn.close()
 
-    def test_rows_with_no_role_family_are_excluded(self):
+    def test_rows_with_no_role_family_are_excluded(self) -> None:
         """Off-target postings (a 'Maintenance Technician' from a Platform Engineer query)
         are retained for audit but must not reach any statistic."""
         conn = sqlite3.connect(self.path)
@@ -206,9 +216,7 @@ class MigrationTests(unittest.TestCase):
             self.assertEqual(
                 conn.execute("SELECT COUNT(*) FROM v_supply_eligible").fetchone()[0], 0
             )
-            self.assertEqual(
-                conn.execute("SELECT COUNT(*) FROM v_skill_eligible").fetchone()[0], 0
-            )
+            self.assertEqual(conn.execute("SELECT COUNT(*) FROM v_skill_eligible").fetchone()[0], 0)
         finally:
             conn.close()
 

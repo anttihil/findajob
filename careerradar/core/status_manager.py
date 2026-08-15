@@ -1,22 +1,20 @@
 import json
 import os
 from datetime import datetime, timedelta
+from typing import Any
 
 from careerradar.core.paths import STATUS_PATH
 
 STATUS_FILE = STATUS_PATH
 
-def load_sync_status():
+
+def load_sync_status() -> dict[str, Any]:
     if not os.path.exists(STATUS_FILE):
         return {
             "sync_in_progress": False,
             "last_sync_time": None,
-            "last_run_stats": {
-                "total_fetched": 0,
-                "total_evaluated": 0,
-                "total_new": 0
-            },
-            "errors": []
+            "last_run_stats": {"total_fetched": 0, "total_evaluated": 0, "total_new": 0},
+            "errors": [],
         }
     try:
         with open(STATUS_FILE, encoding="utf-8") as f:
@@ -25,36 +23,36 @@ def load_sync_status():
         return {
             "sync_in_progress": False,
             "last_sync_time": None,
-            "last_run_stats": {
-                "total_fetched": 0,
-                "total_evaluated": 0,
-                "total_new": 0
-            },
-            "errors": []
+            "last_run_stats": {"total_fetched": 0, "total_evaluated": 0, "total_new": 0},
+            "errors": [],
         }
 
-def save_sync_status(status_data):
+
+def save_sync_status(status_data: dict[str, Any]) -> None:
     try:
         with open(STATUS_FILE, "w", encoding="utf-8") as f:
             json.dump(status_data, f, indent=2)
     except Exception as e:  # noqa: BLE001 - status is best-effort telemetry and must never fail a sync
         print(f"Error saving sync status: {e}")
 
+
 # A sync that crashes leaves sync_in_progress=True and wedges the Sync button forever, so
 # the lock records its owning PID and is treated as stale after this long.
 STALE_LOCK_MINUTES = 90
 
-def set_sync_progress(in_progress, total_fetched=0, total_evaluated=0, total_new=0):
+
+def set_sync_progress(
+    in_progress: bool,
+    total_fetched: int = 0,
+    total_evaluated: int = 0,
+    total_new: int = 0,
+) -> None:
     status = load_sync_status()
     status["sync_in_progress"] = in_progress
     if in_progress:
         # Clear old errors and set running stats to 0
         status["errors"] = []
-        status["last_run_stats"] = {
-            "total_fetched": 0,
-            "total_evaluated": 0,
-            "total_new": 0
-        }
+        status["last_run_stats"] = {"total_fetched": 0, "total_evaluated": 0, "total_new": 0}
         status["owner_pid"] = os.getpid()
         status["started_at"] = datetime.now().isoformat()
     else:
@@ -62,13 +60,14 @@ def set_sync_progress(in_progress, total_fetched=0, total_evaluated=0, total_new
         status["last_run_stats"] = {
             "total_fetched": total_fetched,
             "total_evaluated": total_evaluated,
-            "total_new": total_new
+            "total_new": total_new,
         }
         status["owner_pid"] = None
         status["started_at"] = None
     save_sync_status(status)
 
-def is_sync_running():
+
+def is_sync_running() -> bool:
     """Whether a sync genuinely holds the lock.
 
     Checks liveness rather than trusting the flag: a crashed or killed sync would otherwise
@@ -82,9 +81,9 @@ def is_sync_running():
     pid = status.get("owner_pid")
     if pid:
         try:
-            os.kill(int(pid), 0)   # signal 0 only tests for existence
+            os.kill(int(pid), 0)  # signal 0 only tests for existence
         except (OSError, ValueError, TypeError):
-            return False           # owner is gone; the lock is stale
+            return False  # owner is gone; the lock is stale
 
     started_at = status.get("started_at")
     if started_at:
@@ -97,7 +96,8 @@ def is_sync_running():
 
     return True
 
-def clear_stale_lock():
+
+def clear_stale_lock() -> bool:
     """Release a lock whose owner is gone. Returns True if one was cleared."""
     status = load_sync_status()
     if status.get("sync_in_progress") and not is_sync_running():
@@ -108,7 +108,8 @@ def clear_stale_lock():
         return True
     return False
 
-def add_sync_error(source, error_message, severity="error"):
+
+def add_sync_error(source: str, error_message: str, severity: str = "error") -> None:
     """Record a run problem for the dashboard banner.
 
     `severity` distinguishes hard failures from coverage warnings and informational notices,
@@ -118,10 +119,12 @@ def add_sync_error(source, error_message, severity="error"):
     status = load_sync_status()
     # Avoid repeating the same error for a source within the same run
     if not any(e["source"] == source and e["error"] == error_message for e in status["errors"]):
-        status["errors"].append({
-            "source": source,
-            "error": error_message,
-            "severity": severity,
-            "timestamp": datetime.now().isoformat()
-        })
+        status["errors"].append(
+            {
+                "source": source,
+                "error": error_message,
+                "severity": severity,
+                "timestamp": datetime.now().isoformat(),
+            }
+        )
         save_sync_status(status)

@@ -19,6 +19,11 @@ import hashlib
 import math
 import re
 from datetime import date, datetime, timedelta, timezone
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from careerradar.taxonomy.roles import RoleTaxonomy
+    from careerradar.taxonomy.skills import Taxonomy
 
 # Descriptions shorter than this are snippets, not job descriptions. Skill extraction over a
 # snippet produces a handful of hits and silently deflates every demand denominator, so
@@ -27,12 +32,19 @@ FULL_DESCRIPTION_MIN_CHARS = 400
 
 # Pay-period multipliers to annualize.
 INTERVAL_FACTOR = {
-    "yearly": 1, "annual": 1, "annually": 1, "year": 1,
-    "monthly": 12, "month": 12,
-    "weekly": 52, "week": 52,
+    "yearly": 1,
+    "annual": 1,
+    "annually": 1,
+    "year": 1,
+    "monthly": 12,
+    "month": 12,
+    "weekly": 52,
+    "week": 52,
     "biweekly": 26,
-    "daily": 260, "day": 260,
-    "hourly": 2080, "hour": 2080,
+    "daily": 260,
+    "day": 260,
+    "hourly": 2080,
+    "hour": 2080,
 }
 
 # Static FX rates, annual-USD conversion only. Exact rates do not matter much because
@@ -59,9 +71,34 @@ SALARY_SANITY_MAX_USD = 1_500_000
 # name -- stripping them would make "Foo Technologies" and "Foo Systems" collide, turning two
 # employers into one and understating n_companies.
 COMPANY_SUFFIXES = [
-    "incorporated", "inc", "llc", "l.l.c", "ltd", "limited", "corp", "corporation",
-    "plc", "gmbh", "mbh", "ag", "sarl", "sas", "bv", "nv",
-    "ab", "asa", "as", "a/s", "aps", "oy", "oyj", "kk", "pty", "pte", "srl", "spa",
+    "incorporated",
+    "inc",
+    "llc",
+    "l.l.c",
+    "ltd",
+    "limited",
+    "corp",
+    "corporation",
+    "plc",
+    "gmbh",
+    "mbh",
+    "ag",
+    "sarl",
+    "sas",
+    "bv",
+    "nv",
+    "ab",
+    "asa",
+    "as",
+    "a/s",
+    "aps",
+    "oy",
+    "oyj",
+    "kk",
+    "pty",
+    "pte",
+    "srl",
+    "spa",
 ]
 _SUFFIX_RE = re.compile(
     r"[\s,]+(?:{})\.?$".format("|".join(re.escape(s) for s in COMPANY_SUFFIXES)),
@@ -70,12 +107,13 @@ _SUFFIX_RE = re.compile(
 
 _REMOTE_POSITIVE = re.compile(
     r"\b(?:fully remote|100%\s*remote|remote[- ]first|work from anywhere|"
-    r"remote position|distributed team)\b", re.IGNORECASE)
-_REMOTE_NEGATIVE = re.compile(
-    r"\b(?:hybrid|on-?site|in[- ]office|in person)\b", re.IGNORECASE)
+    r"remote position|distributed team)\b",
+    re.IGNORECASE,
+)
+_REMOTE_NEGATIVE = re.compile(r"\b(?:hybrid|on-?site|in[- ]office|in person)\b", re.IGNORECASE)
 
 
-def _text(value):
+def _text(value: Any) -> str:
     """Coerce a value that may be NaN, None, or a pandas scalar into a clean string."""
     if value is None:
         return ""
@@ -87,7 +125,7 @@ def _text(value):
     return text
 
 
-def _number(value):
+def _number(value: Any) -> float | None:
     if value is None:
         return None
     try:
@@ -99,7 +137,7 @@ def _number(value):
     return number
 
 
-def normalize_company(name):
+def normalize_company(name: Any) -> str:
     """Casefold, strip legal-form suffixes and punctuation, collapse whitespace."""
     text = _text(name)
     if not text:
@@ -115,7 +153,7 @@ def normalize_company(name):
     return re.sub(r"\s+", " ", text).strip().lower()
 
 
-def is_agency(company, agency_names):
+def is_agency(company: Any, agency_names: list[str] | None) -> bool:
     """Whether a company is a staffing agency or consultancy.
 
     Left out of analytics by default: agencies repost the same requisition under many
@@ -132,7 +170,12 @@ def is_agency(company, agency_names):
     return False
 
 
-def parse_location(raw, country_hint=None, is_remote_query=False, fallback_label=""):
+def parse_location(
+    raw: Any,
+    country_hint: str | None = None,
+    is_remote_query: bool = False,
+    fallback_label: str = "",
+) -> dict[str, Any]:
     """Split a board location string into city / region / country.
 
     JobSpy emits "Commerce, CA, US" or "Stockholm, Sweden" or "Remote". The trailing token
@@ -168,13 +211,11 @@ def parse_location(raw, country_hint=None, is_remote_query=False, fallback_label
     }
 
 
-def infer_remote(row, is_remote_query=False):
+def infer_remote(row: dict[str, Any], is_remote_query: bool = False) -> int | None:
     """1 / 0 / None. None means undetermined -- never guess 0, since that would make
     remote_share look artificially low rather than unknown."""
     explicit = row.get("is_remote")
-    if explicit is not None and not (
-        isinstance(explicit, float) and math.isnan(explicit)
-    ):
+    if explicit is not None and not (isinstance(explicit, float) and math.isnan(explicit)):
         try:
             return 1 if bool(explicit) else 0
         except (TypeError, ValueError):
@@ -191,7 +232,9 @@ def infer_remote(row, is_remote_query=False):
     return None
 
 
-def normalize_salary(row, country_hint=None, fx=None):
+def normalize_salary(
+    row: dict[str, Any], country_hint: str | None = None, fx: dict[str, float] | None = None
+) -> dict[str, Any]:
     """Normalize a salary range to annual USD.
 
     Returns the original figures for display plus `salary_annual_usd` for comparison.
@@ -208,7 +251,11 @@ def normalize_salary(row, country_hint=None, fx=None):
     inferred = 0
     if not currency:
         currency = {
-            "US": "USD", "SE": "SEK", "NO": "NOK", "DK": "DKK", "FI": "EUR",
+            "US": "USD",
+            "SE": "SEK",
+            "NO": "NOK",
+            "DK": "DKK",
+            "FI": "EUR",
         }.get((country_hint or "").upper())
         inferred = 1 if currency else 0
 
@@ -228,7 +275,7 @@ def normalize_salary(row, country_hint=None, fx=None):
     values = [v for v in (low, high) if v is not None]
     midpoint = sum(values) / len(values)
 
-    factor = INTERVAL_FACTOR.get(interval)
+    factor = INTERVAL_FACTOR.get(interval) if interval else None
     rate = fx.get(currency) if currency else None
     if factor is None or rate is None:
         return result
@@ -239,7 +286,9 @@ def normalize_salary(row, country_hint=None, fx=None):
     return result
 
 
-def normalize_date_posted(row, observed_at, hours_old=None):
+def normalize_date_posted(
+    row: dict[str, Any], observed_at: datetime, hours_old: float | None = None
+) -> dict[str, Any]:
     """Resolve the posting date, recording how precisely it is known.
 
     JobSpy does supply `date_posted` for Indeed, so this is usually exact. When it is
@@ -265,9 +314,7 @@ def normalize_date_posted(row, observed_at, hours_old=None):
                     continue
 
     window_end = observed_at
-    window_start = (
-        observed_at - timedelta(hours=hours_old) if hours_old else None
-    )
+    window_start = observed_at - timedelta(hours=hours_old) if hours_old else None
 
     return {
         "date_posted": posted.isoformat() if posted else None,
@@ -277,7 +324,7 @@ def normalize_date_posted(row, observed_at, hours_old=None):
     }
 
 
-def content_hash(company, title, location):
+def content_hash(company: Any, title: Any, location: Any) -> str:
     """Stable hash for cross-board deduplication.
 
     The same requisition on LinkedIn and Indeed has different URLs and different board ids,
@@ -294,7 +341,7 @@ def content_hash(company, title, location):
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:32]
 
 
-def description_quality(description):
+def description_quality(description: Any) -> str:
     text = _text(description)
     if not text:
         return "missing"
@@ -303,7 +350,14 @@ def description_quality(description):
     return "full"
 
 
-def normalize_row(row, task, observed_at=None, config=None, roles=None, taxonomy=None):
+def normalize_row(
+    row: dict[str, Any],
+    task: dict[str, Any],
+    observed_at: datetime | None = None,
+    config: dict[str, Any] | None = None,
+    roles: "RoleTaxonomy | None" = None,
+    taxonomy: "Taxonomy | None" = None,
+) -> dict[str, Any]:
     """Turn one board row into a database-ready posting dict.
 
     `task` supplies the query provenance: source, location, country, remote flag, and the
@@ -349,9 +403,7 @@ def normalize_row(row, task, observed_at=None, config=None, roles=None, taxonomy
     }
     posting.update(location)
     posting.update(normalize_salary(row, task.get("country"), config.get("fx")))
-    posting.update(
-        normalize_date_posted(row, observed_at, task.get("hours_old"))
-    )
+    posting.update(normalize_date_posted(row, observed_at, task.get("hours_old")))
     posting["content_hash"] = content_hash(company, title, posting["location"])
 
     # Skills are extracted before classification, because weak title patterns need
@@ -390,21 +442,39 @@ def normalize_row(row, task, observed_at=None, config=None, roles=None, taxonomy
 # Categories that make a posting a technology job. Practice and domain skills alone do not:
 # an "R&D Engineer, Materials" posting mentioning A/B testing and technical writing is still
 # not a software role.
-TECHNICAL_CATEGORIES = frozenset({
-    "language", "frontend", "backend", "database", "cloud", "infrastructure", "devops",
-    "ai_ml", "data", "security", "cms", "testing", "tooling",
-})
+TECHNICAL_CATEGORIES = frozenset(
+    {
+        "language",
+        "frontend",
+        "backend",
+        "database",
+        "cloud",
+        "infrastructure",
+        "devops",
+        "ai_ml",
+        "data",
+        "security",
+        "cms",
+        "testing",
+        "tooling",
+    }
+)
 
 
-def has_technical_skill(skills, taxonomy):
+def has_technical_skill(skills: dict[str, Any] | None, taxonomy: "Taxonomy | None") -> bool:
     if not skills or taxonomy is None:
         return False
-    return any(
-        taxonomy.category(key) in TECHNICAL_CATEGORIES for key in skills
-    )
+    return any(taxonomy.category(key) in TECHNICAL_CATEGORIES for key in skills)
 
 
-def normalize_rows(rows, task, observed_at=None, config=None, roles=None, taxonomy=None):
+def normalize_rows(
+    rows: list[dict[str, Any]],
+    task: dict[str, Any],
+    observed_at: datetime | None = None,
+    config: dict[str, Any] | None = None,
+    roles: "RoleTaxonomy | None" = None,
+    taxonomy: "Taxonomy | None" = None,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     """Normalize a batch, dropping rows with no title or no URL.
 
     Returns (postings, stats) where stats carries the counts `cell_observations` needs.
@@ -420,18 +490,14 @@ def normalize_rows(rows, task, observed_at=None, config=None, roles=None, taxono
         if not _text(row.get("title")) or not _text(row.get("job_url")):
             skipped += 1
             continue
-        postings.append(
-            normalize_row(row, task, observed_at, config, roles, taxonomy)
-        )
+        postings.append(normalize_row(row, task, observed_at, config, roles, taxonomy))
 
     stats = {
         "returned": len(rows),
         "usable": len(postings),
         "skipped": skipped,
         "on_topic": sum(1 for p in postings if p["role_family"]),
-        "with_full_description": sum(
-            1 for p in postings if p["description_quality"] == "full"
-        ),
+        "with_full_description": sum(1 for p in postings if p["description_quality"] == "full"),
         "with_salary": sum(1 for p in postings if p["salary_annual_usd"] is not None),
     }
     return postings, stats

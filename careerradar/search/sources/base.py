@@ -1,4 +1,5 @@
 from abc import ABC, abstractmethod
+from typing import Any
 
 
 class BaseJobSource(ABC):
@@ -9,7 +10,7 @@ class BaseJobSource(ABC):
     """
 
     @abstractmethod
-    def fetch_for_task(self, task: dict) -> list[dict]:
+    def fetch_for_task(self, task: dict[str, Any]) -> list[dict[str, Any]]:
         """Run one cell's search and return the board's raw rows.
 
         `task` is a `ScrapeTask.to_dict()` (careerradar/search/scheduler.py). The fields an

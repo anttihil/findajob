@@ -24,6 +24,7 @@ active profile was built?" without a diff of the text.
 
 import hashlib
 import os
+from typing import Any
 
 from careerradar.core.logger import get_logger
 from careerradar.core.paths import REPO_ROOT
@@ -35,33 +36,33 @@ MAX_DOC_CHARS = 60_000
 
 
 class Document:
-    def __init__(self, path, kind, text):
+    def __init__(self, path: str, kind: str, text: str) -> None:
         self.path = path
         self.kind = kind
         self.text = text
         self.sha256 = hashlib.sha256(text.encode("utf-8")).hexdigest()
 
     @property
-    def name(self):
+    def name(self) -> str:
         return os.path.basename(self.path)
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return f"<Document {self.name} kind={self.kind} chars={len(self.text)}>"
 
 
-def _read_markdown(path):
+def _read_markdown(path: str) -> str:
     with open(path, encoding="utf-8") as handle:
         return handle.read()
 
 
-def _read_pdf(path):
+def _read_pdf(path: str) -> str:
     from pypdf import PdfReader
 
     reader = PdfReader(path)
     return "\n\n".join((page.extract_text() or "") for page in reader.pages)
 
 
-def _read(path):
+def _read(path: str) -> str:
     if path.lower().endswith(".pdf"):
         return _read_pdf(path)
     return _read_markdown(path)
@@ -81,34 +82,38 @@ DEFAULT_CORPUS = [
 ]
 
 
-def corpus_spec(config=None):
+def corpus_spec(config: dict[str, Any] | None = None) -> list[dict[str, Any]]:
     """The configured corpus list, or the default."""
     if config is None:
         from careerradar.core.config import load_config
 
         config = load_config()
     entries = ((config.get("profile") or {}).get("corpus")) or DEFAULT_CORPUS
-    normalized = []
+    normalized: list[dict[str, Any]] = []
     for entry in entries:
         if isinstance(entry, str):
             entry = {"path": entry}
-        normalized.append({
-            "path": entry["path"],
-            "kind": entry.get("kind", "resume"),
-            "optional": bool(entry.get("optional", False)),
-        })
+        normalized.append(
+            {
+                "path": entry["path"],
+                "kind": entry.get("kind", "resume"),
+                "optional": bool(entry.get("optional", False)),
+            }
+        )
     return normalized
 
 
-def collect_documents(config=None, repo_root=REPO_ROOT):
+def collect_documents(
+    config: dict[str, Any] | None = None, repo_root: str = REPO_ROOT
+) -> list[Document]:
     """Read exactly the documents `profile.corpus` names.
 
     Paths are relative to the repo root. `.md`, `.txt`, and `.pdf` are all read -- a PDF
     with no markdown source is a first-class corpus document, which the old regex parser
     silently ignored.
     """
-    documents = []
-    missing = []
+    documents: list[Document] = []
+    missing: list[str] = []
 
     for entry in corpus_spec(config):
         path = entry["path"]
@@ -116,8 +121,11 @@ def collect_documents(config=None, repo_root=REPO_ROOT):
             path = os.path.join(repo_root, path)
 
         if not os.path.exists(path):
-            (logger.warning("Corpus: optional document %s not found", path)
-             if entry["optional"] else missing.append(entry["path"]))
+            (
+                logger.warning("Corpus: optional document %s not found", path)
+                if entry["optional"]
+                else missing.append(entry["path"])
+            )
             continue
 
         try:
@@ -135,12 +143,12 @@ def collect_documents(config=None, repo_root=REPO_ROOT):
             "Missing corpus document(s): "
             + ", ".join(missing)
             + ".\nFix the paths under `profile.corpus` in config.yaml, or mark them "
-              "`optional: true`."
+            "`optional: true`."
         )
     return documents
 
 
-def corpus_hash(documents):
+def corpus_hash(documents: list[Document]) -> str:
     """One hash over the whole corpus, stable under file ordering."""
     digest = hashlib.sha256()
     for document in sorted(documents, key=lambda d: d.path):
@@ -148,12 +156,12 @@ def corpus_hash(documents):
     return digest.hexdigest()
 
 
-def render_corpus(documents):
+def render_corpus(documents: list[Document]) -> str:
     """Lay the corpus out for the model, one delimited block per document."""
-    blocks = []
+    blocks: list[str] = []
     for document in documents:
         blocks.append(
-            f"<document name=\"{document.name}\" kind=\"{document.kind}\">\n"
+            f'<document name="{document.name}" kind="{document.kind}">\n'
             f"{document.text}\n"
             f"</document>"
         )

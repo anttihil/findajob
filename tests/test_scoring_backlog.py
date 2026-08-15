@@ -22,9 +22,11 @@ import sqlite3
 import sys
 import tempfile
 import unittest
+from typing import cast
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from careerradar.core.database import Database
 from careerradar.core.migrations import apply_pragmas, migrate
 from careerradar.profile.models import VERDICT_SCHEMA_VERSION
 from careerradar.scoring.worker import _ineligible, _pending, _select
@@ -36,36 +38,51 @@ LONG = "x" * 400
 class _Db:
     """Just enough of `Database` for the three module functions under test."""
 
-    def __init__(self, conn):
+    def __init__(self, conn: sqlite3.Connection) -> None:
         self.conn = conn
 
 
 class _Fixture:
     """Fixture only. Not a TestCase -- inheriting one re-runs its tests in every subclass."""
 
-    def setUp(self):
+    def setUp(self) -> None:
         self.tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
         self.tmp.close()
         self.conn = sqlite3.connect(self.tmp.name)
         self.conn.row_factory = sqlite3.Row
         apply_pragmas(self.conn)
         migrate(self.conn)
-        self.db = _Db(self.conn)
+        # `_Db` is intentionally not a `Database` -- it is a minimal duck-typed stand-in,
+        # since building a real one would open a second connection to the same file.
+        self.db = cast(Database, _Db(self.conn))
 
-    def tearDown(self):
+    def tearDown(self) -> None:
         self.conn.close()
         os.unlink(self.tmp.name)
 
-    def job(self, job_id, *, description=LONG, duplicate_of=None, state="new"):
+    def job(
+        self,
+        job_id: int,
+        *,
+        description: str | None = LONG,
+        duplicate_of: int | None = None,
+        state: str = "new",
+    ) -> None:
         self.conn.execute(
             "INSERT INTO jobs (id, job_key, title, url, description, duplicate_of, "
             "pipeline_state, sync_run_id) VALUES (?, ?, 'Platform Engineer', ?, ?, ?, ?, 1)",
-            (job_id, f"k{job_id}", f"https://example.test/{job_id}", description,
-             duplicate_of, state),
+            (
+                job_id,
+                f"k{job_id}",
+                f"https://example.test/{job_id}",
+                description,
+                duplicate_of,
+                state,
+            ),
         )
         self.conn.commit()
 
-    def verdict(self, job_id, schema_version, profile_version=PROFILE):
+    def verdict(self, job_id: int, schema_version: int, profile_version: int = PROFILE) -> None:
         self.conn.execute(
             "INSERT INTO job_verdicts (job_id, profile_version, model, fit_score, verdict, "
             "verdict_schema_version, created_at) "
@@ -76,41 +93,39 @@ class _Fixture:
 
 
 class BacklogAccountingTests(_Fixture, unittest.TestCase):
-    def test_pending_matches_what_select_returns(self):
-        self.job(1)                                       # never scored -> queued
+    def test_pending_matches_what_select_returns(self) -> None:
+        self.job(1)  # never scored -> queued
         self.job(2)
-        self.verdict(2, VERDICT_SCHEMA_VERSION)           # current verdict -> done
+        self.verdict(2, VERDICT_SCHEMA_VERSION)  # current verdict -> done
         self.job(3, state="scored")
-        self.verdict(3, VERDICT_SCHEMA_VERSION - 1)       # stale schema -> queued
-        self.job(4, duplicate_of=1)                       # duplicate -> never
-        self.job(5, description="too short")              # stub -> never
-        self.job(6, description=None)                     # no description -> never
+        self.verdict(3, VERDICT_SCHEMA_VERSION - 1)  # stale schema -> queued
+        self.job(4, duplicate_of=1)  # duplicate -> never
+        self.job(5, description="too short")  # stub -> never
+        self.job(6, description=None)  # no description -> never
 
-        self.assertEqual(_pending(self.db, PROFILE),
-                         len(_select(self.db, None, False, PROFILE)))
+        self.assertEqual(_pending(self.db, PROFILE), len(_select(self.db, None, False, PROFILE)))
         self.assertEqual(_pending(self.db, PROFILE), 2)
 
-    def test_pending_ignores_verdicts_from_another_profile(self):
+    def test_pending_ignores_verdicts_from_another_profile(self) -> None:
         self.job(1, state="scored")
         self.verdict(1, VERDICT_SCHEMA_VERSION, profile_version=PROFILE - 1)
-        self.assertEqual(_pending(self.db, PROFILE),
-                         len(_select(self.db, None, False, PROFILE)))
+        self.assertEqual(_pending(self.db, PROFILE), len(_select(self.db, None, False, PROFILE)))
         self.assertEqual(_pending(self.db, PROFILE), 1)
 
-    def test_pending_stays_incremental_after_rescore_all(self):
+    def test_pending_stays_incremental_after_rescore_all(self) -> None:
         """--rescore-all widens what a run does, not what is left to do afterwards."""
         self.job(1, state="scored")
         self.verdict(1, VERDICT_SCHEMA_VERSION)
         self.assertEqual(len(_select(self.db, None, True, PROFILE)), 1)
         self.assertEqual(_pending(self.db, PROFILE), 0)
 
-    def test_ineligible_reasons_sum_to_the_total(self):
-        self.job(1)                                       # eligible, not counted here
+    def test_ineligible_reasons_sum_to_the_total(self) -> None:
+        self.job(1)  # eligible, not counted here
         self.job(2, duplicate_of=1)
         self.job(3, duplicate_of=1, description="short")  # two reasons at once
         self.job(4, description="short")
         self.job(5, description=None)
-        self.job(6, state="scored", duplicate_of=1)       # not 'new' -> not counted
+        self.job(6, state="scored", duplicate_of=1)  # not 'new' -> not counted
 
         row = _ineligible(self.db)
         self.assertEqual(row["total"], 4)
@@ -118,16 +133,20 @@ class BacklogAccountingTests(_Fixture, unittest.TestCase):
         self.assertEqual(row["thin"], 2)
         self.assertEqual(row["duplicate"] + row["thin"] + row["closed"], row["total"])
 
-    def test_ineligible_is_disjoint_from_pending(self):
+    def test_ineligible_is_disjoint_from_pending(self) -> None:
         """The two numbers a run prints must never describe the same row."""
         self.job(1)
         self.job(2, duplicate_of=1)
         self.job(3, description="short")
 
         queued = {row["id"] for row in _select(self.db, None, False, PROFILE)}
-        excluded = {row[0] for row in self.conn.execute(
-            "SELECT id FROM jobs WHERE pipeline_state = 'new' AND (duplicate_of IS NOT NULL "
-            "OR description IS NULL OR length(description) <= 200)")}
+        excluded = {
+            row[0]
+            for row in self.conn.execute(
+                "SELECT id FROM jobs WHERE pipeline_state = 'new' AND (duplicate_of IS NOT NULL "
+                "OR description IS NULL OR length(description) <= 200)"
+            )
+        }
         self.assertEqual(queued & excluded, set())
         self.assertEqual(_ineligible(self.db)["total"], len(excluded))
 
@@ -145,43 +164,50 @@ class QuarantineTests(_Fixture, unittest.TestCase):
     every attempt of every run. Three calls a run, indefinitely, with nothing recorded.
     """
 
-    def record_failures(self, job_id, times, error="core_requirements is empty"):
+    def record_failures(
+        self, job_id: int, times: int, error: str = "core_requirements is empty"
+    ) -> None:
         from careerradar.scoring.worker import _record_failure
+
         for _ in range(times):
             _record_failure(self.db, job_id, error)
         self.conn.commit()
 
-    def test_posting_is_offered_until_the_threshold(self):
+    def test_posting_is_offered_until_the_threshold(self) -> None:
         from careerradar.scoring.worker import MAX_SCORING_FAILURES
+
         self.job(1)
         for n in range(MAX_SCORING_FAILURES):
-            self.assertEqual(_pending(self.db, PROFILE), 1,
-                             f"withdrawn after only {n} failures")
+            self.assertEqual(_pending(self.db, PROFILE), 1, f"withdrawn after only {n} failures")
             self.record_failures(1, 1)
         self.assertEqual(_pending(self.db, PROFILE), 0)
         self.assertEqual(_select(self.db, None, False, PROFILE), [])
 
-    def test_rescore_all_does_not_resurrect_a_quarantined_posting(self):
+    def test_rescore_all_does_not_resurrect_a_quarantined_posting(self) -> None:
         """--rescore-all widens the verdict predicate, not the eligibility one."""
         from careerradar.scoring.worker import MAX_SCORING_FAILURES
+
         self.job(1)
         self.record_failures(1, MAX_SCORING_FAILURES)
         self.assertEqual(_select(self.db, None, True, PROFILE), [])
 
-    def test_a_success_clears_the_counter(self):
+    def test_a_success_clears_the_counter(self) -> None:
         """Two failures then a verdict must not leave the posting one failure from exile."""
         from careerradar.scoring.worker import MAX_SCORING_FAILURES, _persist
+
         self.job(1)
         self.record_failures(1, MAX_SCORING_FAILURES - 1)
         _persist(self.db, {"id": 1}, _VERDICT, None, 0.0, "m", PROFILE, "hash")
         self.conn.commit()
         row = self.conn.execute(
-            "SELECT scoring_failures, last_scoring_error FROM jobs WHERE id = 1").fetchone()
+            "SELECT scoring_failures, last_scoring_error FROM jobs WHERE id = 1"
+        ).fetchone()
         self.assertEqual(row["scoring_failures"], 0)
         self.assertIsNone(row["last_scoring_error"])
 
-    def test_quarantined_groups_by_reason(self):
+    def test_quarantined_groups_by_reason(self) -> None:
         from careerradar.scoring.worker import MAX_SCORING_FAILURES, _quarantined
+
         self.job(1)
         self.job(2)
         self.job(3)
@@ -194,23 +220,37 @@ class QuarantineTests(_Fixture, unittest.TestCase):
         self.assertEqual(rows[0]["total"], 2)
         self.assertIn("core_requirements", rows[0]["reason"])
 
-    def test_retry_clears_the_counter(self):
+    def test_retry_clears_the_counter(self) -> None:
         from careerradar.scoring.worker import MAX_SCORING_FAILURES
+
         self.job(1)
         self.record_failures(1, MAX_SCORING_FAILURES)
         self.assertEqual(_pending(self.db, PROFILE), 0)
         self.conn.execute(
             "UPDATE jobs SET scoring_failures = 0, last_scoring_error = NULL "
-            "WHERE COALESCE(scoring_failures, 0) > 0")
+            "WHERE COALESCE(scoring_failures, 0) > 0"
+        )
         self.conn.commit()
         self.assertEqual(_pending(self.db, PROFILE), 1)
 
 
 _VERDICT = {
-    "fit_score": 50, "verdict": "maybe", "seniority_gap": "match", "hard_blockers": [],
-    "key_gaps": [], "strengths": [], "reasoning": "r", "research_worthy": False,
-    "role_summary": "s", "eligibility": "eligible", "role_match": "same_role",
-    "capability_match": "meets", "evidence_quality": "direct", "core_requirements": [],
-    "requirement_assessments": [], "audit_flags": [], "scale_version": 1,
+    "fit_score": 50,
+    "verdict": "maybe",
+    "seniority_gap": "match",
+    "hard_blockers": [],
+    "key_gaps": [],
+    "strengths": [],
+    "reasoning": "r",
+    "research_worthy": False,
+    "role_summary": "s",
+    "eligibility": "eligible",
+    "role_match": "same_role",
+    "capability_match": "meets",
+    "evidence_quality": "direct",
+    "core_requirements": [],
+    "requirement_assessments": [],
+    "audit_flags": [],
+    "scale_version": 1,
     "pareto_tier": 1,
 }

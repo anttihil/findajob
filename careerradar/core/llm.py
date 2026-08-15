@@ -18,8 +18,12 @@ remembering which of those apply.
 """
 
 import os
+from typing import TYPE_CHECKING, Any
 
 from careerradar.core.logger import get_logger
+
+if TYPE_CHECKING:
+    from langchain_deepseek import ChatDeepSeek
 
 logger = get_logger()
 
@@ -39,7 +43,7 @@ class MissingApiKey(RuntimeError):
     pass
 
 
-def require_api_key():
+def require_api_key() -> str:
     key = os.environ.get("DEEPSEEK_API_KEY")
     if not key:
         raise MissingApiKey(
@@ -48,7 +52,9 @@ def require_api_key():
     return key
 
 
-def structured_model(model=DEFAULT_SCORING_MODEL, *, temperature=0, **kwargs):
+def structured_model(
+    model: str = DEFAULT_SCORING_MODEL, *, temperature: float = 0, **kwargs: Any
+) -> "ChatDeepSeek":
     """A model for schema-enforced output. Thinking is OFF, sampling is deterministic.
 
     Required: `with_structured_output(..., method="function_calling", strict=True)`
@@ -67,12 +73,10 @@ def structured_model(model=DEFAULT_SCORING_MODEL, *, temperature=0, **kwargs):
     from langchain_deepseek import ChatDeepSeek
 
     require_api_key()
-    return ChatDeepSeek(
-        model=model, reasoning_effort="none", temperature=temperature, **kwargs
-    )
+    return ChatDeepSeek(model=model, reasoning_effort="none", temperature=temperature, **kwargs)
 
 
-def agentic_model(model=DEFAULT_AGENT_MODEL, **kwargs):
+def agentic_model(model: str = DEFAULT_AGENT_MODEL, **kwargs: Any) -> "ChatDeepSeek":
     """A model for open-ended tool use. Thinking stays ON.
 
     Safe here because an agent binds tools with `tool_choice="auto"` -- the model decides
@@ -97,7 +101,7 @@ class StructuredOutputError(RuntimeError):
     """The model answered, but never made the tool call the schema required."""
 
 
-def _no_tool_call_reason(raw):
+def _no_tool_call_reason(raw: Any) -> str:
     """Say *why* a schema-enforced call came back empty, while the response is in hand.
 
     Worth the lines: "prose instead of a tool call" and "truncated mid-argument" have
@@ -119,7 +123,14 @@ def _no_tool_call_reason(raw):
     return f"empty response (finish_reason={finish})"
 
 
-def invoke_structured(model, schema, messages, *, label, attempts=STRUCTURED_ATTEMPTS):
+def invoke_structured(
+    model: "ChatDeepSeek",
+    schema: type,
+    messages: list[Any],
+    *,
+    label: str,
+    attempts: int = STRUCTURED_ATTEMPTS,
+) -> Any:
     """Schema-enforced invoke that retries the one failure V4 actually has.
 
     V4 occasionally answers a forced tool choice with prose anyway
@@ -137,14 +148,20 @@ def invoke_structured(model, schema, messages, *, label, attempts=STRUCTURED_ATT
         turns = list(messages)
         if attempt > 1:
             turns.append(("user", STRUCTURED_RETRY_NUDGE))
-        result = chain.invoke(turns)
+        # `include_raw=True` makes this a dict at runtime; the stub only sees the
+        # non-`include_raw` overload's BaseModel return type.
+        result: dict[str, Any] = chain.invoke(turns)  # type: ignore[assignment]
         parsed = result.get("parsed")
         if parsed is not None and result.get("parsing_error") is None:
             return parsed
         reason = result.get("parsing_error") or _no_tool_call_reason(result.get("raw"))
         logger.warning(
             "%s: no usable %s (attempt %d/%d): %s",
-            label, schema.__name__, attempt, attempts, reason,
+            label,
+            schema.__name__,
+            attempt,
+            attempts,
+            reason,
         )
     raise StructuredOutputError(
         f"{label}: the model did not return a valid {schema.__name__} in {attempts} "
@@ -152,7 +169,7 @@ def invoke_structured(model, schema, messages, *, label, attempts=STRUCTURED_ATT
     )
 
 
-def token_usage(message):
+def token_usage(message: Any) -> dict[str, int]:
     """Pull DeepSeek's cache-aware token counts off a LangChain response.
 
     The standard `usage_metadata` does not carry the cache split, so this reads the raw
@@ -171,7 +188,7 @@ def token_usage(message):
     }
 
 
-def usage_cost(model, usage):
+def usage_cost(model: str, usage: dict[str, int]) -> float:
     """USD for one call, charging cached and uncached input at their own rates."""
     price = PRICES.get(model)
     if price is None:
@@ -183,7 +200,9 @@ def usage_cost(model, usage):
     ) / 1_000_000
 
 
-def estimate_cost(model, prompt_tokens, completion_tokens, cached_tokens=0):
+def estimate_cost(
+    model: str, prompt_tokens: int, completion_tokens: int, cached_tokens: int = 0
+) -> float:
     """Pre-flight estimate, used to decide whether a run is allowed to start."""
     return usage_cost(
         model,
@@ -205,7 +224,7 @@ class Spend:
     incomplete corpus is not.
     """
 
-    def __init__(self, model, max_usd=None):
+    def __init__(self, model: str, max_usd: float | None = None) -> None:
         self.model = model
         self.max_usd = max_usd
         self.usd = 0.0
@@ -214,7 +233,7 @@ class Spend:
         self.tokens_cached = 0
         self.tokens_out = 0
 
-    def record(self, message):
+    def record(self, message: Any) -> tuple[dict[str, int], float]:
         usage = token_usage(message)
         cost = usage_cost(self.model, usage)
         self.usd += cost
@@ -224,10 +243,10 @@ class Spend:
         self.tokens_out += usage["completion"]
         return usage, cost
 
-    def exhausted(self):
+    def exhausted(self) -> bool:
         return self.max_usd is not None and self.usd >= self.max_usd
 
-    def summary(self):
+    def summary(self) -> dict[str, Any]:
         cache_rate = (self.tokens_cached / self.tokens_in) if self.tokens_in else 0.0
         return {
             "model": self.model,

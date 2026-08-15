@@ -5,16 +5,13 @@ ten browser tabs to answer before applying: is this company real, is it growing,
 they actually build, and who would I be talking to.
 """
 
-
 from pydantic import BaseModel, Field
 
 
 class CompanyIntel(BaseModel):
     summary: str = Field(description="Two or three sentences on what the company does.")
     size: str | None = Field(default=None, description="Headcount or a range.")
-    stage: str | None = Field(
-        default=None, description="Funding stage or public/private status."
-    )
+    stage: str | None = Field(default=None, description="Funding stage or public/private status.")
     funding: str | None = Field(default=None, description="Most recent round and date.")
     tech_stack: list[str] = Field(
         default_factory=list, description="Technologies they are known to use."

@@ -16,6 +16,7 @@ import argparse
 import json
 import sys
 from datetime import datetime, timezone
+from typing import TYPE_CHECKING, Any
 
 from careerradar.core.config import load_config
 from careerradar.core.database import Database
@@ -46,12 +47,18 @@ from careerradar.search.scheduler import (
 from careerradar.taxonomy.roles import load_roles
 from careerradar.taxonomy.skills import load_taxonomy
 
+if TYPE_CHECKING:
+    from careerradar.search.scheduler import ScrapeTask
+    from careerradar.search.sources.jobspy_source import JobSpySource
+    from careerradar.taxonomy.roles import RoleTaxonomy
+    from careerradar.taxonomy.skills import Taxonomy
+
 logger = get_logger()
 
 from careerradar.core.paths import ARCHIVE_DIR  # noqa: E402
 
 
-def plan_hash(roles, config):
+def plan_hash(roles: "RoleTaxonomy", config: dict[str, Any]) -> str:
     """Identify the scrape plan, so trend queries can refuse to cross plan changes.
 
     Widening the role catalog or the location set changes what the corpus samples; a trend
@@ -60,17 +67,25 @@ def plan_hash(roles, config):
     import hashlib
 
     scraper = config.get("scraper", {})
-    payload = "|".join([
-        roles.hash,
-        ",".join(sorted(k for k, v in (scraper.get("sources") or {}).items() if v)),
-        str(sorted((scraper.get("cadence_hours") or {}).items())),
-        str(sorted((scraper.get("budgets") or {}).keys())),
-    ])
+    payload = "|".join(
+        [
+            roles.hash,
+            ",".join(sorted(k for k, v in (scraper.get("sources") or {}).items() if v)),
+            str(sorted((scraper.get("cadence_hours") or {}).items())),
+            str(sorted((scraper.get("budgets") or {}).keys())),
+        ]
+    )
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
 
 
-def run_sync(dry_run=False, backfill=False, limit=None, sources=None,
-             rescore_only=False, force=False):
+def run_sync(
+    dry_run: bool = False,
+    backfill: bool = False,
+    limit: int | None = None,
+    sources: list[str] | None = None,
+    rescore_only: bool = False,
+    force: bool = False,
+) -> dict[str, Any] | None:
     logger.info("=" * 60)
     mode = "dry_run" if dry_run else ("backfill" if backfill else "incremental")
     logger.info(f"Starting sync ({mode})")
@@ -89,8 +104,7 @@ def run_sync(dry_run=False, backfill=False, limit=None, sources=None,
 
     scraper_config = with_location_weights(scraper_config, roles)
 
-    for label, problems in (("skills.yaml", taxonomy.validate()),
-                            ("roles.yaml", roles.validate())):
+    for label, problems in (("skills.yaml", taxonomy.validate()), ("roles.yaml", roles.validate())):
         if problems:
             logger.error(f"{label} is invalid; aborting:")
             for problem in problems:
@@ -104,9 +118,8 @@ def run_sync(dry_run=False, backfill=False, limit=None, sources=None,
         logger.error(str(exc))
         add_sync_error("Profile", str(exc))
         return None
-    logger.info(
-        f"Profile: v{profile.version}, {len(profile)} skills (taxonomy {taxonomy.hash})"
-    )
+    assert profile is not None, "load_profile(required=True) never returns None"
+    logger.info(f"Profile: v{profile.version}, {len(profile)} skills (taxonomy {taxonomy.hash})")
 
     if not dry_run:
         # The dashboard's /api/sync has always checked this; the CLI never did, which was
@@ -130,15 +143,21 @@ def run_sync(dry_run=False, backfill=False, limit=None, sources=None,
     db = Database()
     run_id = None
     totals = {
-        "cells_planned": 0, "cells_succeeded": 0, "cells_skipped": 0,
-        "postings_fetched": 0, "postings_new": 0, "duplicates_merged": 0,
+        "cells_planned": 0,
+        "cells_succeeded": 0,
+        "cells_skipped": 0,
+        "postings_fetched": 0,
+        "postings_new": 0,
+        "duplicates_merged": 0,
         "off_topic": 0,
     }
-    circuits = {}
+    circuits: dict[str, SourceCircuit] = {}
 
     try:
         scorer = JobScorer(
-            profile, roles, taxonomy,
+            profile,
+            roles,
+            taxonomy,
             weights=(config.get("matching") or {}).get("weights"),
         )
 
@@ -147,7 +166,8 @@ def run_sync(dry_run=False, backfill=False, limit=None, sources=None,
 
         if not dry_run:
             run_id = db.start_sync_run(
-                mode, taxonomy_hash=taxonomy.hash,
+                mode,
+                taxonomy_hash=taxonomy.hash,
                 plan_hash=plan_hash(roles, config),
             )
 
@@ -162,19 +182,17 @@ def run_sync(dry_run=False, backfill=False, limit=None, sources=None,
 
         from careerradar.search.sources.jobspy_source import JobSpySource, prune_archives
 
-        source_client = JobSpySource(
-            archive_dir=None if dry_run else ARCHIVE_DIR
-        )
+        source_client = JobSpySource(archive_dir=None if dry_run else ARCHIVE_DIR)
         if not dry_run:
             # Before scraping, so a run that dies partway still leaves the archive bounded.
-            prune_archives(
-                ARCHIVE_DIR, scraper_config.get("archive_retention_days", 14)
-            )
+            prune_archives(ARCHIVE_DIR, scraper_config.get("archive_retention_days", 14))
         _warn_if_taxonomy_moved(db, taxonomy)
 
         for source in enabled:
             circuit = SourceCircuit(
-                source, scraper_config, db=None if dry_run else db,
+                source,
+                scraper_config,
+                db=None if dry_run else db,
                 rotating_proxies=rotating,
             )
             circuits[source] = circuit
@@ -192,14 +210,11 @@ def run_sync(dry_run=False, backfill=False, limit=None, sources=None,
             cells = db.get_cells(source=source)
             if not cells:
                 logger.warning(
-                    f"[{source}] no cells seeded. Run: "
-                    f"uv run python -m scripts.seed_cells"
+                    f"[{source}] no cells seeded. Run: uv run python -m scripts.seed_cells"
                 )
                 continue
 
-            tasks = select_cells(
-                cells, scraper_config, roles, source, backfill=backfill
-            )
+            tasks = select_cells(cells, scraper_config, roles, source, backfill=backfill)
             if limit:
                 tasks = tasks[:limit]
             totals["cells_planned"] += len(tasks)
@@ -208,28 +223,33 @@ def run_sync(dry_run=False, backfill=False, limit=None, sources=None,
 
             for task in tasks:
                 outcome = _scrape_one(
-                    db, source_client, circuit, task, run_id, scorer, taxonomy,
-                    roles, config, dry_run,
+                    db,
+                    source_client,
+                    circuit,
+                    task,
+                    run_id,
+                    scorer,
+                    taxonomy,
+                    roles,
+                    config,
+                    dry_run,
                 )
                 if outcome == "tripped":
                     remaining = len(tasks) - tasks.index(task) - 1
                     totals["cells_skipped"] += remaining
                     add_sync_error(
                         source,
-                        f"{circuit.trip_reason} — {remaining} cells deferred "
-                        f"to the next run.",
+                        f"{circuit.trip_reason} — {remaining} cells deferred to the next run.",
                     )
                     break
                 if outcome == "ok":
                     totals["cells_succeeded"] += 1
-                for key in ("postings_fetched", "postings_new", "duplicates_merged",
-                            "off_topic"):
+                for key in ("postings_fetched", "postings_new", "duplicates_merged", "off_topic"):
                     totals[key] += _LAST_CELL_STATS.get(key, 0)
 
             circuit.note_clean_run()
 
         _report_coverage(db, scraper_config)
-
 
         status = "ok"
         if any(c.is_open for c in circuits.values()) or totals["cells_skipped"]:
@@ -245,7 +265,8 @@ def run_sync(dry_run=False, backfill=False, limit=None, sources=None,
 
         if run_id is not None:
             db.finish_sync_run(
-                run_id, status,
+                run_id,
+                status,
                 error_summary={s: c.summary() for s, c in circuits.items()},
                 **{k: v for k, v in totals.items() if k != "off_topic"},
             )
@@ -269,11 +290,21 @@ def run_sync(dry_run=False, backfill=False, limit=None, sources=None,
 
 
 # Per-cell counters, kept module-level so _scrape_one can report without a return tuple.
-_LAST_CELL_STATS = {}
+_LAST_CELL_STATS: dict[str, int] = {}
 
 
-def _scrape_one(db, client, circuit, task, run_id, scorer, taxonomy, roles, config,
-                dry_run):
+def _scrape_one(
+    db: Database,
+    client: "JobSpySource",
+    circuit: SourceCircuit,
+    task: "ScrapeTask",
+    run_id: int | None,
+    scorer: JobScorer,
+    taxonomy: "Taxonomy",
+    roles: "RoleTaxonomy",
+    config: dict[str, Any],
+    dry_run: bool,
+) -> str:
     """Scrape, normalize, score, and store one cell. Returns ok|empty|error|tripped."""
     global _LAST_CELL_STATS
     _LAST_CELL_STATS = {}
@@ -304,17 +335,19 @@ def _scrape_one(db, client, circuit, task, run_id, scorer, taxonomy, roles, conf
                 return "tripped"
             if error_class == ERROR_TRANSIENT and attempts < max_attempts:
                 logger.warning(
-                    f"[{task.source}] transient error, retry "
-                    f"{attempts}/{max_attempts}: {exc}"
+                    f"[{task.source}] transient error, retry {attempts}/{max_attempts}: {exc}"
                 )
                 continue
-            _record_failure(db, run_id, payload, observed_at, exc, dry_run,
-                            circuit=circuit)
+            _record_failure(db, run_id, payload, observed_at, exc, dry_run, circuit=circuit)
             return "error"
 
     postings, stats = normalize_rows(
-        rows, payload, observed_at=observed_at,
-        config=config.get("scraper", {}), roles=roles, taxonomy=taxonomy,
+        rows,
+        payload,
+        observed_at=observed_at,
+        config=config.get("scraper", {}),
+        roles=roles,
+        taxonomy=taxonomy,
     )
     saturated = 1 if is_saturated(stats["returned"], task.results_wanted) else 0
 
@@ -342,9 +375,8 @@ def _scrape_one(db, client, circuit, task, run_id, scorer, taxonomy, roles, conf
         if dry_run or not posting.get("role_family"):
             continue
 
-        job_id, is_new = db.upsert_posting(
-            posting, run_id=run_id, taxonomy_hash=taxonomy.hash
-        )
+        job_id, is_new = db.upsert_posting(posting, run_id=run_id, taxonomy_hash=taxonomy.hash)
+        assert job_id is not None, "upsert_posting always inserts or finds a row"
         if is_new:
             new_count += 1
             canonical = db.find_duplicate(posting.get("content_hash"), exclude_id=job_id)
@@ -358,7 +390,9 @@ def _scrape_one(db, client, circuit, task, run_id, scorer, taxonomy, roles, conf
         _print_dry_run(task, stats, stored, saturated)
     else:
         db.record_observation(
-            run_id, payload, observed_at.isoformat(),
+            run_id,
+            payload,
+            observed_at.isoformat(),
             returned=stats["returned"],
             returned_on_topic=stats["on_topic"],
             new_unique=new_count,
@@ -367,9 +401,14 @@ def _scrape_one(db, client, circuit, task, run_id, scorer, taxonomy, roles, conf
             status="ok" if stats["returned"] else "empty",
         )
         db.record_cell_attempt(
-            task.cell_id, observed_at.isoformat(), task.hours_old,
-            task.results_wanted, returned=stats["returned"], new_unique=new_count,
-            saturated=saturated, status="ok" if stats["returned"] else "empty",
+            task.cell_id,
+            observed_at.isoformat(),
+            task.hours_old,
+            task.results_wanted,
+            returned=stats["returned"],
+            new_unique=new_count,
+            saturated=saturated,
+            status="ok" if stats["returned"] else "empty",
             # `task.ewma_new_per_scrape` carries the cell's persisted value. Passing
             # None here (as this did) makes update_ewma return the raw observation, so the
             # stored EWMA was overwritten with the latest count on every attempt and the
@@ -391,51 +430,69 @@ def _scrape_one(db, client, circuit, task, run_id, scorer, taxonomy, roles, conf
     return "ok" if stats["returned"] else "empty"
 
 
-def scraper_retries(config):
-    return ((config.get("scraper") or {}).get("circuit_breaker") or {}).get(
-        "transient_retries", 2
-    )
+def scraper_retries(config: dict[str, Any]) -> int:
+    return ((config.get("scraper") or {}).get("circuit_breaker") or {}).get("transient_retries", 2)
 
 
-def _record_failure(db, run_id, payload, observed_at, exc, dry_run, circuit=None):
+def _record_failure(
+    db: Database,
+    run_id: int | None,
+    payload: dict[str, Any],
+    observed_at: datetime,
+    exc: BaseException,
+    dry_run: bool,
+    circuit: SourceCircuit | None = None,
+) -> None:
     if dry_run:
         print(f"  ERROR {payload.get('query')!r}: {exc}")
         return
-    db.record_observation(
-        run_id, payload, observed_at.isoformat(), status="error", error=str(exc)
-    )
+    db.record_observation(run_id, payload, observed_at.isoformat(), status="error", error=str(exc))
     backoff = circuit.cell_backoff(1) if circuit else None
     db.record_cell_attempt(
-        payload.get("cell_id"), observed_at.isoformat(), payload.get("hours_old"),
-        payload.get("results_wanted") or 0, status="error", error=str(exc),
+        payload["cell_id"],
+        observed_at.isoformat(),
+        payload.get("hours_old"),
+        payload.get("results_wanted") or 0,
+        status="error",
+        error=str(exc),
         backoff_until=backoff,
     )
 
 
-def _print_dry_run(task, stats, stored, saturated):
+def _print_dry_run(
+    task: "ScrapeTask",
+    stats: dict[str, Any],
+    stored: list[tuple[dict[str, Any], dict[str, Any]]],
+    saturated: int,
+) -> None:
     """Show what would be written, without writing it."""
     print(f"\n{'=' * 78}")
-    print(f"{task.source} | {task.query!r} | {task.location_label} "
-          f"({task.location_id}) | hours_old={task.hours_old}")
-    print(f"  returned={stats['returned']}/{task.results_wanted} "
-          f"on_topic={stats['on_topic']} full_desc={stats['with_full_description']} "
-          f"with_salary={stats['with_salary']} saturated={bool(saturated)}")
-    print(f"  desc_selection={task.desc_selection}  "
-          f"(census feeds skill analytics; top_k does not)")
+    print(
+        f"{task.source} | {task.query!r} | {task.location_label} "
+        f"({task.location_id}) | hours_old={task.hours_old}"
+    )
+    print(
+        f"  returned={stats['returned']}/{task.results_wanted} "
+        f"on_topic={stats['on_topic']} full_desc={stats['with_full_description']} "
+        f"with_salary={stats['with_salary']} saturated={bool(saturated)}"
+    )
+    print(f"  desc_selection={task.desc_selection}  (census feeds skill analytics; top_k does not)")
 
     for posting, result in sorted(stored, key=lambda p: -p[1]["score"])[:6]:
         family = posting.get("role_family") or "(unclassified — excluded from analytics)"
         print(f"\n  [{result['score']:3}] {posting['title'][:62]}")
         print(f"        {posting['company'][:40]:42} {posting['location'][:28]}")
-        print(f"        family={family} seniority={posting.get('seniority')} "
-              f"remote={posting.get('is_remote')}")
-        if posting.get("salary_annual_usd"):
-            print(f"        salary=${posting['salary_annual_usd']:,.0f}/yr "
-                  f"({posting.get('salary_currency')} "
-                  f"{posting.get('salary_interval')})")
-        components = ", ".join(
-            f"{k}={v:.2f}" for k, v in result["components"].items()
+        print(
+            f"        family={family} seniority={posting.get('seniority')} "
+            f"remote={posting.get('is_remote')}"
         )
+        if posting.get("salary_annual_usd"):
+            print(
+                f"        salary=${posting['salary_annual_usd']:,.0f}/yr "
+                f"({posting.get('salary_currency')} "
+                f"{posting.get('salary_interval')})"
+            )
+        components = ", ".join(f"{k}={v:.2f}" for k, v in result["components"].items())
         print(f"        {components}")
         if result["matched_skills"]:
             print(f"        have:    {', '.join(result['matched_skills'][:10])}")
@@ -445,7 +502,7 @@ def _print_dry_run(task, stats, stored, saturated):
             print(f"        blockers: {', '.join(posting['blockers'])}")
 
 
-def _report_coverage(db, scraper_config):
+def _report_coverage(db: Database, scraper_config: dict[str, Any]) -> None:
     """Surface scheduler coverage failures as warnings.
 
     A coverage gap must become a visible caveat on the affected families rather than a
@@ -470,7 +527,7 @@ def _report_coverage(db, scraper_config):
 SCORER_VERSION = 1
 
 
-def _warn_if_taxonomy_moved(db, taxonomy):
+def _warn_if_taxonomy_moved(db: Database, taxonomy: "Taxonomy") -> None:
     """Say so when stored postings were scored under a different skills.yaml.
 
     Editing the taxonomy silently changes what `match_score` and `job_skills` mean, and
@@ -489,11 +546,12 @@ def _warn_if_taxonomy_moved(db, taxonomy):
         logger.warning(
             "%s posting(s) scored under an older taxonomy and %s under an older scorer. "
             "Run `careerradar search run --rescore-only` to bring them current.",
-            f"{stale:,}", f"{old_scorer:,}",
+            f"{stale:,}",
+            f"{old_scorer:,}",
         )
 
 
-def _rescore(db, scorer, taxonomy):
+def _rescore(db: Database, scorer: JobScorer, taxonomy: "Taxonomy") -> dict[str, int]:
     """Re-derive scores and skills for stored postings under the current taxonomy.
 
     Editing skills.yaml changes what a run would have measured, so history recorded under an
@@ -512,9 +570,7 @@ def _rescore(db, scorer, taxonomy):
 
     for row in rows:
         posting = dict(row)
-        posting["skills"] = taxonomy.extract(
-            posting["description"], title=posting["title"]
-        )
+        posting["skills"] = taxonomy.extract(posting["description"], title=posting["title"])
         result = scorer.score(posting)
         # The failure that produced the 121 stale rows was silent for the whole life of the
         # column: a scorer wrote display labels where canonical keys belong and nothing
@@ -527,45 +583,66 @@ def _rescore(db, scorer, taxonomy):
         db.conn.execute(
             "UPDATE jobs SET match_score = ?, matched_skills = ?, matched_count = ?, "
             "required_count = ?, scorer_version = ?, taxonomy_hash = ? WHERE id = ?",
-            (result["score"], json.dumps(result["matched_skills"]),
-             result["matched_count"], result["required_count"], SCORER_VERSION,
-             taxonomy.hash, row["id"]),
+            (
+                result["score"],
+                json.dumps(result["matched_skills"]),
+                result["matched_count"],
+                result["required_count"],
+                SCORER_VERSION,
+                taxonomy.hash,
+                row["id"],
+            ),
         )
         db.replace_job_skills(row["id"], posting["skills"])
-        db.replace_job_blockers(
-            row["id"], taxonomy.extract_blockers(posting["description"])
-        )
+        db.replace_job_blockers(row["id"], taxonomy.extract_blockers(posting["description"]))
     db.conn.commit()
     logger.info("Rescore complete")
     return {"rescored": len(rows)}
 
 
-def main(argv=None):
-    parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    parser.add_argument("--dry-run", action="store_true",
-                        help="scrape a small sample, print what would be stored, "
-                             "write nothing")
-    parser.add_argument("--backfill", action="store_true",
-                        help="deep first pass: Indeed only, max results, widest window")
-    parser.add_argument("--limit", type=int,
-                        help="cap cells per source (use with --dry-run)")
-    parser.add_argument("--source", action="append", dest="sources",
-                        choices=["indeed", "linkedin"],
-                        help="restrict to one source (repeatable)")
-    parser.add_argument("--rescore-only", action="store_true",
-                        help="re-derive scores and skills for stored postings under the "
-                             "current taxonomy; no scraping")
-    parser.add_argument("--force", action="store_true",
-                        help="start even if another sync holds the lock (only when you "
-                             "know the other run is gone)")
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=(__doc__ or "").split("\n")[0])
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="scrape a small sample, print what would be stored, write nothing",
+    )
+    parser.add_argument(
+        "--backfill",
+        action="store_true",
+        help="deep first pass: Indeed only, max results, widest window",
+    )
+    parser.add_argument("--limit", type=int, help="cap cells per source (use with --dry-run)")
+    parser.add_argument(
+        "--source",
+        action="append",
+        dest="sources",
+        choices=["indeed", "linkedin"],
+        help="restrict to one source (repeatable)",
+    )
+    parser.add_argument(
+        "--rescore-only",
+        action="store_true",
+        help="re-derive scores and skills for stored postings under the "
+        "current taxonomy; no scraping",
+    )
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="start even if another sync holds the lock (only when you know the other run is gone)",
+    )
     args = parser.parse_args(argv)
 
     if args.dry_run and not args.limit:
         args.limit = 3
 
     result = run_sync(
-        dry_run=args.dry_run, backfill=args.backfill, limit=args.limit,
-        sources=args.sources, rescore_only=args.rescore_only, force=args.force,
+        dry_run=args.dry_run,
+        backfill=args.backfill,
+        limit=args.limit,
+        sources=args.sources,
+        rescore_only=args.rescore_only,
+        force=args.force,
     )
     # run_sync returns its totals on every path that actually ran, and None only when it
     # refused to start (invalid taxonomy, or the lock is held). Propagate that as an exit

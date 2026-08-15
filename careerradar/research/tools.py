@@ -14,6 +14,7 @@ to its nearby-jobs section rather than failing the run.
 """
 
 import os
+from typing import Any
 
 from careerradar.core.database import Database
 from careerradar.core.logger import get_logger
@@ -27,11 +28,13 @@ class SearchUnavailable(RuntimeError):
     pass
 
 
-def search_available():
+def search_available() -> bool:
     return bool(os.environ.get("TAVILY_API_KEY"))
 
 
-def web_search(query, max_results=MAX_SEARCH_RESULTS, include_raw=False):
+def web_search(
+    query: str, max_results: int = MAX_SEARCH_RESULTS, include_raw: bool = False
+) -> list[dict[str, Any]]:
     """One web search. Returns [{title, url, content}]."""
     if not search_available():
         raise SearchUnavailable(
@@ -58,16 +61,20 @@ def web_search(query, max_results=MAX_SEARCH_RESULTS, include_raw=False):
     ]
 
 
-def render_results(results):
+def render_results(results: list[dict[str, Any]]) -> str:
     if not results:
         return "(no results)"
     return "\n\n".join(
-        f"<result url=\"{r['url']}\">\n{r['title']}\n{r['content']}\n</result>"
-        for r in results
+        f'<result url="{r["url"]}">\n{r["title"]}\n{r["content"]}\n</result>' for r in results
     )
 
 
-def same_company_openings(company_normalized, exclude_job_id=None, limit=15, db=None):
+def same_company_openings(
+    company_normalized: str,
+    exclude_job_id: int | None = None,
+    limit: int = 15,
+    db: Database | None = None,
+) -> list[dict[str, Any]]:
     """Other postings from this company already in the corpus."""
     owned = db is None
     db = db or Database()
@@ -77,7 +84,7 @@ def same_company_openings(company_normalized, exclude_job_id=None, limit=15, db=
               FROM jobs
              WHERE company_normalized = ? AND duplicate_of IS NULL
         """
-        params = [company_normalized]
+        params: list[Any] = [company_normalized]
         if exclude_job_id:
             query += " AND id != ?"
             params.append(exclude_job_id)
@@ -89,7 +96,13 @@ def same_company_openings(company_normalized, exclude_job_id=None, limit=15, db=
             db.close()
 
 
-def nearby_company_openings(role_family, location_id, exclude_company, limit=12, db=None):
+def nearby_company_openings(
+    role_family: str,
+    location_id: str,
+    exclude_company: str,
+    limit: int = 12,
+    db: Database | None = None,
+) -> list[dict[str, Any]]:
     """Strong postings for the same kind of role in the same market, elsewhere.
 
     This is the "nearby companies" half. It is a query, not a scrape: the cell matrix has

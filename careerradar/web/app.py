@@ -1,8 +1,9 @@
 import json
 import os
 import threading
+from collections.abc import Awaitable, Callable
 from datetime import datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from fastapi import (
     BackgroundTasks,
@@ -18,9 +19,11 @@ from fastapi.responses import (
     JSONResponse,
     RedirectResponse,
 )
+from fastapi.responses import Response as FastAPIResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, ConfigDict
+from starlette.types import Scope
 
 from careerradar.core.config import deep_merge, load_config, save_config
 from careerradar.core.database import Database
@@ -41,6 +44,11 @@ from careerradar.search.sources.link_generator import LinkGenerator
 from careerradar.taxonomy.roles import load_roles
 from careerradar.taxonomy.skills import load_taxonomy
 from careerradar.web import rendering
+
+if TYPE_CHECKING:
+    from careerradar.profile.adapter import ProfileAdapter
+    from careerradar.taxonomy.roles import RoleTaxonomy
+    from careerradar.taxonomy.skills import Taxonomy
 
 app = FastAPI(title="Job Search Automation Dashboard")
 
@@ -79,16 +87,16 @@ if not OWNER_LOGIN:
 
 
 @app.middleware("http")
-async def restrict_to_owner(request: Request, call_next):
+async def restrict_to_owner(
+    request: Request, call_next: Callable[[Request], Awaitable[FastAPIResponse]]
+) -> FastAPIResponse:
     login = request.headers.get(IDENTITY_HEADER)
     if login is None:
         return await call_next(request)
     if login == OWNER_LOGIN:
         return await call_next(request)
     logger.warning("Refused dashboard request from tailnet user %s", login)
-    return JSONResponse(
-        {"detail": "Not authorised for this dashboard."}, status_code=403
-    )
+    return JSONResponse({"detail": "Not authorised for this dashboard."}, status_code=403)
 
 
 BASE_DIR = REPO_ROOT
@@ -108,10 +116,10 @@ class _PooledDatabase(Database):
     Actually closing it is `dispose()`.
     """
 
-    def close(self):
+    def close(self) -> None:
         """No-op. The connection is reused by the next request on this thread."""
 
-    def dispose(self):
+    def dispose(self) -> None:
         super().close()
 
 
@@ -125,7 +133,7 @@ class _PooledDatabase(Database):
 _thread_state = threading.local()
 
 
-def get_db():
+def get_db() -> "_PooledDatabase":
     db = getattr(_thread_state, "db", None)
     if db is None:
         db = _PooledDatabase()
@@ -133,16 +141,22 @@ def get_db():
     return db
 
 
-def analytics_context(db):  # noqa: ARG001 - endpoint dependency signature
+def analytics_context(
+    db: Database,  # noqa: ARG001 - endpoint dependency signature
+) -> tuple[dict[str, Any], "Taxonomy", "RoleTaxonomy", "ProfileAdapter"]:
     """Shared objects for the analytics endpoints."""
     config = load_config()
     taxonomy = load_taxonomy()
     roles = load_roles()
     profile = load_profile(taxonomy=taxonomy)
+    # `required` defaults to True, so load_profile raises NoActiveProfile rather than
+    # returning None -- this is here only to narrow the type for callers.
+    assert profile is not None
     return config, taxonomy, roles, profile
 
 
 # --- Request/Response Models -----------------------------------------------------------
+
 
 class StatusUpdate(BaseModel):
     status: str
@@ -157,10 +171,12 @@ class ConfigUpdate(BaseModel):
     whatever the frontend last knew about. Accepting arbitrary keys and merging server-side
     means a partial update stays partial instead of becoming a partial overwrite.
     """
+
     model_config = ConfigDict(extra="allow")
 
 
 # --- Jobs ------------------------------------------------------------------------------
+
 
 @app.get("/api/jobs")
 def get_jobs(
@@ -184,9 +200,7 @@ def get_jobs(
     verdict: str | None = Query(
         None, pattern="^(strong|worth_applying|stretch|poor_fit|mismatch)$"
     ),
-    eligibility: str | None = Query(
-        None, pattern="^(eligible|conditional|blocked)$"
-    ),
+    eligibility: str | None = Query(None, pattern="^(eligible|conditional|blocked)$"),
     role_match: str | None = Query(
         None, pattern="^(same_role|adjacent|different_domain|different_field)$"
     ),
@@ -196,9 +210,7 @@ def get_jobs(
     # Pareto tier: 1 dominates everything below it. Filtering `max_tier=4` asks for the top
     # four layers without asserting an exchange rate between the dimensions.
     max_tier: int | None = Query(None, ge=1, le=10),
-    liveness: str | None = Query(
-        None, pattern="^(live|stale|likely_closed|unknown)$"
-    ),
+    liveness: str | None = Query(None, pattern="^(live|stale|likely_closed|unknown)$"),
     pipeline_state: str | None = Query(None, pattern="^(new|scored|researched)$"),
     sort: str = Query("fit", pattern="^(fit|fit_score|match_score|date_found)$"),
     # Paginated from the start: the corpus reaches thousands of rows within days, and
@@ -209,15 +221,27 @@ def get_jobs(
     db = get_db()
     try:
         return db.query_jobs(
-            status=status, country=country,
-            role_family=role_family, seniority=seniority, source=source,
-            is_remote=is_remote, has_salary=has_salary, access=access,
-            include_duplicates=include_duplicates, min_score=min_score,
-            min_fit_score=min_fit_score, verdict=verdict,
-            eligibility=eligibility, role_match=role_match,
-            capability_match=capability_match, max_tier=max_tier, liveness=liveness,
-            pipeline_state=pipeline_state, sort=sort,
-            limit=limit, offset=offset,
+            status=status,
+            country=country,
+            role_family=role_family,
+            seniority=seniority,
+            source=source,
+            is_remote=is_remote,
+            has_salary=has_salary,
+            access=access,
+            include_duplicates=include_duplicates,
+            min_score=min_score,
+            min_fit_score=min_fit_score,
+            verdict=verdict,
+            eligibility=eligibility,
+            role_match=role_match,
+            capability_match=capability_match,
+            max_tier=max_tier,
+            liveness=liveness,
+            pipeline_state=pipeline_state,
+            sort=sort,
+            limit=limit,
+            offset=offset,
             # The full row, unlike the dashboard feed. This is a JSON API an external
             # script may already be consuming, and quietly dropping `description` and the
             # verdict detail out of its response would be a breaking change made for the
@@ -253,11 +277,13 @@ def get_stats():
 
 # --- Market analytics -------------------------------------------------------------------
 
+
 @app.get("/api/market/supply")
 def market_supply(
     window_days: int = Query(14, ge=1, le=365),
-    location: str = Query(..., description="Required: flow is only comparable within one "
-                                          "location and source"),
+    location: str = Query(
+        ..., description="Required: flow is only comparable within one location and source"
+    ),
     source: str = Query("indeed"),
 ):
     """Role-family supply for one location and source.
@@ -297,14 +323,13 @@ def market_coverage():
     db = get_db()
     try:
         config, taxonomy, roles, profile = analytics_context(db)
-        return {
-            "cells": MarketAnalytics(db, config, roles, taxonomy, profile).coverage_report()
-        }
+        return {"cells": MarketAnalytics(db, config, roles, taxonomy, profile).coverage_report()}
     finally:
         db.close()
 
 
 # --- Skills ----------------------------------------------------------------------------
+
 
 @app.get("/api/skills/gap")
 def skills_gap(
@@ -317,16 +342,19 @@ def skills_gap(
     try:
         config, taxonomy, roles, profile = analytics_context(db)
         return GapAnalysis(db, config, roles, taxonomy, profile).analyse(
-            window_days=window_days, location_id=location,
-            role_family=role_family, weighting_mode=weighting,
+            window_days=window_days,
+            location_id=location,
+            role_family=role_family,
+            weighting_mode=weighting,
         )
     finally:
         db.close()
 
 
 @app.get("/api/skills/{skill}")
-def skill_detail(skill: str, window_days: int = Query(90, ge=1, le=365),
-                 limit: int = Query(40, ge=1, le=200)):
+def skill_detail(
+    skill: str, window_days: int = Query(90, ge=1, le=365), limit: int = Query(40, ge=1, le=200)
+):
     db = get_db()
     try:
         config, taxonomy, roles, profile = analytics_context(db)
@@ -367,7 +395,8 @@ def get_profile_versions():
 
 # --- Company dossiers ------------------------------------------------------------------
 
-def dossier_for(db, company: str | None) -> dict[str, Any] | None:
+
+def dossier_for(db: Database, company: str | None) -> dict[str, Any] | None:
     """The deep-research dossier for one company, or None.
 
     Factored out so the drawer renders the dossier from the same read the JSON endpoint
@@ -412,6 +441,7 @@ def get_company_dossier(company: str):
 
 # --- Config ----------------------------------------------------------------------------
 
+
 @app.get("/api/config")
 def get_current_config():
     return load_config()
@@ -430,7 +460,11 @@ def update_current_config(payload: ConfigUpdate):
 
 
 @app.get("/api/search-links")
-def get_search_links(country: str, query: str, role_family: str | None = None):  # noqa: ARG001 - declared query parameter, part of the HTTP contract
+def get_search_links(
+    country: str,
+    query: str,
+    role_family: str | None = None,  # noqa: ARG001 - declared query parameter, part of the HTTP contract
+) -> dict[str, Any]:
     """Boolean search links, built from the profile's strongest skills.
 
     Previously keyed on a parsed resume variant. The profile is now one unified artifact,
@@ -442,14 +476,17 @@ def get_search_links(country: str, query: str, role_family: str | None = None): 
         profile = load_profile(taxonomy=taxonomy)
     except NoActiveProfile as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
-    strongest = [
-        taxonomy.label(key)
-        for key in sorted(profile.keys(min_level=3))
-    ] or [taxonomy.label(k) for k in sorted(profile.keys(min_level=2))]
+    # `required` defaults to True, so load_profile raises NoActiveProfile rather than
+    # returning None -- this is here only to narrow the type for the calls below.
+    assert profile is not None
+    strongest = [taxonomy.label(key) for key in sorted(profile.keys(min_level=3))] or [
+        taxonomy.label(k) for k in sorted(profile.keys(min_level=2))
+    ]
     return LinkGenerator.generate_links(strongest, country, query)
 
 
 # --- Sync ------------------------------------------------------------------------------
+
 
 def bg_sync_task():
     run_sync()
@@ -460,9 +497,7 @@ def trigger_sync(background_tasks: BackgroundTasks):
     # is_sync_running checks the owning PID rather than trusting the flag, so a crashed
     # sync no longer wedges this endpoint permanently.
     if is_sync_running():
-        return JSONResponse(
-            status_code=409, content={"message": "Sync is already in progress"}
-        )
+        return JSONResponse(status_code=409, content={"message": "Sync is already in progress"})
     if clear_stale_lock():
         pass  # a previous run died; the lock has been released
     set_sync_progress(True)
@@ -551,12 +586,10 @@ class RevalidatedStaticFiles(StaticFiles):
     so a hand-written or third-party reference cannot accidentally pin a stale file.
     """
 
-    async def get_response(self, path, scope):
+    async def get_response(self, path: str, scope: Scope) -> FastAPIResponse:
         response = await super().get_response(path, scope)
         versioned = b"v=" in scope.get("query_string", b"")
-        response.headers.update(
-            IMMUTABLE_CACHE_HEADERS if versioned else CACHE_HEADERS
-        )
+        response.headers.update(IMMUTABLE_CACHE_HEADERS if versioned else CACHE_HEADERS)
         return response
 
 
@@ -589,7 +622,9 @@ templates.env.filters["hostname"] = rendering.hostname
 templates.env.globals["static"] = static_url
 
 
-def drawer_context(db, query: rendering.FilterQuery, job_id: int | None) -> dict[str, Any]:
+def drawer_context(
+    db: Database, query: rendering.FilterQuery, job_id: int | None
+) -> dict[str, Any]:
     """Everything `partials/job_drawer.html` renders, for one posting or for none.
 
     Shared by `dashboard()` and `GET /drawer` so the two cannot drift. They render the
@@ -600,8 +635,13 @@ def drawer_context(db, query: rendering.FilterQuery, job_id: int | None) -> dict
     reading, not of the posting. It is what the drawer's status buttons advance to.
     """
     if job_id is None:
-        return {"job": None, "dossier": None, "requirement_rows": [],
-                "highlighted_description": "", "next_job_id": None}
+        return {
+            "job": None,
+            "dossier": None,
+            "requirement_rows": [],
+            "highlighted_description": "",
+            "next_job_id": None,
+        }
 
     # Fetched by id rather than searched for in the page above: the posting a link
     # points at need not be on the page the link was rendered from, and after a status
@@ -609,8 +649,13 @@ def drawer_context(db, query: rendering.FilterQuery, job_id: int | None) -> dict
     match = db.query_jobs(job_id=job_id, status=None, limit=1)["jobs"]
     job = match[0] if match else None
     if job is None:
-        return {"job": None, "dossier": None, "requirement_rows": [],
-                "highlighted_description": "", "next_job_id": None}
+        return {
+            "job": None,
+            "dossier": None,
+            "requirement_rows": [],
+            "highlighted_description": "",
+            "next_job_id": None,
+        }
 
     ids = db.job_ids_for(**query.as_db_kwargs())
     try:
@@ -653,11 +698,20 @@ def filter_query(
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
 ) -> rendering.FilterQuery:
-    return rendering.FilterQuery({
-        "status": status, "access": access, "country": country,
-        "min_score": min_score, "max_tier": max_tier, "verdict": verdict,
-        "eligibility": eligibility, "sort": sort, "limit": limit, "offset": offset,
-    })
+    return rendering.FilterQuery(
+        {
+            "status": status,
+            "access": access,
+            "country": country,
+            "min_score": min_score,
+            "max_tier": max_tier,
+            "verdict": verdict,
+            "eligibility": eligibility,
+            "sort": sort,
+            "limit": limit,
+            "offset": offset,
+        }
+    )
 
 
 @app.get("/drawer", response_class=HTMLResponse)
@@ -766,9 +820,7 @@ def set_job_status_form(
         # closed drawer -- the right outcome for the last posting on a page.
         if context["job"] is None:
             target = None
-        body = templates.get_template("partials/job_drawer.html").render(
-            request=request, **context
-        )
+        body = templates.get_template("partials/job_drawer.html").render(request=request, **context)
 
         # The card goes only if the posting has actually left this feed. Under the default
         # `status=unread` it always has; under `status=saved`, marking something applied
@@ -776,16 +828,12 @@ def set_job_status_form(
         remaining = db.job_ids_for(**query.as_db_kwargs())
         oob = []
         if job_id not in remaining:
-            oob.append(
-                f'<a id="job-card-{job_id}" hx-swap-oob="delete"></a>'
-            )
+            oob.append(f'<a id="job-card-{job_id}" hx-swap-oob="delete"></a>')
         # Two of the four stat tiles count statuses, so a triage pass walks them out of
         # date. The other two (total crawled, strong matches) a status change cannot move.
         counts = db.status_counts()
         oob.append(f'<h3 id="stat-saved" hx-swap-oob="true">{counts.get("saved", 0)}</h3>')
-        oob.append(
-            f'<h3 id="stat-applied" hx-swap-oob="true">{counts.get("applied", 0)}</h3>'
-        )
+        oob.append(f'<h3 id="stat-applied" hx-swap-oob="true">{counts.get("applied", 0)}</h3>')
 
         return HTMLResponse(
             body + "".join(oob),
@@ -793,8 +841,7 @@ def set_job_status_form(
                 **CACHE_HEADERS,
                 # The address bar follows the drawer, so a reload lands on the posting on
                 # screen rather than the one that was there before the click.
-                "HX-Push-Url": (query.with_job(target) if target
-                                else query.without_job()),
+                "HX-Push-Url": (query.with_job(target) if target else query.without_job()),
             },
         )
     finally:

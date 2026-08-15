@@ -26,7 +26,7 @@ _LEVEL_HEADINGS = [
 ]
 
 
-def _bullets(items):
+def _bullets(items: list[str]) -> str:
     return "\n".join(f"  - {item}" for item in items)
 
 
@@ -73,9 +73,7 @@ def render_profile(profile: Profile) -> str:
             f"Willing to relocate: {'yes' if constraints.willing_to_relocate else 'no'}"
         )
     if constraints.comp_floor_usd:
-        constraint_lines.append(
-            f"Will not accept below: ${constraints.comp_floor_usd:,} base"
-        )
+        constraint_lines.append(f"Will not accept below: ${constraints.comp_floor_usd:,} base")
     if constraints.languages:
         constraint_lines.append(f"Languages: {', '.join(sorted(constraints.languages))}")
     if constraints.notes:
@@ -96,14 +94,23 @@ def render_profile(profile: Profile) -> str:
     if preferences.notes:
         preference_lines.append(preferences.notes)
     if preference_lines:
-        lines += ["PREFERENCES (these shade a score; they do not veto):",
-                  _bullets(preference_lines), ""]
+        lines += [
+            "PREFERENCES (these shade a score; they do not veto):",
+            _bullets(preference_lines),
+            "",
+        ]
 
     if profile.non_negotiables:
-        lines += ["NON-NEGOTIABLE -- a posting matching any of these is a mismatch:",
-                  _bullets(profile.non_negotiables), ""]
+        lines += [
+            "NON-NEGOTIABLE -- a posting matching any of these is a mismatch:",
+            _bullets(profile.non_negotiables),
+            "",
+        ]
     if profile.red_flags:
-        lines += ["RED FLAGS -- treat as warning signs, not automatic disqualifiers:",
-                  _bullets(profile.red_flags), ""]
+        lines += [
+            "RED FLAGS -- treat as warning signs, not automatic disqualifiers:",
+            _bullets(profile.red_flags),
+            "",
+        ]
 
     return "\n".join(lines).rstrip() + "\n"

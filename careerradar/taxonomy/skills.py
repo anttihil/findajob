@@ -17,6 +17,7 @@ usually breaks:
 import hashlib
 import os
 import re
+from typing import Any
 
 import yaml
 
@@ -44,7 +45,7 @@ class Skill:
         "user_level",
     )
 
-    def __init__(self, key, spec):
+    def __init__(self, key: str, spec: dict[str, Any]) -> None:
         self.key = key
         self.label = spec.get("label") or key.replace("_", " ").title()
         self.category = spec.get("category", "other")
@@ -68,8 +69,11 @@ class Skill:
             self._regex = re.compile(pattern, re.IGNORECASE)
         elif self.aliases:
             self._regex = re.compile(
-                r"\b(?:{})\b".format("|".join(re.escape(a.strip()) for a in
-                                        sorted(self.aliases, key=len, reverse=True))),
+                r"\b(?:{})\b".format(
+                    "|".join(
+                        re.escape(a.strip()) for a in sorted(self.aliases, key=len, reverse=True)
+                    )
+                ),
                 re.IGNORECASE,
             )
         else:
@@ -80,8 +84,7 @@ class Skill:
             # ads shout in headings ("GO TO MARKET") and start sentences with the verb.
             # The context list below is what actually licenses the match.
             self._strict_regex = re.compile(
-                r"\b(?:{})\b".format("|".join(re.escape(a.strip())
-                                         for a in self.strict_aliases)),
+                r"\b(?:{})\b".format("|".join(re.escape(a.strip()) for a in self.strict_aliases)),
                 re.IGNORECASE,
             )
         else:
@@ -95,7 +98,7 @@ class Skill:
         else:
             self._context_regex = None
 
-    def search(self, text, lowered=None):  # noqa: ARG002 - accepted so batch callers can pass a prelowered copy
+    def search(self, text: str, lowered: str | None = None) -> bool:  # noqa: ARG002 - accepted so batch callers can pass a prelowered copy
         """Return True if this skill is present in `text`.
 
         `lowered` is accepted so callers scanning many skills over one document do not
@@ -105,7 +108,7 @@ class Skill:
             return True
         return self._search_strict(text)
 
-    def _search_strict(self, text):
+    def _search_strict(self, text: str) -> bool:
         if self._strict_regex is None:
             return False
         for match in self._strict_regex.finditer(text):
@@ -119,7 +122,7 @@ class Skill:
                 return True
         return False
 
-    def matches_surface(self, surface):
+    def matches_surface(self, surface: str) -> bool:
         """Whether a single candidate surface string denotes this skill.
 
         Used to canonicalize resume candidates, where the surface is the whole string
@@ -136,14 +139,14 @@ class Skill:
         # Fall back to containment for multiword aliases ("local LLM hosting" -> llm_apps).
         return bool(self._regex is not None and self._regex.search(surface))
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return f"<Skill {self.key}>"
 
 
 class Blocker:
     __slots__ = ("_regex", "key", "label")
 
-    def __init__(self, key, spec):
+    def __init__(self, key: str, spec: dict[str, Any]) -> None:
         self.key = key
         self.label = spec.get("label", key)
         patterns = spec.get("patterns", [])
@@ -151,12 +154,12 @@ class Blocker:
             raise ValueError(f"blocker '{key}': needs at least one pattern")
         self._regex = re.compile("|".join(f"(?:{p})" for p in patterns), re.IGNORECASE)
 
-    def search(self, text):
+    def search(self, text: str) -> bool:
         return bool(self._regex.search(text))
 
 
 class Taxonomy:
-    def __init__(self, path=None):
+    def __init__(self, path: str | None = None) -> None:
         self.path = path or SKILLS_PATH
         with open(self.path, encoding="utf-8") as handle:
             raw = handle.read()
@@ -164,10 +167,10 @@ class Taxonomy:
 
         self.version = data.get("version", 0)
         self.categories = data.get("categories", [])
-        self.skills = {}
+        self.skills: dict[str, Skill] = {}
         for key, spec in (data.get("skills") or {}).items():
             self.skills[key] = Skill(key, spec or {})
-        self.blockers = {}
+        self.blockers: dict[str, Blocker] = {}
         for key, spec in (data.get("blockers") or {}).items():
             self.blockers[key] = Blocker(key, spec or {})
 
@@ -178,40 +181,40 @@ class Taxonomy:
 
         # Inverted once at load: coverage asks "what evidences this parent?", which is the
         # opposite direction from how the edges are declared.
-        self._implied_by = {}
+        self._implied_by: dict[str, set[str]] = {}
         for key, skill in self.skills.items():
             for parent in skill.implies:
                 self._implied_by.setdefault(parent, set()).add(key)
-        self._closure_cache = {}
+        self._closure_cache: dict[Any, frozenset[str]] = {}
 
     # -- lookup ------------------------------------------------------------------------
-    def __len__(self):
+    def __len__(self) -> int:
         return len(self.skills)
 
-    def __contains__(self, key):
+    def __contains__(self, key: str) -> bool:
         return key in self.skills
 
-    def __getitem__(self, key):
+    def __getitem__(self, key: str) -> Skill:
         return self.skills[key]
 
-    def get(self, key, default=None):
+    def get(self, key: str, default: Skill | None = None) -> Skill | None:
         return self.skills.get(key, default)
 
-    def label(self, key):
+    def label(self, key: str) -> str:
         skill = self.skills.get(key)
         return skill.label if skill else key
 
-    def category(self, key):
+    def category(self, key: str) -> str:
         skill = self.skills.get(key)
         return skill.category if skill else "other"
 
-    def by_category(self, category):
+    def by_category(self, category: str) -> list[Skill]:
         return [s for s in self.skills.values() if s.category == category]
 
     # -- subsumption -------------------------------------------------------------------
     MAX_IMPLIES_DEPTH = 4
 
-    def closure(self, key):
+    def closure(self, key: str) -> frozenset[str]:
         """Everything `key` implies, transitively. Excludes `key` itself."""
         cached = self._closure_cache.get(key)
         if cached is not None:
@@ -221,7 +224,7 @@ class Taxonomy:
             nxt = []
             for current in frontier:
                 skill = self.skills.get(current)
-                for parent in (skill.implies if skill else ()):
+                for parent in skill.implies if skill else ():
                     if parent not in seen and parent != key:
                         seen.add(parent)
                         nxt.append(parent)
@@ -230,7 +233,7 @@ class Taxonomy:
         self._closure_cache[key] = result
         return result
 
-    def implied_by(self, parent):
+    def implied_by(self, parent: str) -> frozenset[str]:
         """Every skill whose presence evidences `parent`, transitively."""
         cached = self._closure_cache.get(("<-", parent))
         if cached is not None:
@@ -249,11 +252,11 @@ class Taxonomy:
         return result
 
     # -- validation --------------------------------------------------------------------
-    def validate(self):
+    def validate(self) -> list[str]:
         """Return a list of problems. Empty means the taxonomy is well-formed."""
         problems = []
         known_categories = set(self.categories)
-        seen_aliases = {}
+        seen_aliases: dict[str, str] = {}
 
         for key, skill in self.skills.items():
             for parent in skill.implies:
@@ -267,9 +270,7 @@ class Taxonomy:
                 problems.append(f"skill '{key}': implies itself through a cycle")
 
             if skill.category not in known_categories:
-                problems.append(
-                    f"skill '{key}': unknown category '{skill.category}'"
-                )
+                problems.append(f"skill '{key}': unknown category '{skill.category}'")
             if not skill.aliases and not skill.strict_aliases and skill._regex is None:
                 problems.append(f"skill '{key}': no aliases and no pattern")
             if skill.strict_aliases and not skill.context:
@@ -295,16 +296,16 @@ class Taxonomy:
 
         return problems
 
-    def shared_aliases(self):
+    def shared_aliases(self) -> dict[str, list[str]]:
         """Aliases that intentionally map to more than one skill, for review."""
-        owners = {}
+        owners: dict[str, list[str]] = {}
         for key, skill in self.skills.items():
             for alias in skill.aliases:
                 owners.setdefault(alias.strip().lower(), []).append(key)
         return {a: k for a, k in owners.items() if len(k) > 1}
 
     # -- canonicalization --------------------------------------------------------------
-    def canonicalize(self, surfaces):
+    def canonicalize(self, surfaces: list[str]) -> list[str]:
         """Map candidate surface strings onto canonical keys, dropping the unrecognized.
 
         Resume parsing deliberately over-produces surfaces; this is where the noise
@@ -319,9 +320,9 @@ class Taxonomy:
                     keys.append(key)
         return keys
 
-    def canonicalize_verbose(self, surfaces):
+    def canonicalize_verbose(self, surfaces: list[str]) -> tuple[dict[str, list[str]], list[str]]:
         """Like canonicalize, but also reports what did not map -- for taxonomy growth."""
-        mapped = {}
+        mapped: dict[str, list[str]] = {}
         unmapped = []
         for surface in surfaces:
             hits = [k for k, s in self.skills.items() if s.matches_surface(surface)]
@@ -333,7 +334,7 @@ class Taxonomy:
         return mapped, unmapped
 
     # -- extraction --------------------------------------------------------------------
-    def extract(self, text, title=""):
+    def extract(self, text: str | None, title: str = "") -> dict[str, dict[str, bool]]:
         """Find every skill present in a document.
 
         Returns {skill_key: {"in_title": bool}}. Presence is the signal; within-document
@@ -347,16 +348,16 @@ class Taxonomy:
                 found[key] = {"in_title": bool(title) and skill.search(title)}
         return found
 
-    def extract_blockers(self, text):
+    def extract_blockers(self, text: str) -> list[str]:
         if not text:
             return []
         return [key for key, blocker in self.blockers.items() if blocker.search(text)]
 
 
-_CACHE = {}
+_CACHE: dict[tuple[str, float], "Taxonomy"] = {}
 
 
-def load_taxonomy(path=None):
+def load_taxonomy(path: str | None = None) -> "Taxonomy":
     """Load and cache a taxonomy, keyed by path and mtime so edits are picked up."""
     resolved = path or SKILLS_PATH
     try:

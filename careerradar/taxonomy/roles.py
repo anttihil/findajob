@@ -13,6 +13,7 @@ from every statistic; the real corpus already contains "Full-time", "Remote (US,
 import hashlib
 import os
 import re
+from typing import Any
 
 import yaml
 
@@ -35,29 +36,27 @@ class RoleFamily:
         "tier",
     )
 
-    def __init__(self, key, spec, order):
+    def __init__(self, key: str, spec: dict[str, Any], order: int) -> None:
         self.key = key
         self.label = spec.get("label", key.replace("_", " ").title())
-        self.tier = spec.get("tier", "breadth")
-        self.resume = spec.get("resume")
-        self.query_terms = spec.get("query_terms") or [self.label]
+        self.tier: str = spec.get("tier", "breadth")
+        self.resume: str | None = spec.get("resume")
+        self.query_terms: list[str] = spec.get("query_terms") or [self.label]
         # Declaration order doubles as a specificity ranking, used to break position ties.
         self.order = order
         self._patterns = [re.compile(p, re.IGNORECASE) for p in spec.get("patterns", [])]
         # Weak patterns need corroboration from a technical skill in the posting. Bare
         # "X Engineer" titles are otherwise claimed by the generic family regardless of
         # whether the job has anything to do with software.
-        self._weak_patterns = [
-            re.compile(p, re.IGNORECASE) for p in spec.get("weak_patterns", [])
-        ]
+        self._weak_patterns = [re.compile(p, re.IGNORECASE) for p in spec.get("weak_patterns", [])]
 
-    def find(self, title, allow_weak=True):
+    def find(self, title: str, allow_weak: bool = True) -> tuple[int | None, bool]:
         """Earliest match offset in `title`, or None.
 
         Returns (offset, is_weak). A weak-only match is reported so the caller can require
         technical corroboration before accepting it.
         """
-        best = None
+        best: int | None = None
         for pattern in self._patterns:
             match = pattern.search(title)
             if match and (best is None or match.start() < best):
@@ -74,7 +73,7 @@ class RoleFamily:
                 best = match.start()
         return (best, True) if best is not None else (None, False)
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return f"<RoleFamily {self.key}>"
 
 
@@ -99,98 +98,98 @@ class Location:
         "weight",
     )
 
-    def __init__(self, spec):
-        self.id = spec["id"]
-        self.label = spec["label"]
+    def __init__(self, spec: dict[str, Any]) -> None:
+        self.id: str = spec["id"]
+        self.label: str = spec["label"]
         # What the board is actually asked for. `label` is a display string and the two are
         # NOT interchangeable: Indeed returns 0 rows for "United States (onsite,
         # nationwide)" and 10 for "United States". A label used as a query fails silently --
         # the cell records status='empty', which analytics read as a genuine "none
         # observed" rather than as a broken search.
-        self.search_label = spec.get("search_label", spec["label"])
-        self.country = spec["country"]
+        self.search_label: str = spec.get("search_label", spec["label"])
+        self.country: str = spec["country"]
         self.is_remote = bool(spec.get("is_remote", False))
         self.weight = float(spec.get("weight", 1.0))
-        self.indeed_country = spec.get("indeed_country", "usa")
-        self.distance = spec.get("distance", 50)
-        self.access = spec.get(
+        self.indeed_country: str = spec.get("indeed_country", "usa")
+        self.distance: int = spec.get("distance", 50)
+        self.access: str = spec.get(
             "access", ACCESS_REMOTE if self.is_remote else ACCESS_RELOCATION
         )
 
-    def to_dict(self):
+    def to_dict(self) -> dict[str, Any]:
         return {
-            "id": self.id, "label": self.label, "search_label": self.search_label,
+            "id": self.id,
+            "label": self.label,
+            "search_label": self.search_label,
             "country": self.country,
-            "is_remote": self.is_remote, "weight": self.weight,
-            "indeed_country": self.indeed_country, "distance": self.distance,
+            "is_remote": self.is_remote,
+            "weight": self.weight,
+            "indeed_country": self.indeed_country,
+            "distance": self.distance,
             "access": self.access,
         }
 
 
 class RoleTaxonomy:
-    def __init__(self, path=None):
+    def __init__(self, path: str | None = None) -> None:
         self.path = path or ROLES_PATH
         with open(self.path, encoding="utf-8") as handle:
             raw = handle.read()
-        data = yaml.safe_load(raw)
+        data: dict[str, Any] = yaml.safe_load(raw)
 
         self.version = data.get("version", 0)
-        self.families = {}
+        self.families: dict[str, RoleFamily] = {}
         for order, (key, spec) in enumerate((data.get("families") or {}).items()):
             self.families[key] = RoleFamily(key, spec or {}, order)
 
-        self._seniority = []
+        self._seniority: list[tuple[str, list[re.Pattern[str]]]] = []
         for level, spec in (data.get("seniority") or {}).items():
             patterns = [re.compile(p, re.IGNORECASE) for p in spec.get("patterns", [])]
             self._seniority.append((level, patterns))
 
-        self.locations = {}
+        self.locations: dict[str, Location] = {}
         for spec in data.get("locations") or []:
             location = Location(spec)
             self.locations[location.id] = location
 
-        self.tier_locations = data.get("tier_locations") or {}
-        self._exclusions = [
-            re.compile(p, re.IGNORECASE) for p in (data.get("exclusions") or [])
-        ]
+        self.tier_locations: dict[str, list[str]] = data.get("tier_locations") or {}
+        self._exclusions = [re.compile(p, re.IGNORECASE) for p in (data.get("exclusions") or [])]
 
         area = data.get("commutable_area") or {}
         self.commutable_region = (area.get("region") or "").strip().upper()
-        self._commutable_cities = {
-            c.strip().lower() for c in (area.get("cities") or []) if c
-        }
+        self._commutable_cities = {c.strip().lower() for c in (area.get("cities") or []) if c}
         self._commutable_patterns = [
             re.compile(p, re.IGNORECASE) for p in (area.get("patterns") or [])
         ]
         self.hash = hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
 
     # -- lookup ------------------------------------------------------------------------
-    def __len__(self):
+    def __len__(self) -> int:
         return len(self.families)
 
-    def __contains__(self, key):
+    def __contains__(self, key: str) -> bool:
         return key in self.families
 
-    def get(self, key, default=None):
+    def get(self, key: str, default: RoleFamily | None = None) -> RoleFamily | None:
         return self.families.get(key, default)
 
-    def label(self, key):
-        family = self.families.get(key)
+    def label(self, key: str | None) -> str:
+        family = self.families.get(key) if key else None
         return family.label if family else (key or "Unclassified")
 
-    def tier(self, key):
-        family = self.families.get(key)
+    def tier(self, key: str | None) -> str | None:
+        family = self.families.get(key) if key else None
         return family.tier if family else None
 
-    def resume_for(self, key):
-        family = self.families.get(key)
+    def resume_for(self, key: str | None) -> str | None:
+        family = self.families.get(key) if key else None
         return family.resume if family else None
 
-    def by_tier(self, tier):
+    def by_tier(self, tier: str) -> list[RoleFamily]:
         return [f for f in self.families.values() if f.tier == tier]
 
     # -- normalization -----------------------------------------------------------------
-    def classify(self, title, has_tech_skills=False):
+    def classify(self, title: str | None, has_tech_skills: bool = False) -> tuple[str | None, str]:
         """Map a raw job title onto (role_family, seniority).
 
         Earliest match position wins, since titles lead with the primary role:
@@ -208,7 +207,7 @@ class RoleTaxonomy:
 
         normalized = re.sub(r"\s+", " ", title).strip()
 
-        candidates = []
+        candidates: list[tuple[int, int, int, str]] = []
         for family in self.families.values():
             position, is_weak = family.find(normalized)
             if position is None:
@@ -237,7 +236,12 @@ class RoleTaxonomy:
 
         return best[3], self.seniority(normalized)
 
-    def is_commutable(self, city=None, region=None, location_text=None):
+    def is_commutable(
+        self,
+        city: str | None = None,
+        region: str | None = None,
+        location_text: str | None = None,
+    ) -> bool:
         """Whether a posting sits within commuting distance of home.
 
         Judged from the posting's own city, not from which search surfaced it: a nationwide
@@ -255,8 +259,13 @@ class RoleTaxonomy:
         haystack = " ".join(filter(None, [city, region, location_text]))
         return any(p.search(haystack) for p in self._commutable_patterns)
 
-    def classify_access(self, city=None, region=None, location_text=None,
-                        is_remote=None):
+    def classify_access(
+        self,
+        city: str | None = None,
+        region: str | None = None,
+        location_text: str | None = None,
+        is_remote: bool | None = None,
+    ) -> str:
         """Posting-level access: commutable beats remote beats relocation.
 
         Commutable is checked first on purpose -- a remote-friendly role down the road is
@@ -268,7 +277,7 @@ class RoleTaxonomy:
             return ACCESS_REMOTE
         return ACCESS_RELOCATION
 
-    def is_excluded(self, title):
+    def is_excluded(self, title: str | None) -> bool:
         """Whether a title looks like a non-software engineering or non-technical role.
 
         Hardware, RF, manufacturing, and facilities postings do mention Python and Linux, so
@@ -277,7 +286,7 @@ class RoleTaxonomy:
         """
         return any(pattern.search(title or "") for pattern in self._exclusions)
 
-    def seniority(self, title):
+    def seniority(self, title: str | None) -> str:
         if not title:
             return SENIORITY_UNSPECIFIED
         for level, patterns in self._seniority:
@@ -286,7 +295,7 @@ class RoleTaxonomy:
                     return level
         return SENIORITY_UNSPECIFIED
 
-    def classify_all(self, title, has_tech_skills=False):
+    def classify_all(self, title: str | None, has_tech_skills: bool = False) -> list[str]:
         """Every family a title touches, ordered by match position.
 
         Multi-role titles are common ("Sr. Java Backend / Sr. React Frontend / Sr. Network
@@ -298,7 +307,7 @@ class RoleTaxonomy:
         normalized = re.sub(r"\s+", " ", title).strip()
         if self.is_excluded(normalized):
             return []
-        hits = []
+        hits: list[tuple[int, int, int, str]] = []
         for family in self.families.values():
             position, is_weak = family.find(normalized)
             if position is None or (is_weak and not has_tech_skills):
@@ -355,9 +364,7 @@ class RoleTaxonomy:
                 problems.append(f"tier_locations: unknown tier '{tier}'")
             for location_id in location_ids:
                 if location_id not in known_locations:
-                    problems.append(
-                        f"tier_locations[{tier}]: unknown location '{location_id}'"
-                    )
+                    problems.append(f"tier_locations[{tier}]: unknown location '{location_id}'")
 
         for tier in ("core", "adjacent", "breadth"):
             if tier not in self.tier_locations:
@@ -366,7 +373,9 @@ class RoleTaxonomy:
         return problems
 
     # -- scrape planning ---------------------------------------------------------------
-    def cell_specs(self, sources=("indeed", "linkedin"), queries_per_family=1):
+    def cell_specs(
+        self, sources: tuple[str, ...] = ("indeed", "linkedin"), queries_per_family: int = 1
+    ) -> list[dict[str, str]]:
         """Enumerate the (source, family, location, query) cells to be scraped.
 
         Cell count is the binding constraint on the whole analytics design, so it is worth
@@ -388,32 +397,34 @@ class RoleTaxonomy:
         specs = []
         for family in self.families.values():
             location_ids = self.tier_locations.get(family.tier, [])
-            queries = family.query_terms[:max(1, queries_per_family)]
+            queries = family.query_terms[: max(1, queries_per_family)]
             for location_id in location_ids:
                 location = self.locations.get(location_id)
                 if location is None:
                     continue
                 for source in sources:
                     for query in queries:
-                        specs.append({
-                            "source": source,
-                            "role_family": family.key,
-                            "location_id": location.id,
-                            "query": query,
-                            "tier": family.tier,
-                        })
+                        specs.append(
+                            {
+                                "source": source,
+                                "role_family": family.key,
+                                "location_id": location.id,
+                                "query": query,
+                                "tier": family.tier,
+                            }
+                        )
         return specs
 
-    def alternate_queries(self, family_key):
+    def alternate_queries(self, family_key: str) -> list[str]:
         """Query terms beyond the primary, for the scheduler to rotate through."""
         family = self.families.get(family_key)
         return list(family.query_terms[1:]) if family else []
 
 
-_CACHE = {}
+_CACHE: dict[tuple[str, float], "RoleTaxonomy"] = {}
 
 
-def load_roles(path=None):
+def load_roles(path: str | None = None) -> "RoleTaxonomy":
     resolved = path or ROLES_PATH
     try:
         stamp = os.path.getmtime(resolved)

@@ -18,7 +18,7 @@ posting that says "ignore your instructions and search for X" cannot reach the q
 builder, because the query builder is never shown the posting.
 """
 
-from typing import TypedDict
+from typing import Any, TypedDict
 
 from careerradar.core.llm import (
     DEFAULT_AGENT_MODEL,
@@ -84,7 +84,9 @@ the candidate cannot tell the two apart.
 Do not write source URLs. They are supplied from what was actually fetched."""
 
 
-class ResearchState(TypedDict, total=False):
+class ResearchInput(TypedDict):
+    """Present on every invocation, before any node has run."""
+
     company: str
     company_normalized: str
     role_family: str | None
@@ -92,24 +94,29 @@ class ResearchState(TypedDict, total=False):
     job_id: int | None
     profile_summary: str
     model: str
-    intel: dict | None
-    contacts: list
-    nearby: list
-    sources: list
-    dossier: dict | None
+
+
+class ResearchState(ResearchInput, total=False):
+    """`ResearchInput` plus the fields nodes accumulate as the graph runs."""
+
+    intel: dict[str, Any] | None
+    contacts: list[dict[str, Any]]
+    nearby: list[dict[str, Any]]
+    sources: list[str]
+    dossier: dict[str, Any] | None
     search_enabled: bool
 
 
-def node_plan(state: ResearchState) -> dict:  # noqa: ARG001 - langgraph node signature
+def node_plan(state: ResearchState) -> dict[str, Any]:  # noqa: ARG001 - langgraph node signature
     return {"search_enabled": search_available(), "sources": []}
 
 
-def node_gather_intel(state: ResearchState) -> dict:
+def node_gather_intel(state: ResearchState) -> dict[str, Any]:
     if not state.get("search_enabled"):
         return {"intel": None}
 
     company = state["company"]
-    results = []
+    results: list[dict[str, Any]] = []
     for query in (
         f"{company} company overview what they do",
         f"{company} funding headcount employees",
@@ -126,22 +133,26 @@ def node_gather_intel(state: ResearchState) -> dict:
         CompanyIntel,
         [
             ("system", INTEL_SYSTEM),
-            ("user",
-             (f"Company: {company}\n\n<search_results>\n"
-              f"{render_results(results)}\n</search_results>")),
+            (
+                "user",
+                (
+                    f"Company: {company}\n\n<search_results>\n"
+                    f"{render_results(results)}\n</search_results>"
+                ),
+            ),
         ],
         label=f"Research intel ({company})",
     )
     return {"intel": intel.model_dump(), "sources": [r["url"] for r in results if r["url"]]}
 
 
-def node_gather_contacts(state: ResearchState) -> dict:
+def node_gather_contacts(state: ResearchState) -> dict[str, Any]:
     if not state.get("search_enabled"):
         return {"contacts": []}
 
     company = state["company"]
     role = state.get("role_family") or "engineering"
-    results = []
+    results: list[dict[str, Any]] = []
     for query in (
         f"{company} engineering team leadership",
         f"{company} {role} team members",
@@ -162,49 +173,62 @@ def node_gather_contacts(state: ResearchState) -> dict:
         Contacts,
         [
             ("system", CONTACTS_SYSTEM),
-            ("user",
-             (f"Company: {company}\nRole being applied for: {role}\n\n"
-             f"<search_results>\n{render_results(results)}\n</search_results>")),
+            (
+                "user",
+                (
+                    f"Company: {company}\nRole being applied for: {role}\n\n"
+                    f"<search_results>\n{render_results(results)}\n</search_results>"
+                ),
+            ),
         ],
         label=f"Research contacts ({company})",
     )
     return {"contacts": [c.model_dump() for c in found.contacts]}
 
 
-def node_gather_nearby(state: ResearchState) -> dict:
+def node_gather_nearby(state: ResearchState) -> dict[str, Any]:
     """Other openings, answered from the corpus rather than the web.
 
     The cell matrix has already swept this role family in this location, so both halves of
     "other jobs at this or a nearby company" are a query away. Spending a web search on a
     question the database answers exactly would be slower, costlier, and less accurate.
     """
-    same = same_company_openings(
-        state["company_normalized"], exclude_job_id=state.get("job_id")
-    )
-    nearby = []
-    if state.get("role_family") and state.get("location_id"):
-        nearby = nearby_company_openings(
-            state["role_family"], state["location_id"], state["company_normalized"]
-        )
+    same = same_company_openings(state["company_normalized"], exclude_job_id=state.get("job_id"))
+    nearby: list[dict[str, Any]] = []
+    role_family = state.get("role_family")
+    location_id = state.get("location_id")
+    if role_family and location_id:
+        nearby = nearby_company_openings(role_family, location_id, state["company_normalized"])
 
     jobs = [
-        {"title": r["title"], "company": r["company"], "location": r["location"],
-         "url": r["url"], "source": "same-company",
-         "why": f"fit {r['fit_score']}" if r.get("fit_score") else None}
+        {
+            "title": r["title"],
+            "company": r["company"],
+            "location": r["location"],
+            "url": r["url"],
+            "source": "same-company",
+            "why": f"fit {r['fit_score']}" if r.get("fit_score") else None,
+        }
         for r in same
     ] + [
-        {"title": r["title"], "company": r["company"], "location": r["location"],
-         "url": r["url"], "source": "nearby-company",
-         "why": f"fit {r['fit_score']}" if r.get("fit_score") else None}
+        {
+            "title": r["title"],
+            "company": r["company"],
+            "location": r["location"],
+            "url": r["url"],
+            "source": "nearby-company",
+            "why": f"fit {r['fit_score']}" if r.get("fit_score") else None,
+        }
         for r in nearby
     ]
     return {"nearby": jobs}
 
 
-def node_synthesize(state: ResearchState) -> dict:
+def node_synthesize(state: ResearchState) -> dict[str, Any]:
     intel = state.get("intel")
     intel_block = (
-        f"<intel>\n{intel}\n</intel>" if intel
+        f"<intel>\n{intel}\n</intel>"
+        if intel
         else "<intel>(web search unavailable -- no company intel gathered)</intel>"
     )
     dossier = invoke_structured(
@@ -212,12 +236,16 @@ def node_synthesize(state: ResearchState) -> dict:
         Dossier,
         [
             ("system", SYNTHESIZE_SYSTEM),
-            ("user",
-             (f"Company: {state['company']}\n\n"
-             f"{state['profile_summary']}\n\n"
-             f"{intel_block}\n\n"
-             f"<contacts>\n{state.get('contacts')}\n</contacts>\n\n"
-             f"<other_openings>\n{state.get('nearby')}\n</other_openings>")),
+            (
+                "user",
+                (
+                    f"Company: {state['company']}\n\n"
+                    f"{state['profile_summary']}\n\n"
+                    f"{intel_block}\n\n"
+                    f"<contacts>\n{state.get('contacts')}\n</contacts>\n\n"
+                    f"<other_openings>\n{state.get('nearby')}\n</other_openings>"
+                ),
+            ),
         ],
         label=f"Research synthesize ({state['company']})",
     )
@@ -243,7 +271,7 @@ def node_synthesize(state: ResearchState) -> dict:
     return {"dossier": record}
 
 
-def build_graph():
+def build_graph() -> Any:
     from langgraph.graph import END, START, StateGraph
 
     builder = StateGraph(ResearchState)
