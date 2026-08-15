@@ -344,7 +344,7 @@ def prune_archives(archive_dir: str | None, max_age_days: float = 14) -> tuple[i
 
     The archive exists so a normalizer bug can be replayed without re-scraping, which is
     worth real disk -- but only for as long as a payload could plausibly be replayed. At
-    ~0.6MB per cell and two runs a day, unbounded retention is a few GB a year of files
+    ~0.6MB per cell and 280 cells a day, unbounded retention is tens of GB a year of files
     nobody will ever open. Age is taken from mtime rather than the filename stamp so a
     partially-written or hand-copied file is still collected.
 

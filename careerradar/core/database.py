@@ -1063,7 +1063,7 @@ class Database:
             # thrown away: `sync_run_id` was overwritten and nothing recorded WHEN the
             # posting was last actually seen. Without that, a posting missing from a scrape
             # is indistinguishable from one whose cell has not been scraped since -- and
-            # with a ~5-day cell rotation, most of the corpus is in the second case.
+            # with a ~1.5-day cell rotation, most of the corpus is in the second case.
             cursor.execute(
                 f"UPDATE jobs SET {', '.join(f'{c} = ?' for c in updatable)}"
                 f"{', ' if updatable else ' '}"

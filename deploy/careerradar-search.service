@@ -14,10 +14,12 @@ Group=careerradar
 WorkingDirectory=/opt/careerradar
 ExecStart=/opt/careerradar/.venv/bin/careerradar search run
 
-# A run is scrape-bound, not CPU-bound: LinkedIn spends ~1.6s per description and a full
-# 12-search budget is ~17 minutes. The ceiling is generous so a slow-but-healthy run is
-# never killed mid-cell, which would leave the cell's observation unwritten.
-TimeoutStartSec=45min
+# A run is scrape-bound, not CPU-bound. Measured 2026-08-15: LinkedIn spends ~55s per
+# census cell (6 search pages plus ~50 description fetches) and Indeed ~2.2s. At the raised
+# budgets -- 30 LinkedIn cells and 40 Indeed cells a run -- that is ~29 minutes. The ceiling
+# is generous so a slow-but-healthy run is never killed mid-cell, which would leave the
+# cell's observation unwritten.
+TimeoutStartSec=90min
 
 # Deliberately absent: Restart=. A failed scrape must NOT be retried automatically -- the
 # circuit breaker already decided how long to back off, and restarting the unit would

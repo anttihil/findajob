@@ -11,6 +11,11 @@ from careerradar.core.config import load_config
 from careerradar.core.database import Database
 from careerradar.taxonomy.roles import load_roles
 
+# Only used for the cycle-length line this command prints. The schedule itself lives in
+# deploy/careerradar-search.timer, which has no config file to read it from -- keep the two
+# in step, or the printed cycle is wrong in exactly the way that hid the last shortfall.
+RUNS_PER_DAY = 4
+
 
 def seed_cells(prune: bool = False, queries_per_family: dict[str, int] | int | None = None) -> int:
     config = load_config()
@@ -51,10 +56,12 @@ def seed_cells(prune: bool = False, queries_per_family: dict[str, int] | int | N
         print(f"by source:      {by_source}")
 
         budgets = scraper.get("budgets") or {}
-        per_day = sum((budgets.get(s, {}).get("searches_per_run", 0)) * 2 for s in enabled_sources)
+        per_day = sum(
+            (budgets.get(s, {}).get("searches_per_run", 0)) * RUNS_PER_DAY for s in enabled_sources
+        )
         if per_day:
             print(
-                f"\nat 2 runs/day ({per_day} cells/day) a full matrix cycle takes "
+                f"\nat {RUNS_PER_DAY} runs/day ({per_day} cells/day) a full matrix cycle takes "
                 f"~{total / per_day:.1f} days"
             )
             print(

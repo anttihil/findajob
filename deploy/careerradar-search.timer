@@ -1,14 +1,27 @@
 [Unit]
-Description=Run CareerRadar search twice daily
+Description=Run CareerRadar search four times daily
 Documentation=file:///opt/careerradar/README.md
 
 [Timer]
+OnCalendar=*-*-* 01:00:00
 OnCalendar=*-*-* 07:00:00
+OnCalendar=*-*-* 13:00:00
 OnCalendar=*-*-* 19:00:00
 
-# Two runs a day is the design point: scrape_cells rotates ~26 cells/day against a
-# 252-cell matrix, which is the ~5-day full cycle that analytics.min_window_days=30
-# assumes several complete cycles of.
+# Four runs a day, raised from two on 2026-08-15 because roles.yaml grew the matrix to 410
+# cells (205 per source) while the budget still assumed 252. At two runs the cycle was 5.1
+# days for Indeed and 5.7 for LinkedIn, and 266 of the 410 cells had never been scraped
+# once.
+#
+# Frequency is the cheaper of the two levers, so it is spent first: the per-run budget, the
+# per-run traffic burst, and the run duration all stay where they were, and only the number
+# of bursts changes. The per-run budgets were raised as well (config.yaml, scraper.budgets),
+# which together give a ~1.3-day Indeed cycle and ~1.7-day LinkedIn cycle -- several
+# complete cycles inside analytics.min_window_days=30, which is what that window assumes.
+#
+# hours_old_floor (config.yaml) was lowered to 24/72/168 in advance of this change and did
+# nothing until now: adaptive_hours_old takes max(floor, 1.5 * actual gap), so the floor
+# only binds once the real gap falls near it. It starts paying at this frequency.
 
 # Catch up after the machine was asleep or off. This is the reason for using a systemd
 # timer over a cron entry: cron silently drops a missed run, and a dropped run is not a

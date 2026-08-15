@@ -8,14 +8,16 @@
 # ---------------------------------------------------------------------------------------
 # Scraping
 #
-# The cell matrix is ~252 cells (126 per source), rotated across runs rather than swept --
+# The cell matrix is 410 cells (205 per source), rotated across runs rather than swept --
 # see careerradar/search/scheduler.py. That rotation assumed LinkedIn rate-limits around the
 # 10th page on a single IP, but that figure was never actually verified: a direct probe
 # (scripts/probe_linkedin_page_wall.py, 2026-08-14) found zero 429s or blocks across 99
 # consecutive pages on one proxied IP, stopping only at the guest API's own ~1000-result
 # pagination ceiling. See experiments/linkedin_page_wall/. At these budgets a full matrix
-# cycle takes roughly 5 days, which is what makes the 30-day minimum analysis window
-# meaningful.
+# cycle takes ~1.3 days on Indeed and ~1.7 on LinkedIn (four runs a day: 40 and 30 cells a
+# run), which is what makes the 30-day minimum analysis window meaningful. Both the budgets
+# and the timer were raised on 2026-08-15, when the matrix grew past what a two-run day
+# could cover and 266 of the 410 cells had never been scraped once.
 # ---------------------------------------------------------------------------------------
 scraper:
   sources:
@@ -44,9 +46,11 @@ scraper:
                        # the count
 
   # How long raw scrape payloads are kept in raw_payloads/ so a normalizer bug can be
-  # replayed without re-scraping. Pruned at the start of every non-dry run. At ~0.6MB per
-  # cell and two runs a day, this bounds the archive at roughly 300-400MB. Set to 0 to
-  # keep everything (it grows a few GB a year).
+  # replayed without re-scraping. Pruned at the start of every non-dry run. Measured
+  # payloads are ~0.65MB per Indeed cell and ~0.4MB per LinkedIn cell, so at 160 + 120
+  # cells a day this bounds the archive at roughly 2GB -- up from 300-400MB, because the
+  # 2026-08-15 budget and frequency rise multiplied the cell count by ~7. Lower this to 7
+  # if the disk matters more than a two-week replay window. Set to 0 to keep everything.
   archive_retention_days: 14
 
   # How often a cell in each tier should be revisited.
@@ -98,8 +102,17 @@ scraper:
       # implied. searches_per_run is therefore the only cap that binds here, which is the
       # intent -- request_units is set to cover a backfill run (results_wanted=200 -> 3
       # requests a cell) rather than to constrain a normal one.
-      searches_per_run: 20
-      request_units: 60
+      #
+      # Raised 2026-08-15 from 20/60, together with the timer going from two runs a day to
+      # four, because the matrix grew to 205 Indeed cells and 89 of them had never been
+      # scraped. 40 cells x 4 runs = 160 a day, a ~1.3-day cycle. The cost is 45s of extra
+      # run time: a cell measures 2.2s, so 40 cells is ~1.5 minutes.
+      #
+      # request_units must be raised WITH searches_per_run or it becomes the binding cap
+      # instead: a normal cell costs 2 units (ceil(75/100) pages + 1) and a backfill cell
+      # 3, so 40 backfill cells need 120.
+      searches_per_run: 40
+      request_units: 130
       results_wanted_default: 75
       max_results_wanted: 200
       min_seconds_between_searches: 2.0
@@ -190,14 +203,25 @@ scraper:
         # plus one per posting. So 180 units never bound anything it was meant to bind,
         # and the run's real cost was ~1000 requests while the config said 90.
         #
-        # These numbers preserve the 18 cells a run that was already happening -- the
-        # traffic does not change, the accounting does. searches_per_run stays the binding
-        # cap: 18 cells x 6 pages = 108, 18 x 56 = 1008.
-        searches_per_run: 18
-        request_units: 1010
+        # Raised again on 2026-08-15, from searches_per_run=18/request_units=1010/
+        # max_pages_per_run=108, because roles.yaml grew the matrix to 205 LinkedIn cells
+        # and 177 of them had never been scraped once. 30 cells x 4 runs a day = 120, a
+        # ~1.7-day cycle. All three caps move together, since raising one alone just hands
+        # the constraint to the next: 30 x 6 pages = 180, 30 x 56 units = 1680.
+        #
+        # Per-IP load still falls rather than rises. A run's ~810 measured requests spread
+        # over a 100-endpoint rotating pool is ~8 per exit IP, against the 99 consecutive
+        # pages one exit IP took in the probe without a 429. The circuit breaker still
+        # trips the source outright on the first 429, so the downside stays a backoff.
+        #
+        # This is the expensive lever: a census cell measures ~55s (6 search pages plus
+        # ~50 description fetches), so 30 cells is ~28 minutes of run time. That is what
+        # careerradar-search.service raised TimeoutStartSec to 90min for.
+        searches_per_run: 30
+        request_units: 1700
         results_wanted_default: 50
         max_results_wanted: 75
-        max_pages_per_run: 108
+        max_pages_per_run: 180
         min_seconds_between_searches: 2.0
         jitter_seconds: [0.5, 2.0]
         # The payoff of a proxy pool. One extra request per posting is unaffordable on a
@@ -276,7 +300,7 @@ matching:
 # ---------------------------------------------------------------------------------------
 analytics:
   windows: [30, 90]
-  # Derived, not a preference: a full matrix cycle takes ~5 days, and comparing supply
+  # Derived, not a preference: a full matrix cycle takes ~1.5 days, and comparing supply
   # across families needs several complete cycles or coverage is irreparably uneven.
   min_window_days: 30
 

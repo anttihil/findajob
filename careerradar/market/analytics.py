@@ -1,7 +1,7 @@
 """Market supply and skill-demand estimation.
 
-The hard part is not computing averages, it is not lying. Coverage rotates across ~252 cells
-on a ~5-day cycle, so raw posting counts across role families are NOT comparable: a family
+The hard part is not computing averages, it is not lying. Coverage rotates across 410 cells
+on a ~1.5-day cycle, so raw posting counts across role families are NOT comparable: a family
 that was scraped three times looks bigger than one scraped once, regardless of the market.
 Three mechanisms keep the numbers honest.
 

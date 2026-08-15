@@ -1,6 +1,6 @@
 """Scrape-budget scheduler: choose which cells to visit this run.
 
-The matrix is ~252 cells (126 per source), rotated across runs rather than swept, on the
+The matrix is 410 cells (205 per source), rotated across runs rather than swept, on the
 assumption that LinkedIn rate-limits around the 10th page on a single IP -- carried forward
 from prior scraping experience but never actually verified against this project's traffic
 (source_state.total_429 sat at 0 across every real run). A direct probe on 2026-08-14

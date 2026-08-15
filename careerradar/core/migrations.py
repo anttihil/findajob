@@ -655,7 +655,7 @@ def _v6_ordinal_verdicts(cursor: sqlite3.Cursor) -> None:
     # scraped, which changes without the posting row changing.
     #
     # Three states, and the third one is the point. Absence from a scrape only means
-    # "closed" if we actually looked; with ~26 of 252 cells rotating per day, most postings
+    # "closed" if we actually looked; with ~280 of 410 cells rotating per day, most postings
     # are simply unobserved, and calling those closed would delete the corpus. The grace
     # window absorbs the ordering skew between when a run starts (which is what
     # `last_seen_at` records for backfilled rows) and when a cell reports success.

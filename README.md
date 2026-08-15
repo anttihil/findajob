@@ -190,13 +190,13 @@ and every coverage figure downstream inherits the shortfall.
 ## How the search space is defined
 
 `data/roles.yaml` holds ~28 role families × 7 locations. The cross-product is pruned to
-**252 cells** (126 per source) on the assumption that LinkedIn rate-limits around the 10th
+**410 cells** (205 per source) on the assumption that LinkedIn rate-limits around the 10th
 page on a single IP — a figure carried forward from prior scraping experience, not something
 this project ever measured. A direct probe (`scripts/probe_linkedin_page_wall.py`) found zero
 429s or blocks across 99 consecutive pages (990 results) on one proxied IP; the run stopped at
 page 100 only because that's LinkedIn's own guest-API pagination ceiling (offset ~1000, the
 same wall JobSpy hardcodes as `start < 1000`), not because anything got flagged. See
-`experiments/linkedin_page_wall/`. The scheduler still *rotates* through the 252 cells rather
+`experiments/linkedin_page_wall/`. The scheduler still *rotates* through the 410 cells rather
 than sweeping them, now as a request-budget control rather than a proven rate-limit dodge, so
 a full matrix cycle takes roughly 5 days — which is why `analytics.min_window_days` is 30.
 
@@ -287,7 +287,7 @@ units driven by timers.
 
 | unit | schedule | why |
 |---|---|---|
-| `careerradar-search.timer` | 07:00, 19:00 ±30min | matches the 252-cell/5-day rotation. `Persistent=true` — a missed run means suppressed supply figures, not a neutral gap |
+| `careerradar-search.timer` | 01:00, 07:00, 13:00, 19:00 ±30min | matches the 410-cell/~1.5-day rotation. `Persistent=true` — a missed run means suppressed supply figures, not a neutral gap |
 | `careerradar-score.timer` | every 30 min ±3min | cheap and idempotent; a posting scraped at 07:00 is judged by 07:30. `Persistent=false` — the queue is in the database, nothing to catch up |
 | `careerradar-research.timer` | 20:30 ±20min | after the evening scrape and its scoring have settled |
 | `careerradar-web.service` | always | binds `127.0.0.1:8010` |
