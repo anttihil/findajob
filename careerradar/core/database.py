@@ -681,6 +681,8 @@ class Database:
                     last_saturated=row["last_saturated"] or 0,
                     last_hours_old=row["last_hours_old"],
                     ewma_new_per_scrape=row["ewma_new_per_scrape"],
+                    ewma_fit_score=row["ewma_fit_score"],
+                    quality_samples=row["quality_samples"] or 0,
                     consecutive_empty=row["consecutive_empty"] or 0,
                     consecutive_error=row["consecutive_error"] or 0,
                     total_scrapes=row["total_scrapes"] or 0,
@@ -757,6 +759,29 @@ class Database:
         params.append(cell_id)
         cursor.execute(f"UPDATE scrape_cells SET {', '.join(fields)} WHERE id = ?", params)
         self.conn.commit()
+
+    def update_cell_quality(self, cell_id: int, fit_score: float) -> None:
+        """Fold one posting's LLM fit_score into its scrape cell's quality EWMA.
+
+        Called from scoring, not scraping -- a cell's realized quality is only known once
+        `job_verdicts` lands, which happens on its own faster cadence. See
+        scheduler.quality_multiplier() for how this feeds cell_priority(). Does not commit,
+        matching `_persist()`'s pattern in scoring/worker.py -- the caller batches commits
+        across many scored postings.
+        """
+        from careerradar.search.scheduler import update_ewma
+
+        row = self.conn.execute(
+            "SELECT ewma_fit_score FROM scrape_cells WHERE id = ?", (cell_id,)
+        ).fetchone()
+        if row is None:
+            return
+        new_ewma = update_ewma(row["ewma_fit_score"], fit_score)
+        self.conn.execute(
+            "UPDATE scrape_cells SET ewma_fit_score = ?, quality_samples = quality_samples + 1 "
+            "WHERE id = ?",
+            (new_ewma, cell_id),
+        )
 
     # =====================================================================================
     # Source circuit-breaker state

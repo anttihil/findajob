@@ -156,7 +156,12 @@ def build_parser() -> argparse.ArgumentParser:
     sc.add_argument(
         "--prune", action="store_true", help="disable cells no longer implied by roles.yaml"
     )
-    sc.add_argument("--queries-per-family", type=int, default=1)
+    sc.add_argument(
+        "--queries-per-family",
+        type=int,
+        default=None,
+        help="override per-tier default (roles.DEFAULT_QUERIES_PER_FAMILY) with one flat count",
+    )
     sc.set_defaults(func=_cmd_seed_cells)
 
     # --- score -----------------------------------------------------------------------

@@ -5,9 +5,10 @@ that surfaced the posting. A live "Platform Engineer" query on Indeed returned a
 "Maintenance Technician", so the query predicts very little about what came back -- and
 counting those returns toward platform-engineer supply would inflate it.
 
-Titles that match no family get `None`. Those postings are retained for audit but excluded
-from every statistic; the real corpus already contains "Full-time", "Remote (US, Canada)",
-"Toronto, ON", and "YC 19" as titles.
+Titles that match no family get `None`. Those postings are stored and scored like any
+other -- `title_family_fit` scores 0.0 for `role_family=None` (keyword_score.py), so they
+are demoted, not dropped -- but excluded from every role-family statistic; the real corpus
+already contains "Full-time", "Remote (US, Canada)", "Toronto, ON", and "YC 19" as titles.
 """
 
 import hashlib
@@ -22,6 +23,13 @@ from careerradar.core.paths import DATA_DIR
 ROLES_PATH = os.path.join(DATA_DIR, "roles.yaml")
 
 SENIORITY_UNSPECIFIED = "unspecified"
+
+# How many of a family's query_terms get seeded as scrape cells, per tier. Core grows to 2
+# so a family isn't betting its entire supply on one phrasing matching the board's own
+# relevance ranking; adjacent/breadth stay at 1 -- their footprint is already smaller via
+# tier_locations, and widening them too would blow the cell-count budget cell_specs()
+# reasons about. See cell_specs()'s docstring for the budget history.
+DEFAULT_QUERIES_PER_FAMILY: dict[str, int] = {"core": 2, "adjacent": 1, "breadth": 1}
 
 
 class RoleFamily:
@@ -146,6 +154,7 @@ class RoleTaxonomy:
         for level, spec in (data.get("seniority") or {}).items():
             patterns = [re.compile(p, re.IGNORECASE) for p in spec.get("patterns", [])]
             self._seniority.append((level, patterns))
+        self._seniority_by_level = dict(self._seniority)
 
         self.locations: dict[str, Location] = {}
         for spec in data.get("locations") or []:
@@ -289,11 +298,29 @@ class RoleTaxonomy:
     def seniority(self, title: str | None) -> str:
         if not title:
             return SENIORITY_UNSPECIFIED
+        # senior is checked ahead of junior below (roles.yaml:46-58) so "Senior Associate"
+        # resolves senior, not junior via the `associate` pattern. That reorder would also
+        # flip a genuine open range like "Junior to Senior Engineer" to senior, so guard it
+        # here first: if junior's earliest match precedes senior's, the title reads as a
+        # range and the honest reading of an open range is still junior.
+        junior_pos = self._earliest_match(self._seniority_by_level.get("junior", []), title)
+        senior_pos = self._earliest_match(self._seniority_by_level.get("senior", []), title)
+        if junior_pos is not None and senior_pos is not None and junior_pos < senior_pos:
+            return "junior"
         for level, patterns in self._seniority:
             for pattern in patterns:
                 if pattern.search(title):
                     return level
         return SENIORITY_UNSPECIFIED
+
+    @staticmethod
+    def _earliest_match(patterns: list[re.Pattern[str]], title: str) -> int | None:
+        best: int | None = None
+        for pattern in patterns:
+            match = pattern.search(title)
+            if match and (best is None or match.start() < best):
+                best = match.start()
+        return best
 
     def classify_all(self, title: str | None, has_tech_skills: bool = False) -> list[str]:
         """Every family a title touches, ordered by match position.
@@ -374,30 +401,41 @@ class RoleTaxonomy:
 
     # -- scrape planning ---------------------------------------------------------------
     def cell_specs(
-        self, sources: tuple[str, ...] = ("indeed", "linkedin"), queries_per_family: int = 1
+        self,
+        sources: tuple[str, ...] = ("indeed", "linkedin"),
+        queries_per_family: dict[str, int] | int | None = None,
     ) -> list[dict[str, str]]:
         """Enumerate the (source, family, location, query) cells to be scraped.
 
         Cell count is the binding constraint on the whole analytics design, so it is worth
         being explicit about the arithmetic. The unpruned cross-product is 28 families x 7
-        locations x 2 sources x up to 4 query terms -- over 500 cells. At the sustainable
-        rate of roughly 52 cells/day (assuming LinkedIn 429s around the 10th page on one IP
-        -- a figure a direct probe found no evidence for through page 99, see
-        scripts/probe_linkedin_page_wall.py), that is a 10-day full-matrix cycle, and honest
-        supply comparison needs several complete cycles inside the analysis window. So two
-        prunings apply:
+        locations x 2 sources x up to 4 query terms -- over 500 cells. That was originally
+        pruned against an assumed sustainable rate of ~52 cells/day (LinkedIn 429ing around
+        the 10th page on one IP), but that figure was never real: a direct probe found no
+        429s through page 99 (scripts/probe_linkedin_page_wall.py), and a live single-IP
+        run separately sustained ~1000 posts with no block. So the budget is wider than the
+        original pruning assumed, and it's spent on core-tier query diversity rather than
+        raised uniformly -- a family with only one seeded phrasing ("AI Engineer") never
+        surfaces a posting phrased "AI Engineering Senior Associate", no matter how much
+        depth that one query is allowed, because matching is delegated entirely to the
+        board's own relevance ranking. Two prunings apply:
 
           tier_locations      breadth families are searched only where volume is highest
-          queries_per_family  one search term per family by default
+          queries_per_family  how many of a family's query_terms get seeded as cells,
+                               per tier -- DEFAULT_QUERIES_PER_FAMILY (core: 2, adjacent
+                               and breadth: 1)
 
-        Together these give ~126 cells per source, a ~5-day cycle, which supports the
-        30-day minimum analysis window. Additional query terms are not discarded -- they
-        remain on the family for the scheduler to rotate through on later visits.
+        Together these give a still-bounded cell count with a several-day cycle, well
+        inside the 30-day minimum analysis window. Query terms beyond the seeded count are
+        not discarded -- `alternate_queries()` exposes them for a later rotation/discovery
+        pass (undecided as of this writing; see roles.yaml's cell_specs commentary).
         """
+        per_tier = self._resolve_queries_per_family(queries_per_family)
         specs = []
         for family in self.families.values():
             location_ids = self.tier_locations.get(family.tier, [])
-            queries = family.query_terms[: max(1, queries_per_family)]
+            n = max(1, per_tier.get(family.tier, 1))
+            queries = family.query_terms[:n]
             for location_id in location_ids:
                 location = self.locations.get(location_id)
                 if location is None:
@@ -415,10 +453,25 @@ class RoleTaxonomy:
                         )
         return specs
 
-    def alternate_queries(self, family_key: str) -> list[str]:
-        """Query terms beyond the primary, for the scheduler to rotate through."""
+    def alternate_queries(
+        self, family_key: str, queries_per_family: dict[str, int] | int | None = None
+    ) -> list[str]:
+        """Query terms beyond the ones `cell_specs` seeded as cells for this family's tier."""
         family = self.families.get(family_key)
-        return list(family.query_terms[1:]) if family else []
+        if not family:
+            return []
+        n = max(1, self._resolve_queries_per_family(queries_per_family).get(family.tier, 1))
+        return list(family.query_terms[n:])
+
+    @staticmethod
+    def _resolve_queries_per_family(
+        queries_per_family: dict[str, int] | int | None,
+    ) -> dict[str, int]:
+        if queries_per_family is None:
+            return dict(DEFAULT_QUERIES_PER_FAMILY)
+        if isinstance(queries_per_family, int):
+            return dict.fromkeys(("core", "adjacent", "breadth"), queries_per_family)
+        return queries_per_family
 
 
 _CACHE: dict[tuple[str, float], "RoleTaxonomy"] = {}

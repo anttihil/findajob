@@ -41,6 +41,18 @@ DEFAULT_NEW_PER_SCRAPE = 2.0
 
 TIER_WEIGHT = {"core": 1.0, "adjacent": 0.6, "breadth": 0.3}
 
+# A cell's quality modifier stays neutral (1.0) until it clears this many verdicts, so one
+# or two bad LLM scores can't tank a cell before it's had a fair sample -- the same
+# exploration concern novelty/DEAD_PENALTY_FLOOR already guard for the yield signal.
+QUALITY_SAMPLE_MIN = 3
+
+# fit_score runs roughly 0-100 (keyword_score.py's observed corpus range is 15-80).
+# Centered on 0.5 + fit_score/100 and clamped so quality can only ever nudge productivity,
+# never zero it out on its own -- reinforcing only what already scores well would narrow
+# the net toward postings that match the user's existing skills, which is the opposite of
+# what widening the query surface (see roles.py/cell_specs) is for.
+QUALITY_CLAMP = (0.5, 1.5)
+
 # The dead-cell penalty is floored rather than allowed to decay toward zero. Compounding an
 # unfloored penalty with tier_weight pushed a persistently-empty breadth cell's effective
 # revisit interval past a year in simulation.
@@ -62,6 +74,8 @@ class CellState:
     last_saturated: int = 0
     last_hours_old: int | None = None
     ewma_new_per_scrape: float | None = None
+    ewma_fit_score: float | None = None
+    quality_samples: int = 0
     consecutive_empty: int = 0
     consecutive_error: int = 0
     total_scrapes: int = 0
@@ -160,6 +174,21 @@ def is_eligible(cell: CellState, now: datetime) -> bool:
     return backoff is None or backoff <= now
 
 
+def quality_multiplier(cell: CellState) -> float:
+    """How much a cell's realized LLM fit_score should nudge its scrape priority.
+
+    Neutral until `quality_samples` clears QUALITY_SAMPLE_MIN, then a clamped modifier
+    derived from `ewma_fit_score` -- fed from job_verdicts at scoring time, not from the
+    scrape itself, see scoring/worker.py. Clamped to QUALITY_CLAMP so it can only ever
+    nudge productivity, never zero it out on its own regardless of how poorly a cell's
+    postings have scored.
+    """
+    if cell.ewma_fit_score is None or cell.quality_samples < QUALITY_SAMPLE_MIN:
+        return 1.0
+    modifier = 0.5 + cell.ewma_fit_score / 100.0
+    return min(QUALITY_CLAMP[1], max(QUALITY_CLAMP[0], modifier))
+
+
 def cell_priority(cell: CellState, config: dict[str, Any], now: datetime) -> float:
     """Higher is more urgent.
 
@@ -184,7 +213,8 @@ def cell_priority(cell: CellState, config: dict[str, Any], now: datetime) -> flo
     yield_estimate = (
         cell.ewma_new_per_scrape if cell.ewma_new_per_scrape is not None else DEFAULT_NEW_PER_SCRAPE
     )
-    productivity = math.log1p(max(yield_estimate, 0.0)) / math.log1p(20.0)
+    volume = math.log1p(max(yield_estimate, 0.0)) / math.log1p(20.0)
+    productivity = volume * quality_multiplier(cell)
 
     novelty = 1.5 if cell.total_scrapes == 0 else 1.0
     # A truncated cell was under-sampled, so revisit it sooner.

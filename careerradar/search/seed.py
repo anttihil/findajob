@@ -12,7 +12,7 @@ from careerradar.core.database import Database
 from careerradar.taxonomy.roles import load_roles
 
 
-def seed_cells(prune: bool = False, queries_per_family: int = 1) -> int:
+def seed_cells(prune: bool = False, queries_per_family: dict[str, int] | int | None = None) -> int:
     config = load_config()
     scraper = config.get("scraper", {})
     enabled_sources = tuple(name for name, on in (scraper.get("sources") or {}).items() if on) or (

@@ -365,14 +365,20 @@ def _scrape_one(
         posting["pipeline_state"] = "new"
         stored.append((posting, result))
 
-        # Store on relevance, not on keyword score. The old gate dropped anything scoring
-        # below matching.min_match_score, which meant a keyword heuristic decided what the
-        # judgement layer was ever allowed to see -- and keyword coverage is exactly the
-        # thing that misjudges a career change or an unusual title. `role_family is None`
-        # means the title did not classify as software work at all (roles.yaml exclusions:
-        # RF engineer, HVAC, stationary engineer, recruiters), which is a different and
-        # much safer claim than "few of the user's keywords appear".
-        if dry_run or not posting.get("role_family"):
+        # Store on relevance, not on keyword score or title classification. The old gate
+        # dropped anything scoring below matching.min_match_score, which meant a keyword
+        # heuristic decided what the judgement layer was ever allowed to see -- and keyword
+        # coverage is exactly the thing that misjudges a career change or an unusual title.
+        # A second gate on `role_family is None` used to sit here too, on the claim that an
+        # unclassified title is reliably non-software work. It isn't: `role_family` comes
+        # from the same declarative regex matching that, until this fix, silently mistagged
+        # every "Senior Associate" title in the corpus as junior (see roles.yaml's
+        # seniority: block) -- a title-matching miss here was unrecoverable, since the
+        # posting was scored in memory and then discarded with no record. `title_family_fit`
+        # already scores 0.0 for role_family=None (keyword_score.py), so an unclassified
+        # posting is demoted, not deleted -- it still gets skill_coverage and seniority_fit,
+        # which read the actual posting rather than guessing from the title.
+        if dry_run:
             continue
 
         job_id, is_new = db.upsert_posting(posting, run_id=run_id, taxonomy_hash=taxonomy.hash)

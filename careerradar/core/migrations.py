@@ -13,7 +13,7 @@ from careerradar.core.logger import get_logger
 
 logger = get_logger()
 
-SCHEMA_VERSION = 9
+SCHEMA_VERSION = 10
 
 
 def _v1_baseline(cursor: sqlite3.Cursor) -> None:
@@ -791,6 +791,31 @@ def _v9_feed_indexes(cursor: sqlite3.Cursor) -> None:
     )
 
 
+def _v10_cell_quality_ewma(cursor: sqlite3.Cursor) -> None:
+    """Give scrape cells a memory of the LLM score their postings actually earned.
+
+    `cell_priority()` already weights cells by `ewma_new_per_scrape` -- how many postings
+    a cell yields -- but nothing fed back how GOOD those postings turned out to be, so a
+    cell producing lots of poorly-matched postings ranked identically to one producing
+    fewer, consistently strong ones. `ewma_fit_score` closes that gap, updated from
+    `job_verdicts.fit_score` at scoring time (scoring/worker.py) via `jobs.scrape_cell_id`
+    rather than at scrape time, since verdicts land on their own faster cadence.
+
+    `quality_samples` gates when the new signal is trusted: `cell_priority()` treats a
+    cell as quality-neutral until it clears a small sample threshold, so a cell doesn't
+    get deprioritized off one or two verdicts before it's had a fair look -- the same
+    exploration-vs-exploitation concern `novelty`/`DEAD_PENALTY_FLOOR` already guard for
+    the yield signal.
+    """
+    existing = {row[1] for row in cursor.execute("PRAGMA table_info(scrape_cells)")}
+    if "ewma_fit_score" not in existing:
+        cursor.execute("ALTER TABLE scrape_cells ADD COLUMN ewma_fit_score REAL")
+    if "quality_samples" not in existing:
+        cursor.execute(
+            "ALTER TABLE scrape_cells ADD COLUMN quality_samples INTEGER NOT NULL DEFAULT 0"
+        )
+
+
 MIGRATIONS: list[tuple[int, str, Callable[[sqlite3.Cursor], None]]] = [
     (1, "baseline jobs table", _v1_baseline),
     (2, "market analytics: cells, observations, skills, stats", _v2_analytics),
@@ -801,6 +826,7 @@ MIGRATIONS: list[tuple[int, str, Callable[[sqlite3.Cursor], None]]] = [
     (7, "hard blockers carry quote and reasoning separately", _v7_structured_blockers),
     (8, "per-posting scoring failure counter", _v8_scoring_failure_counter),
     (9, "feed and dossier lookup indexes", _v9_feed_indexes),
+    (10, "scrape cell quality EWMA fed from LLM verdicts", _v10_cell_quality_ewma),
 ]
 
 

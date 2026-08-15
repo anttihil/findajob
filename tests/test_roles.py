@@ -104,6 +104,29 @@ class SeniorityTests(unittest.TestCase):
     def test_founding_engineer_reads_as_senior(self) -> None:
         self.assertEqual(self.roles.seniority("Founding Engineer (Full-Stack)"), "senior")
 
+    def test_senior_associate_reads_as_senior_not_junior(self) -> None:
+        """junior's `associate` pattern used to be checked before senior's `senior`
+        pattern, so every "...Senior Associate" title in the corpus (103/103) resolved
+        junior despite the explicit "Senior". senior is now checked first."""
+        cases = [
+            "Senior Software Engineer (Python) - Senior Associate",
+            "Sr Associate, Product Management – Applied AI Platforms",
+            "Senior Associate- Software Engineer",
+        ]
+        for title in cases:
+            self.assertEqual(self.roles.seniority(title), "senior", title)
+
+    def test_plain_associate_still_reads_as_junior(self) -> None:
+        self.assertEqual(self.roles.seniority("Associate Engineer"), "junior")
+
+    def test_senior_reorder_does_not_disturb_staff_or_lead(self) -> None:
+        cases = [
+            ("Senior Staff Engineer", "staff"),
+            ("Senior Director of Engineering", "lead"),
+        ]
+        for title, expected in cases:
+            self.assertEqual(self.roles.seniority(title), expected, title)
+
 
 class ClassificationTests(unittest.TestCase):
     def setUp(self) -> None:
@@ -359,12 +382,15 @@ class CellPlanningTests(unittest.TestCase):
     def test_cell_count_supports_a_short_matrix_cycle(self) -> None:
         """Cell count is the binding constraint on the analytics window.
 
-        At roughly 52 cells/day sustainable, ~250 cells is a ~5-day full cycle, which the
-        30-day minimum analysis window can accommodate several times over. Materially more
-        than this and supply comparisons stop being honest.
+        DEFAULT_QUERIES_PER_FAMILY seeds core-tier families with 2 query phrasings instead
+        of 1 (see roles.py/cell_specs' docstring for why: LinkedIn's page-wall assumption
+        that originally bounded this was empirically refuted), so the matrix is larger than
+        the original ~250-cell/~5-day-cycle design point -- ~450 is still a several-day
+        cycle at the bumped config.yaml budgets, well inside the 30-day minimum analysis
+        window. Materially more than this and supply comparisons stop being honest.
         """
         specs = self.roles.cell_specs()
-        self.assertLess(len(specs), 300, f"{len(specs)} cells is too many to cycle")
+        self.assertLess(len(specs), 450, f"{len(specs)} cells is too many to cycle")
         self.assertGreater(len(specs), 150)
 
     def test_cells_are_unique_on_the_schema_key(self) -> None:
@@ -402,6 +428,23 @@ class CellPlanningTests(unittest.TestCase):
         one = self.roles.cell_specs(queries_per_family=1)
         two = self.roles.cell_specs(queries_per_family=2)
         self.assertGreater(len(two), len(one))
+
+    def test_default_queries_per_family_is_tier_aware(self) -> None:
+        """Core gets 2 seeded phrasings by default; adjacent/breadth stay at 1."""
+        specs = self.roles.cell_specs(sources=("indeed",))
+        core_queries = {
+            s["query"] for s in specs if s["role_family"] == "ai_engineer" and s["tier"] == "core"
+        }
+        self.assertEqual(core_queries, {"AI Engineer", "GenAI Engineer"})
+
+        breadth_family = next(f for f in self.roles.families.values() if f.tier == "breadth")
+        breadth_queries = {s["query"] for s in specs if s["role_family"] == breadth_family.key}
+        self.assertEqual(breadth_queries, {breadth_family.query_terms[0]})
+
+    def test_alternate_queries_accounts_for_seeded_count(self) -> None:
+        alternates = self.roles.alternate_queries("ai_engineer")
+        self.assertNotIn("AI Engineer", alternates)
+        self.assertNotIn("GenAI Engineer", alternates)
 
 
 if __name__ == "__main__":

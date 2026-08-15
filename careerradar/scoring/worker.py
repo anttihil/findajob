@@ -339,6 +339,11 @@ def _persist(
         "scoring_failures = 0, last_scoring_error = NULL WHERE id = ?",
         (verdict["fit_score"], _now(), job["id"]),
     )
+    # Feed the cell that surfaced this posting a memory of how it scored, so the scheduler
+    # can eventually reinvest scrape budget in cells with a track record of good matches,
+    # not just cells with high raw yield. See scheduler.quality_multiplier().
+    if job.get("scrape_cell_id"):
+        db.update_cell_quality(job["scrape_cell_id"], verdict["fit_score"])
 
 
 def _skill_hint(scorer: "JobScorer | None", job: dict[str, Any]) -> str:

@@ -29,6 +29,7 @@ from careerradar.search.guard import (
     classify_error,
 )
 from careerradar.search.scheduler import (
+    QUALITY_SAMPLE_MIN,
     CellState,
     adaptive_hours_old,
     cell_priority,
@@ -36,6 +37,7 @@ from careerradar.search.scheduler import (
     is_eligible,
     is_saturated,
     overdue_cells,
+    quality_multiplier,
     select_cells,
     starved_cells,
     update_ewma,
@@ -201,6 +203,62 @@ class PriorityTests(unittest.TestCase):
         self.assertLess(cell_priority(empty, CONFIG, NOW), cell_priority(normal, CONFIG, NOW))
         # Must stay strictly positive, so a quiet family is still probed occasionally.
         self.assertGreater(cell_priority(empty, CONFIG, NOW), 0)
+
+    def test_quality_multiplier_is_neutral_without_enough_samples(self) -> None:
+        cell = CellState(1, "indeed", "x", "la", "q", ewma_fit_score=10, quality_samples=1)
+        self.assertEqual(quality_multiplier(cell), 1.0)
+        cell_never_scored = CellState(2, "indeed", "x", "la", "q")
+        self.assertEqual(quality_multiplier(cell_never_scored), 1.0)
+
+    def test_quality_multiplier_rewards_and_penalizes_once_sampled(self) -> None:
+        strong = CellState(
+            1, "indeed", "x", "la", "q", ewma_fit_score=90, quality_samples=QUALITY_SAMPLE_MIN
+        )
+        weak = CellState(
+            2, "indeed", "x", "la", "q", ewma_fit_score=10, quality_samples=QUALITY_SAMPLE_MIN
+        )
+        self.assertGreater(quality_multiplier(strong), 1.0)
+        self.assertLess(quality_multiplier(weak), 1.0)
+        # Clamped: even a terrible track record can only ever dampen, never zero out.
+        self.assertGreaterEqual(quality_multiplier(weak), 0.5)
+
+    def test_high_quality_cell_outranks_low_quality_cell_at_equal_yield(self) -> None:
+        base: dict[str, Any] = {
+            "tier": "core",
+            "total_scrapes": 5,
+            "last_scraped_at": (NOW - timedelta(days=3)).isoformat(),
+            "ewma_new_per_scrape": 5.0,
+            "quality_samples": QUALITY_SAMPLE_MIN,
+        }
+        strong = CellState(1, "indeed", "x", "la", "q", ewma_fit_score=90, **base)
+        weak = CellState(2, "indeed", "x", "la", "q", ewma_fit_score=10, **base)
+        self.assertGreater(cell_priority(strong, CONFIG, NOW), cell_priority(weak, CONFIG, NOW))
+        # A poor track record must never be able to zero out an otherwise-productive cell.
+        self.assertGreater(cell_priority(weak, CONFIG, NOW), 0)
+
+    def test_unproven_cell_is_not_starved_by_a_thin_quality_sample(self) -> None:
+        """A cell with zero prior scrapes must still get a fair look regardless of quality
+        -- QUALITY_SAMPLE_MIN keeps quality neutral until there's enough signal to trust,
+        so it must never compound with the novelty boost to starve a brand-new cell."""
+        base: dict[str, Any] = {
+            "tier": "core",
+            "last_scraped_at": (NOW - timedelta(days=3)).isoformat(),
+        }
+        never_scraped = CellState(1, "indeed", "x", "la", "q", total_scrapes=0, **base)
+        seasoned_but_poor = CellState(
+            2,
+            "indeed",
+            "x",
+            "la",
+            "q",
+            total_scrapes=10,
+            ewma_fit_score=5,
+            quality_samples=QUALITY_SAMPLE_MIN,
+            **base,
+        )
+        self.assertGreater(
+            cell_priority(never_scraped, CONFIG, NOW), cell_priority(seasoned_but_poor, CONFIG, NOW)
+        )
 
 
 class AdaptiveHoursOldTests(unittest.TestCase):

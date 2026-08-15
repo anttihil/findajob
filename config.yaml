@@ -75,19 +75,24 @@ scraper:
 
     # LinkedIn without proxies: titles only. Each description costs an extra request, and
     # on a single IP that was assumed to spend the entire ~10-page budget on a handful of
-    # postings -- a probe (see below) found that assumption doesn't hold, but descriptions
-    # are still off here since a real IP-flag risk hasn't been ruled out for sustained
-    # description-fetching traffic specifically, only for plain search pagination. So these
-    # cells are desc_selection='none' -- they count fully toward role supply (title,
-    # company, and location are complete) but contribute nothing to skill demand.
+    # postings -- a probe (see below) found that assumption doesn't hold, and a separate
+    # live run on one unproxied IP (2026-08-14) sustained ~1000 posts with no block or
+    # 429. Descriptions are still off here since a real IP-flag risk hasn't been ruled out
+    # for sustained description-fetching traffic specifically, only for plain search
+    # pagination -- that's what the numbers below spend the new headroom on, raised from
+    # searches_per_run=6/max_pages_per_run=14/max_results_wanted=75, still well under the
+    # with_proxies tier below and far under the ~1000-post figure. Treat as a starting
+    # point to tune further, not a settled ceiling. So these cells are desc_selection='none'
+    # -- they count fully toward role supply (title, company, and location are complete)
+    # but contribute nothing to skill demand.
     # Set SCRAPER_PROXIES and the scraper.proxies.with_proxies override flips this to a
     # full description census. See careerradar/search/proxies.py.
     linkedin:
-      searches_per_run: 6
-      request_units: 60
-      results_wanted_default: 50      # 5 pages at the real page_size of 10 (see above)
-      max_results_wanted: 75
-      max_pages_per_run: 14
+      searches_per_run: 10
+      request_units: 100
+      results_wanted_default: 60
+      max_results_wanted: 100
+      max_pages_per_run: 20
       description_fetches_per_run: 40
       min_seconds_between_searches: 6.0
       jitter_seconds: [2.0, 6.0]
