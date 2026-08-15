@@ -13,7 +13,7 @@ from careerradar.core.logger import get_logger
 
 logger = get_logger()
 
-SCHEMA_VERSION = 11
+SCHEMA_VERSION = 12
 
 
 def _v1_baseline(cursor: sqlite3.Cursor) -> None:
@@ -874,6 +874,77 @@ def _v11_cell_cost(cursor: sqlite3.Cursor) -> None:
     )
 
 
+def _v12_liveness_window(cursor: sqlite3.Cursor) -> None:
+    """Call a posting closed only when the re-scrape could have returned it.
+
+    v6's rule was "the cell was scraped after we last saw this posting, and it did not
+    come back". That misses half the question. A cell's search carries `hours_old`, which
+    filters on `date_posted`, so a posting older than that window CANNOT come back whether
+    it is open or closed. The rule was measuring age, not absence.
+
+    Measured on the production corpus (18,698 postings, 2026-08-15), splitting on whether
+    `date_posted` fell inside the cell's most recent `hours_old` window:
+
+        inside window    7,508 postings    8.6% called likely_closed
+        outside window  11,069 postings   89.5% called likely_closed
+
+    Inside the window, where the test is valid, 8.6% of postings disappear -- ordinary
+    turnover. Outside it the flag fires on nearly everything, which is what a filter
+    measuring "older than the recency window" looks like. Of the 8,948 rows the scoring
+    queue was dropping as closed, 8,435 were outside the window and only 513 had actual
+    evidence of closure.
+
+    Lowering `hours_old_floor` to 24/72/168 on 2026-08-15 made this worse rather than
+    better: a narrower window ages more postings out of it. The two changes interact, so
+    the bug got louder exactly when scrape freshness improved.
+
+    Unprovable absence now reads 'unknown' -- the state that already means "we have not
+    established anything" -- rather than 'live', which would be an equally unearned claim
+    in the other direction. Every reader gates on `!= 'likely_closed'`, so these postings
+    return to the queue.
+
+    `last_hours_old` advances on every ATTEMPT while `last_success_at` advances only on
+    success, so after a failed attempt the two describe different visits. The skew is
+    small -- `adaptive_hours_old` derives both from the same `last_success_at` -- and the
+    alternative is a correlated subquery into `cell_observations` for a view that is
+    already scanned whole. NULL is treated as a zero-width window, so nothing is provable
+    from a cell that never recorded one.
+
+    No backfill: liveness is a view, and the postings this releases are still sitting in
+    `pipeline_state = 'new'`. They rejoin the queue on the next scoring run.
+    """
+    cursor.execute("DROP VIEW IF EXISTS v_job_liveness")
+    cursor.execute(
+        """
+        CREATE VIEW v_job_liveness AS
+        SELECT j.id AS job_id,
+               j.last_seen_at,
+               c.last_success_at AS cell_last_success_at,
+               CASE
+                 WHEN j.last_seen_at IS NULL OR c.last_success_at IS NULL THEN 'unknown'
+                 -- The cell was scraped well after we last saw this posting. Absence is
+                 -- evidence only if that scrape's recency window reached back far enough
+                 -- to have returned the posting at all.
+                 WHEN julianday(c.last_success_at) - julianday(j.last_seen_at) > 0.5 THEN
+                      CASE
+                        WHEN j.date_posted IS NOT NULL
+                             AND (julianday(c.last_success_at)
+                                  - julianday(j.date_posted)) * 24
+                                 <= COALESCE(c.last_hours_old, 0)
+                             THEN 'likely_closed'
+                        ELSE 'unknown'
+                      END
+                 -- Nobody has looked at this cell in over a week, so we know nothing
+                 -- current about it either way.
+                 WHEN julianday('now') - julianday(c.last_success_at) > 7 THEN 'stale'
+                 ELSE 'live'
+               END AS liveness
+        FROM jobs j
+        LEFT JOIN scrape_cells c ON c.id = j.scrape_cell_id
+        """
+    )
+
+
 MIGRATIONS: list[tuple[int, str, Callable[[sqlite3.Cursor], None]]] = [
     (1, "baseline jobs table", _v1_baseline),
     (2, "market analytics: cells, observations, skills, stats", _v2_analytics),
@@ -886,6 +957,7 @@ MIGRATIONS: list[tuple[int, str, Callable[[sqlite3.Cursor], None]]] = [
     (9, "feed and dossier lookup indexes", _v9_feed_indexes),
     (10, "scrape cell quality EWMA fed from LLM verdicts", _v10_cell_quality_ewma),
     (11, "measured per-cell scrape cost: duration, requests, cell_cost view", _v11_cell_cost),
+    (12, "liveness requires the re-scrape's window to reach the posting", _v12_liveness_window),
 ]
 
 

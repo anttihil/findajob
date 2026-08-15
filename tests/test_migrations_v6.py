@@ -8,8 +8,8 @@ under a computed scale. `scale_version = 0` is what carries that distinction, an
 default that silently marked old rows as current would destroy the one thing making the
 comparison possible.
 
-The liveness view gets the same scrutiny for the opposite reason: it must not call a
-posting closed on the strength of nobody having looked.
+The liveness view moved out of this file when v12 replaced its rule; see
+tests/test_migrations_v12.py.
 """
 
 import os
@@ -17,7 +17,6 @@ import sqlite3
 import sys
 import tempfile
 import unittest
-from datetime import datetime, timedelta, timezone
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -28,12 +27,6 @@ from careerradar.core.migrations import (
     current_version,
     migrate,
 )
-
-
-def ago(**delta: float) -> str:
-    """A timestamp relative to now. The view measures staleness against `now`, so a fixed
-    date turns the same scrape from live into stale as the calendar moves on."""
-    return (datetime.now(timezone.utc) - timedelta(**delta)).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 class MigrationV6Tests(unittest.TestCase):
@@ -156,69 +149,6 @@ class MigrationV6Tests(unittest.TestCase):
         migrate(self.conn)
         row = self.conn.execute("SELECT last_seen_at FROM jobs WHERE id = 1").fetchone()
         self.assertEqual(row["last_seen_at"], "2026-08-05T22:50:00Z")
-
-    # -- liveness ----------------------------------------------------------------------
-
-    def liveness_of(self, job_id: int) -> str:
-        return self.conn.execute(
-            "SELECT liveness FROM v_job_liveness WHERE job_id = ?", (job_id,)
-        ).fetchone()["liveness"]
-
-    def add_cell(self, cell_id: int, last_success_at: str) -> None:
-        self.conn.execute(
-            "INSERT INTO scrape_cells (id, source, role_family, location_id, query, "
-            "tier, last_success_at, created_at) VALUES (?, 'indeed', 'sre', 'la', 'q', "
-            "'core', ?, '2026-07-01T00:00:00Z')",
-            (cell_id, last_success_at),
-        )
-
-    def place(self, job_id: int, cell_id: int | None, last_seen_at: str) -> None:
-        self.conn.execute(
-            "UPDATE jobs SET scrape_cell_id = ?, last_seen_at = ? WHERE id = ?",
-            (cell_id, last_seen_at, job_id),
-        )
-        self.conn.commit()
-
-    def test_a_posting_absent_from_a_later_scrape_is_likely_closed(self) -> None:
-        self.seed_verdict()
-        migrate(self.conn)
-        self.add_cell(1, "2026-08-05T00:00:00Z")
-        self.place(1, 1, "2026-07-30T00:00:00Z")
-        self.assertEqual(self.liveness_of(1), "likely_closed")
-
-    def test_a_posting_seen_in_the_latest_scrape_is_live(self) -> None:
-        self.seed_verdict()
-        migrate(self.conn)
-        # `last_seen_at` records the run start and `last_success_at` the cell's completion,
-        # so the two are minutes apart on a posting that WAS found. Without a grace window
-        # every posting in the corpus reads as closed.
-        self.add_cell(1, ago(minutes=1))
-        self.place(1, 1, ago(minutes=10))
-        self.assertEqual(self.liveness_of(1), "live")
-
-    def test_a_posting_nobody_has_looked_for_is_not_called_closed(self) -> None:
-        """Absence is only evidence if we looked. ~26 of 252 cells rotate per day."""
-        self.seed_verdict()
-        migrate(self.conn)
-        self.add_cell(1, "2026-07-30T00:00:00Z")
-        self.place(1, 1, "2026-07-30T00:00:00Z")
-        self.assertEqual(self.liveness_of(1), "stale")
-
-    def test_a_posting_with_no_cell_is_unknown(self) -> None:
-        self.seed_verdict()
-        migrate(self.conn)
-        self.place(1, None, "2026-07-30T00:00:00Z")
-        self.assertEqual(self.liveness_of(1), "unknown")
-
-    def test_every_job_appears_in_the_view_exactly_once(self) -> None:
-        self.seed_verdict(1)
-        self.seed_verdict(2)
-        migrate(self.conn)
-        counts = self.conn.execute(
-            "SELECT (SELECT COUNT(*) FROM jobs) AS jobs, "
-            "(SELECT COUNT(*) FROM v_job_liveness) AS view"
-        ).fetchone()
-        self.assertEqual(counts["jobs"], counts["view"])
 
 
 if __name__ == "__main__":

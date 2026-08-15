@@ -96,13 +96,25 @@ class Database:
     # against `scrape_cells`.
     #
     # The view itself stays in the schema for other readers; this is the same CASE, kept
-    # deliberately identical to `migrations._v6_ordinal_verdicts`. If one changes, so must
+    # deliberately identical to `migrations._v12_liveness_window`. If one changes, so must
     # the other.
+    #
+    # The nested CASE is the window check: `hours_old` filters the board's search on
+    # date_posted, so a posting older than the cell's window cannot come back whether it is
+    # open or closed, and its absence proves nothing. See _v12_liveness_window for the
+    # measurement that motivated it.
     _LIVENESS_CASE = """
         CASE
           WHEN jobs.last_seen_at IS NULL OR cell.last_success_at IS NULL THEN 'unknown'
-          WHEN julianday(cell.last_success_at) - julianday(jobs.last_seen_at) > 0.5
-               THEN 'likely_closed'
+          WHEN julianday(cell.last_success_at) - julianday(jobs.last_seen_at) > 0.5 THEN
+               CASE
+                 WHEN jobs.date_posted IS NOT NULL
+                      AND (julianday(cell.last_success_at)
+                           - julianday(jobs.date_posted)) * 24
+                          <= COALESCE(cell.last_hours_old, 0)
+                      THEN 'likely_closed'
+                 ELSE 'unknown'
+               END
           WHEN julianday('now') - julianday(cell.last_success_at) > 7 THEN 'stale'
           ELSE 'live'
         END"""
