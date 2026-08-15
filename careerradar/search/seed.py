@@ -31,13 +31,16 @@ def seed_cells(prune: bool = False, queries_per_family: dict[str, int] | int | N
 
     db = Database()
     try:
-        inserted = db.seed_cells(specs)
+        inserted, updated = db.seed_cells(specs)
         disabled = db.prune_cells(specs) if prune else 0
         total = len(db.get_cells())
 
         print(f"sources:        {', '.join(enabled_sources)}")
         print(f"specs planned:  {len(specs)}")
         print(f"cells inserted: {inserted}")
+        # Re-tiering an existing family shows up here, not above. Reported because it is
+        # the whole effect of a tier edit on a matrix that has already been seeded.
+        print(f"cells re-synced: {updated}   (tier or enabled brought back in line)")
         if prune:
             print(f"cells disabled: {disabled}")
         print(f"cells enabled:  {total}")

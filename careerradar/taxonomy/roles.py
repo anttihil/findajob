@@ -24,12 +24,19 @@ ROLES_PATH = os.path.join(DATA_DIR, "roles.yaml")
 
 SENIORITY_UNSPECIFIED = "unspecified"
 
-# How many of a family's query_terms get seeded as scrape cells, per tier. Core grows to 2
-# so a family isn't betting its entire supply on one phrasing matching the board's own
-# relevance ranking; adjacent/breadth stay at 1 -- their footprint is already smaller via
-# tier_locations, and widening them too would blow the cell-count budget cell_specs()
-# reasons about. See cell_specs()'s docstring for the budget history.
-DEFAULT_QUERIES_PER_FAMILY: dict[str, int] = {"core": 2, "adjacent": 1, "breadth": 1}
+# How many of a family's query_terms get seeded as scrape cells, per tier.
+#
+# Raised from 2/1/1 to 4/2/2 on 2026-08-15. The old figures were sized against a cell-count
+# budget that turned out to be the wrong constraint: a full 38-cell run takes 10-15 minutes
+# of wall clock (measured over sync_runs, 23-32 s/cell), so the matrix is limited by how
+# often runs happen, not by how many cells they contain. 2/1/1 left 23 of the 57 query
+# terms declared in roles.yaml seeded as nothing at all -- "LLM Engineer", "Solutions
+# Engineer" and "Founding Engineer" among them, all in families with above-median hit
+# rates. A term that is never sent to a board cannot surface anything, however well the
+# family's regexes would have classified it.
+#
+# 4/2/2 costs 410 cells against 290, and puts 53 of the 57 declared terms into rotation.
+DEFAULT_QUERIES_PER_FAMILY: dict[str, int] = {"core": 4, "adjacent": 2, "breadth": 2}
 
 
 class RoleFamily:

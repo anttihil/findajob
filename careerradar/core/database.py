@@ -603,22 +603,38 @@ class Database:
     # Scrape cells
     # =====================================================================================
 
-    def seed_cells(self, specs: list[dict[str, Any]]) -> int:
+    def seed_cells(self, specs: list[dict[str, Any]]) -> tuple[int, int]:
         """Insert any missing cells, preserving the state of existing ones.
 
         Re-runnable after every roles.yaml edit: an existing cell keeps its scrape history
         so editing the taxonomy does not reset coverage.
+
+        `tier` and `enabled` are the two exceptions, and both are declarative rather than
+        accumulated -- they say what the taxonomy currently wants, not what the cell has
+        done. DO NOTHING carried them from whenever the row was first inserted, so a tier
+        change in roles.yaml applied only to families that had never been seeded: demoting
+        seven families on 2026-08-15 would have moved 0 of the 150 cells that had history
+        and all of the 228 that had none, which is precisely backwards. `prune_cells` is
+        the only writer of enabled = 0, so re-enabling here just says a family that left
+        the taxonomy and came back is wanted again.
+
+        Returns (inserted, updated). The two are counted separately because `rowcount`
+        cannot tell them apart once the conflict arm writes, and "12 cells inserted" when
+        nothing new was added is the kind of report that hides a no-op re-seed.
         """
         cursor = self.conn.cursor()
         now = datetime.now(timezone.utc).isoformat()
-        inserted = 0
+        before = cursor.execute("SELECT COUNT(*) FROM scrape_cells").fetchone()[0]
+        touched = 0
         for spec in specs:
             cursor.execute(
                 """
                 INSERT INTO scrape_cells
                     (source, role_family, location_id, query, tier, created_at)
                 VALUES (?, ?, ?, ?, ?, ?)
-                ON CONFLICT (source, role_family, location_id, query) DO NOTHING
+                ON CONFLICT (source, role_family, location_id, query) DO UPDATE
+                    SET tier = excluded.tier, enabled = 1
+                  WHERE tier != excluded.tier OR enabled != 1
                 """,
                 (
                     spec["source"],
@@ -629,9 +645,11 @@ class Database:
                     now,
                 ),
             )
-            inserted += cursor.rowcount
+            touched += cursor.rowcount
+        after = cursor.execute("SELECT COUNT(*) FROM scrape_cells").fetchone()[0]
         self.conn.commit()
-        return inserted
+        inserted = after - before
+        return inserted, touched - inserted
 
     def prune_cells(self, specs: list[dict[str, Any]]) -> int:
         """Disable cells no longer present in the taxonomy.

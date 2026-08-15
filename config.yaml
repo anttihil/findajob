@@ -42,10 +42,25 @@ scraper:
 
   # Lower bound on hours_old per tier. The effective value is derived per cell from the
   # actual revisit gap (>= 1.5x), so a missed run self-heals rather than leaving a hole.
+  #
+  # Lowered 2026-08-15 (was 72/168/336) to convert lookback DEPTH into FRESHNESS. A cell
+  # asks for results_wanted postings out of everything in its hours_old window, and boards
+  # rank that window by their own relevance, not by date. So a 72h window means a posting
+  # published an hour ago competes with three days of backlog for the same 50-75 slots --
+  # and it loses often: 45% of core observations and 86% of breadth ones came back
+  # saturated, meaning the cell was truncated and whatever fell below the cut was never
+  # seen. Median lag from date_posted to date_found is 2.0 days, and only 3.3% of the
+  # corpus was found within a day of being posted.
+  #
+  # Narrowing the window makes each scrape a sweep of what is actually new. It is safe at
+  # any run frequency because adaptive_hours_old() takes max(floor, 1.5 * actual gap): the
+  # floor binds only while runs are ON TIME, and a sparse or missed run widens the window
+  # back out on its own. So this does nothing until run frequency rises, then it starts
+  # paying immediately -- there is no ordering dependency between the two changes.
   hours_old_floor:
-    core: 72
-    adjacent: 168
-    breadth: 336
+    core: 24
+    adjacent: 72
+    breadth: 168
   max_hours_old: 336
   backfill_hours_old: 336
 
@@ -88,11 +103,23 @@ scraper:
     # Set SCRAPER_PROXIES and the scraper.proxies.with_proxies override flips this to a
     # full description census. See careerradar/search/proxies.py.
     linkedin:
-      searches_per_run: 10
-      request_units: 100
+      # Raised 2026-08-15 alongside with_proxies below. max_pages_per_run is what actually
+      # binds: at page_size=10 and results_wanted_default=60 a cell costs 6 pages, so 20
+      # pages bought 3 cells a run while searches_per_run=10 sat unreachable. 60 pages is
+      # ~10 cells, which finally makes searches_per_run the real limit.
+      #
+      # fetch_descriptions stays false here. The probe cleared plain search pagination on
+      # one IP, not sustained per-posting description fetching, and that is the untested
+      # traffic shape -- so the description census stays behind the proxy pool.
+      searches_per_run: 15
+      request_units: 150
       results_wanted_default: 60
       max_results_wanted: 100
-      max_pages_per_run: 20
+      max_pages_per_run: 60
+      # NOTE: read by nothing. Description fetching is all-or-nothing per cell via
+      # fetch_descriptions/desc_selection (scheduler._make_task), so this caps nothing.
+      # Left in place rather than deleted because a per-run description cap is the right
+      # control to build if the single-IP description risk is ever measured.
       description_fetches_per_run: 40
       min_seconds_between_searches: 6.0
       jitter_seconds: [2.0, 6.0]
@@ -117,11 +144,28 @@ scraper:
     # Budget overrides applied ONLY when proxies are actually available.
     with_proxies:
       linkedin:
-        searches_per_run: 12
+        # max_pages_per_run was the binding constraint, not searches_per_run. At
+        # results_wanted_default=50 and page_size=10 a cell costs 5 pages, so 36 pages
+        # bought 7 cells a run and searches_per_run=12 was never reached. With 189
+        # LinkedIn cells that is a ~13-day cycle at 2 runs/day, and the observed corpus
+        # was far worse than that: 168 of 189 LinkedIn cells had never been scraped once.
+        #
+        # Raised on 2026-08-15 because LinkedIn earns the budget. Hit rate -- postings
+        # reaching fit_score >= 60 -- measured over 5,831 verdicts:
+        #
+        #   linkedin   838 scored    99 hits   11.8%
+        #   indeed   4,872 scored   212 hits    4.4%
+        #
+        # LinkedIn is 2.7x Indeed per posting and was getting a third of the page budget.
+        # 90 pages is ~18 cells a run, a ~5-day cycle, and it stays far under the probe's
+        # 99 consecutive pages on a SINGLE exit IP -- this pool has 100 rotating endpoints,
+        # so per-IP load falls rather than rises. The circuit breaker still trips the
+        # source outright on the first 429, so the downside is a backoff, not a ban.
+        searches_per_run: 18
         request_units: 180
         results_wanted_default: 50
         max_results_wanted: 75
-        max_pages_per_run: 36
+        max_pages_per_run: 90
         min_seconds_between_searches: 2.0
         jitter_seconds: [0.5, 2.0]
         # The payoff of a proxy pool. One extra request per posting is unaffordable on a

@@ -12,7 +12,11 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from careerradar.taxonomy.roles import SENIORITY_UNSPECIFIED, load_roles
+from careerradar.taxonomy.roles import (
+    DEFAULT_QUERIES_PER_FAMILY,
+    SENIORITY_UNSPECIFIED,
+    load_roles,
+)
 
 DB_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "jobs.db")
 
@@ -430,16 +434,28 @@ class CellPlanningTests(unittest.TestCase):
         self.assertGreater(len(two), len(one))
 
     def test_default_queries_per_family_is_tier_aware(self) -> None:
-        """Core gets 2 seeded phrasings by default; adjacent/breadth stay at 1."""
+        """A core family seeds strictly more phrasings than a breadth one.
+
+        Asserted as a property against DEFAULT_QUERIES_PER_FAMILY rather than against
+        literal counts. The literals were 2/1/1 and are now 4/2/2 -- the numbers are a
+        budget decision that gets retuned as throughput changes, while tier-awareness
+        itself is the invariant, and a test that has to be edited alongside every retune
+        stops being evidence that the retune was intended.
+        """
         specs = self.roles.cell_specs(sources=("indeed",))
         core_queries = {
             s["query"] for s in specs if s["role_family"] == "ai_engineer" and s["tier"] == "core"
         }
-        self.assertEqual(core_queries, {"AI Engineer", "GenAI Engineer"})
+        expected_core = DEFAULT_QUERIES_PER_FAMILY["core"]
+        self.assertEqual(
+            core_queries, set(self.roles.families["ai_engineer"].query_terms[:expected_core])
+        )
 
         breadth_family = next(f for f in self.roles.families.values() if f.tier == "breadth")
         breadth_queries = {s["query"] for s in specs if s["role_family"] == breadth_family.key}
-        self.assertEqual(breadth_queries, {breadth_family.query_terms[0]})
+        expected_breadth = DEFAULT_QUERIES_PER_FAMILY["breadth"]
+        self.assertEqual(breadth_queries, set(breadth_family.query_terms[:expected_breadth]))
+        self.assertGreater(expected_core, expected_breadth)
 
     def test_alternate_queries_accounts_for_seeded_count(self) -> None:
         alternates = self.roles.alternate_queries("ai_engineer")
