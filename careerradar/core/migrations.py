@@ -13,7 +13,7 @@ from careerradar.core.logger import get_logger
 
 logger = get_logger()
 
-SCHEMA_VERSION = 10
+SCHEMA_VERSION = 11
 
 
 def _v1_baseline(cursor: sqlite3.Cursor) -> None:
@@ -816,6 +816,64 @@ def _v10_cell_quality_ewma(cursor: sqlite3.Cursor) -> None:
         )
 
 
+def _v11_cell_cost(cursor: sqlite3.Cursor) -> None:
+    """Record what a cell visit actually cost: wall time and HTTP requests.
+
+    Both were previously only estimable after the fact -- duration from the gap between
+    consecutive observed_at values (which includes the pacing sleep and the scoring loop),
+    and requests from `returned / page_size + descriptions_full`, which is the planner's
+    cost model rather than a measurement. Estimating the cost from the model and then
+    tuning the model against those numbers is circular: `est_request_units` decides the
+    per-run budget (scheduler.py), so it has to be checkable against something it did not
+    produce itself.
+
+    Both columns stay NULL for rows written before this migration, because 0 requests in
+    0 ms is a claim, and an unmeasured cell has not made one.
+
+    The `cell_cost` view exists so ad-hoc analysis is one SELECT rather than a rediscovery
+    of which columns are counts and which are estimates.
+    """
+    existing = {row[1] for row in cursor.execute("PRAGMA table_info(cell_observations)")}
+    if "duration_ms" not in existing:
+        cursor.execute("ALTER TABLE cell_observations ADD COLUMN duration_ms INTEGER")
+    if "requests_made" not in existing:
+        cursor.execute("ALTER TABLE cell_observations ADD COLUMN requests_made INTEGER")
+
+    cursor.execute("DROP VIEW IF EXISTS cell_cost")
+    cursor.execute(
+        """
+        CREATE VIEW cell_cost AS
+        SELECT
+            o.id,
+            o.sync_run_id,
+            o.cell_id,
+            o.source,
+            o.role_family,
+            o.location_id,
+            o.query,
+            o.observed_at,
+            o.status,
+            o.desc_selection,
+            o.requested,
+            o.returned,
+            o.returned_on_topic,
+            o.new_unique,
+            o.descriptions_full,
+            o.duration_ms,
+            o.requests_made,
+            o.duration_ms / 1000.0                              AS seconds,
+            1.0 * o.duration_ms / NULLIF(o.requests_made, 0)    AS ms_per_request,
+            o.duration_ms / 1000.0 / NULLIF(o.returned, 0)      AS seconds_per_posting,
+            1.0 * o.requests_made / NULLIF(o.returned, 0)       AS requests_per_posting
+        -- Measurements and ratios of measurements only. The planner's estimate of the same
+        -- cost lives in scheduler.estimate_units and reads page_size from config.yaml;
+        -- restating it here in SQL would let the two drift, and the whole point of these
+        -- columns is to be checkable against the model rather than derived from it.
+        FROM cell_observations o
+        """
+    )
+
+
 MIGRATIONS: list[tuple[int, str, Callable[[sqlite3.Cursor], None]]] = [
     (1, "baseline jobs table", _v1_baseline),
     (2, "market analytics: cells, observations, skills, stats", _v2_analytics),
@@ -827,6 +885,7 @@ MIGRATIONS: list[tuple[int, str, Callable[[sqlite3.Cursor], None]]] = [
     (8, "per-posting scoring failure counter", _v8_scoring_failure_counter),
     (9, "feed and dossier lookup indexes", _v9_feed_indexes),
     (10, "scrape cell quality EWMA fed from LLM verdicts", _v10_cell_quality_ewma),
+    (11, "measured per-cell scrape cost: duration, requests, cell_cost view", _v11_cell_cost),
 ]
 
 

@@ -10,6 +10,7 @@ import logging
 import os
 import sys
 import unittest
+import unittest.mock
 from typing import Any
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -22,9 +23,12 @@ from careerradar.search.guard import (
     classify_error,
 )
 from careerradar.search.sources.jobspy_source import (
+    EXPECTED_COLUMNS,
     JOBSPY_LOGGERS,
     ScraperReportedError,
     capture_scraper_errors,
+    count_requests,
+    guest_description_endpoint,
 )
 
 # Verbatim from jobspy/linkedin/__init__.py, so a library reword shows up as a test failure
@@ -157,10 +161,6 @@ class ClassificationTests(unittest.TestCase):
         self.assertEqual(classify_error(RuntimeError("429 too many requests")), ERROR_RATE_LIMIT)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class FetchWiringTests(unittest.TestCase):
     """The seam itself: a board that logs instead of raising must still raise here.
 
@@ -242,3 +242,64 @@ class FetchWiringTests(unittest.TestCase):
         with self.assertRaises(ScraperReportedError):
             source.fetch_for_task(self._task())
         self.assertEqual(len(os.listdir(archive)), 1)
+
+
+class GuestDescriptionEndpointTests(unittest.TestCase):
+    """The URL rewrite that sends description fetches to the guest fragment.
+
+    Patched below `RequestsRotating.request`, so no request leaves this machine: what is
+    pinned here is which URL the library would have asked for.
+    """
+
+    SEARCH = "https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search?keywords=x"
+    JOB_PAGE = "https://www.linkedin.com/jobs/view/4438551913"
+    FRAGMENT = "https://www.linkedin.com/jobs-guest/jobs/api/jobPosting/4438551913"
+
+    def _urls_for(self, requested: list[str], enabled: bool = True) -> list[str]:
+        import requests
+        from jobspy.util import create_session
+
+        seen: list[str] = []
+
+        def record(self: Any, method: str, url: str, **kwargs: Any) -> Any:
+            seen.append(url)
+            return unittest.mock.Mock(status_code=200, url=url, text="", content=b"")
+
+        with unittest.mock.patch.object(requests.Session, "request", record):
+            with count_requests() as calls, guest_description_endpoint(enabled):
+                session = create_session(is_tls=False)
+                for url in requested:
+                    session.get(url)
+        self.counted = calls.count
+        return seen
+
+    def test_a_description_fetch_is_rewritten_to_the_fragment(self) -> None:
+        self.assertEqual(self._urls_for([self.JOB_PAGE]), [self.FRAGMENT])
+
+    def test_the_search_endpoint_is_left_alone(self) -> None:
+        """Only the per-posting fetch moves. Rewriting the search would change what is scraped."""
+        self.assertEqual(self._urls_for([self.SEARCH]), [self.SEARCH])
+
+    def test_nothing_is_rewritten_for_other_sources(self) -> None:
+        self.assertEqual(self._urls_for([self.JOB_PAGE], enabled=False), [self.JOB_PAGE])
+
+    def test_the_rewrite_composes_with_request_counting(self) -> None:
+        """Both patch the same method; a request must still be counted exactly once."""
+        self._urls_for([self.SEARCH, self.JOB_PAGE])
+        self.assertEqual(self.counted, 2)
+
+    def test_the_original_method_is_restored(self) -> None:
+        from jobspy.util import RequestsRotating
+
+        before = RequestsRotating.request
+        with guest_description_endpoint(True):
+            self.assertIsNot(RequestsRotating.request, before)
+        self.assertIs(RequestsRotating.request, before)
+
+    def test_job_level_is_not_expected_from_the_library(self) -> None:
+        """Dead data, and the fragment reports it as 'Not Applicable' regardless."""
+        self.assertNotIn("job_level", EXPECTED_COLUMNS)
+
+
+if __name__ == "__main__":
+    unittest.main()

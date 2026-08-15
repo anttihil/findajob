@@ -22,11 +22,26 @@ scraper:
     indeed: true
     linkedin: true
 
+  # Requests a cell spends, as two numbers the scheduler multiplies out
+  # (search/scheduler.py: estimate_pages, estimate_units). Both are measured, not read off
+  # the library: `careerradar search cost` compares them against what a run actually spent.
   page_size:
-    indeed: 15        # results per GraphQL page
+    indeed: 100       # results per GraphQL page. Was 15 until 2026-08-15, which charged an
+                       # Indeed cell 5 pages for what measurement showed costs 1-2 requests
+                       # (45 results arrived in one page; JobSpy asks for 100 per page)
     linkedin: 10      # results per guest-API page -- measured 2026-08-14 (see
                        # experiments/linkedin_page_wall/); JobSpy's own jobs_per_page=25
                        # constant does not match what the API actually returns per request
+
+  # Extra requests per posting to obtain its description. This is the number that made the
+  # LinkedIn budget wrong by 11x while it went uncounted: a 50-posting census cell spends
+  # 6 search pages and 50 description fetches, not 5 requests.
+  requests_per_description:
+    indeed: 0         # descriptions arrive inside the search page, so a census is free
+    linkedin: 1       # one request per posting (jobspy/linkedin/__init__.py
+                       # _get_job_details); rewritten to the cheaper guest fragment in
+                       # search/sources/jobspy_source.py, which changes the latency, not
+                       # the count
 
   # How long raw scrape payloads are kept in raw_payloads/ so a normalizer bug can be
   # replayed without re-scraping. Pruned at the start of every non-dry run. At ~0.6MB per
@@ -79,8 +94,12 @@ scraper:
     # Indeed is the volume workhorse: descriptions arrive in-response, so a census of
     # descriptions is free and its cells carry the skill analytics.
     indeed:
+      # Measured 2026-08-15: a cell costs 1-2 requests, not the 5 the old page_size=15
+      # implied. searches_per_run is therefore the only cap that binds here, which is the
+      # intent -- request_units is set to cover a backfill run (results_wanted=200 -> 3
+      # requests a cell) rather than to constrain a normal one.
       searches_per_run: 20
-      request_units: 200
+      request_units: 60
       results_wanted_default: 75
       max_results_wanted: 200
       min_seconds_between_searches: 2.0
@@ -103,16 +122,21 @@ scraper:
     # Set SCRAPER_PROXIES and the scraper.proxies.with_proxies override flips this to a
     # full description census. See careerradar/search/proxies.py.
     linkedin:
-      # Raised 2026-08-15 alongside with_proxies below. max_pages_per_run is what actually
-      # binds: at page_size=10 and results_wanted_default=60 a cell costs 6 pages, so 20
-      # pages bought 3 cells a run while searches_per_run=10 sat unreachable. 60 pages is
-      # ~10 cells, which finally makes searches_per_run the real limit.
+      # max_pages_per_run is what binds. At page_size=10 and results_wanted_default=60 a
+      # cell costs 7 requests -- 6 pages plus the one that finds the end (estimate_pages)
+      # -- so 60 pages is ~8 cells a run, not the ~10 this comment claimed before the cost
+      # model was corrected on 2026-08-15. The cap itself is deliberately NOT raised to
+      # make searches_per_run reachable: 60 pages is a traffic limit chosen for a single
+      # unproxied IP, and only the arithmetic describing it was wrong.
+      #
+      # request_units equals max_pages_per_run here because descriptions are off, so every
+      # request this tier makes is a search page. Two caps, one number, on purpose.
       #
       # fetch_descriptions stays false here. The probe cleared plain search pagination on
       # one IP, not sustained per-posting description fetching, and that is the untested
       # traffic shape -- so the description census stays behind the proxy pool.
       searches_per_run: 15
-      request_units: 150
+      request_units: 60
       results_wanted_default: 60
       max_results_wanted: 100
       max_pages_per_run: 60
@@ -161,11 +185,19 @@ scraper:
         # 99 consecutive pages on a SINGLE exit IP -- this pool has 100 rotating endpoints,
         # so per-IP load falls rather than rises. The circuit breaker still trips the
         # source outright on the first 429, so the downside is a backoff, not a ban.
+        # Corrected 2026-08-15 from request_units=180/max_pages_per_run=90, which counted
+        # search pages only. Measured, a census cell spends 56 requests: 6 search pages
+        # plus one per posting. So 180 units never bound anything it was meant to bind,
+        # and the run's real cost was ~1000 requests while the config said 90.
+        #
+        # These numbers preserve the 18 cells a run that was already happening -- the
+        # traffic does not change, the accounting does. searches_per_run stays the binding
+        # cap: 18 cells x 6 pages = 108, 18 x 56 = 1008.
         searches_per_run: 18
-        request_units: 180
+        request_units: 1010
         results_wanted_default: 50
         max_results_wanted: 75
-        max_pages_per_run: 90
+        max_pages_per_run: 108
         min_seconds_between_searches: 2.0
         jitter_seconds: [0.5, 2.0]
         # The payoff of a proxy pool. One extra request per posting is unaffordable on a

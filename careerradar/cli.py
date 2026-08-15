@@ -57,6 +57,12 @@ def _cmd_search(args: argparse.Namespace) -> Any:
     )
 
 
+def _cmd_search_cost(args: argparse.Namespace) -> Any:
+    from careerradar.search.cost import run_cost
+
+    return run_cost(run_id=args.run, limit=args.limit, as_json=args.json)
+
+
 def _cmd_score(args: argparse.Namespace) -> Any:
     from careerradar.scoring.worker import run_scoring
 
@@ -158,6 +164,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     sr.add_argument("--force", action="store_true", help="ignore the sync lock")
     sr.set_defaults(func=_cmd_search)
+    scost = ssub.add_parser("cost", help="measured time and requests per cell for one run")
+    scost.add_argument("--run", type=int, default=None, help="sync_runs.id (default: latest)")
+    scost.add_argument("--limit", type=int, default=10, help="how many slow cells to list")
+    scost.add_argument("--json", action="store_true", help="machine-readable")
+    scost.set_defaults(func=_cmd_search_cost)
+
     sc = ssub.add_parser("seed-cells", help="rebuild the scrape cell matrix from roles.yaml")
     sc.add_argument(
         "--prune", action="store_true", help="disable cells no longer implied by roles.yaml"

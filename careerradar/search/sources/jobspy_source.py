@@ -10,7 +10,10 @@ its README (which documents 11 columns; the actual output has 34):
   Indeed returns full descriptions in-response, so a description census costs nothing extra
   and Indeed cells carry the skill analytics.
 
-  LinkedIn charges one extra request per description. On a single IP that is unaffordable,
+  LinkedIn charges one extra request per description, and that request is rewritten to the
+  guest fragment endpoint (see `guest_description_endpoint`), which returns the same
+  description ~2.6x faster than the full job page the library asks for. On a single IP the
+  per-description request is still unaffordable,
   so those cells run desc_selection='none' -- titles only, complete for role supply,
   contributing nothing to skill demand. With a proxy pool configured the with_proxies
   budget flips them to a full census, and LinkedIn feeds the skill analytics too. The
@@ -22,6 +25,8 @@ its README (which documents 11 columns; the actual output has 34):
 import json
 import logging
 import os
+import re
+import time
 import warnings
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -106,6 +111,109 @@ def capture_scraper_errors(source: str | None) -> Iterator[_ErrorRecorder]:
         board_logger.removeHandler(recorder)
 
 
+class _RequestCounter:
+    """Counts the HTTP requests one scrape issues."""
+
+    def __init__(self) -> None:
+        self.count = 0
+
+
+@contextmanager
+def count_requests() -> Iterator[_RequestCounter]:
+    """Count every request JobSpy sends for the duration of one scrape.
+
+    Both boards build their session through jobspy.util.create_session with is_tls=False,
+    and every .get/.post on it funnels through RequestsRotating.request -- so one patch
+    counts search pages and per-description fetches alike. TLSRotating is patched too,
+    because create_session picks it on is_tls=True and an unpatched class would report a
+    confident zero rather than an absence.
+
+    What this counts is requests ISSUED by the library. urllib3 retries below this seam
+    (LinkedIn's session sets has_retry with a 429 in the status_forcelist), so the number
+    is a lower bound on packets that reached the board.
+
+    The patch is global and the counter is not thread-safe, which is sound only because
+    syncs are single-threaded: one cell is scraped at a time, and scrape_jobs runs one
+    site per call. Two concurrent scrapes would share the count.
+    """
+    counter = _RequestCounter()
+    try:
+        from jobspy.util import RequestsRotating, TLSRotating
+    except ImportError:
+        # The whole test suite runs without jobspy installed; counting is not what fails.
+        yield counter
+        return
+
+    patched = [(RequestsRotating, "request"), (TLSRotating, "execute_request")]
+    originals = [(cls, name, getattr(cls, name)) for cls, name in patched]
+
+    def wrap(original: Any) -> Any:
+        def counted(*args: Any, **kwargs: Any) -> Any:
+            counter.count += 1
+            return original(*args, **kwargs)
+
+        return counted
+
+    for cls, name, original in originals:
+        setattr(cls, name, wrap(original))
+    try:
+        yield counter
+    finally:
+        for cls, name, original in originals:
+            setattr(cls, name, original)
+
+
+# JobSpy fetches each LinkedIn description from the full public job page. This is the same
+# posting as a guest fragment: measured over 16 paired postings on 2026-08-15, it returns a
+# byte-identical description in 49KB median instead of 302KB, at 240ms median instead of
+# 630ms -- faster on 16 of 16, ~19s off a 50-description cell. See
+# scripts/probe_linkedin_description_endpoint.py and its results in experiments/.
+JOB_PAGE_URL = re.compile(r"^https?://[^/]*linkedin\.com/jobs/view/(\d+)/?$")
+GUEST_FRAGMENT_URL = "https://www.linkedin.com/jobs-guest/jobs/api/jobPosting/{job_id}"
+
+
+@contextmanager
+def guest_description_endpoint(enabled: bool) -> Iterator[None]:
+    """Route JobSpy's per-description fetches to the guest fragment.
+
+    Rewriting the URL under the library rather than reimplementing `_get_job_details`: the
+    fragment carries the same markup, so JobSpy's own parsing of description, industry,
+    job function, employment type, apply URL and logo all still apply -- verified field by
+    field in the same probe. The one field that differs is `job_level`, which the fragment
+    reports as "Not Applicable" on most postings; nothing in this project reads it.
+
+    The request count does not change. A description still costs one request; it is a
+    cheaper one.
+
+    If LinkedIn ever retires the fragment, `_get_job_details` swallows the failure and
+    returns {} -- descriptions silently become None and the skill-demand denominators
+    deflate. `_scrape_one` watches for that: a census cell that returns postings with no
+    full descriptions logs a warning rather than storing the deflation quietly.
+    """
+    if not enabled:
+        yield
+        return
+    try:
+        from jobspy.util import RequestsRotating
+    except ImportError:
+        yield
+        return
+
+    original = RequestsRotating.request
+
+    def rewritten(self: Any, method: str, url: str, **kwargs: Any) -> Any:
+        match = JOB_PAGE_URL.match(url)
+        if match:
+            url = GUEST_FRAGMENT_URL.format(job_id=match.group(1))
+        return original(self, method, url, **kwargs)
+
+    RequestsRotating.request = rewritten
+    try:
+        yield
+    finally:
+        RequestsRotating.request = original
+
+
 # Columns JobSpy actually returns, verified live on 2026-07-29. Recorded here so a future
 # library upgrade that drops one is visible rather than silently producing empty fields.
 EXPECTED_COLUMNS = {
@@ -124,7 +232,8 @@ EXPECTED_COLUMNS = {
     "max_amount",
     "currency",
     "is_remote",
-    "job_level",
+    # job_level is deliberately absent: nothing reads it, and the guest description
+    # endpoint reports it as "Not Applicable" anyway.
     "job_function",
     "listing_type",
     "emails",
@@ -144,6 +253,7 @@ class JobSpySource(BaseJobSource):
     """Fetches postings for one scrape task."""
 
     def __init__(self, archive_dir: str | None = None, description_format: str = "markdown"):
+        super().__init__()
         self.description_format = description_format
         self.archive_dir = archive_dir
         self._scrape: Any = None
@@ -177,11 +287,26 @@ class JobSpySource(BaseJobSource):
             kwargs.get("linkedin_fetch_description", True),
         )
 
+        self.last_fetch = {"duration_ms": 0, "requests_made": 0}
+        started = time.monotonic()
         with warnings.catch_warnings():
             # JobSpy emits pandas FutureWarnings on concat of empty frames.
             warnings.simplefilter("ignore")
-            with capture_scraper_errors(task.get("source")) as reported:
-                frame = scrape(**kwargs)
+            with (
+                capture_scraper_errors(task.get("source")) as reported,
+                count_requests() as calls,
+                guest_description_endpoint(task.get("source") == "linkedin"),
+            ):
+                try:
+                    frame = scrape(**kwargs)
+                finally:
+                    # In `finally`, because a failed cell's cost is the interesting one:
+                    # a rate limit costs the requests that earned it, and the caller
+                    # records the failure with the same numbers as a success.
+                    self.last_fetch = {
+                        "duration_ms": round((time.monotonic() - started) * 1000),
+                        "requests_made": calls.count,
+                    }
 
         rows = frame_to_rows(frame)
         # Archive before raising: a truncated payload is exactly the one worth replaying.

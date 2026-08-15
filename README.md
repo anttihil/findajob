@@ -111,6 +111,7 @@ as a gap. The first real build produced exactly this for 4 of 28 skills.
 uv run careerradar search run --dry-run --limit 3     # verify without writing
 uv run careerradar search run --backfill --source indeed
 uv run careerradar search run                          # steady state
+uv run careerradar search cost                         # what the last run cost, per cell
 
 # Score. Cheap, idempotent, safe to run often.
 uv run careerradar score run --dry-run                 # cost estimate, writes nothing
@@ -123,6 +124,44 @@ uv run careerradar research run --company "MongoDB"
 
 uv run careerradar web --port 8010
 ```
+
+### What scraping costs
+
+Every cell visit records its wall time (`cell_observations.duration_ms`) and the HTTP
+requests it issued (`.requests_made`), measured around the JobSpy call. `careerradar search
+cost` reports them per source and lists the slowest cells; the `cell_cost` view exposes the
+same rows with the ratios (`seconds`, `ms_per_request`, `requests_per_posting`) already
+derived, for ad-hoc SQL:
+
+```sql
+SELECT source, AVG(seconds), AVG(requests_per_posting) FROM cell_cost GROUP BY source;
+```
+
+The number to watch is measured requests against what `scheduler.estimate_units` planned.
+`careerradar search cost` prints both and warns when a source outspends its estimate. Rows
+scraped before schema v11 are NULL and are reported as unmeasured.
+
+The first measurements (2026-08-15, 11 cells) showed the estimate was wrong in both
+directions, and the cost model was corrected against them:
+
+| | before | measured | after |
+|---|---|---|---|
+| Indeed cell, 75 wanted | 5 requests | 1-2 | 2 (`page_size: 100`, +1 for the request that finds the end) |
+| LinkedIn census cell, 50 wanted | 5 requests | 56 | 56 (6 pages + `requests_per_description: 1` x 50) |
+
+`request_units` is what decides how many cells a run visits, so undercounting LinkedIn by
+11x meant its budget bought a tenth of the cells it claimed. The proxied LinkedIn budget is
+now `request_units: 1010` / `max_pages_per_run: 108` against `searches_per_run: 18` — the
+same 18 cells a run that were already happening, with the arithmetic that describes them
+correctly.
+
+**LinkedIn descriptions come from the guest fragment, not the job page.** JobSpy fetches
+each description from `/jobs/view/<id>` (~302KB median); `/jobs-guest/jobs/api/jobPosting/<id>`
+returns a byte-identical description in ~49KB, and was faster on 16 of 16 paired postings
+(240ms vs 630ms median, `scripts/probe_linkedin_description_endpoint.py`). `jobspy_source.py`
+rewrites the URL under the library, which keeps JobSpy's own parsing of industry, job
+function, employment type, apply URL and logo. Only `job_level` differs, and nothing reads
+it. Measured on a live 50-posting cell: 64.7s before, 37.4s after, same 56 requests.
 
 ### What scoring costs
 

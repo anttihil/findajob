@@ -12,6 +12,11 @@ where this comment used to claim. Rotation is kept for now as a request-budget c
 rather than a proven rate-limit avoidance. Everything here is a pure function over
 CellState, so the rotation policy is unit-testable without a network.
 
+The budget that rotation spends is `estimate_units`, and until 2026-08-15 it counted search
+pages only -- so a LinkedIn description census was charged 5 requests and spent 56. A pure
+function is testable, not correct: what makes this one checkable is `cell_observations`
+recording what each cell really spent, and `careerradar search cost` comparing the two.
+
 Two properties the tests pin down, because both fail silently in production:
 
   Eventual coverage -- `urgency` grows without bound (capped at 3) and the dead-cell penalty
@@ -288,17 +293,44 @@ def results_wanted_for(cell: CellState, config: dict[str, Any], source: str) -> 
     return int(min(maximum, max(25, wanted)))
 
 
-def estimate_units(source: str, results_wanted: int, config: dict[str, Any]) -> float:
-    """Cost model that makes the two sources commensurable.
+def estimate_pages(source: str, results_wanted: int, config: dict[str, Any]) -> int:
+    """Search-page requests one cell will spend.
 
-    Indeed returns ~15 results per GraphQL page with descriptions included. LinkedIn
-    returns 10 per page (measured 2026-08-14; the library's own jobs_per_page=25 constant
-    does not match observed behavior) and charges one extra request per description,
-    which is why its per-eligible-posting cost is roughly 15x Indeed's.
+    The +1 is not padding. Both boards spend a final request discovering that there is
+    nothing left to page through, and only a cell that saturates avoids it: over 11
+    measured cells on 2026-08-15, every Indeed cell that returned fewer results than it
+    asked for spent 2 requests for one page of results, the two that saturated spent 1,
+    and LinkedIn spent 6-7 pages where results_wanted=50 at 10 per page implies 5.
+    Saturation is not knowable when the budget is drawn up, so the estimate takes the
+    higher of the two.
     """
-    page_size = (config.get("page_size") or {}).get(source, 25)
-    pages = math.ceil(max(results_wanted, 1) / max(page_size, 1))
-    return float(pages)
+    page_size = max((config.get("page_size") or {}).get(source, 25), 1)
+    return math.ceil(max(results_wanted, 1) / page_size) + 1
+
+
+def estimate_units(
+    source: str,
+    results_wanted: int,
+    config: dict[str, Any],
+    fetch_descriptions: bool = False,
+) -> float:
+    """Total HTTP requests one cell will spend -- the thing `request_units` budgets.
+
+    Pages alone are not the cost. Indeed serves descriptions inside the search page, so a
+    census there is free; LinkedIn spends one further request per posting, which makes a
+    50-posting census cell cost 56 requests against the 5 that a pages-only model charged
+    it. That gap is not an accounting curiosity: `request_units` is what decides how many
+    cells a run visits, so undercounting by 11x meant the LinkedIn budget bought a tenth
+    of the cells it appeared to, and the rotation was that much slower than configured.
+
+    The per-description cost is read from config (`requests_per_description`) rather than
+    branched on the source name here, because it is a property of the board's API, and the
+    same file already states the other one (`page_size`).
+    """
+    pages = estimate_pages(source, results_wanted, config)
+    per_description = (config.get("requests_per_description") or {}).get(source, 0)
+    descriptions = per_description * max(results_wanted, 1) if fetch_descriptions else 0
+    return float(pages + descriptions)
 
 
 def _make_task(
@@ -358,7 +390,7 @@ def _make_task(
         role_family=cell.role_family,
         tier=cell.tier,
         ewma_new_per_scrape=cell.ewma_new_per_scrape,
-        est_request_units=estimate_units(source, results_wanted, config),
+        est_request_units=estimate_units(source, results_wanted, config, fetch_description),
         extra={"proxies": config.get("proxies_list") or []},
     )
 
@@ -395,13 +427,15 @@ def select_cells(
     picked = []
     units = 0.0
     pages = 0
-    page_size = max((config.get("page_size") or {}).get(source, 25), 1)
 
     for cell in order:
         if len(picked) >= max_searches:
             break
         task = _make_task(cell, config, roles, source, now, backfill=backfill)
-        cell_pages = math.ceil(task.results_wanted / page_size)
+        # Pages and units are two different caps: `max_pages_per_run` limits search traffic
+        # to the board, `request_units` limits every request including the per-description
+        # ones. They were the same number while descriptions were uncounted.
+        cell_pages = estimate_pages(source, task.results_wanted, config)
         if units + task.est_request_units > max_units:
             continue
         if max_pages is not None and pages + cell_pages > max_pages:

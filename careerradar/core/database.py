@@ -907,6 +907,8 @@ class Database:
         descriptions_full: int = 0,
         status: str = "ok",
         error: str | BaseException | None = None,
+        duration_ms: int | None = None,
+        requests_made: int | None = None,
     ) -> None:
         """Write the sampling denominator for one cell visit.
 
@@ -914,6 +916,10 @@ class Database:
         drives flow (postings whose title actually maps to a role family). Keeping them
         apart is what stops off-target results -- a "Platform Engineer" query returning a
         Maintenance Technician -- from inflating supply.
+
+        `duration_ms` and `requests_made` are measurements, so they stay NULL when the
+        caller did not measure. Writing 0 would make an unmeasured cell read as a free one
+        and quietly bias every average taken over the `cell_cost` view.
         """
         window_start = None
         if task.get("hours_old"):
@@ -927,8 +933,9 @@ class Database:
                 (sync_run_id, cell_id, source, role_family, location_id, query,
                  observed_at, hours_old, window_start, window_end,
                  requested, returned, returned_on_topic, new_unique, saturated,
-                 desc_selection, descriptions_full, status, error)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                 desc_selection, descriptions_full, status, error,
+                 duration_ms, requests_made)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             """,
             (
                 run_id,
@@ -950,6 +957,8 @@ class Database:
                 descriptions_full,
                 status,
                 (error or None) and str(error)[:500],
+                duration_ms,
+                requests_made,
             ),
         )
         self.conn.commit()

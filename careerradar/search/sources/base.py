@@ -9,6 +9,15 @@ class BaseJobSource(ABC):
     this interface. One cell visit is one call.
     """
 
+    def __init__(self) -> None:
+        # What the last fetch cost: {"duration_ms": int, "requests_made": int}. The caller
+        # stores it on the observation, so an implementation that cannot measure requests
+        # must leave the key out rather than write 0 -- unmeasured and free look identical
+        # afterwards, and the scheduler's request budget is tuned against these numbers.
+        # Reset at the start of every fetch, and set even when the fetch raises: the
+        # requests a rate-limited cell spent are the ones worth knowing about.
+        self.last_fetch: dict[str, int] = {}
+
     @abstractmethod
     def fetch_for_task(self, task: dict[str, Any]) -> list[dict[str, Any]]:
         """Run one cell's search and return the board's raw rows.

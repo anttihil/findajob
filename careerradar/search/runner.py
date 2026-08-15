@@ -49,6 +49,7 @@ from careerradar.taxonomy.skills import load_taxonomy
 
 if TYPE_CHECKING:
     from careerradar.search.scheduler import ScrapeTask
+    from careerradar.search.sources.base import BaseJobSource
     from careerradar.search.sources.jobspy_source import JobSpySource
     from careerradar.taxonomy.roles import RoleTaxonomy
     from careerradar.taxonomy.skills import Taxonomy
@@ -316,6 +317,10 @@ def _scrape_one(
     # The whole pool travels on the task; one endpoint is pinned per attempt so the cell
     # keeps a warm connection, and a retry moves to a different exit IP.
     pool = payload.get("proxies") or []
+    # Summed over attempts, not taken from the last one: a cell that timed out twice before
+    # it succeeded really did spend those requests, and the request budget it is measured
+    # against (scheduler.estimate_units) is per cell visit, not per attempt.
+    cost = {"duration_ms": 0, "requests_made": 0}
 
     while True:
         attempts += 1
@@ -329,17 +334,21 @@ def _scrape_one(
             rows = client.fetch_for_task(payload)
             break
         except Exception as exc:  # noqa: BLE001 - classification decides what to do
+            _add_cost(cost, client)
             error_class = circuit.on_error(exc, cell=task.cell_id)
             if circuit.is_open:
-                _record_failure(db, run_id, payload, observed_at, exc, dry_run)
+                _record_failure(db, run_id, payload, observed_at, exc, dry_run, cost=cost)
                 return "tripped"
             if error_class == ERROR_TRANSIENT and attempts < max_attempts:
                 logger.warning(
                     f"[{task.source}] transient error, retry {attempts}/{max_attempts}: {exc}"
                 )
                 continue
-            _record_failure(db, run_id, payload, observed_at, exc, dry_run, circuit=circuit)
+            _record_failure(
+                db, run_id, payload, observed_at, exc, dry_run, circuit=circuit, cost=cost
+            )
             return "error"
+    _add_cost(cost, client)
 
     postings, stats = normalize_rows(
         rows,
@@ -350,6 +359,18 @@ def _scrape_one(
         taxonomy=taxonomy,
     )
     saturated = 1 if is_saturated(stats["returned"], task.results_wanted) else 0
+
+    # A census that came back with no descriptions is the silent failure mode of every
+    # description fetch, including the guest-fragment rewrite in jobspy_source.py: JobSpy
+    # returns {} rather than raising, so the cell looks healthy and only the skill-demand
+    # denominators shrink. Nothing downstream can tell that apart from postings that
+    # genuinely have no text.
+    if task.desc_selection == "census" and stats["returned"] and not stats["with_full_description"]:
+        logger.warning(
+            f"[{task.source}] {task.query!r} in {task.location_id}: {stats['returned']} "
+            "postings returned, none with a description -- the description fetch is failing, "
+            "and this cell contributes nothing to skill demand"
+        )
 
     new_count = 0
     duplicates = 0
@@ -405,6 +426,8 @@ def _scrape_one(
             saturated=saturated,
             descriptions_full=stats["with_full_description"],
             status="ok" if stats["returned"] else "empty",
+            duration_ms=cost["duration_ms"],
+            requests_made=cost["requests_made"],
         )
         db.record_cell_attempt(
             task.cell_id,
@@ -436,6 +459,19 @@ def _scrape_one(
     return "ok" if stats["returned"] else "empty"
 
 
+def _add_cost(cost: dict[str, int], client: "BaseJobSource") -> None:
+    """Fold one attempt's measured cost into the cell's total, then clear it.
+
+    Clearing matters: `fetch_for_task` resets `last_fetch` on entry, but an attempt that
+    fails before reaching that line (a bad kwarg, a missing library) would otherwise leave
+    the previous attempt's numbers in place and get them counted twice.
+    """
+    measured = client.last_fetch or {}
+    cost["duration_ms"] += measured.get("duration_ms", 0)
+    cost["requests_made"] += measured.get("requests_made", 0)
+    client.last_fetch = {}
+
+
 def scraper_retries(config: dict[str, Any]) -> int:
     return ((config.get("scraper") or {}).get("circuit_breaker") or {}).get("transient_retries", 2)
 
@@ -448,11 +484,20 @@ def _record_failure(
     exc: BaseException,
     dry_run: bool,
     circuit: SourceCircuit | None = None,
+    cost: dict[str, int] | None = None,
 ) -> None:
     if dry_run:
         print(f"  ERROR {payload.get('query')!r}: {exc}")
         return
-    db.record_observation(run_id, payload, observed_at.isoformat(), status="error", error=str(exc))
+    db.record_observation(
+        run_id,
+        payload,
+        observed_at.isoformat(),
+        status="error",
+        error=str(exc),
+        duration_ms=(cost or {}).get("duration_ms"),
+        requests_made=(cost or {}).get("requests_made"),
+    )
     backoff = circuit.cell_backoff(1) if circuit else None
     db.record_cell_attempt(
         payload["cell_id"],

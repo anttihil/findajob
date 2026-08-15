@@ -49,7 +49,8 @@ def load_config() -> dict[str, Any]:
     defaults: dict[str, Any] = {
         "scraper": {
             "sources": {"indeed": True, "linkedin": True},
-            "page_size": {"indeed": 15, "linkedin": 10},
+            "page_size": {"indeed": 100, "linkedin": 10},
+            "requests_per_description": {"indeed": 0, "linkedin": 1},
             "cadence_hours": {"core": 24, "adjacent": 72, "breadth": 168},
             "hours_old_floor": {"core": 72, "adjacent": 168, "breadth": 336},
             "max_hours_old": 336,
@@ -59,7 +60,7 @@ def load_config() -> dict[str, Any]:
             "budgets": {
                 "indeed": {
                     "searches_per_run": 20,
-                    "request_units": 200,
+                    "request_units": 60,
                     "results_wanted_default": 75,
                     "max_results_wanted": 200,
                     "fetch_descriptions": True,

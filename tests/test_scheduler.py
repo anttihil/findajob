@@ -33,6 +33,7 @@ from careerradar.search.scheduler import (
     CellState,
     adaptive_hours_old,
     cell_priority,
+    estimate_pages,
     estimate_units,
     is_eligible,
     is_saturated,
@@ -49,6 +50,7 @@ NOW = datetime(2026, 7, 29, 12, 0, tzinfo=timezone.utc)
 
 CONFIG = {
     "page_size": {"indeed": 15, "linkedin": 25},
+    "requests_per_description": {"indeed": 0, "linkedin": 1},
     "cadence_hours": {"core": 24, "adjacent": 72, "breadth": 168},
     "hours_old_floor": {"core": 72, "adjacent": 168, "breadth": 336},
     "max_hours_old": 336,
@@ -678,11 +680,32 @@ class EwmaTests(unittest.TestCase):
 
 
 class UnitCostTests(unittest.TestCase):
-    def test_indeed_pages_are_denser_than_linkedin(self) -> None:
-        self.assertGreater(estimate_units("linkedin", 75, CONFIG), 0)
-        # 75 results: Indeed 5 pages of 15, LinkedIn 3 pages of 25.
-        self.assertEqual(estimate_units("indeed", 75, CONFIG), 5)
-        self.assertEqual(estimate_units("linkedin", 75, CONFIG), 3)
+    """What a cell is charged against `request_units`.
+
+    The bug these pin down cost the LinkedIn budget an order of magnitude: while the
+    estimate counted search pages only, a 50-posting description census was charged 5
+    requests and spent 56, so `request_units` bought a tenth of the cells it claimed.
+    """
+
+    def test_pages_include_the_request_that_finds_the_end(self) -> None:
+        # 75 results at 15 per page is 5 pages, plus the one that discovers exhaustion.
+        self.assertEqual(estimate_pages("indeed", 75, CONFIG), 6)
+        self.assertEqual(estimate_pages("linkedin", 75, CONFIG), 4)
+
+    def test_pages_only_when_descriptions_are_not_fetched(self) -> None:
+        self.assertEqual(estimate_units("linkedin", 75, CONFIG), 4)
+
+    def test_a_description_census_is_charged_per_posting(self) -> None:
+        self.assertEqual(estimate_units("linkedin", 75, CONFIG, fetch_descriptions=True), 79)
+
+    def test_a_board_that_serves_descriptions_in_page_is_charged_nothing_extra(self) -> None:
+        """Indeed returns descriptions inside the search page, so a census there is free."""
+        self.assertEqual(estimate_units("indeed", 75, CONFIG, fetch_descriptions=True), 6)
+
+    def test_the_estimate_matches_a_measured_cell(self) -> None:
+        """56 requests measured on 2026-08-15 for a 50-posting LinkedIn census cell."""
+        live = {"page_size": {"linkedin": 10}, "requests_per_description": {"linkedin": 1}}
+        self.assertEqual(estimate_units("linkedin", 50, live, fetch_descriptions=True), 56)
 
 
 class ErrorClassificationTests(unittest.TestCase):
