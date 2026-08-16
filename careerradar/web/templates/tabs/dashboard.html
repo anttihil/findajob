@@ -136,6 +136,25 @@
         </select>
       </div>
 
+      <div class="filter-group">
+        <label for="filter-liveness">Liveness</label>
+        {# A partition, not a ranking, which is why this is a filter and not a sort option.
+           The four labels also say more about scrape coverage than about the postings:
+           `stale` only means the posting's cell has not been re-scraped inside the 7-day
+           window `_LIVENESS_CASE` uses. A `<select>` rather than pills because it is a
+           submitted field of this form, so it needs no hidden input beside the two above. #}
+        <select id="filter-liveness" name="liveness" class="form-select"
+                onchange="this.form.submit()">
+          <option value="">Any</option>
+          {%- for value, label in [('live', 'Confirmed live'),
+                                   ('stale', 'Not re-checked recently'),
+                                   ('unknown', 'Unknown'),
+                                   ('likely_closed', 'Probably closed')] %}
+            <option value="{{ value }}" {{ 'selected' if query.liveness == value }}>{{ label }}</option>
+          {%- endfor %}
+        </select>
+      </div>
+
       <noscript>
         <button type="submit" class="save-btn">Apply filters</button>
       </noscript>
@@ -159,7 +178,7 @@
               <option value="fit" {{ 'selected' if query.sort == 'fit' }}>Fit (eligibility, then tier)</option>
               <option value="fit_score" {{ 'selected' if query.sort == 'fit_score' }}>Fit score</option>
               <option value="match_score" {{ 'selected' if query.sort == 'match_score' }}>Keyword match</option>
-              <option value="date_found" {{ 'selected' if query.sort == 'date_found' }}>Date found</option>
+              <option value="date_posted" {{ 'selected' if query.sort == 'date_posted' }}>Date posted</option>
             </select>
           </form>
         </div>

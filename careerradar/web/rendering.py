@@ -39,6 +39,7 @@ FILTER_DEFAULTS: dict[str, Any] = {
     "max_tier": None,
     "verdict": "",
     "eligibility": "",
+    "liveness": "",
     "sort": "fit",
     "limit": 50,
     "offset": 0,

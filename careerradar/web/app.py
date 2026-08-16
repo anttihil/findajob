@@ -213,7 +213,7 @@ def get_jobs(
     max_tier: int | None = Query(None, ge=1, le=10),
     liveness: str | None = Query(None, pattern="^(live|stale|likely_closed|unknown)$"),
     pipeline_state: str | None = Query(None, pattern="^(new|scored|researched)$"),
-    sort: str = Query("fit", pattern="^(fit|fit_score|match_score|date_found)$"),
+    sort: str = Query("fit", pattern="^(fit|fit_score|match_score|date_posted)$"),
     # Paginated from the start: the corpus reaches thousands of rows within days, and
     # renderJobCards builds DOM for every row it receives.
     limit: int = Query(200, ge=1, le=1000),
@@ -711,7 +711,12 @@ def filter_query(
     max_tier: str = Query("", pattern="^([1-9]|10)?$"),
     verdict: str = Query("", pattern="^(strong|worth_applying|stretch|poor_fit|mismatch)?$"),
     eligibility: str = Query("", pattern="^(eligible|conditional|blocked)?$"),
-    sort: str = Query("fit", pattern="^(fit|fit_score|match_score|date_found)$"),
+    # `query_jobs` has accepted this all along and /api/jobs has always exposed it; only
+    # the dashboard had no way to say it. It belongs here rather than in the sort, because
+    # four labels partition the feed instead of ranking it -- and the labels track when
+    # each posting's scrape cell was last visited, not the posting.
+    liveness: str = Query("", pattern="^(live|stale|likely_closed|unknown)?$"),
+    sort: str = Query("fit", pattern="^(fit|fit_score|match_score|date_posted)$"),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
 ) -> rendering.FilterQuery:
@@ -723,6 +728,7 @@ def filter_query(
             "max_tier": int(max_tier) if max_tier else None,
             "verdict": verdict,
             "eligibility": eligibility,
+            "liveness": liveness,
             "sort": sort,
             "limit": limit,
             "offset": offset,

@@ -27,7 +27,12 @@
     <div class="job-meta-row">
       <span><i class="fa-solid fa-location-dot"></i> {{ job.location or 'Remote' }}</span>
       {{ badges.access_badge(job.access) }}
-      <span><i class="fa-solid fa-clock"></i> Found {{ job.date_found | short_date }}</span>
+      {# The posted date, so the card explains its own position under `sort=date_posted`.
+         Falls back to the found date for the ~2% of rows the board gave no date for --
+         those are the same rows the sort's COALESCE places by their found date. #}
+      <span><i class="fa-solid fa-clock"></i>
+        {%- if job.date_posted %} Posted {{ job.date_posted | short_date }}
+        {%- else %} Found {{ job.date_found | short_date }}{% endif %}</span>
     </div>
     <div class="matched-skills-preview">
       {%- for skill in job.matched_skills[:5] %}

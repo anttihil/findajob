@@ -196,7 +196,19 @@ class Database:
         # profile version, which is what the rest of this ordering already reads.
         "fit_score": "v.fit_score DESC, jobs.match_score DESC, jobs.date_found DESC",
         "match_score": "jobs.match_score DESC, jobs.date_found DESC",
-        "date_found": "jobs.date_found DESC",
+        # Replaced `date_found`, which ranked by when the scraper caught a posting rather
+        # than by anything about the posting itself. The COALESCE is not decoration: 121 of
+        # 7124 rows -- the HackerNews, JobTech Sweden and WeWorkRemotely sources -- carry no
+        # date_posted and no posted_window_* either, and SQLite sorts NULL last under DESC,
+        # so a bare column would park them permanently at the end of the feed. The found
+        # date is the only fallback they have, and it is an honest upper bound: a posting
+        # existed at or before the moment it was seen.
+        #
+        # date_posted is day-granular, so ties are large -- 432 rows share one day -- and
+        # date_found breaks them, as it does for every sort above.
+        "date_posted": (
+            "COALESCE(jobs.date_posted, date(jobs.date_found)) DESC, jobs.date_found DESC"
+        ),
     }
 
     def _select_columns(self, detail: bool) -> str:
