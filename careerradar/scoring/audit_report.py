@@ -18,7 +18,7 @@ from typing import Any
 from careerradar.core.database import Database
 from careerradar.profile.adapter import load_profile
 from careerradar.scoring.audit import blocker_contradicts_profile, locate_blocker
-from careerradar.scoring.prompts import MAX_DESCRIPTION_CHARS
+from careerradar.scoring.prompts import quotable_text
 
 
 def collect(
@@ -38,7 +38,8 @@ def collect(
         profile = load_profile(db=db)
         query = """
             SELECT v.job_id, v.hard_blockers, v.eligibility, v.core_requirements,
-                   j.title, j.company, j.location, j.description
+                   j.title, j.company, j.location, j.description,
+                   j.seniority, j.is_remote, j.salary_annual_usd, j.access
               FROM job_verdicts v JOIN jobs j ON j.id = v.job_id
              WHERE v.profile_version = ?
                AND j.description IS NOT NULL
@@ -55,14 +56,12 @@ def collect(
         blockers_total = 0
 
         for row in rows:
-            seen = "\n".join(
-                [
-                    row["title"] or "",
-                    row["company"] or "",
-                    row["location"] or "",
-                    (row["description"] or "")[:MAX_DESCRIPTION_CHARS],
-                ]
-            )
+            # The same haystack the live auditor builds, from the same function. The
+            # derived `<facts>` columns are selected above only so that it can: a stored
+            # blocker quoting the formatted salary has to score the same here as it did
+            # in `node_score`, or the trend line this command exists to draw is measuring
+            # the two implementations rather than the model.
+            seen = quotable_text(dict(row))
             for blocker in _decode(row["hard_blockers"]):
                 blockers_total += 1
                 # `locate_blocker`, not `locate`: the auditor is what decides whether

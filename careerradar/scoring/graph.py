@@ -38,10 +38,17 @@ RETRY_NUDGE = (
 # did call the tool, and telling it otherwise is a description it cannot act on. When the
 # schema or the auditor rejected a well-formed answer, say which rule it broke.
 def semantic_nudge(reason: str) -> str:
+    # The quote advice is conditional because most rejections have nothing to do with
+    # quotes. Sent unconditionally it was the last thing the model read before answering
+    # an enum error or a missing field, which is attention spent on the wrong rule.
+    advice = (
+        " Every quote must be copied from the posting exactly as it appears there."
+        if "quote" in reason.lower()
+        else ""
+    )
     return (
         f"Your previous verdict was rejected: {reason}\n"
-        "Return the verdict again, corrected. Every quote must be copied from the posting "
-        "exactly as it appears there."
+        f"Return the verdict again, corrected.{advice}"
     )
 
 
@@ -103,7 +110,7 @@ def node_score(state: ScoreState) -> dict[str, Any]:
     parsed = result.get("parsed")
     parse_error = result.get("parsing_error")
 
-    from careerradar.core.llm import token_usage
+    from careerradar.core.llm import no_tool_call_reason, token_usage
 
     usage = token_usage(raw) if raw is not None else None
 
@@ -111,10 +118,17 @@ def node_score(state: ScoreState) -> dict[str, Any]:
         # A cross-field validator in FitAssessment raising surfaces here too, not just a
         # malformed tool call: LangChain catches it and reports it as a parsing error.
         # Those are the semantic rejections, and they deserve a nudge that names the rule.
-        logger.warning("Scoring returned unusable output (attempt %d): %s", attempts, parse_error)
+        #
+        # When there is no parse error either, LangChain has nothing to say and this used
+        # to log the bare string `None` -- 9 failures in one backlog run that named no
+        # cause at all. `no_tool_call_reason` reads the response while it is still in
+        # hand and separates prose-instead-of-a-tool-call from a truncation, which have
+        # different fixes: retry versus a smaller ask.
+        reason = parse_error if parse_error is not None else no_tool_call_reason(raw)
+        logger.warning("Scoring returned unusable output (attempt %d): %s", attempts, reason)
         return {
             "attempts": attempts,
-            "error": _rule_from(parse_error),
+            "error": _rule_from(reason),
             "verdict": None,
             "usage": usage,
             "semantic": _is_semantic(parse_error),
@@ -159,10 +173,37 @@ def _is_semantic(parse_error: Any) -> bool:
 
 
 def _rule_from(parse_error: Any) -> str:
-    """The rule text out of a Pydantic error, without the stack of field paths."""
+    """The rule a Pydantic error names, without the input dump around it.
+
+    A model-level `ValueError` says the rule in one sentence, so that sentence is the
+    whole answer. A field error does not: pydantic prints the path, the message, a repr
+    of the input and a docs URL, and the previous version returned all four verbatim for
+    anything that was not a `Value error, `. That went straight into the retry prompt,
+    where 200 characters of `input_value={'role_summary': 'A Linux...` push the one line
+    that matters out of the model's attention.
+
+    Field errors keep `path: message`. The path is the load-bearing half -- knowing that
+    `requirement_assessments.6.status` is wrong is what makes the message actionable.
+    """
     text = str(parse_error)
     marker = "Value error, "
-    return text.split(marker, 1)[1].split("\n")[0].strip() if marker in text else text
+    if marker in text:
+        # `.split(" [type=")` because the sentence drags the dump along on this path too:
+        # `... is not actionable. [type=value_error, input_value={'role_summary': "Azure
+        # c...research_worthy': False}, input_type=dict]`.
+        return text.split(marker, 1)[1].split("\n")[0].split(" [type=")[0].strip()
+
+    rules: list[str] = []
+    field = ""
+    for line in text.split("\n")[1:]:
+        if line.startswith("    "):  # the "For further information visit ..." line
+            continue
+        if not line.startswith(" "):
+            field = line.strip()
+            continue
+        message = line.strip().split(" [type=")[0].strip()
+        rules.append(f"{field}: {message}" if field else message)
+    return "; ".join(rules) or text
 
 
 def route_after_score(state: ScoreState) -> str:

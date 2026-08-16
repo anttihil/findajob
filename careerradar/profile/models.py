@@ -7,6 +7,8 @@ versioned -- not recomputed per request like the regex profile it replaces.
 """
 
 import json
+import re
+import unicodedata
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -188,6 +190,33 @@ VERDICT_SCHEMA_VERSION = 2
 
 _ANCHORED = "  ".join(f"{value}: {text}" for value, text in rubric.IMPORTANCE_ANCHORS.items())
 
+_DASHES = dict.fromkeys(map(ord, "‐‑‒–—―−"), "-")
+_QUOTE_MARKS = dict.fromkeys(map(ord, "‘’‚‛′"), "'")
+_QUOTE_MARKS.update(dict.fromkeys(map(ord, "“”„‟″"), '"'))
+
+
+def normalize_requirement(text: str) -> str:
+    """The join key between `core_requirements` and `requirement_assessments`.
+
+    The two lists are one table -- `core_requirements` carries the importance and
+    `requirement_assessments` carries the status -- joined on the requirement text the
+    model was told to repeat word for word. Four call sites need that join and they must
+    not disagree about which requirement is which: the validator below, the
+    `assessment_incomplete` flag in `scoring/audit.py`, the dashboard counts in
+    `core/database._requirement_summary`, and the per-row display join in
+    `web/rendering.py`. They had drifted -- the last used `.lower()` where the others used
+    `.casefold()`.
+
+    `strip().casefold()` alone was too literal. Over one backlog run it rejected 86
+    verdicts on first attempt, 94% of which the model then fixed by re-typing the same
+    string correctly, so the pipeline paid a whole extra call for punctuation. This folds
+    the differences that are not a difference of meaning, the same set
+    `scoring/audit.normalize` folds for quotes.
+    """
+    text = unicodedata.normalize("NFKC", text or "")
+    text = text.translate(_DASHES).translate(_QUOTE_MARKS)
+    return re.sub(r"\s+", " ", text).strip().casefold()
+
 
 class CoreRequirement(BaseModel):
     """One thing the posting actually asks for, with the words that ask for it.
@@ -201,16 +230,62 @@ class CoreRequirement(BaseModel):
     quote: str = Field(description="The phrase from the posting that states it, copied verbatim.")
     importance: Literal["must_have", "important", "nice_to_have"] = Field(description=_ANCHORED)
 
+    @model_validator(mode="before")
+    @classmethod
+    def _accept_a_requirement_written_as_a_question(cls, value: Any) -> Any:
+        """Take `question` where `requirement` belongs.
+
+        The rules tell the model it "answers five questions on named scales", and it
+        carries the word down into the extraction step: 46 rejections in one run were a
+        `core_requirements` entry keyed `question` with everything else correct. A
+        `validation_alias` would fix it too, but it renames the property in the generated
+        tool schema, and the schema is the one place this field's name is stated.
+        """
+        if isinstance(value, dict) and "requirement" not in value and "question" in value:
+            return {**value, "requirement": value["question"]}
+        return value
+
 
 class RequirementAssessment(BaseModel):
     requirement: str = Field(
         description="Must repeat one of the requirements you listed above, word for word."
     )
-    status: Literal["met", "partial", "unmet"]
+    status: Literal["met", "partial", "unmet"] = Field(
+        description=(
+            "met: the profile shows this. partial: it shows some of it. unmet: it does "
+            "not. A requirement the candidate is disqualified on is `unmet` -- say that "
+            "it disqualifies in `hard_blockers`, not here."
+        )
+    )
     candidate_evidence: str | None = Field(
         default=None,
         description="What in the profile shows this, or null if nothing does.",
     )
+
+    @field_validator("status", mode="before")
+    @classmethod
+    def _a_blocking_requirement_is_unmet(cls, value: Any) -> Any:
+        """Take `blocked`, which is `eligibility`'s vocabulary leaking one level down.
+
+        This was the single most expensive rejection in the backlog run: 126 calls and 26
+        of the 38 postings that ended with no verdict at all. The field had no
+        `description` and the rules never name its three values, while `blocked` appears
+        throughout them for `eligibility` -- so when a must_have was also the hard blocker
+        the model reached for the word it had been given.
+
+        Retrying could not clear it. Scoring runs at `temperature=0` with thinking off, so
+        the second and third attempts are the same draw at the same conditions: 41% of
+        these cleared on retry and then 30% of the remainder, which is noise rather than
+        correction.
+
+        `unmet` loses nothing. A must_have the candidate is disqualified on is unmet by
+        definition, and `hard_blockers` already carries the fact that it disqualifies.
+        Nothing downstream reads this field for the number -- `scoring/scale.py` projects
+        the score from the five ordinals -- so no stored score can move.
+        """
+        if isinstance(value, str) and value.strip().casefold() == "blocked":
+            return "unmet"
+        return value
 
 
 # Why HardBlocker has two fields. This is a comment rather than a docstring because a
@@ -370,26 +445,26 @@ class FitAssessment(BaseModel):
                 "actionable."
             )
 
-        assessed = {a.requirement.strip().casefold() for a in self.requirement_assessments}
-        unassessed_must = [
-            r.requirement
-            for r in self.core_requirements
-            if r.importance == "must_have" and r.requirement.strip().casefold() not in assessed
-        ]
-        if unassessed_must:
-            raise ValueError(
-                "every must_have needs a requirement_assessment; missing: "
-                + ", ".join(unassessed_must)
-            )
-
+        # An unassessed must_have used to raise here. It no longer does. The rule was
+        # right and the enforcement was in the wrong place: 89 of 95 rejections named ONE
+        # requirement out of the five to eight extracted, and 94% cleared on the first
+        # retry -- the model had assessed it and lost a word re-typing an 89-character
+        # string. That is a full extra call to buy back punctuation.
+        #
+        # The gap is now recorded instead of refused. `scoring/audit.py` already flags
+        # every unassessed requirement as `assessment_incomplete`; the flag never fired
+        # for a must_have only because this raise ran first. Everything downstream was
+        # already built for the state: `core/database._requirement_summary` buckets it to
+        # `unassessed` and `macros/badges.html` renders the count on the card. So the
+        # reader still sees the gap, on a verdict that survived.
         if self.capability_match == "exceeds":
             unmet = {
-                a.requirement.strip().casefold()
+                normalize_requirement(a.requirement)
                 for a in self.requirement_assessments
                 if a.status == "unmet"
             }
             must = {
-                r.requirement.strip().casefold()
+                normalize_requirement(r.requirement)
                 for r in self.core_requirements
                 if r.importance == "must_have"
             }

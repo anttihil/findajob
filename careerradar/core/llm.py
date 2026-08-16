@@ -101,7 +101,7 @@ class StructuredOutputError(RuntimeError):
     """The model answered, but never made the tool call the schema required."""
 
 
-def _no_tool_call_reason(raw: Any) -> str:
+def no_tool_call_reason(raw: Any) -> str:
     """Say *why* a schema-enforced call came back empty, while the response is in hand.
 
     Worth the lines: "prose instead of a tool call" and "truncated mid-argument" have
@@ -154,7 +154,7 @@ def invoke_structured(
         parsed = result.get("parsed")
         if parsed is not None and result.get("parsing_error") is None:
             return parsed
-        reason = result.get("parsing_error") or _no_tool_call_reason(result.get("raw"))
+        reason = result.get("parsing_error") or no_tool_call_reason(result.get("raw"))
         logger.warning(
             "%s: no usable %s (attempt %d/%d): %s",
             label,

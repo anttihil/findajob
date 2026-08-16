@@ -17,6 +17,8 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlencode, urlparse
 
+from careerradar.profile.models import normalize_requirement
+
 if TYPE_CHECKING:
     from careerradar.taxonomy.roles import RoleTaxonomy
 
@@ -199,22 +201,27 @@ def requirement_rows(job: dict[str, Any]) -> list[dict[str, Any]]:
     """Join the posting's stated requirements against the model's assessments.
 
     Display-side join only; the counts on the card come from
-    `database._requirement_summary`, where the normalisation matches the validator that
-    enforces this repetition in the first place (`profile/models.py`: every must_have
-    needs an assessment).
+    `database._requirement_summary`. Both use `profile/models.normalize_requirement`,
+    which owns the join key. This function used `.strip().lower()` where the rest used
+    `.strip().casefold()`, so a requirement could render as `unassessed` in the drawer
+    while the badge above it counted the same requirement as met.
+
+    An unassessed requirement is an expected state, not a defect in this join: the schema
+    no longer refuses a verdict over it, it records an `assessment_incomplete` flag and
+    lets the reader see the gap.
     """
     core = job.get("core_requirements") or []
     if not core:
         return []
 
     by_requirement = {
-        (a.get("requirement") or "").strip().lower(): a
+        normalize_requirement(a.get("requirement") or ""): a
         for a in (job.get("requirement_assessments") or [])
     }
 
     rows = []
     for req in sorted(core, key=lambda r: IMPORTANCE_RANK.get(r.get("importance"), 3)):
-        assessment = by_requirement.get((req.get("requirement") or "").strip().lower())
+        assessment = by_requirement.get(normalize_requirement(req.get("requirement") or ""))
         rows.append(
             {
                 "requirement": req.get("requirement") or "",

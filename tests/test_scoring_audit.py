@@ -13,7 +13,7 @@ quiet when it should.
 import os
 import sys
 import unittest
-from typing import Any
+from typing import Any, ClassVar
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -383,3 +383,111 @@ class AuditTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class QuotableTextTests(unittest.TestCase):
+    """The auditor must read exactly what the model was shown, `<facts>` included.
+
+    `render_posting` derives a facts line -- seniority guess, remote, a formatted salary,
+    access -- and shows it inside `<posting>`. The auditor built its haystack from title,
+    company, location and description only, so a blocker quoting the salary was verbatim
+    to the model and unlocatable to the auditor, and the posting lost its verdict.
+    """
+
+    PAID: ClassVar[dict[str, Any]] = {**POSTING, "salary_annual_usd": 61680, "is_remote": True}
+
+    def test_the_two_sides_agree_on_what_the_model_saw(self) -> None:
+        from careerradar.scoring.prompts import quotable_text, render_posting
+
+        rendered = render_posting(self.PAID)
+        for line in quotable_text(self.PAID).split("\n"):
+            if line:
+                self.assertIn(line, rendered)
+
+    def test_a_blocker_quoting_the_derived_salary_is_locatable(self) -> None:
+        _a, _flags, fatal = audit(
+            assessment(eligibility="blocked", hard_blockers=["salary: $61,680/yr"]),
+            posting=self.PAID,
+        )
+        self.assertIsNone(fatal)
+
+    def test_the_taxonomy_hint_is_not_quotable(self) -> None:
+        """It sits outside `<posting>` because it is our regex output, not scraped text.
+
+        A blocker whose only evidence is our own skill label has cited nothing.
+        """
+        from careerradar.scoring.prompts import quotable_text
+
+        self.assertNotIn("taxonomy_signal", quotable_text(self.PAID))
+
+    def test_a_posting_with_no_facts_is_unchanged(self) -> None:
+        from careerradar.scoring.prompts import quotable_text
+
+        self.assertIn("Must hold an active TS/SCI clearance", quotable_text(POSTING))
+
+
+class ElidedQuoteTests(unittest.TestCase):
+    """The model abbreviates a long quote instead of copying it.
+
+    Both halves are verbatim; the elided middle is most of what the fuzzy sweep would be
+    scored on, so no window reaches the threshold. 13 of 48 fatal quote failures in one
+    backlog run were this shape.
+    """
+
+    def test_an_elided_blocker_is_located_by_its_halves(self) -> None:
+        """Lowercase after the ellipsis, which is the shape the log actually shows.
+
+        `Amca is building America's new industrial base... deliver avionics`. An uppercase
+        continuation was already split by the sentence rule, so it proves nothing here.
+        """
+        _a, _flags, fatal = audit(
+            assessment(
+                eligibility="blocked",
+                hard_blockers=[
+                    "We are hiring a Platform Engineer... years of production Python experience"
+                ],
+            ),
+            posting=POSTING,
+        )
+        self.assertIsNone(fatal)
+
+    def test_a_unicode_ellipsis_works_the_same_way(self) -> None:
+        status, _span = locate_blocker(
+            "We are hiring a Platform Engineer… with polygraph", POSTING["description"]
+        )
+        self.assertEqual(status, "verified")
+
+    def test_eliding_does_not_make_an_invented_blocker_locatable(self) -> None:
+        """Splitting must not turn two fabrications into a pass."""
+        _a, _flags, fatal = audit(
+            assessment(
+                eligibility="blocked",
+                hard_blockers=["Requires a PhD in metallurgy... and a commercial pilot licence"],
+            ),
+            posting=POSTING,
+        )
+        self.assertIsNotNone(fatal)
+
+
+class AssessmentFlagTests(unittest.TestCase):
+    """An unassessed must_have is recorded here now, not refused in the schema."""
+
+    def test_an_unassessed_must_have_is_flagged_with_its_importance(self) -> None:
+        _a, flags, fatal = audit(assessment(requirement_assessments=[]), posting=POSTING)
+        self.assertIsNone(fatal)
+        incomplete = [f for f in flags if f["flag"] == "assessment_incomplete"]
+        self.assertEqual(len(incomplete), 1)
+        self.assertEqual(incomplete[0]["importance"], "must_have")
+        self.assertEqual(incomplete[0]["text"], "Python")
+
+    def test_a_requirement_that_drifted_by_punctuation_is_not_flagged(self) -> None:
+        """The join folds what is not a difference of meaning, so this is assessed."""
+        _a, flags, _fatal = audit(
+            assessment(
+                requirement_assessments=[
+                    {"requirement": "  python ", "status": "met", "candidate_evidence": "x"}
+                ]
+            ),
+            posting=POSTING,
+        )
+        self.assertEqual([f for f in flags if f["flag"] == "assessment_incomplete"], [])

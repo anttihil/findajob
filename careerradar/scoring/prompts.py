@@ -86,6 +86,9 @@ Rules that decide eligibility:
   reasoning in `quote` -- a blocker whose quote cannot be found in the posting is thrown
   away and the whole posting is scored again.
 
+- Never abbreviate inside `quote`. A quote with `...` in the middle of it is not a quote
+  and cannot be located. Copy one unbroken run of words; a short one is fine.
+
 - What you copy into `quote` does not have to be a requirements bullet. You are shown the
   title, the company and the location as well as the description, and any of them can be
   the disqualifying fact. When the problem is who the employer is or what the job is
@@ -167,10 +170,14 @@ def format_matched(matched_levels: list[tuple[str, int]]) -> list[str]:
     return [f"{label}({_LEVEL_NAMES.get(level, 'FAMILIAR')})" for label, level in ordered]
 
 
-def render_posting(posting: dict[str, Any], *, skill_hint: str = "") -> str:
-    """The volatile half. One posting, delimited as untrusted data."""
-    description = (posting.get("description") or "")[:MAX_DESCRIPTION_CHARS]
+def _facts(posting: dict[str, Any]) -> list[str]:
+    """The derived half of the posting element, as separate facts.
 
+    A function rather than an inline block because `quotable_text` needs the same list.
+    These are OUR strings, not the board's -- `$61,680/yr` is a number this codebase
+    formatted -- but the model is shown them inside `<posting>` and quotes them as
+    readily as anything in the description.
+    """
     facts = []
     if posting.get("seniority"):
         facts.append(f"seniority-guess: {posting['seniority']}")
@@ -180,6 +187,39 @@ def render_posting(posting: dict[str, Any], *, skill_hint: str = "") -> str:
         facts.append(f"salary: ${int(posting['salary_annual_usd']):,}/yr")
     if posting.get("access"):
         facts.append(f"access: {posting['access']}")
+    return facts
+
+
+def quotable_text(posting: dict[str, Any]) -> str:
+    """Everything the model may legitimately quote, in the order it was shown.
+
+    The auditor has to check a quote against exactly what the model saw. It did not: it
+    built its haystack from title, company, location and description while
+    `render_posting` also showed a `<facts>` line. A blocker quoting the formatted salary
+    -- `'$61,680/yr'`, verbatim to the model and absent from every field the auditor
+    read -- was ruled unlocatable and cost the posting its verdict.
+
+    The `<taxonomy_signal>` block is deliberately NOT here. It sits outside `<posting>`
+    because it is a regex extraction of ours rather than scraped text, and a blocker whose
+    evidence is our own skill label has not cited the posting at all.
+    """
+    facts = _facts(posting)
+    return "\n".join(
+        [
+            posting.get("title") or "",
+            posting.get("company") or "",
+            posting.get("location") or "",
+            "; ".join(facts),
+            (posting.get("description") or "")[:MAX_DESCRIPTION_CHARS],
+        ]
+    )
+
+
+def render_posting(posting: dict[str, Any], *, skill_hint: str = "") -> str:
+    """The volatile half. One posting, delimited as untrusted data."""
+    description = (posting.get("description") or "")[:MAX_DESCRIPTION_CHARS]
+
+    facts = _facts(posting)
     facts_line = f"<facts>{'; '.join(facts)}</facts>\n" if facts else ""
 
     rendered = (

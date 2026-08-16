@@ -10,8 +10,8 @@ they are the shape the API actually accepts, and the scoring module depends on a
 ```
 
 So LangChain's `with_structured_output(..., method="json_schema")` **cannot work against
-DeepSeek**, with or without `strict=True`. Use `method="function_calling"`, which is
-schema-enforced via a forced `tool_choice` — but see the next section.
+DeepSeek**, with or without `strict=True`. Use `method="function_calling"` — but see the
+next section, and read section 3 before you trust the schema.
 
 `response_format: {"type": "json_object"}` *is* supported (plain JSON mode, no schema
 enforcement). That is the fallback if function calling ever regresses.
@@ -36,12 +36,36 @@ Rejected spellings (still 400): `reasoning_effort="minimal"`, `enable_thinking=f
 
 **Consequence for the two agents:**
 
-- **scoring** needs a strict schema, so it disables thinking (`reasoning_effort="none"`)
-  and uses `method="function_calling", strict=True`.
+- **scoring** needs a forced tool call, so it disables thinking
+  (`reasoning_effort="none"`) and uses `method="function_calling", strict=True`.
 - **research** wants thinking on, so it must use `tool_choice="auto"` — which *is*
   accepted in thinking mode — rather than forcing a tool.
 
-## 3. Prefix caching is automatic, and worth designing around
+## 3. `strict=True` does not validate the arguments
+
+This one cost 38 postings their verdict in a single backlog run, so it is worth stating
+plainly. A forced `tool_choice` guarantees the model **calls** the tool. It does not
+guarantee the arguments match the schema, and DeepSeek does not check them.
+
+Measured over one run of the scoring agent (386 rejected calls, 2026-08-14/15):
+
+| what the schema said | what arrived |
+|---|---|
+| `Literal["met", "partial", "unmet"]` | `"blocked"`, 126 times |
+| 8 required fields | absent, the object ended early, 37 times |
+| a property named `requirement` | a property named `question`, 46 times |
+
+So every constraint in a Pydantic model is a **post-hoc** check here, paid for with a
+completed call. Design accordingly:
+
+- Put the allowed values in the field's `description`. The model reads the description;
+  it evidently does not read the enum.
+- Repair in a `mode="before"` validator whatever has an obvious reading. A raise costs a
+  whole retry, and at `temperature=0` with thinking off the retry is the same draw at the
+  same conditions — the enum leak above cleared on only 41% of second attempts.
+- Reserve a raise for cases where judgement is genuinely missing rather than mistyped.
+
+## 4. Prefix caching is automatic, and worth designing around
 
 No headers, no opt-in. Repeated prompt prefixes bill at the cache-hit rate:
 
@@ -68,7 +92,7 @@ invalidates the cache for every request and silently multiplies input cost by 50
 `prompt_cache_hit_tokens > 0` on the second. Zero across consecutive calls means something
 is leaking into the prefix.
 
-## 4. Temperature is unset by default, and that is not free
+## 5. Temperature is unset by default, and that is not free
 
 `ChatDeepSeek` sends no `temperature` unless you pass one, so the API samples at its
 default of 1.0. Measured by scoring the same 12 postings twice through the identical
@@ -101,7 +125,7 @@ treat repeated identical output as likely rather than guaranteed.
 
 Check any of this with `careerradar score stats`.
 
-## 5. Measured token shape (for cost estimates)
+## 6. Measured token shape (for cost estimates)
 
 Against real postings from `jobs.db` with a ~700-token profile prefix:
 

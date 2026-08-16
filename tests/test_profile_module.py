@@ -433,12 +433,12 @@ class StructuredOutputTests(unittest.TestCase):
         """Retrying fixes prose; it does not fix a schema too big for the token budget."""
         from unittest import mock
 
-        from careerradar.core.llm import _no_tool_call_reason
+        from careerradar.core.llm import no_tool_call_reason
 
         raw = mock.Mock(
             response_metadata={"finish_reason": "length"}, invalid_tool_calls=[], content=""
         )
-        self.assertIn("output token limit", _no_tool_call_reason(raw))
+        self.assertIn("output token limit", no_tool_call_reason(raw))
 
     def test_synthesize_surfaces_the_error_instead_of_an_attributeerror(self) -> None:
         from unittest import mock

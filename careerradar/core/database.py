@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING, Any, ClassVar
 
 from careerradar.core.paths import DB_PATH
+from careerradar.profile.models import normalize_requirement
 
 if TYPE_CHECKING:
     from careerradar.search.scheduler import CellState
@@ -15,10 +16,11 @@ _StatsCacheEntry = tuple[tuple[int, int], dict[str, Any]]
 # The two requirement lists are stored as separate JSON columns because the model answers
 # them as separate fields, but they are one table: `core_requirements` carries the
 # importance, `requirement_assessments` carries the status, and the join key is the
-# requirement text the model was told to repeat verbatim. `profile/models.py` validates
-# that repetition and normalises with `strip().casefold()` -- the same normalisation is
-# used here so the dashboard and the validator cannot disagree about which requirement is
-# which.
+# requirement text the model was told to repeat verbatim. `profile/models.py` owns that
+# normalisation as `normalize_requirement` and every site imports it, so the dashboard,
+# the validator and the auditor cannot disagree about which requirement is which. They
+# had: this file and the validator used `strip().casefold()` while `web/rendering.py`
+# used `strip().lower()`.
 # Memoized `get_stats()` results, keyed by database path. See `Database.get_stats`.
 _STATS_CACHE: dict[str, _StatsCacheEntry] = {}
 
@@ -47,15 +49,14 @@ def _requirement_summary(
     if not core:
         return None
     status = {
-        a.get("requirement", "").strip().casefold(): a.get("status") for a in assessments or []
+        normalize_requirement(a.get("requirement", "")): a.get("status") for a in assessments or []
     }
     counts = {"met": 0, "partial": 0, "unmet": 0, "unassessed": 0}
     for requirement in core:
         if requirement.get("importance") != "must_have":
             continue
-        counts[
-            status.get(requirement.get("requirement", "").strip().casefold()) or "unassessed"
-        ] += 1
+        key = normalize_requirement(requirement.get("requirement", ""))
+        counts[status.get(key) or "unassessed"] += 1
     total = sum(counts.values())
     if not total:
         return None

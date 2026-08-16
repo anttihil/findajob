@@ -15,9 +15,15 @@ application costs an afternoon; this costs a job you never saw.
 
 Only one failure is fatal. A blocker that decided a non-`eligible` verdict and cannot be
 located in the posting has nothing behind it, so the verdict is refused and retried.
-Everything else is a flag, persisted on the verdict row and reported in aggregate by
-`careerradar score audit`, which re-runs this module over stored verdicts with no API
-calls -- so the rates are watchable over time for free.
+Everything else is a flag, persisted to `job_verdicts.audit_flags` and counted in three
+places: at the end of each `score run`, by `careerradar score stats`, which aggregates the
+stored column, and -- for the two checks it re-derives -- by `careerradar score audit`.
+
+Note what that last command does NOT cover. It re-runs the blocker quote check and the
+profile contradiction check over stored verdicts with no API calls, which is what makes
+those two rates watchable for free. It does not read `audit_flags`, so a flag raised here
+and nowhere else -- `assessment_incomplete` is the one -- reaches the reader through
+`score stats`, not `score audit`.
 """
 
 import difflib
@@ -26,7 +32,12 @@ import unicodedata
 from typing import Any
 
 from careerradar.profile.adapter import ProfileAdapter
-from careerradar.profile.models import Constraints, FitAssessment, Profile
+from careerradar.profile.models import (
+    Constraints,
+    FitAssessment,
+    Profile,
+    normalize_requirement,
+)
 from careerradar.taxonomy.skills import Taxonomy
 
 # Below this ratio a quote is not a garbled version of anything in the posting. 0.85
@@ -370,8 +381,17 @@ def blocker_contradicts_profile(
 # The sentence rule requires an opening character after the stop, so `U.S. citizen` and
 # `e.g. Kubernetes` are left whole; the bracket rule is what reaches the parenthetical
 # aside, which is where a Nordic-language requirement usually sits.
+#
+# The ellipsis rule is first because it must beat the sentence rule to the same dots. The
+# model abbreviates a long quote rather than copying it: `Amca is building America's new
+# industrial base... deliver avionics, hydraulic, and electrical components`. Both halves
+# are verbatim and the whole string is in no window, so the fuzzy sweep cannot reach 0.85
+# against anything -- the elided middle is most of the text it is scored on. 13 of the 48
+# fatal quote failures in one backlog run were this, and splitting on the ellipsis gives
+# each half back as a candidate span that the cheap exact check already handles.
 _SEPARATOR = re.compile(
-    r"\s+(?:--|[-\u2010\u2011\u2012\u2013\u2014\u2015\u2212]|:)\s+"
+    r"\s*(?:\.{3,}|\u2026)\s*"
+    r"|\s+(?:--|[-\u2010\u2011\u2012\u2013\u2014\u2015\u2212]|:)\s+"
     r"|\s*;\s+"
     r"|(?<=[.!?])\s+(?=[\"'(\[A-Z\u00c0-\u00de])"
     r"|\s*[()\[\]]\s*"
@@ -450,18 +470,13 @@ def audit(
     `assessment` is mutated where a quote can be repaired. `fatal_reason` is not None when
     the caller should discard the verdict and retry.
     """
-    from careerradar.scoring.prompts import MAX_DESCRIPTION_CHARS
+    from careerradar.scoring.prompts import quotable_text
 
     # The model only ever saw the truncated description, so a quote must be checked against
-    # what it was shown, not against the full row.
-    seen = "\n".join(
-        [
-            posting.get("title") or "",
-            posting.get("company") or "",
-            posting.get("location") or "",
-            (posting.get("description") or "")[:MAX_DESCRIPTION_CHARS],
-        ]
-    )
+    # what it was shown, not against the full row. `quotable_text` is that set, and it
+    # lives next to `render_posting` so the two cannot drift apart again -- they had, over
+    # the derived `<facts>` line.
+    seen = quotable_text(posting)
 
     flags: list[dict[str, Any]] = []
     fatal: str | None = None
@@ -519,15 +534,20 @@ def audit(
                 }
             )
 
-    assessed = {a.requirement.strip().casefold() for a in assessment.requirement_assessments}
+    assessed = {normalize_requirement(a.requirement) for a in assessment.requirement_assessments}
     for requirement in assessment.core_requirements:
-        if requirement.requirement.strip().casefold() not in assessed:
-            # must_have gaps already raise in the schema; these softer ones degrade the
-            # explanation rather than the ordinals, so they are only recorded.
+        if normalize_requirement(requirement.requirement) not in assessed:
+            # This used to say "must_have gaps already raise in the schema; these softer
+            # ones degrade the explanation rather than the ordinals". The raise is gone --
+            # it cost a full call to buy back a re-typed string -- so this flag now covers
+            # both. `importance` is what separates them: a nice_to_have left unassessed is
+            # a thin explanation, a must_have left unassessed is a verdict resting on a
+            # requirement nobody checked, and a count that merges the two is not readable.
             flags.append(
                 {
                     "flag": "assessment_incomplete",
                     "where": "requirement_assessments",
+                    "importance": requirement.importance,
                     "text": requirement.requirement,
                 }
             )

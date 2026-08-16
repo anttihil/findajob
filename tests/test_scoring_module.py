@@ -438,3 +438,247 @@ class SamplingTests(unittest.TestCase):
 
         model = structured_model("deepseek-v4-flash")
         self.assertEqual(getattr(model, "reasoning_effort", None), "none")
+
+
+class UnenforcedSchemaTests(unittest.TestCase):
+    """DeepSeek does not validate tool arguments, so the schema repairs what it can.
+
+    `strict=True` compiles to a forced `tool_choice`, which guarantees the model CALLS the
+    tool and nothing about what it puts in the arguments -- see `docs/deepseek.md` section
+    3. Each case below is a rejection measured in one backlog run, with the call count it
+    cost. A raise buys the same draw again at `temperature=0`, so anything with an obvious
+    reading is repaired instead.
+    """
+
+    def assessment_fields(self, **overrides: Any) -> dict[str, Any]:
+        fields: dict[str, Any] = {
+            "role_summary": "Platform engineering for a container hosting product.",
+            "core_requirements": [
+                {
+                    "requirement": "Kubernetes",
+                    "quote": "someone who knows Kubernetes",
+                    "importance": "must_have",
+                }
+            ],
+            "requirement_assessments": [
+                {"requirement": "Kubernetes", "status": "partial"},
+            ],
+            "eligibility": "eligible",
+            "role_match": "adjacent",
+            "capability_match": "most_with_gaps",
+            "seniority_gap": "matched",
+            "evidence_quality": "adequate",
+            "reasoning": "Solid overlap.",
+            "research_worthy": False,
+        }
+        fields.update(overrides)
+        return fields
+
+    def test_a_blocking_requirement_is_read_as_unmet(self) -> None:
+        """126 calls and 26 lost postings in one run: `eligibility`'s word, one level down."""
+        parsed = FitAssessment(
+            **self.assessment_fields(
+                requirement_assessments=[{"requirement": "Kubernetes", "status": "blocked"}]
+            )
+        )
+        self.assertEqual(parsed.requirement_assessments[0].status, "unmet")
+
+    def test_the_three_statuses_are_named_where_the_model_will_read_them(self) -> None:
+        """The enum is not enforced, so the description is the only place it is stated."""
+        description = FitAssessment.model_fields["requirement_assessments"].description or ""
+        from careerradar.profile.models import RequirementAssessment
+
+        status = RequirementAssessment.model_fields["status"].description or ""
+        for value in ("met", "partial", "unmet"):
+            self.assertIn(value, status)
+        self.assertTrue(description)
+
+    def test_a_requirement_written_as_a_question_is_still_a_requirement(self) -> None:
+        """46 calls in one run: the rules say 'you answer five questions'."""
+        parsed = FitAssessment(
+            **self.assessment_fields(
+                core_requirements=[
+                    {
+                        "question": "Kubernetes",
+                        "quote": "someone who knows Kubernetes",
+                        "importance": "must_have",
+                    }
+                ]
+            )
+        )
+        self.assertEqual(parsed.core_requirements[0].requirement, "Kubernetes")
+
+    def test_an_explicit_requirement_wins_over_a_question(self) -> None:
+        parsed = FitAssessment(
+            **self.assessment_fields(
+                core_requirements=[
+                    {
+                        "requirement": "Kubernetes",
+                        "question": "Do they know Kubernetes?",
+                        "quote": "someone who knows Kubernetes",
+                        "importance": "must_have",
+                    }
+                ]
+            )
+        )
+        self.assertEqual(parsed.core_requirements[0].requirement, "Kubernetes")
+
+    def test_an_unassessed_must_have_is_recorded_rather_than_refused(self) -> None:
+        """It used to raise. 94% of those cleared on retry, so it bought back a re-typed
+        string at the price of a whole call. `scoring/audit.py` flags it instead."""
+        parsed = FitAssessment(**self.assessment_fields(requirement_assessments=[]))
+        self.assertEqual(parsed.requirement_assessments, [])
+
+    def test_a_verdict_with_no_requirements_at_all_is_still_refused(self) -> None:
+        """The extraction step being skipped is missing judgement, not a mistyped string."""
+        with self.assertRaises(ValueError):
+            FitAssessment(**self.assessment_fields(core_requirements=[]))
+
+
+class RequirementJoinTests(unittest.TestCase):
+    """One normalisation, four call sites.
+
+    `core_requirements` and `requirement_assessments` are one table joined on the
+    requirement text. The validator, the auditor, the dashboard counts and the drawer's
+    row join all have to agree about which requirement is which -- and did not: three used
+    `casefold()` and `web/rendering.py` used `lower()`.
+    """
+
+    def test_the_drift_the_model_actually_produces_is_folded(self) -> None:
+        from careerradar.profile.models import normalize_requirement
+
+        canonical = normalize_requirement("Credibility at technical level — carry a room")
+        self.assertEqual(
+            canonical, normalize_requirement("credibility  at technical level - carry a room ")
+        )
+
+    def test_a_genuinely_different_requirement_is_not_folded(self) -> None:
+        from careerradar.profile.models import normalize_requirement
+
+        self.assertNotEqual(
+            normalize_requirement("5+ years of Python"),
+            normalize_requirement("5+ years of Go"),
+        )
+
+    def test_every_join_site_uses_the_one_implementation(self) -> None:
+        """A site that spells the join itself is a site that can drift again."""
+        import inspect
+        import re
+
+        from careerradar.core import database
+        from careerradar.scoring import audit
+        from careerradar.web import rendering
+
+        for module, function in (
+            (database, database._requirement_summary),
+            (audit, audit.audit),
+            (rendering, rendering.requirement_rows),
+        ):
+            # The docstring is dropped rather than searched: all three discuss the
+            # old spellings on purpose, and `__doc__` cannot be used to find it because
+            # 3.13 dedents docstrings at compile time so it no longer matches the source.
+            source = re.sub(r'""".*?"""', "", inspect.getsource(function), count=1, flags=re.S)
+            self.assertIn("normalize_requirement", source, module.__name__)
+            self.assertNotIn(".casefold()", source, module.__name__)
+            self.assertNotIn(".lower()", source, module.__name__)
+
+    def test_the_dashboard_and_the_drawer_agree_on_a_drifted_requirement(self) -> None:
+        from careerradar.core.database import _requirement_summary
+        from careerradar.web.rendering import requirement_rows
+
+        core = [{"requirement": "Kubernetes  at scale", "importance": "must_have", "quote": "q"}]
+        assessments = [{"requirement": "kubernetes at scale", "status": "met"}]
+
+        summary = _requirement_summary(core, assessments)
+        assert summary is not None
+        self.assertEqual(summary["must_met"], 1)
+        self.assertEqual(summary["must_unassessed"], 0)
+
+        rows = requirement_rows({"core_requirements": core, "requirement_assessments": assessments})
+        self.assertEqual(rows[0]["status"], "met")
+
+
+class FailureReportingTests(unittest.TestCase):
+    """A retry prompt carrying the wrong rule buys the same failure again."""
+
+    def test_a_field_error_keeps_its_path_and_drops_the_input_dump(self) -> None:
+        from careerradar.scoring.graph import _rule_from
+
+        error = (
+            "1 validation error for FitAssessment\n"
+            "requirement_assessments.6.status\n"
+            "  Input should be 'met', 'partial' or 'unmet' [type=literal_error, "
+            "input_value='blocked', input_type=str]\n"
+            "    For further information visit https://errors.pydantic.dev/2.13/v/literal_error"
+        )
+        rule = _rule_from(error)
+        self.assertEqual(
+            rule, "requirement_assessments.6.status: Input should be 'met', 'partial' or 'unmet'"
+        )
+        self.assertNotIn("input_value", rule)
+        self.assertNotIn("errors.pydantic.dev", rule)
+
+    def test_several_field_errors_are_all_named(self) -> None:
+        from careerradar.scoring.graph import _rule_from
+
+        error = (
+            "2 validation errors for FitAssessment\n"
+            "eligibility\n"
+            "  Field required [type=missing, input_value={'role_summary': 'A Linux...'}, "
+            "input_type=dict]\n"
+            "    For further information visit https://errors.pydantic.dev/2.13/v/missing\n"
+            "reasoning\n"
+            "  Field required [type=missing, input_value={'role_summary': 'A Linux...'}, "
+            "input_type=dict]\n"
+            "    For further information visit https://errors.pydantic.dev/2.13/v/missing"
+        )
+        self.assertEqual(
+            _rule_from(error), "eligibility: Field required; reasoning: Field required"
+        )
+
+    def test_a_model_level_rule_is_still_returned_as_the_sentence(self) -> None:
+        from careerradar.scoring.graph import _rule_from
+
+        error = (
+            "1 validation error for FitAssessment\n"
+            "  Value error, core_requirements is empty: the extraction step was skipped. "
+            "[type=value_error, input_value={...}, input_type=dict]"
+        )
+        self.assertEqual(
+            _rule_from(error), "core_requirements is empty: the extraction step was skipped."
+        )
+
+    def test_the_quote_advice_only_rides_along_with_a_quote_failure(self) -> None:
+        from careerradar.scoring.graph import semantic_nudge
+
+        self.assertIn("copied from the posting", semantic_nudge("hard_blocker quote not found"))
+        self.assertNotIn(
+            "copied from the posting",
+            semantic_nudge("eligibility: Field required"),
+        )
+
+    def test_a_response_with_no_tool_call_says_why(self) -> None:
+        """This logged the bare string `None` 9 times in one run."""
+        from careerradar.scoring.graph import build_graph
+
+        truncated = {
+            "parsed": None,
+            "raw": mock.Mock(
+                response_metadata={"finish_reason": "length"},
+                invalid_tool_calls=[],
+                content="",
+            ),
+            "parsing_error": None,
+        }
+        from careerradar.scoring.graph import MAX_ATTEMPTS
+
+        chain = FakeChain([truncated] * MAX_ATTEMPTS)
+        model = mock.Mock()
+        model.with_structured_output.return_value = chain
+        with mock.patch("careerradar.scoring.graph.structured_model", return_value=model):
+            state = build_graph().invoke(
+                {"system": "s", "posting": posting(), "model": "deepseek-v4-flash"}
+            )
+        # The state carries the reason, so the worker's `No verdict for job ...` line and
+        # the quarantine's `last_scoring_error` both name it instead of saying `None`.
+        self.assertIn("output token limit", state["error"])
