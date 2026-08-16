@@ -491,6 +491,7 @@ def run_scoring(limit: int | None = None, rescore_all: bool = False, dry_run: bo
                 if verdict is None:
                     results["failed"] += 1
                     _record_failure(db, job["id"], state.get("error"))
+                    db.conn.commit()
                     logger.warning(
                         "No verdict for job %s (%s): %s",
                         job["id"],
@@ -509,13 +510,19 @@ def run_scoring(limit: int | None = None, rescore_all: bool = False, dry_run: bo
                     if len(first_usage) < 4:
                         first_usage.append(usage)
 
+                # Commit per posting, not per 25. Python opens a deferred transaction on
+                # the first write and holds SQLite's single writer slot until the commit,
+                # so batching 25 verdicts held that slot for 25 LLM round-trips -- longer
+                # than the 30s busy_timeout, which is how a concurrent `sync` died with
+                # `database is locked`. One WAL append per posting costs nothing next to
+                # the API call that produced it.
                 _persist(db, job, verdict, usage, cost, model, profile_version, phash)
+                db.conn.commit()
                 results["scored"] += 1
                 for flag in verdict.get("audit_flags") or []:
                     flagged[flag["flag"]] = flagged.get(flag["flag"], 0) + 1
 
                 if results["scored"] % 25 == 0:
-                    db.conn.commit()
                     print(f"  {results['scored']:,}/{len(jobs):,} scored  ${spend.usd:.4f}")
 
                 if spend.exhausted():
