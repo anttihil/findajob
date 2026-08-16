@@ -76,9 +76,16 @@ class MigrationV5Tests(unittest.TestCase):
         self.assertEqual(row["title"], "Platform Engineer")
         # Keyword score is kept: gap_analysis still measures against it.
         self.assertEqual(row["match_score"], 55)
-        # And the posting is queued, because no verdict exists for it yet.
+        # And the posting is queued, because no verdict exists for it yet. Asserted
+        # against `job_verdicts` rather than the old `jobs.fit_score`, which v13 dropped:
+        # the verdict row is what "scored" means now.
         self.assertEqual(row["pipeline_state"], "new")
-        self.assertIsNone(row["fit_score"])
+        self.assertEqual(
+            self.conn.execute(
+                "SELECT COUNT(*) FROM job_verdicts WHERE job_id = ?", (row["id"],)
+            ).fetchone()[0],
+            0,
+        )
 
     def test_superseded_columns_are_dropped(self) -> None:
         self.migrate_to(4)

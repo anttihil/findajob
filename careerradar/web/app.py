@@ -703,8 +703,12 @@ def filter_query(
     status: str = Query("unread", pattern="^(unread|saved|applied|rejected)$"),
     access: str = Query("", pattern="^(commutable|remote|relocation)?$"),
     country: str = "",
-    min_score: int | None = Query(None, ge=0, le=100),
-    max_tier: int | None = Query(None, ge=1, le=10),
+    # A string, not an int, because the control that sets it is a `<select>` whose "Any
+    # tier" option submits an empty value along with every other field in the sidebar
+    # form. Declared as `int | None` it could not parse that, so the whole dashboard
+    # answered 422 -- which meant country, tier and the score slider all looked broken,
+    # since none of them can be submitted without it.
+    max_tier: str = Query("", pattern="^([1-9]|10)?$"),
     verdict: str = Query("", pattern="^(strong|worth_applying|stretch|poor_fit|mismatch)?$"),
     eligibility: str = Query("", pattern="^(eligible|conditional|blocked)?$"),
     sort: str = Query("fit", pattern="^(fit|fit_score|match_score|date_found)$"),
@@ -716,8 +720,7 @@ def filter_query(
             "status": status,
             "access": access,
             "country": country,
-            "min_score": min_score,
-            "max_tier": max_tier,
+            "max_tier": int(max_tier) if max_tier else None,
             "verdict": verdict,
             "eligibility": eligibility,
             "sort": sort,
@@ -782,6 +785,7 @@ def dashboard(
                 "has_more": page["has_more"],
                 "stats": stats,
                 "countries": rendering.country_choices(load_roles()),
+                "verdicts": rendering.VERDICT_CHOICES,
                 "today": datetime.now().strftime("%B %-d, %Y"),
                 **drawer_context(db, query, job),
             },

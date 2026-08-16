@@ -78,7 +78,7 @@ def _candidates(
 
     query = f"""
         SELECT j.company_normalized,
-               MAX(j.fit_score)                AS best_score,
+               MAX(v.fit_score)                AS best_score,
                MIN(v.pareto_tier)              AS best_tier,
                COUNT(*)                        AS postings,
                MAX(j.company)                  AS company,

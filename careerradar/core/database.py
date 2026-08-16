@@ -135,6 +135,9 @@ class Database:
     # `requirement_summary` is derived from them, and that derivation stays in Python where
     # the matching normalisation already lives.
     _VERDICT_LIST_COLUMNS = (
+        # `jobs` held a second, unversioned copy of this until v13. There is one score now,
+        # and it is the one belonging to the profile version this join is pinned to.
+        "fit_score",
         "verdict",
         "eligibility",
         "role_match",
@@ -185,25 +188,23 @@ class Database:
         "fit": (
             "CASE v.eligibility WHEN 'eligible' THEN 0 WHEN 'conditional' THEN 1 "
             "WHEN 'blocked' THEN 2 ELSE 3 END, "
-            "COALESCE(v.pareto_tier, 99), date_found DESC"
+            "COALESCE(v.pareto_tier, 99), jobs.date_found DESC"
         ),
-        "fit_score": "fit_score DESC, match_score DESC, date_found DESC",
-        "match_score": "match_score DESC, date_found DESC",
-        "date_found": "date_found DESC",
+        # Every column is table-qualified. `fit_score` exists on both sides of the verdict
+        # join, so the bare name made SQLite refuse the whole query -- picking this sort in
+        # the dashboard was a 500. The verdict's copy is the one that answers to the active
+        # profile version, which is what the rest of this ordering already reads.
+        "fit_score": "v.fit_score DESC, jobs.match_score DESC, jobs.date_found DESC",
+        "match_score": "jobs.match_score DESC, jobs.date_found DESC",
+        "date_found": "jobs.date_found DESC",
     }
 
     def _select_columns(self, detail: bool) -> str:
         """The SELECT list, minus what the caller will not read."""
         if self._jobs_columns is None:
             self._jobs_columns = [row[1] for row in self.conn.execute("PRAGMA table_info(jobs)")]
-        if detail:
-            job_columns = ["jobs.*"]
-        else:
-            job_columns = [
-                f"jobs.{name}"
-                for name in self._jobs_columns
-                if name not in self._LIST_OMITTED_JOB_COLUMNS
-            ]
+        omitted = frozenset() if detail else self._LIST_OMITTED_JOB_COLUMNS
+        job_columns = [f"jobs.{name}" for name in self._jobs_columns if name not in omitted]
         verdict_columns = [
             f"v.{name} AS {name}"
             for name in (self._VERDICT_DETAIL_COLUMNS if detail else self._VERDICT_LIST_COLUMNS)
@@ -282,7 +283,7 @@ class Database:
             sql += " AND jobs.match_score >= ?"
             params.append(min_score)
         if min_fit_score is not None:
-            sql += " AND jobs.fit_score >= ?"
+            sql += " AND v.fit_score >= ?"
             params.append(min_fit_score)
         if max_tier is not None:
             sql += " AND v.pareto_tier <= ?"
@@ -360,7 +361,7 @@ class Database:
         if job_id is None:
             total = self.conn.execute(f"SELECT COUNT(*) FROM ({query})", params).fetchone()[0]
 
-        query += f" ORDER BY {self._SORTS.get(sort, self._SORTS['fit_score'])}"
+        query += f" ORDER BY {self._SORTS.get(sort, self._SORTS['fit'])}"
         query += " LIMIT ? OFFSET ?"
         params.extend([limit, offset])
 
@@ -448,7 +449,7 @@ class Database:
         )
         query = (
             f"SELECT jobs.id{self._FROM} WHERE 1=1{where}"
-            f" ORDER BY {self._SORTS.get(sort, self._SORTS['fit_score'])}"
+            f" ORDER BY {self._SORTS.get(sort, self._SORTS['fit'])}"
             f" LIMIT ? OFFSET ?"
         )
         args: list[Any] = [*params, limit, offset]

@@ -23,6 +23,25 @@ logger = get_logger()
 
 MAX_SEARCH_RESULTS = 6
 
+# The verdict for the ACTIVE profile, and no other. Identical to `Database._FROM`, and
+# spelled out once here for the same reason it is spelled out once there: the two queries
+# below both rank by the verdict, and a join that differed between them would rank the
+# two halves of the dossier's "other openings" list on different profiles.
+#
+# These queries used to read `jobs.fit_score` -- a denormalized copy that `scoring/worker`
+# writes on whichever profile scored the posting last, carrying no version with it. That
+# number reaches the synthesize prompt and then `company_dossiers.nearby_jobs_json`, so a
+# stale one does not just render wrong, it is reasoned over and cached. The stage already
+# refuses to run on a stale profile -- `worker._candidates` gates on this same join -- so
+# reading around it here was inconsistency rather than a decision.
+_ACTIVE_VERDICT_JOIN = """
+          job_verdicts v
+                 ON v.job_id = j.id
+                AND v.profile_version = (
+                    SELECT version FROM profiles WHERE is_active = 1
+                )
+"""
+
 
 class SearchUnavailable(RuntimeError):
     pass
@@ -79,16 +98,20 @@ def same_company_openings(
     owned = db is None
     db = db or Database()
     try:
-        query = """
-            SELECT id, title, company, location, url, fit_score, role_family
-              FROM jobs
-             WHERE company_normalized = ? AND duplicate_of IS NULL
+        # LEFT, unlike the sibling below: this answers "what else is open here", which is
+        # an inventory question. A posting the active profile has not judged yet still
+        # belongs on the list, it just has no score to rank on and sorts last.
+        query = f"""
+            SELECT j.id, j.title, j.company, j.location, j.url, v.fit_score, j.role_family
+              FROM jobs j
+              LEFT JOIN {_ACTIVE_VERDICT_JOIN}
+             WHERE j.company_normalized = ? AND j.duplicate_of IS NULL
         """
         params: list[Any] = [company_normalized]
         if exclude_job_id:
-            query += " AND id != ?"
+            query += " AND j.id != ?"
             params.append(exclude_job_id)
-        query += " ORDER BY fit_score DESC NULLS LAST, date_found DESC LIMIT ?"
+        query += " ORDER BY v.fit_score DESC NULLS LAST, j.date_found DESC LIMIT ?"
         params.append(limit)
         return [dict(r) for r in db.conn.execute(query, params)]
     finally:
@@ -113,17 +136,21 @@ def nearby_company_openings(
     owned = db is None
     db = db or Database()
     try:
+        # Inner, unlike the sibling above: this one claims the postings it returns are a
+        # good fit, and that claim needs a verdict from the profile in force. The old
+        # `AND j.fit_score IS NOT NULL` guard is gone because the join now does that job --
+        # `job_verdicts.fit_score` is NOT NULL.
         rows = db.conn.execute(
-            """
-            SELECT j.id, j.title, j.company, j.location, j.url, j.fit_score
+            f"""
+            SELECT j.id, j.title, j.company, j.location, j.url, v.fit_score
               FROM jobs j
               JOIN scrape_cells c ON c.id = j.scrape_cell_id
+              JOIN {_ACTIVE_VERDICT_JOIN}
              WHERE j.role_family = ?
                AND c.location_id = ?
                AND (j.company_normalized IS NULL OR j.company_normalized != ?)
                AND j.duplicate_of IS NULL
-               AND j.fit_score IS NOT NULL
-             ORDER BY j.fit_score DESC
+             ORDER BY v.fit_score DESC
              LIMIT ?
             """,
             (role_family, location_id, exclude_company, limit),

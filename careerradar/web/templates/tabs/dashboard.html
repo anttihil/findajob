@@ -51,9 +51,11 @@
        the URL says, so a control cannot render as active while filtering on something
        else. #}
     <form class="filter-sidebar" method="get" action="/">
-      {# Carried so that submitting the selects below does not drop the pill selections. #}
+      {# Carried so that submitting the selects below does not drop the pill selections,
+         or the sort -- changing a filter is not a request to re-order the feed. #}
       <input type="hidden" name="status" value="{{ query.status }}">
       <input type="hidden" name="access" value="{{ query.access }}">
+      <input type="hidden" name="sort" value="{{ query.sort }}">
 
       <div class="filter-header">
         <h3><i class="fa-solid fa-filter"></i> Filters</h3>
@@ -118,15 +120,20 @@
       </div>
 
       <div class="filter-group">
-        <div class="slider-header">
-          <label for="filter-score">Min Match Score</label>
-          <span id="score-val">{{ query.min_score if query.min_score is not none else 0 }}%</span>
-        </div>
-        <input type="range" id="filter-score" name="min_score" min="0" max="100"
-               value="{{ query.min_score if query.min_score is not none else 0 }}"
-               class="form-slider"
-               oninput="document.getElementById('score-val').textContent = this.value + '%'"
-               onchange="this.form.submit()">
+        <label for="filter-verdict">Verdict</label>
+        {# This replaced a "Min Match Score" slider over `jobs.match_score` -- the
+           keyword-coverage number the taxonomy produced before any posting was read by a
+           model. No card has shown it since the verdict badges landed, and the scale it
+           offered was wrong besides: the slider ran to 100% over a column whose real
+           spread is about 11-77, so most of its travel changed nothing. The verdict is
+           what the cards are badged by and what `sort=fit` ranks on. #}
+        <select id="filter-verdict" name="verdict" class="form-select"
+                onchange="this.form.submit()">
+          <option value="">Any verdict</option>
+          {%- for value, label in verdicts %}
+            <option value="{{ value }}" {{ 'selected' if query.verdict == value }}>{{ label }}</option>
+          {%- endfor %}
+        </select>
       </div>
 
       <noscript>

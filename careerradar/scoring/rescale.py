@@ -30,7 +30,7 @@ def rescale(
             params.append(profile_version)
 
         rows = db.conn.execute(
-            f"SELECT id, job_id, fit_score, verdict, scale_version, "
+            f"SELECT id, fit_score, verdict, scale_version, "
             f"{', '.join(rubric.DIMENSIONS)} FROM job_verdicts {where}",
             params,
         ).fetchall()
@@ -50,7 +50,7 @@ def rescale(
 
         migration: dict[tuple[str, str], int] = {}
         changed = 0
-        updates: list[tuple[int, str, int, int, int, int]] = []
+        updates: list[tuple[int, str, int, int, int]] = []
         for row in rows:
             ordinals = {name: row[name] for name in rubric.DIMENSIONS}
             if any(value is None for value in ordinals.values()):
@@ -70,7 +70,6 @@ def rescale(
                     projected["verdict"],
                     projected["pareto_tier"],
                     projected["scale_version"],
-                    row["job_id"],
                     row["id"],
                 )
             )
@@ -89,15 +88,12 @@ def rescale(
             print("\n(dry run -- nothing written)")
             return 0
 
-        for fit, verdict, tier, version, job_id, verdict_id in updates:
+        for fit, verdict, tier, version, verdict_id in updates:
             db.conn.execute(
                 "UPDATE job_verdicts SET fit_score = ?, verdict = ?, pareto_tier = ?, "
                 "scale_version = ? WHERE id = ?",
                 (fit, verdict, tier, version, verdict_id),
             )
-            # `jobs.fit_score` is a denormalized copy for sorting without a join; it has to
-            # move with the verdict or the two disagree.
-            db.conn.execute("UPDATE jobs SET fit_score = ? WHERE id = ?", (fit, job_id))
         db.conn.commit()
         print(f"\nrewritten at scale v{scale.SCALE_VERSION}")
         return 0

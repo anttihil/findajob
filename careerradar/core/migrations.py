@@ -13,7 +13,7 @@ from careerradar.core.logger import get_logger
 
 logger = get_logger()
 
-SCHEMA_VERSION = 12
+SCHEMA_VERSION = 13
 
 
 def _v1_baseline(cursor: sqlite3.Cursor) -> None:
@@ -945,6 +945,37 @@ def _v12_liveness_window(cursor: sqlite3.Cursor) -> None:
     )
 
 
+def _v13_drop_denormalized_fit_score(cursor: sqlite3.Cursor) -> None:
+    """Delete `jobs.fit_score`. The verdict row is the only score now.
+
+    v5 created `job_verdicts` and added this column in the same breath: the table keys on
+    `(job_id, profile_version)` and is the record, while the column was a copy kept on
+    `jobs` so a caller could rank by score without the join.
+
+    The copy carries no profile version. Every reader of it joined -- or should have
+    joined -- `job_verdicts` on the ACTIVE profile, and between a `profile build` and the
+    re-score that follows it the two say different things: the join returns NULL while the
+    copy still holds whatever the previous profile decided. Measured on this corpus, 306
+    of the 320 postings scored under both profile v3 and v4 changed score across the
+    rebuild, by as much as 57 points. That is the size of the lie the copy could tell.
+
+    It was believed, too. The dashboard drawer printed the copy beside a tier badge that
+    read `unscored` from the join; `min_fit_score` thresholded it; and the research stage
+    fed it into a synthesis prompt and cached the result in
+    `company_dossiers.nearby_jobs_json`.
+
+    `idx_jobs_pipeline_state` is rebuilt without it. SQLite refuses to drop an indexed
+    column, and the second key had no user left in any case -- the scoring backlog selects
+    on `pipeline_state = 'new'` with no score ordering (`scoring/worker.py`).
+    """
+    cursor.execute("DROP INDEX IF EXISTS idx_jobs_pipeline_state")
+    cursor.execute("CREATE INDEX idx_jobs_pipeline_state ON jobs(pipeline_state)")
+
+    existing = {row[1] for row in cursor.execute("PRAGMA table_info(jobs)")}
+    if "fit_score" in existing:
+        cursor.execute("ALTER TABLE jobs DROP COLUMN fit_score")
+
+
 MIGRATIONS: list[tuple[int, str, Callable[[sqlite3.Cursor], None]]] = [
     (1, "baseline jobs table", _v1_baseline),
     (2, "market analytics: cells, observations, skills, stats", _v2_analytics),
@@ -958,6 +989,7 @@ MIGRATIONS: list[tuple[int, str, Callable[[sqlite3.Cursor], None]]] = [
     (10, "scrape cell quality EWMA fed from LLM verdicts", _v10_cell_quality_ewma),
     (11, "measured per-cell scrape cost: duration, requests, cell_cost view", _v11_cell_cost),
     (12, "liveness requires the re-scrape's window to reach the posting", _v12_liveness_window),
+    (13, "drop the unversioned jobs.fit_score copy", _v13_drop_denormalized_fit_score),
 ]
 
 

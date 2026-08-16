@@ -36,7 +36,6 @@ FILTER_DEFAULTS: dict[str, Any] = {
     "status": "unread",
     "access": "",
     "country": "",
-    "min_score": None,
     "max_tier": None,
     "verdict": "",
     "eligibility": "",
@@ -44,6 +43,19 @@ FILTER_DEFAULTS: dict[str, Any] = {
     "limit": 50,
     "offset": 0,
 }
+
+# Ordered as the scale reads them, best first, so the dropdown is a ranking rather than a
+# list. `min_score` used to sit here instead: a 0-100 slider over `jobs.match_score`, which
+# is the keyword-coverage number from before the LLM scoring existed. Nothing on a card
+# shows it any more, its real range is about 11-77 so most of the slider did nothing, and
+# a threshold on it cut across the verdict the dashboard is actually sorted and badged by.
+VERDICT_CHOICES = [
+    ("strong", "Strong match"),
+    ("worth_applying", "Worth applying"),
+    ("stretch", "Stretch"),
+    ("poor_fit", "Poor fit"),
+    ("mismatch", "Mismatch"),
+]
 
 
 @dataclass

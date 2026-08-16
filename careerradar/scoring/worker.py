@@ -256,6 +256,12 @@ def _persist(
     recomputes the number from them without an API call, which is what makes the scale
     cheap to change. The projection is stored alongside so that SQL can sort and threshold
     without importing Python, and `scale_version` says which table produced it.
+
+    Both land in `job_verdicts`, keyed on (job_id, profile_version), and nowhere else.
+    `jobs` used to carry a second copy of the score for callers that wanted it without the
+    join; it is gone (v13). The copy had no profile version on it, so between a
+    `profile build` and the re-score that followed it every reader of it was reading a
+    number the active profile never produced.
     """
     db.conn.execute(
         """
@@ -335,9 +341,9 @@ def _persist(
     # produced a verdict is not failing, and tying the reset to the write that proves it
     # means no future success path can forget to do it.
     db.conn.execute(
-        "UPDATE jobs SET fit_score = ?, scored_at = ?, pipeline_state = 'scored', "
+        "UPDATE jobs SET scored_at = ?, pipeline_state = 'scored', "
         "scoring_failures = 0, last_scoring_error = NULL WHERE id = ?",
-        (verdict["fit_score"], _now(), job["id"]),
+        (_now(), job["id"]),
     )
     # Feed the cell that surfaced this posting a memory of how it scored, so the scheduler
     # can eventually reinvest scrape budget in cells with a track record of good matches,
