@@ -85,6 +85,29 @@ which database produced them. A figure computed on a development copy and a figu
 on production have differed by up to 7x in this project, in both directions. Say which one
 you used.
 
+## The stages queue, they do not overlap
+
+`search`, `score`, `research` and `migrate` take an exclusive `flock` on `.pipeline.lock`
+before they touch the database, and hold it until the process exits. A stage that finds the
+lock taken says so on stderr and waits:
+
+```
+score: another pipeline stage holds the database; waiting.
+```
+
+This is not a fault. The timers are independent -- a scrape takes ~20 minutes and scoring
+fires every half hour -- so an overlap is normal, and SQLite admits one writer at a time.
+Two stages writing together outlived the 30s `busy_timeout` and failed with `database is
+locked`. Waiting costs nothing: the queue lives in `jobs.pipeline_state`, so a stage that
+starts late still drains exactly what it would have drained.
+
+The wait is unbounded here on purpose. `TimeoutStartSec` in each unit is the bound, and a
+second one in the code would only disagree with it. The dashboard's Sync button takes the
+same lock; read-only commands (`status`, `score stats`, `search cost`, `web`) never do.
+
+Nothing needs to be cleaned up after a crash. The kernel drops an `flock` when the holder
+dies, unlike the `sync_status.json` lock, which needs `STALE_LOCK_MINUTES` to recover.
+
 ## Deploying an update
 
 Prod is a plain git checkout, so a deploy is a pull plus whatever the change touched.

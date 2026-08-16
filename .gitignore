@@ -11,6 +11,10 @@ jobs.db-wal
 jobs.db-shm
 jobs.db-journal
 
+# The flock the pipeline stages serialize on. Always empty; the lock is the file, not
+# its contents.
+.pipeline.lock
+
 # LangGraph checkpoints. Not just build artifacts: a checkpoint stores the graph's whole
 # state, and the profile graph's state holds the full text of every corpus document. That
 # puts career history in a repo whose entire .gitignore policy exists to keep it out.

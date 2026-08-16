@@ -25,6 +25,7 @@ from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, ConfigDict
 from starlette.types import Scope
 
+from careerradar.core import pipeline_lock
 from careerradar.core.config import deep_merge, load_config, save_config
 from careerradar.core.database import Database
 from careerradar.core.logger import get_logger
@@ -497,7 +498,11 @@ def bg_sync_task():
     # sync. The refusal returns before run_sync()'s try/finally, so the lock it never
     # actually held is never released either: every dashboard Sync click silently failed
     # and stuck sync_in_progress=true for up to 90 minutes.
-    run_sync(force=True)
+    #
+    # The pipeline lock is separate from that one and does a different job: it keeps this
+    # scrape off the database while `careerradar score run` (every 30 minutes) is writing.
+    with pipeline_lock.hold("dashboard sync"):
+        run_sync(force=True)
 
 
 @app.post("/api/sync")

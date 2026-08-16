@@ -122,6 +122,9 @@ def _cmd_web(args: argparse.Namespace) -> int:
 def build_parser() -> argparse.ArgumentParser:
     doc = __doc__ or ""
     parser = argparse.ArgumentParser(prog="careerradar", description=doc.split("\n")[0])
+    # Only the stages that write set `stage`; a read-only command (status, cost, stats)
+    # must never queue behind a 20-minute scrape.
+    parser.set_defaults(stage=None)
     sub = parser.add_subparsers(dest="command", required=True)
 
     # --- profile ---------------------------------------------------------------------
@@ -163,7 +166,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="recompute keyword scores over stored postings; no scraping",
     )
     sr.add_argument("--force", action="store_true", help="ignore the sync lock")
-    sr.set_defaults(func=_cmd_search)
+    sr.set_defaults(func=_cmd_search, stage="search")
     scost = ssub.add_parser("cost", help="measured time and requests per cell for one run")
     scost.add_argument("--run", type=int, default=None, help="sync_runs.id (default: latest)")
     scost.add_argument("--limit", type=int, default=10, help="how many slow cells to list")
@@ -193,7 +196,7 @@ def build_parser() -> argparse.ArgumentParser:
     scr.add_argument(
         "--dry-run", action="store_true", help="estimate cost and exit without calling the model"
     )
-    scr.set_defaults(func=_cmd_score)
+    scr.set_defaults(func=_cmd_score, stage="score")
 
     scs = scosub.add_parser("stats", help="verdict distribution for a scored corpus")
     scs.add_argument("--profile-version", type=int, help="defaults to the active profile")
@@ -227,7 +230,7 @@ def build_parser() -> argparse.ArgumentParser:
     scl.add_argument(
         "--dry-run", action="store_true", help="print the band migration without writing"
     )
-    scl.set_defaults(func=_cmd_score_rescale)
+    scl.set_defaults(func=_cmd_score_rescale, stage="rescale")
 
     # --- research --------------------------------------------------------------------
     r = sub.add_parser("research", help="build company dossiers for strong matches")
@@ -236,11 +239,11 @@ def build_parser() -> argparse.ArgumentParser:
     rr.add_argument("--company", help="research one named company, ignoring the queue")
     rr.add_argument("--limit", type=int, help="cap the number of companies researched")
     rr.add_argument("--dry-run", action="store_true", help="show what would be researched and exit")
-    rr.set_defaults(func=_cmd_research)
+    rr.set_defaults(func=_cmd_research, stage="research")
 
     # --- db / web --------------------------------------------------------------------
     d = sub.add_parser("migrate", help="apply pending schema migrations")
-    d.set_defaults(func=_cmd_migrate)
+    d.set_defaults(func=_cmd_migrate, stage="migrate")
 
     st = sub.add_parser("status", help="one health report for every stage of the pipeline")
     st.add_argument("--json", action="store_true", help="machine-readable, for piping over ssh")
@@ -257,7 +260,13 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
-    return args.func(args) or 0
+    if not args.stage:
+        return args.func(args) or 0
+
+    from careerradar.core import pipeline_lock
+
+    with pipeline_lock.hold(args.stage):
+        return args.func(args) or 0
 
 
 if __name__ == "__main__":
