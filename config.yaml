@@ -146,9 +146,6 @@ scraper:
       results_wanted_default: 60
       max_results_wanted: 100
       max_pages_per_run: 60
-      # Read by nothing. Descriptions are all-or-nothing per cell via fetch_descriptions,
-      # so this caps nothing today. Kept as the place a per-run description cap would go.
-      description_fetches_per_run: 40
       min_seconds_between_searches: 6.0
       jitter_seconds: [2.0, 6.0]
       fetch_descriptions: false

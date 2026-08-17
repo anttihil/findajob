@@ -367,13 +367,12 @@ def _make_task(
     #           complete for role supply.
     #   top_k   a pre-score-selected subset (reserved; not currently produced).
     #
-    # 'budgeted' previously mapped to top_k, which was wrong twice over: nothing fetched
-    # descriptions for the selected subset, so LinkedIn postings had NO description and
-    # scored on titles alone, and labelling an empty set top_k implied a bias that was not
-    # there. Enabling descriptions for the whole cell (which a rotating proxy pool makes
-    # affordable) is both simpler and statistically cleaner than sampling a biased subset.
+    # When fetch_descriptions is off, that's authoritative regardless of what desc_selection
+    # says: nothing was fetched, so the cell cannot be labelled census or top_k. When it's
+    # on, config's desc_selection names which of those two actually happened; it defaults to
+    # census because that is the only one currently produced.
     if fetch_setting is True:
-        fetch_description, desc_selection = True, "census"
+        fetch_description, desc_selection = True, budget.get("desc_selection", "census")
     else:
         fetch_description, desc_selection = False, "none"
 
