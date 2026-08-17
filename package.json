@@ -1,0 +1,32 @@
+{
+  "name": "careerradar-web",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint careerradar/web/frontend-src",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@preact/signals": "^1.3.0",
+    "marked": "^14.1.3",
+    "preact": "^10.24.3",
+    "wouter-preact": "^3.3.5"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.17.0",
+    "@preact/preset-vite": "^2.9.1",
+    "@testing-library/preact": "^3.2.4",
+    "@types/node": "^22.10.2",
+    "eslint": "^9.17.0",
+    "eslint-plugin-react-hooks": "^5.1.0",
+    "jsdom": "^25.0.1",
+    "typescript": "^5.7.2",
+    "typescript-eslint": "^8.18.2",
+    "vite": "^6.0.6",
+    "vitest": "^4.1.10"
+  }
+}

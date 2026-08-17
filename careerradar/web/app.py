@@ -15,6 +15,7 @@ from fastapi import (
     Request,
 )
 from fastapi.responses import (
+    FileResponse,
     HTMLResponse,
     JSONResponse,
     RedirectResponse,
@@ -935,3 +936,26 @@ def set_job_status_form(
         )
     finally:
         db.close()
+
+
+# --- Preact SPA shell -------------------------------------------------------------------
+#
+# Registered last, so every route above -- notably `/` and `/drawer` -- still wins during
+# the migration. Once those are deleted (final cutover), this becomes the route `/` falls
+# through to as well, alongside every other client-side path.
+#
+# `/api/...` and `/static/...` are excluded rather than left to fall through on no other
+# route matching, because a typo'd or removed API path should 404 as itself, not silently
+# return the SPA shell -- that failure mode reads as "this loaded", not "this is missing".
+_SPA_INDEX = os.path.join(FRONTEND_DIR, "dist", "index.html")
+
+
+@app.get("/{path:path}", response_class=HTMLResponse)
+def spa_shell(path: str):
+    if path.startswith(("api/", "static/")):
+        raise HTTPException(status_code=404, detail="Not Found")
+    if not os.path.exists(_SPA_INDEX):
+        raise HTTPException(
+            status_code=503, detail="Frontend not built yet -- run `npm run build`."
+        )
+    return FileResponse(_SPA_INDEX, headers=CACHE_HEADERS)
