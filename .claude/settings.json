@@ -1,0 +1,23 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 .claude/hooks/check_ruff.py || true",
+            "timeout": 30,
+            "statusMessage": "Running ruff..."
+          },
+          {
+            "type": "command",
+            "command": "python3 .claude/hooks/check_pyright.py || true",
+            "timeout": 60,
+            "statusMessage": "Running pyright..."
+          }
+        ]
+      }
+    ]
+  }
+}
