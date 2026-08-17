@@ -30,6 +30,7 @@ from careerradar.core.config import deep_merge, load_config, save_config
 from careerradar.core.database import Database
 from careerradar.core.logger import get_logger
 from careerradar.core.paths import FRONTEND_DIR, REPO_ROOT, TEMPLATE_DIR
+from careerradar.core.status import collect as collect_status
 from careerradar.core.status_manager import (
     clear_stale_lock,
     is_sync_running,
@@ -48,6 +49,7 @@ from careerradar.web import rendering
 
 if TYPE_CHECKING:
     from careerradar.profile.adapter import ProfileAdapter
+    from careerradar.search.scheduler import ScrapeTask
     from careerradar.taxonomy.roles import RoleTaxonomy
     from careerradar.taxonomy.skills import Taxonomy
 
@@ -525,6 +527,20 @@ def get_sync_status():
     return status
 
 
+def _scrape_tasks(
+    db: Database, config: dict[str, Any], roles: "RoleTaxonomy", source: str
+) -> list["ScrapeTask"]:
+    """The tasks `run_sync` would pick for one source, right now.
+
+    Shared by /api/sync/plan (a source's full plan, for display) and /api/pipeline/status
+    (a count summed over every enabled source, for the live progress denominator) so the
+    two cannot disagree about what "planned" means.
+    """
+    cells = db.get_cells(source=source)
+    scraper_config = with_location_weights(config.get("scraper", {}), roles)
+    return select_cells(cells, scraper_config, roles, source)
+
+
 @app.get("/api/sync/plan")
 def get_sync_plan(source: str = "indeed"):
     """What the next run would scrape, for transparency before a long scrape."""
@@ -532,14 +548,64 @@ def get_sync_plan(source: str = "indeed"):
     try:
         config = load_config()
         roles = load_roles()
-        cells = db.get_cells(source=source)
-        scraper_config = with_location_weights(config.get("scraper", {}), roles)
-        tasks = select_cells(cells, scraper_config, roles, source)
+        tasks = _scrape_tasks(db, config, roles, source)
         return {
             "source": source,
-            "cells_total": len(cells),
+            "cells_total": len(db.get_cells(source=source)),
             "cells_planned": len(tasks),
             "tasks": [task.to_dict() for task in tasks],
+        }
+    finally:
+        db.close()
+
+
+@app.get("/api/pipeline/status")
+def pipeline_status():
+    """Live progress for the two background stages: scraping and scoring.
+
+    `careerradar status` (careerradar/core/status.py) already answers "is each stage
+    stalled" from history alone -- last completed run, verdict backlog, verdict recency.
+    This reuses that report and adds the two things it cannot show: how far the scrape
+    *in progress right now* has gotten, and whether the scorer -- which has no lock file,
+    only a timer -- has written anything in the last few minutes.
+    """
+    db = get_db()
+    try:
+        report = collect_status(db)
+        running = is_sync_running()
+
+        scrape: dict[str, Any] = {
+            "in_progress": running,
+            "started_at": load_sync_status().get("started_at") if running else None,
+            "previous_run": report["search"],
+        }
+        if running:
+            run = db.conn.execute(
+                "SELECT id FROM sync_runs WHERE status = 'running' ORDER BY id DESC LIMIT 1"
+            ).fetchone()
+            if run is not None:
+                config = load_config()
+                roles = load_roles()
+                enabled = [
+                    name
+                    for name, on in (config.get("scraper", {}).get("sources") or {}).items()
+                    if on
+                ]
+                scrape["cells_done"] = db.conn.execute(
+                    "SELECT COUNT(*) FROM cell_observations WHERE sync_run_id = ?",
+                    (run["id"],),
+                ).fetchone()[0]
+                scrape["cells_planned"] = sum(
+                    len(_scrape_tasks(db, config, roles, source)) for source in enabled
+                )
+
+        recent_verdicts = db.conn.execute(
+            "SELECT COUNT(*) FROM job_verdicts WHERE created_at >= datetime('now', '-5 minutes')"
+        ).fetchone()[0]
+
+        return {
+            "scrape": scrape,
+            "score": {**report["score"], "recent_verdicts_5min": recent_verdicts},
         }
     finally:
         db.close()

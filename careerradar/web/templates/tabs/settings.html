@@ -15,6 +15,33 @@
             </div>
         </div>
 
+        <div class="glass-card mt-6" id="pipeline-status-card">
+            <h3><i class="fa-solid fa-gauge-high"></i> Pipeline Progress</h3>
+            <p>Live status for the two background stages. Both also run on their own timer,
+                independent of the buttons above, so this reflects whatever is happening right
+                now -- not just what this browser triggered.</p>
+
+            <div class="pipeline-stage">
+                <div class="pipeline-stage-header">
+                    <span class="status-dot" id="scrape-stage-dot"></span>
+                    <span class="pipeline-stage-title">Scraping</span>
+                    <span class="pipeline-stage-status" id="scrape-stage-status"></span>
+                </div>
+                <div id="scrape-progress-meter"></div>
+                <p class="card-note" id="scrape-stage-detail"></p>
+            </div>
+
+            <div class="pipeline-stage mt-4">
+                <div class="pipeline-stage-header">
+                    <span class="status-dot" id="score-stage-dot"></span>
+                    <span class="pipeline-stage-title">Scoring</span>
+                    <span class="pipeline-stage-status" id="score-stage-status"></span>
+                </div>
+                <div id="score-progress-meter"></div>
+                <p class="card-note" id="score-stage-detail"></p>
+            </div>
+        </div>
+
         <div class="glass-card settings-card mt-6">
             <h3><i class="fa-solid fa-gear"></i> Search Configuration</h3>
             

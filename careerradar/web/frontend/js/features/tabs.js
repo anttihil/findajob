@@ -10,6 +10,7 @@ import { loadMarketTab } from './market.js';
 import { loadSkillsTab } from './skills.js';
 import { renderResumesTab } from './resumes.js';
 import { checkSyncStatus } from './sync.js';
+import { startPipelinePolling, stopPipelinePolling } from './pipeline.js';
 
 const TABS = {
     'dashboard':    { title: 'Career Dashboard' },
@@ -18,13 +19,22 @@ const TABS = {
     'digests':      { title: 'Daily Job Digests', load: loadDigests },
     'market':       { title: 'Market Supply', load: loadMarketTab },
     'skills':       { title: 'Skill Gap Analysis', load: loadSkillsTab },
-    'settings':     { title: 'Radar Configurations', load: checkSyncStatus },
+    'settings':     {
+        title: 'Radar Configurations',
+        load: () => { checkSyncStatus(); startPipelinePolling(); },
+        unload: stopPipelinePolling,
+    },
 };
+
+let currentTab = null;
 
 function activate(name) {
     const tab = TABS[name] ? name : 'dashboard';
     const pane = document.getElementById(`tab-${tab}`);
     if (!pane) return;
+
+    if (currentTab && currentTab !== tab) TABS[currentTab].unload?.();
+    currentTab = tab;
 
     document.querySelectorAll('.nav-item').forEach(n =>
         n.classList.toggle('active', n.getAttribute('data-tab') === tab));
