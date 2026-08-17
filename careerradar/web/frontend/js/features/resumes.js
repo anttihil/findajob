@@ -17,12 +17,12 @@ function levelLabel(level) {
 }
 
 function skillTags(skills) {
-    const entries = Object.entries(skills || {})
-        .sort((a, b) => (b[1] - a[1]) || a[0].localeCompare(b[0]));
+    const entries = [...(skills || [])]
+        .sort((a, b) => (b.level - a.level) || a.key.localeCompare(b.key));
     if (!entries.length) return '<span class="skill-tag">No skills recorded</span>';
-    return entries.map(([key, level]) =>
-        `<span class="skill-tag" title="level ${escapeHTML(level)} — ${escapeHTML(levelLabel(level))}"
-         >${escapeHTML(key.replace(/_/g, ' '))} <em>${escapeHTML(levelLabel(level))}</em></span>`
+    return entries.map(skill =>
+        `<span class="skill-tag" title="level ${escapeHTML(skill.level)} — ${escapeHTML(levelLabel(skill.level))}"
+         >${escapeHTML(skill.label || skill.key.replace(/_/g, ' '))} <em>${escapeHTML(levelLabel(skill.level))}</em></span>`
     ).join('');
 }
 
@@ -63,7 +63,7 @@ export async function renderResumesTab() {
     if (!record) return;  // request failed; `guard` has surfaced it
 
     const profile = record.profile || {};
-    const skills = profile.skills || {};
+    const skills = profile.skills || [];
 
     container.innerHTML = `
         <div class="resume-card">
@@ -75,7 +75,7 @@ export async function renderResumesTab() {
             </div>
             <div class="divider"></div>
             <p class="verdict-summary">${escapeHTML(profile.bio || '')}</p>
-            <h4>Skills Vector (${Object.keys(skills).length})</h4>
+            <h4>Skills Vector (${skills.length})</h4>
             <div class="skills-scroll-area">${skillTags(skills)}</div>
             <h4>Built from</h4>
             <ul class="detail-list">${documentRows(record.documents)}</ul>
