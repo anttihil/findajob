@@ -88,7 +88,7 @@ def _cmd_profile(args: argparse.Namespace) -> Any:
 def _cmd_seed_cells(args: argparse.Namespace) -> Any:
     from careerradar.search.seed import seed_cells
 
-    return seed_cells(prune=args.prune, queries_per_family=args.queries_per_family)
+    return seed_cells(prune=args.prune)
 
 
 def _cmd_migrate(args: argparse.Namespace) -> int:  # noqa: ARG001 - argparse handler signature
@@ -176,12 +176,6 @@ def build_parser() -> argparse.ArgumentParser:
     sc = ssub.add_parser("seed-cells", help="rebuild the scrape cell matrix from roles.yaml")
     sc.add_argument(
         "--prune", action="store_true", help="disable cells no longer implied by roles.yaml"
-    )
-    sc.add_argument(
-        "--queries-per-family",
-        type=int,
-        default=None,
-        help="override per-tier default (roles.DEFAULT_QUERIES_PER_FAMILY) with one flat count",
     )
     sc.set_defaults(func=_cmd_seed_cells)
 

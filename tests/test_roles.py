@@ -13,7 +13,6 @@ import unittest
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from careerradar.taxonomy.roles import (
-    DEFAULT_QUERIES_PER_FAMILY,
     SENIORITY_UNSPECIFIED,
     load_roles,
 )
@@ -122,6 +121,27 @@ class SeniorityTests(unittest.TestCase):
 
     def test_plain_associate_still_reads_as_junior(self) -> None:
         self.assertEqual(self.roles.seniority("Associate Engineer"), "junior")
+
+    def test_member_of_technical_staff_is_not_staff_level(self) -> None:
+        """An IC title at AI labs, claimed by `\\bstaff\\b` until it was special-cased.
+
+        It matters because scoring now skips `staff` entirely (config.yaml
+        scoring.skip_seniority): on prod_jobs.db 2026-08-16 these titles are 26 scored for
+        3 hits and avg fit 29.6, against 928 scored for 1 hit for genuine staff titles, so
+        leaving them mislabelled would have silently dropped the better group.
+        """
+        cases = [
+            "Member of Technical Staff",
+            "Member Technical Staff",
+            "Design Engineer - Member of Technical Staff",
+            "Member of the Technical Staff, Inference",
+        ]
+        for title in cases:
+            self.assertEqual(self.roles.seniority(title), "unspecified", title)
+
+    def test_genuine_staff_titles_still_read_as_staff(self) -> None:
+        for title in ("Staff Software Engineer", "Principal Engineer", "Solutions Architect"):
+            self.assertEqual(self.roles.seniority(title), "staff", title)
 
     def test_senior_reorder_does_not_disturb_staff_or_lead(self) -> None:
         cases = [
@@ -386,10 +406,11 @@ class CellPlanningTests(unittest.TestCase):
     def test_cell_count_supports_a_short_matrix_cycle(self) -> None:
         """Cell count is the binding constraint on the analytics window.
 
-        DEFAULT_QUERIES_PER_FAMILY seeds core-tier families with several query phrasings
-        instead of 1 (see roles.py/cell_specs' docstring for why: LinkedIn's page-wall
-        assumption that originally bounded this was empirically refuted), so the matrix is
-        larger than the original ~250-cell/~5-day-cycle design point.
+        Every declared query_term is seeded, so core-tier families carry several phrasings
+        rather than 1 (see roles.py/cell_specs' docstring for why: LinkedIn's page-wall
+        assumption that originally bounded this was empirically refuted), and the matrix is
+        larger than the original ~250-cell/~5-day-cycle design point. The guard is on the
+        total, which is now a consequence of roles.yaml alone.
 
         The ceiling is derived from measured throughput rather than guessed: production
         sustains 64 cells/day (2 runs x ~32 cells, verified over 23 sync_runs on
@@ -428,44 +449,40 @@ class CellPlanningTests(unittest.TestCase):
         sources = {s["source"] for s in self.roles.cell_specs()}
         self.assertEqual(sources, {"indeed", "linkedin"})
 
-    def test_alternate_queries_are_preserved_for_rotation(self) -> None:
-        alternates = self.roles.alternate_queries("ai_engineer")
-        self.assertTrue(alternates)
-        self.assertNotIn("AI Engineer", alternates)
+    def test_every_declared_query_term_is_seeded(self) -> None:
+        """roles.yaml is the whole search plan -- no term is declared and then not sent.
 
-    def test_more_queries_per_family_expands_the_matrix(self) -> None:
-        one = self.roles.cell_specs(queries_per_family=1)
-        two = self.roles.cell_specs(queries_per_family=2)
-        self.assertGreater(len(two), len(one))
-
-    def test_default_queries_per_family_is_tier_aware(self) -> None:
-        """A core family seeds strictly more phrasings than a breadth one.
-
-        Asserted as a property against DEFAULT_QUERIES_PER_FAMILY rather than against
-        literal counts. The literals were 2/1/1 and are now 4/2/2 -- the numbers are a
-        budget decision that gets retuned as throughput changes, while tier-awareness
-        itself is the invariant, and a test that has to be edited alongside every retune
-        stops being evidence that the retune was intended.
+        This replaces a per-tier cap that seeded only `query_terms[:n]`. The cap made the
+        file lie: four declared terms were never sent to a board, and nothing in roles.yaml
+        showed which. The invariant that matters now is that declaring a term is the same
+        act as searching for it.
         """
         specs = self.roles.cell_specs(sources=("indeed",))
-        core_queries = {
-            s["query"] for s in specs if s["role_family"] == "ai_engineer" and s["tier"] == "core"
-        }
-        expected_core = DEFAULT_QUERIES_PER_FAMILY["core"]
-        self.assertEqual(
-            core_queries, set(self.roles.families["ai_engineer"].query_terms[:expected_core])
-        )
+        for key, family in self.roles.families.items():
+            seeded = {s["query"] for s in specs if s["role_family"] == key}
+            self.assertEqual(seeded, set(family.query_terms), key)
 
-        breadth_family = next(f for f in self.roles.families.values() if f.tier == "breadth")
-        breadth_queries = {s["query"] for s in specs if s["role_family"] == breadth_family.key}
-        expected_breadth = DEFAULT_QUERIES_PER_FAMILY["breadth"]
-        self.assertEqual(breadth_queries, set(breadth_family.query_terms[:expected_breadth]))
-        self.assertGreater(expected_core, expected_breadth)
+    def test_a_family_with_no_query_terms_is_not_searched(self) -> None:
+        """`query_terms: []` means classify, do not search -- so it plans zero cells.
 
-    def test_alternate_queries_accounts_for_seeded_count(self) -> None:
-        alternates = self.roles.alternate_queries("ai_engineer")
-        self.assertNotIn("AI Engineer", alternates)
-        self.assertNotIn("GenAI Engineer", alternates)
+        The patterns stay live, which is the point: role_family is derived from the title,
+        so the family still accounts for postings other families' queries drag in.
+        """
+        silent = [k for k, f in self.roles.families.items() if not f.query_terms]
+        self.assertTrue(silent, "expected at least one classify-only family in roles.yaml")
+        planned = {s["role_family"] for s in self.roles.cell_specs()}
+        for key in silent:
+            self.assertNotIn(key, planned, key)
+            self.assertTrue(self.roles.families[key]._patterns, key)
+
+    def test_cell_cost_of_a_term_follows_its_tier(self) -> None:
+        """With no cap, one declared term costs len(tier_locations) x len(sources) cells."""
+        specs = self.roles.cell_specs(sources=("indeed", "linkedin"))
+        for key, family in self.roles.families.items():
+            if not family.query_terms:
+                continue
+            expected = len(family.query_terms) * len(self.roles.tier_locations[family.tier]) * 2
+            self.assertEqual(len([s for s in specs if s["role_family"] == key]), expected, key)
 
 
 if __name__ == "__main__":

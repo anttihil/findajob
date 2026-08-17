@@ -4,7 +4,10 @@ Re-runnable after every taxonomy edit. Existing cells keep their scrape history,
 roles.yaml does not reset coverage; cells no longer in the taxonomy are disabled rather than
 deleted, which keeps cell_observations' foreign keys and past analytics auditable.
 
-    careerradar search seed-cells [--prune] [--queries-per-family N]
+    careerradar search seed-cells [--prune]
+
+Every query_term declared in roles.yaml is seeded. There is no per-tier cap, so the file
+is the whole plan: what it lists is what gets searched.
 """
 
 from careerradar.core.config import load_config
@@ -17,7 +20,7 @@ from careerradar.taxonomy.roles import load_roles
 RUNS_PER_DAY = 4
 
 
-def seed_cells(prune: bool = False, queries_per_family: dict[str, int] | int | None = None) -> int:
+def seed_cells(prune: bool = False) -> int:
     config = load_config()
     scraper = config.get("scraper", {})
     enabled_sources = tuple(name for name, on in (scraper.get("sources") or {}).items() if on) or (
@@ -32,7 +35,7 @@ def seed_cells(prune: bool = False, queries_per_family: dict[str, int] | int | N
             print(f"  - {problem}")
         return 1
 
-    specs = roles.cell_specs(sources=enabled_sources, queries_per_family=queries_per_family)
+    specs = roles.cell_specs(sources=enabled_sources)
 
     db = Database()
     try:

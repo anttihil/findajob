@@ -4,7 +4,6 @@
 # Personal documents are gitignored; scripts/sync_corpus.sh pulls achievements.md in from
 # the separate `resume` repo.
 
-
 # ---------------------------------------------------------------------------------------
 # Scraping
 #
@@ -28,22 +27,25 @@ scraper:
   # (search/scheduler.py: estimate_pages, estimate_units). Both are measured, not read off
   # the library: `careerradar search cost` compares them against what a run actually spent.
   page_size:
-    indeed: 100       # results per GraphQL page. Was 15 until 2026-08-15, which charged an
-                       # Indeed cell 5 pages for what measurement showed costs 1-2 requests
-                       # (45 results arrived in one page; JobSpy asks for 100 per page)
-    linkedin: 10      # results per guest-API page -- measured 2026-08-14 (see
-                       # experiments/linkedin_page_wall/); JobSpy's own jobs_per_page=25
-                       # constant does not match what the API actually returns per request
+    indeed:
+      100 # results per GraphQL page. Was 15 until 2026-08-15, which charged an
+      # Indeed cell 5 pages for what measurement showed costs 1-2 requests
+      # (45 results arrived in one page; JobSpy asks for 100 per page)
+    linkedin:
+      10 # results per guest-API page -- measured 2026-08-14 (see
+      # experiments/linkedin_page_wall/); JobSpy's own jobs_per_page=25
+      # constant does not match what the API actually returns per request
 
   # Extra requests per posting to obtain its description. This is the number that made the
   # LinkedIn budget wrong by 11x while it went uncounted: a 50-posting census cell spends
   # 6 search pages and 50 description fetches, not 5 requests.
   requests_per_description:
-    indeed: 0         # descriptions arrive inside the search page, so a census is free
-    linkedin: 1       # one request per posting (jobspy/linkedin/__init__.py
-                       # _get_job_details); rewritten to the cheaper guest fragment in
-                       # search/sources/jobspy_source.py, which changes the latency, not
-                       # the count
+    indeed: 0 # descriptions arrive inside the search page, so a census is free
+    linkedin:
+      1 # one request per posting (jobspy/linkedin/__init__.py
+      # _get_job_details); rewritten to the cheaper guest fragment in
+      # search/sources/jobspy_source.py, which changes the latency, not
+      # the count
 
   # How long raw scrape payloads are kept in raw_payloads/ so a normalizer bug can be
   # replayed without re-scraping. Pruned at the start of every non-dry run. Measured
@@ -77,7 +79,7 @@ scraper:
   # back out on its own. So this does nothing until run frequency rises, then it starts
   # paying immediately -- there is no ordering dependency between the two changes.
   hours_old_floor:
-    core: 24
+    core: 72
     adjacent: 72
     breadth: 168
   max_hours_old: 336
@@ -176,8 +178,8 @@ scraper:
   # down otherwise, though a direct probe (2026-08-14, see the top of this file) found no
   # such wall through page 99 on a single proxied IP.
   proxies:
-    enabled: true            # only takes effect when SCRAPER_PROXIES is set
-    rotating: true           # the gateway rotates exit IPs per request
+    enabled: true # only takes effect when SCRAPER_PROXIES is set
+    rotating: true # the gateway rotates exit IPs per request
     # Budget overrides applied ONLY when proxies are actually available.
     with_proxies:
       linkedin:
@@ -307,7 +309,7 @@ analytics:
   # Publication gates. Suppress WITH a reason; never silently omit.
   min_postings_for_skill: 20
   min_companies_for_skill: 3
-  max_company_share: 0.40      # one employer dominating a skill is not market demand
+  max_company_share: 0.40 # one employer dominating a skill is not market demand
   min_n_eff_for_scope: 20
   min_coverage_fraction: 0.50
   # Was 3, which conflicted with the scheduler's whole purpose: it deliberately ROTATES to
@@ -414,6 +416,28 @@ scoring:
   # the timer came back on. At the measured $0.0006 a posting -- not the $0.0004 assumed
   # when this was set -- 8.00 covers ~13,000 postings, so a backlog past that aborts.
   max_usd_per_run: 8.00
+  # Seniority levels never sent to the judge. Measured on prod_jobs.db (2026-08-16,
+  # 17,471 verdicts): `lead` scores 0.1% (4,147 scored, 3 hits) and `staff` 0.4% (1,388
+  # scored, 5 hits), against 12.8% for `unspecified` and 19.7% for `mid`. Together they are
+  # 32% of every verdict ever written for 8 hits.
+  #
+  # This is NOT a family effect and cannot be expressed in roles.yaml: inside the seven
+  # highest-yield families lead/staff still score 0.5%. It also explains why tech_lead,
+  # eng_manager, tpm and product_manager are dead families -- roles.yaml maps `\bmanager\b`
+  # to lead, and manager/director/head-of titles are 3,235 scored for ZERO hits.
+  #
+  # What it costs, stated plainly: the `lead`/`leading` titles proper (as opposed to
+  # manager/director) are 912 scored for 3 hits, and those 3 are real IC roles -- "Software
+  # Engineer - Volunteer Program Lead" (74), a Stockholm "Tech Lead/Full-stack Utvecklare"
+  # (62) and "Software Engineer Lead" (62). Dropping `lead` from this list buys them back
+  # for ~5% more scoring volume. `staff` has no such case: excluding architect titles and
+  # "Member of Technical Staff" (which roles.py now reads as unspecified, because it is an
+  # IC title at AI labs and scores 11.5%), genuine staff titles are 928 scored for 1 hit.
+  #
+  # Seniority comes from the title, so this saves LLM calls and dashboard noise -- never
+  # scrape budget. The posting is stored and classified either way, which is what keeps
+  # supply analytics honest about demand the user is choosing not to pursue.
+  skip_seniority: [lead, staff]
   # Which postings earn a deep-research pass. A predicate rather than a number on a lumpy
   # scale -- and it states its own reasoning, which `fit_score >= 70` never did.
   research_gate:

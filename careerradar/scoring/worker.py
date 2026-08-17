@@ -33,6 +33,7 @@ from careerradar.scoring.prompts import (
     render_posting,
     render_skill_hint,
 )
+from careerradar.taxonomy.roles import SENIORITY_UNSPECIFIED
 from careerradar.taxonomy.skills import Taxonomy, load_taxonomy
 
 if TYPE_CHECKING:
@@ -108,7 +109,28 @@ _ELIGIBLE = """
        AND j.description IS NOT NULL AND length(j.description) > 200
        AND COALESCE(j.scoring_failures, 0) < {max_failures}
        {live_clause}
+       {seniority_clause}
 """
+
+
+def _seniority_clause() -> str:
+    """Exclude seniority levels config says are not worth judging.
+
+    Measured on prod_jobs.db (2026-08-16, 17,471 verdicts), `lead` and `staff` together are
+    32% of all verdicts for 8 hits -- 0.1% and 0.4% against 12.8% for `unspecified`. The
+    split is not a family effect: inside the seven highest-yield families lead/staff still
+    score 0.5%, so this is orthogonal to roles.yaml's tiering and cannot be expressed there.
+
+    Scoring is the only stage that can apply it. Seniority is derived from the title, so the
+    posting must already be scraped and stored before the level is known; what this saves is
+    LLM calls and dashboard noise, not scrape budget.
+    """
+    levels = (load_config().get("scoring") or {}).get("skip_seniority") or []
+    if not levels:
+        return ""
+    quoted = ", ".join("'" + level.replace("'", "''") + "'" for level in levels)
+    return f"AND COALESCE(j.seniority, '{SENIORITY_UNSPECIFIED}') NOT IN ({quoted})"
+
 
 # The "needs a verdict under this profile" half. Separate because --rescore-all drops it.
 _NO_VERDICT = """
@@ -146,7 +168,9 @@ def _select(
     a week; scoring them spends money to rank dead listings at the top of the dashboard.
     """
     where = _ELIGIBLE.format(
-        live_clause=_live_clause(include_closed), max_failures=MAX_SCORING_FAILURES
+        live_clause=_live_clause(include_closed),
+        max_failures=MAX_SCORING_FAILURES,
+        seniority_clause=_seniority_clause(),
     )
 
     if rescore_all:
@@ -171,7 +195,9 @@ def _pending(db: Database, profile_version: int, include_closed: bool = False) -
     sql = (
         "SELECT COUNT(*)"
         + _ELIGIBLE.format(
-            live_clause=_live_clause(include_closed), max_failures=MAX_SCORING_FAILURES
+            live_clause=_live_clause(include_closed),
+            max_failures=MAX_SCORING_FAILURES,
+            seniority_clause=_seniority_clause(),
         )
         + _NO_VERDICT
     )
@@ -184,12 +210,17 @@ def _ineligible(db: Database) -> sqlite3.Row:
     Reported rather than hidden, on the same principle as the analytics gates: suppress
     with a reason, never silently omit. Otherwise they read as pending work forever.
 
-    The reasons are precedence-ordered -- duplicate, then thin, then closed -- so they sum
-    to the total. Counted independently they would not: a posting is routinely two of the
-    three at once. Under this order `closed` means "unique, substantive, and dead", which
-    is the only one of the three that a future scrape can change.
+    The reasons are precedence-ordered -- duplicate, then thin, then closed, then seniority
+    -- so they sum to the total. Counted independently they would not: a posting is
+    routinely two of them at once. Under this order `closed` means "unique, substantive,
+    and dead", which is the only one a future scrape can change, and `seniority` means
+    "unique, substantive, live, and deliberately not judged".
     """
-    return db.conn.execute("""
+    seniority = _seniority_clause()
+    # The reason column is the NEGATION of the eligibility clause, so an empty
+    # skip_seniority has to read as "nothing excluded" rather than as SUM(NOT '') .
+    seniority_hit = f"NOT ({seniority[4:]})" if seniority else "0"
+    return db.conn.execute(f"""
         SELECT
           COUNT(*) AS total,
           SUM(j.duplicate_of IS NOT NULL) AS duplicate,
@@ -197,7 +228,11 @@ def _ineligible(db: Database) -> sqlite3.Row:
               AND (j.description IS NULL OR length(j.description) <= 200)) AS thin,
           SUM(j.duplicate_of IS NULL
               AND j.description IS NOT NULL AND length(j.description) > 200
-              AND COALESCE(l.liveness, 'unknown') = 'likely_closed') AS closed
+              AND COALESCE(l.liveness, 'unknown') = 'likely_closed') AS closed,
+          SUM(j.duplicate_of IS NULL
+              AND j.description IS NOT NULL AND length(j.description) > 200
+              AND COALESCE(l.liveness, 'unknown') != 'likely_closed'
+              AND {seniority_hit}) AS seniority
           FROM jobs j
           LEFT JOIN v_job_liveness l ON l.job_id = j.id
          WHERE j.pipeline_state = 'new'
@@ -206,7 +241,8 @@ def _ineligible(db: Database) -> sqlite3.Row:
            -- would report them twice: once as remaining, once as never scoreable.
            AND (j.duplicate_of IS NOT NULL
                 OR j.description IS NULL OR length(j.description) <= 200
-                OR COALESCE(l.liveness, 'unknown') = 'likely_closed')
+                OR COALESCE(l.liveness, 'unknown') = 'likely_closed'
+                OR {seniority_hit})
     """).fetchone()
 
 
@@ -596,7 +632,8 @@ def run_scoring(limit: int | None = None, rescore_all: bool = False, dry_run: bo
                 f"excluded:   {skipped['total']:,} never scoreable  "
                 f"({skipped['duplicate']:,} duplicate, "
                 f"{skipped['thin']:,} no description, "
-                f"{skipped['closed']:,} closed)"
+                f"{skipped['closed']:,} closed, "
+                f"{skipped['seniority'] or 0:,} seniority)"
             )
 
         stuck = _quarantined(db)

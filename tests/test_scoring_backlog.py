@@ -23,6 +23,7 @@ import sys
 import tempfile
 import unittest
 from typing import cast
+from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -67,10 +68,12 @@ class _Fixture:
         description: str | None = LONG,
         duplicate_of: int | None = None,
         state: str = "new",
+        seniority: str | None = None,
     ) -> None:
         self.conn.execute(
             "INSERT INTO jobs (id, job_key, title, url, description, duplicate_of, "
-            "pipeline_state, sync_run_id) VALUES (?, ?, 'Platform Engineer', ?, ?, ?, ?, 1)",
+            "pipeline_state, seniority, sync_run_id) "
+            "VALUES (?, ?, 'Platform Engineer', ?, ?, ?, ?, ?, 1)",
             (
                 job_id,
                 f"k{job_id}",
@@ -78,6 +81,7 @@ class _Fixture:
                 description,
                 duplicate_of,
                 state,
+                seniority,
             ),
         )
         self.conn.commit()
@@ -149,6 +153,87 @@ class BacklogAccountingTests(_Fixture, unittest.TestCase):
         }
         self.assertEqual(queued & excluded, set())
         self.assertEqual(_ineligible(self.db)["total"], len(excluded))
+
+
+class SenioritySkipTests(_Fixture, unittest.TestCase):
+    """`scoring.skip_seniority` must move rows from pending to excluded, never lose them.
+
+    The levels are a yield decision (config.yaml records the measurement), so these tests
+    patch the config rather than asserting today's list: what is pinned is the mechanism --
+    the selector and the counter still agree, and a skipped posting is reported with a
+    reason instead of vanishing from both numbers.
+    """
+
+    def setUp(self) -> None:
+        super().setUp()
+        patcher = mock.patch(
+            "careerradar.scoring.worker.load_config",
+            return_value={"scoring": {"skip_seniority": ["lead", "staff"]}},
+        )
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_skipped_levels_leave_the_queue(self) -> None:
+        self.job(1, seniority="mid")
+        self.job(2, seniority="unspecified")
+        self.job(3, seniority=None)  # NULL reads as unspecified, not as skipped
+        self.job(4, seniority="lead")
+        self.job(5, seniority="staff")
+
+        queued = {row["id"] for row in _select(self.db, None, False, PROFILE)}
+        self.assertEqual(queued, {1, 2, 3})
+        self.assertEqual(_pending(self.db, PROFILE), len(queued))
+
+    def test_skipped_rows_are_reported_not_dropped(self) -> None:
+        self.job(1, seniority="mid")
+        self.job(2, seniority="lead")
+        self.job(3, seniority="staff", duplicate_of=1)  # duplicate wins on precedence
+
+        row = _ineligible(self.db)
+        self.assertEqual(row["total"], 2)
+        self.assertEqual(row["seniority"], 1)
+        self.assertEqual(row["duplicate"], 1)
+        self.assertEqual(
+            row["duplicate"] + row["thin"] + row["closed"] + row["seniority"], row["total"]
+        )
+
+    def test_skipped_and_pending_stay_disjoint(self) -> None:
+        for job_id, level in enumerate(("mid", "lead", "staff", "senior"), start=1):
+            self.job(job_id, seniority=level)
+
+        queued = {row["id"] for row in _select(self.db, None, False, PROFILE)}
+        self.assertEqual(queued, {1, 4})
+        self.assertEqual(_ineligible(self.db)["total"], 2)
+
+    def test_rescore_all_still_honours_the_skip(self) -> None:
+        """--rescore-all widens which verdicts are redone, not which levels are judged."""
+        self.job(1, seniority="mid", state="scored")
+        self.job(2, seniority="lead", state="scored")
+        self.verdict(1, VERDICT_SCHEMA_VERSION)
+        self.verdict(2, VERDICT_SCHEMA_VERSION)
+
+        self.assertEqual({row["id"] for row in _select(self.db, None, True, PROFILE)}, {1})
+
+
+class EmptySenioritySkipTests(_Fixture, unittest.TestCase):
+    """An empty list must be a no-op, not a clause that excludes everything."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        patcher = mock.patch(
+            "careerradar.scoring.worker.load_config",
+            return_value={"scoring": {"skip_seniority": []}},
+        )
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_no_level_is_skipped(self) -> None:
+        self.job(1, seniority="lead")
+        self.job(2, seniority="staff")
+
+        self.assertEqual(len(_select(self.db, None, False, PROFILE)), 2)
+        self.assertEqual(_pending(self.db, PROFILE), 2)
+        self.assertEqual(_ineligible(self.db)["total"], 0)
 
 
 if __name__ == "__main__":
