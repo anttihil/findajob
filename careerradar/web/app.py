@@ -803,6 +803,37 @@ def filter_query(
     )
 
 
+# --- SPA JSON endpoints, additive alongside the routes below ----------------------------
+#
+# The Preact dashboard needs two things the JSON API never had to serve before, because the
+# Jinja dashboard rendered them into the page itself: the static option lists a `<select>`
+# needs (`/api/meta`) and the drawer bundle for one posting (`/api/jobs/{id}/context`). Both
+# reuse the same `filter_query` dependency as `/` and `/drawer` below, and the latter reuses
+# `drawer_context` outright -- the JSON response is that function's return value minus
+# `highlighted_description`, which the client now computes itself (see
+# `frontend-src/src/lib/highlightTerms.ts`) so it can render highlights as Preact children
+# instead of injecting an HTML string.
+
+
+@app.get("/api/meta")
+def get_meta():
+    return {
+        "countries": rendering.country_choices(load_roles()),
+        "verdicts": rendering.VERDICT_CHOICES,
+    }
+
+
+@app.get("/api/jobs/{job_id}/context")
+def get_job_context(job_id: int, query: rendering.FilterQuery = Depends(filter_query)):
+    db = get_db()
+    try:
+        context = drawer_context(db, query, job_id)
+        context.pop("highlighted_description", None)
+        return context
+    finally:
+        db.close()
+
+
 @app.get("/drawer", response_class=HTMLResponse)
 def drawer(
     request: Request,
