@@ -4,7 +4,15 @@ __pycache__/
 .venv/
 .pytest_cache/
 
-# don't commit any database
+# Any database, by glob rather than by name: production copies pulled down for diagnosis
+# (prod_jobs.db and friends) are the ones most worth keeping out, and they are exactly the
+# ones a named list never anticipates. Runs in journal_mode=wal, so -wal/-shm are the pair
+# that actually appears; -journal is from rollback mode and never shows up.
+#
+# graphs.db is the one to keep out on privacy grounds rather than size: a LangGraph
+# checkpoint stores the graph's whole state, and the profile graph's state holds the full
+# text of every corpus document. That puts career history in a repo whose entire .gitignore
+# policy exists to keep it out.
 *.db
 *.db-wal
 *.db-shm
@@ -17,8 +25,8 @@ __pycache__/
 # Credentials
 .env
 
-# Logging. RotatingFileHandler writes app.log.1 .. app.log.5, and *.log matches only the
-# .log suffix, so the numbered backups need their own pattern.
+# Logging. logrotate writes app.log.1, app.log.2.gz and so on, and *.log matches only the
+# .log suffix, so the rotated files need their own pattern.
 *.log
 *.log.[0-9]*
 
