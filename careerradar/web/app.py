@@ -2,14 +2,12 @@ import json
 import os
 import threading
 from collections.abc import Awaitable, Callable
-from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
 from fastapi import (
     BackgroundTasks,
     Depends,
     FastAPI,
-    Form,
     HTTPException,
     Query,
     Request,
@@ -18,11 +16,9 @@ from fastapi.responses import (
     FileResponse,
     HTMLResponse,
     JSONResponse,
-    RedirectResponse,
 )
 from fastapi.responses import Response as FastAPIResponse
 from fastapi.staticfiles import StaticFiles
-from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, ConfigDict
 from starlette.types import Scope
 
@@ -30,7 +26,7 @@ from careerradar.core import pipeline_lock
 from careerradar.core.config import deep_merge, load_config, save_config
 from careerradar.core.database import Database
 from careerradar.core.logger import get_logger
-from careerradar.core.paths import FRONTEND_DIR, REPO_ROOT, TEMPLATE_DIR
+from careerradar.core.paths import FRONTEND_DIR, REPO_ROOT
 from careerradar.core.status import collect as collect_status
 from careerradar.core.status_manager import (
     clear_stale_lock,
@@ -631,97 +627,39 @@ def get_digest_content(filename: str):
 
 
 # --- Static frontend --------------------------------------------------------------------
-
-os.makedirs(os.path.join(FRONTEND_DIR, "css"), exist_ok=True)
-os.makedirs(os.path.join(FRONTEND_DIR, "js"), exist_ok=True)
-
-# `no-cache` means "store it, but revalidate before every use" -- not "do not store".
-# Both responses already carry an ETag, so revalidation costs a 304 with an empty body on
-# a loopback connection.
 #
-# Without it the assets under /static send no Cache-Control at all, which leaves a browser
-# free to apply *heuristic* freshness and serve them without asking. The page and its
-# modules then drift apart independently, and a cached module paired with freshly rendered
-# markup is a real, observed breakage: the script reaches for an element the HTML does not
-# contain and the exception aborts everything after it. Files that are only correct as a
-# matched set must be revalidated as one.
-#
-# The page itself is rendered per request now rather than served from disk, so it carries
-# the header for the same reason: it names the module URLs that must not be stale.
+# Vite's production build gives every asset a content hash in its filename, so a changed
+# file is a changed URL and caching the response body forever is always safe -- no mtime
+# stamping or revalidation trick needed, unlike the old hand-rolled scheme this replaced.
 CACHE_HEADERS = {"Cache-Control": "no-cache"}
-
-
-# An asset requested at a versioned URL can be cached hard, because the version is the
-# file's mtime: change the file and every page that references it names a different URL on
-# the next render. That keeps the matched-set guarantee above -- the page is still
-# `no-cache`, so it is always the current page that decides which asset URLs are current --
-# while removing the revalidation round trip each asset used to cost on every navigation.
 IMMUTABLE_CACHE_HEADERS = {"Cache-Control": "public, max-age=31536000, immutable"}
 
 
-class RevalidatedStaticFiles(StaticFiles):
-    """StaticFiles that asks before reusing anything, unless the URL is versioned.
-
-    See CACHE_HEADERS and IMMUTABLE_CACHE_HEADERS. An unversioned URL still revalidates,
-    so a hand-written or third-party reference cannot accidentally pin a stale file.
-    """
-
+class ImmutableStaticFiles(StaticFiles):
     async def get_response(self, path: str, scope: Scope) -> FastAPIResponse:
         response = await super().get_response(path, scope)
-        versioned = b"v=" in scope.get("query_string", b"")
-        response.headers.update(IMMUTABLE_CACHE_HEADERS if versioned else CACHE_HEADERS)
+        response.headers.update(IMMUTABLE_CACHE_HEADERS)
         return response
 
 
-def static_url(path: str) -> str:
-    """URL for a bundled asset, stamped with its modification time.
-
-    Stat on every render rather than once at import: editing a stylesheet and reloading
-    has to show the edit, and the stat is immaterial next to rendering the page.
-
-    Note this stamps only what a template names directly. The ES module graph that
-    `main.js` pulls in is fetched by the browser at unversioned URLs and so keeps
-    revalidating, which is the conservative half of the same rule.
-    """
-    try:
-        stamp = int(os.path.getmtime(os.path.join(FRONTEND_DIR, path)))
-    except OSError:
-        # A missing asset is a 404 to be seen, not an exception during render.
-        return f"/static/{path}"
-    return f"/static/{path}?v={stamp}"
-
-
-app.mount("/static", RevalidatedStaticFiles(directory=FRONTEND_DIR), name="static")
-
-
-# --- Server-rendered dashboard -----------------------------------------------------------
-
-templates = Jinja2Templates(directory=TEMPLATE_DIR)
-templates.env.filters["short_date"] = rendering.short_date
-templates.env.filters["hostname"] = rendering.hostname
-templates.env.globals["static"] = static_url
+app.mount(
+    "/static/dist",
+    ImmutableStaticFiles(directory=os.path.join(FRONTEND_DIR, "dist")),
+    name="static",
+)
 
 
 def drawer_context(
     db: Database, query: rendering.FilterQuery, job_id: int | None
 ) -> dict[str, Any]:
-    """Everything `partials/job_drawer.html` renders, for one posting or for none.
-
-    Shared by `dashboard()` and `GET /drawer` so the two cannot drift. They render the
-    same partial from the same data; the only difference is that one wraps it in a page.
+    """Everything `GET /api/jobs/{id}/context` returns, for one posting or for none.
 
     `next_job_id` is the posting after this one *in the current feed order*, which is why
     the filter has to come in with the job id -- "next" is a property of the list you are
     reading, not of the posting. It is what the drawer's status buttons advance to.
     """
     if job_id is None:
-        return {
-            "job": None,
-            "dossier": None,
-            "requirement_rows": [],
-            "highlighted_description": "",
-            "next_job_id": None,
-        }
+        return {"job": None, "dossier": None, "requirement_rows": [], "next_job_id": None}
 
     # Fetched by id rather than searched for in the page above: the posting a link
     # points at need not be on the page the link was rendered from, and after a status
@@ -729,13 +667,7 @@ def drawer_context(
     match = db.query_jobs(job_id=job_id, status=None, limit=1)["jobs"]
     job = match[0] if match else None
     if job is None:
-        return {
-            "job": None,
-            "dossier": None,
-            "requirement_rows": [],
-            "highlighted_description": "",
-            "next_job_id": None,
-        }
+        return {"job": None, "dossier": None, "requirement_rows": [], "next_job_id": None}
 
     ids = db.job_ids_for(**query.as_db_kwargs())
     try:
@@ -751,17 +683,12 @@ def drawer_context(
         "job": job,
         "dossier": dossier_for(db, job.get("company")),
         "requirement_rows": rendering.requirement_rows(job),
-        "highlighted_description": rendering.highlight_terms(
-            job.get("description"), job.get("matched_skills") or []
-        ),
         "next_job_id": next_job_id,
     }
 
 
-# The filter, as FastAPI parameters. Declared once and depended on by both `/` and
-# `/drawer` so that the two routes cannot accept different filters -- the drawer is built
-# from the feed it was opened out of, and a parameter only one of them honoured would make
-# "the next posting" mean two different things.
+# The filter, as FastAPI parameters. Declared once and depended on by `/api/jobs/{id}/context`
+# so a posting's "next" is always computed against the exact same filter the SPA is showing.
 def filter_query(
     # These names are the query parameters of `Database.query_jobs`, deliberately. The
     # filter form posts them straight through, so a field whose name is wrong fails here
@@ -803,16 +730,15 @@ def filter_query(
     )
 
 
-# --- SPA JSON endpoints, additive alongside the routes below ----------------------------
+# --- SPA JSON endpoints ------------------------------------------------------------------
 #
 # The Preact dashboard needs two things the JSON API never had to serve before, because the
-# Jinja dashboard rendered them into the page itself: the static option lists a `<select>`
-# needs (`/api/meta`) and the drawer bundle for one posting (`/api/jobs/{id}/context`). Both
-# reuse the same `filter_query` dependency as `/` and `/drawer` below, and the latter reuses
-# `drawer_context` outright -- the JSON response is that function's return value minus
-# `highlighted_description`, which the client now computes itself (see
-# `frontend-src/src/lib/highlightTerms.ts`) so it can render highlights as Preact children
-# instead of injecting an HTML string.
+# old Jinja dashboard rendered them into the page itself: the static option lists a
+# `<select>` needs (`/api/meta`) and the drawer bundle for one posting
+# (`/api/jobs/{id}/context`), which reuses `drawer_context` outright. Highlighting the
+# description against the matched skills now happens client-side (see
+# `frontend-src/src/lib/highlightTerms.ts`), rendered as Preact children instead of an
+# injected HTML string.
 
 
 @app.get("/api/meta")
@@ -827,153 +753,12 @@ def get_meta():
 def get_job_context(job_id: int, query: rendering.FilterQuery = Depends(filter_query)):
     db = get_db()
     try:
-        context = drawer_context(db, query, job_id)
-        context.pop("highlighted_description", None)
-        return context
-    finally:
-        db.close()
-
-
-@app.get("/drawer", response_class=HTMLResponse)
-def drawer(
-    request: Request,
-    query: rendering.FilterQuery = Depends(filter_query),
-    # Which posting to render. Absent means the closed drawer, which is how the close
-    # affordances work: one endpoint, and `job_drawer.html` already renders nothing when
-    # `job` is undefined.
-    job: int | None = None,
-):
-    """The drawer partial on its own -- no feed query, no stats, no page.
-
-    This is the whole point of the change: opening a posting used to re-render the entire
-    dashboard because the drawer was page state, so a click cost a feed query, a stats
-    rollup and a 93KB document the browser had to rebuild. Here it costs one indexed row.
-    """
-    db = get_db()
-    try:
-        return templates.TemplateResponse(
-            request,
-            "partials/job_drawer.html",
-            {"query": query, **drawer_context(db, query, job)},
-            headers=CACHE_HEADERS,
-        )
-    finally:
-        db.close()
-
-
-@app.get("/", response_class=HTMLResponse)
-def dashboard(
-    request: Request,
-    query: rendering.FilterQuery = Depends(filter_query),
-    # Which posting the drawer is showing, if any. The drawer is page state rather than
-    # client state: it is in the URL, so it survives a reload and the back button closes
-    # it. Opening one used to depend on the card list still being in a JS array.
-    #
-    # htmx now swaps the drawer in without a navigation, but this path is unchanged and
-    # still renders it server-side -- it is what a reload, a deep link and a browser with
-    # no JavaScript get, and `/drawer` shares its context builder so the two agree.
-    job: int | None = None,
-):
-    db = get_db()
-    try:
-        page = db.query_jobs(**query.as_db_kwargs())
-        stats = db.get_stats()
-
-        return templates.TemplateResponse(
-            request,
-            "base.html",
-            {
-                "query": query,
-                "jobs": page["jobs"],
-                "total": page["total"],
-                "has_more": page["has_more"],
-                "stats": stats,
-                "countries": rendering.country_choices(load_roles()),
-                "verdicts": rendering.VERDICT_CHOICES,
-                "today": datetime.now().strftime("%B %-d, %Y"),
-                **drawer_context(db, query, job),
-            },
-            headers=CACHE_HEADERS,
-        )
-    finally:
-        db.close()
-
-
-@app.post("/jobs/{job_id}/status")
-def set_job_status_form(
-    request: Request,
-    job_id: int,
-    status: str = Form(...),
-    next: str = "/",
-    # The posting to advance to, resolved when this drawer was rendered
-    # (`drawer_context`). Empty when the acted-on posting was the last on the page.
-    next_job_id: str = Form(""),
-    query: rendering.FilterQuery = Depends(filter_query),
-):
-    """Status change from the drawer.
-
-    Without JavaScript this is a plain form post that redirects back to the URL the form
-    came from, so the drawer stays open on the posting you were reading. The JSON endpoint
-    at PUT /api/jobs/{id}/status is unchanged and is what the CLI and any script should
-    use.
-
-    With htmx it advances: the reply is the *next* posting's drawer, plus out-of-band
-    fragments that drop the acted-on card from the feed and correct the counters it moved
-    between. Reading a posting and deciding on it is one action, and under the default
-    `status=unread` filter the posting you just judged is no longer in the list you are
-    working through -- re-rendering the drawer onto it was showing you the one thing you
-    were finished with.
-    """
-    if status not in ("unread", "saved", "applied", "rejected"):
-        raise HTTPException(status_code=400, detail="Invalid status value")
-    db = get_db()
-    try:
-        if not db.update_job_status(job_id, status):
-            raise HTTPException(status_code=404, detail="Job not found")
-
-        if request.headers.get("hx-request") != "true":
-            # 303 so the browser follows with GET; a 307 would repeat the POST on reload.
-            return RedirectResponse(next or "/", status_code=303)
-
-        target = int(next_job_id) if next_job_id.isdigit() else None
-        context = {"query": query, **drawer_context(db, query, target)}
-        # `drawer_context` returns job=None if the id no longer resolves, which renders the
-        # closed drawer -- the right outcome for the last posting on a page.
-        if context["job"] is None:
-            target = None
-        body = templates.get_template("partials/job_drawer.html").render(request=request, **context)
-
-        # The card goes only if the posting has actually left this feed. Under the default
-        # `status=unread` it always has; under `status=saved`, marking something applied
-        # also removes it, while re-saving an already-saved posting does not.
-        remaining = db.job_ids_for(**query.as_db_kwargs())
-        oob = []
-        if job_id not in remaining:
-            oob.append(f'<a id="job-card-{job_id}" hx-swap-oob="delete"></a>')
-        # Two of the four stat tiles count statuses, so a triage pass walks them out of
-        # date. The other two (total crawled, strong matches) a status change cannot move.
-        counts = db.status_counts()
-        oob.append(f'<h3 id="stat-saved" hx-swap-oob="true">{counts.get("saved", 0)}</h3>')
-        oob.append(f'<h3 id="stat-applied" hx-swap-oob="true">{counts.get("applied", 0)}</h3>')
-
-        return HTMLResponse(
-            body + "".join(oob),
-            headers={
-                **CACHE_HEADERS,
-                # The address bar follows the drawer, so a reload lands on the posting on
-                # screen rather than the one that was there before the click.
-                "HX-Push-Url": (query.with_job(target) if target else query.without_job()),
-            },
-        )
+        return drawer_context(db, query, job_id)
     finally:
         db.close()
 
 
 # --- Preact SPA shell -------------------------------------------------------------------
-#
-# Registered last, so every route above -- notably `/` and `/drawer` -- still wins during
-# the migration. Once those are deleted (final cutover), this becomes the route `/` falls
-# through to as well, alongside every other client-side path.
 #
 # `/api/...` and `/static/...` are excluded rather than left to fall through on no other
 # route matching, because a typo'd or removed API path should 404 as itself, not silently
