@@ -244,6 +244,8 @@ def _persist(
     db: Database,
     job: dict[str, Any],
     verdict: dict[str, Any],
+    # Tokens and dollars for every attempt this posting took, not just the winning one.
+    # The retry that preceded a verdict has nowhere else to be recorded.
     usage: dict[str, int] | None,
     cost: float,
     model: str,
@@ -474,7 +476,7 @@ def run_scoring(limit: int | None = None, rescore_all: bool = False, dry_run: bo
 
         graph = build_graph()
         spend = Spend(model, max_usd=max_usd)
-        results = {"scored": 0, "failed": 0}
+        results = {"scored": 0, "failed": 0, "retried": 0, "retry_usd": 0.0}
         first_usage = []
         flagged = {}
 
@@ -493,9 +495,24 @@ def run_scoring(limit: int | None = None, rescore_all: bool = False, dry_run: bo
         with ThreadPoolExecutor(max_workers=concurrency) as pool:
             for job, state in pool.map(score_one, jobs):
                 verdict = state.get("verdict")
+                # Every attempt the graph made on this posting, retries included. Charged
+                # before the verdict is examined, because a posting that never produced
+                # one still spent its tokens: accounting only for successes hid the whole
+                # retry volume from the run total and from `job_verdicts.cost_usd`.
                 usage = state.get("usage")
+                cost = usage_cost(model, usage) if usage else 0.0
+                spend.usd += cost
+                spend.calls += state.get("attempts", 0)
+                if usage:
+                    spend.tokens_in += usage["prompt"]
+                    spend.tokens_cached += usage["cache_hit"]
+                    spend.tokens_out += usage["completion"]
+                    if len(first_usage) < 4:
+                        first_usage.append(usage)
+
                 if verdict is None:
                     results["failed"] += 1
+                    results["retry_usd"] += cost
                     _record_failure(db, job["id"], state.get("error"))
                     db.conn.commit()
                     logger.warning(
@@ -504,32 +521,23 @@ def run_scoring(limit: int | None = None, rescore_all: bool = False, dry_run: bo
                         job["title"],
                         state.get("error"),
                     )
-                    continue
+                else:
+                    if state.get("attempts", 1) > 1:
+                        results["retried"] += 1
+                    # Commit per posting, not per 25. Python opens a deferred transaction
+                    # on the first write and holds SQLite's single writer slot until the
+                    # commit, so batching 25 verdicts held that slot for 25 LLM
+                    # round-trips -- longer than the 30s busy_timeout, which is how a
+                    # concurrent `sync` died with `database is locked`. One WAL append per
+                    # posting costs nothing next to the API call that produced it.
+                    _persist(db, job, verdict, usage, cost, model, profile_version, phash)
+                    db.conn.commit()
+                    results["scored"] += 1
+                    for flag in verdict.get("audit_flags") or []:
+                        flagged[flag["flag"]] = flagged.get(flag["flag"], 0) + 1
 
-                cost = usage_cost(model, usage) if usage else 0.0
-                spend.usd += cost
-                spend.calls += 1
-                if usage:
-                    spend.tokens_in += usage["prompt"]
-                    spend.tokens_cached += usage["cache_hit"]
-                    spend.tokens_out += usage["completion"]
-                    if len(first_usage) < 4:
-                        first_usage.append(usage)
-
-                # Commit per posting, not per 25. Python opens a deferred transaction on
-                # the first write and holds SQLite's single writer slot until the commit,
-                # so batching 25 verdicts held that slot for 25 LLM round-trips -- longer
-                # than the 30s busy_timeout, which is how a concurrent `sync` died with
-                # `database is locked`. One WAL append per posting costs nothing next to
-                # the API call that produced it.
-                _persist(db, job, verdict, usage, cost, model, profile_version, phash)
-                db.conn.commit()
-                results["scored"] += 1
-                for flag in verdict.get("audit_flags") or []:
-                    flagged[flag["flag"]] = flagged.get(flag["flag"], 0) + 1
-
-                if results["scored"] % 25 == 0:
-                    print(f"  {results['scored']:,}/{len(jobs):,} scored  ${spend.usd:.4f}")
+                    if results["scored"] % 25 == 0:
+                        print(f"  {results['scored']:,}/{len(jobs):,} scored  ${spend.usd:.4f}")
 
                 if spend.exhausted():
                     print(f"\nStopping: spent ${spend.usd:.2f}, ceiling is ${max_usd:.2f}.")
@@ -543,6 +551,15 @@ def run_scoring(limit: int | None = None, rescore_all: bool = False, dry_run: bo
         if results["failed"]:
             print(f"failed:     {results['failed']:,}  (left as 'new'; the next run retries)")
         print(f"cost:       ${summary_stats['usd']:.4f}")
+        # The retried postings now carry their extra attempts in their own verdict row, so
+        # this line only names them. The dollars are the half that no row can hold: a
+        # posting that produced nothing writes no verdict at all, so summing
+        # `job_verdicts.cost_usd` over a run always reads low by exactly this much.
+        if results["retried"] or results["retry_usd"]:
+            print(
+                f"  of which: {results['retried']:,} posting(s) needed a retry; "
+                f"${results['retry_usd']:.4f} bought no verdict at all"
+            )
         print(
             f"tokens:     {summary_stats['tokens_in']:,} in "
             f"({summary_stats['tokens_cached']:,} cached, "

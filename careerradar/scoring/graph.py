@@ -60,6 +60,9 @@ class ScoreState(TypedDict, total=False):
     skill_hint: str
     rendered: str
     verdict: dict[str, Any] | None
+    # Tokens summed over every attempt on this posting, not just the one that produced
+    # the verdict. A retry is a billed call: keeping only the last attempt's counts made
+    # the whole retry volume free in the run total and in `job_verdicts.cost_usd`.
     usage: dict[str, int] | None
     attempts: int
     error: str | None
@@ -112,7 +115,7 @@ def node_score(state: ScoreState) -> dict[str, Any]:
 
     from careerradar.core.llm import no_tool_call_reason, token_usage
 
-    usage = token_usage(raw) if raw is not None else None
+    usage = _add(state.get("usage"), token_usage(raw) if raw is not None else None)
 
     if parse_error is not None or parsed is None:
         # A cross-field validator in FitAssessment raising surfaces here too, not just a
@@ -180,6 +183,15 @@ def node_score(state: ScoreState) -> dict[str, Any]:
         "error": None,
         "semantic": False,
     }
+
+
+def _add(total: dict[str, int] | None, usage: dict[str, int] | None) -> dict[str, int] | None:
+    """Add this attempt's tokens to what the posting has already spent."""
+    if usage is None:
+        return total
+    if total is None:
+        return usage
+    return {key: total[key] + value for key, value in usage.items()}
 
 
 def _is_semantic(parse_error: Any) -> bool:

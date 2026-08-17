@@ -393,7 +393,8 @@ profile:
 
 scoring:
   # The volume workhorse -- one call per posting. Flash with an automatically cached
-  # profile prefix costs ~$0.0004 a posting, so scoring the whole corpus is a couple of
+  # profile prefix costs ~$0.0006 a posting (measured over 17,471 v2 verdicts; the
+  # ~$0.0004 quoted here before was the v1 schema), so scoring the whole corpus is a few
   # dollars rather than a reason to sample.
   model: deepseek-v4-flash
   concurrency: 16
@@ -406,11 +407,12 @@ scoring:
   # length.
   #
   # Raised again to 8.00 on 2026-08-15, off the production backlog. The ceiling is a sanity
-  # guard against a runaway queue, not a budget: at $0.0004 a posting it has to clear a
-  # COLD backlog in one pass or the pre-flight aborts every single run and nothing is ever
-  # scored. Production reached 11,598 unscored postings (~$4.64 estimated) while
-  # careerradar-score.timer sat disabled, which is exactly the state that would have
-  # deadlocked against the old $4.00 ceiling the moment the timer came back on.
+  # guard against a runaway queue, not a budget: it has to clear a COLD backlog in one pass
+  # or the pre-flight aborts every single run and nothing is ever scored. Production
+  # reached 11,598 unscored postings while careerradar-score.timer sat disabled, which is
+  # exactly the state that would have deadlocked against the old $4.00 ceiling the moment
+  # the timer came back on. At the measured $0.0006 a posting -- not the $0.0004 assumed
+  # when this was set -- 8.00 covers ~13,000 postings, so a backlog past that aborts.
   max_usd_per_run: 8.00
   # Which postings earn a deep-research pass. A predicate rather than a number on a lumpy
   # scale -- and it states its own reasoning, which `fit_score >= 70` never did.

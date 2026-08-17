@@ -164,9 +164,14 @@ class FakeChain:
     def __init__(self, responses: list[dict[str, Any]]) -> None:
         self.responses = list(responses)
         self.calls: list[list[Any]] = []
+        # Raised once the canned responses run out, to model an API that answers a few
+        # times and then fails outright.
+        self.invoke_error: Exception | None = None
 
     def invoke(self, messages: list[Any]) -> dict[str, Any]:
         self.calls.append(messages)
+        if not self.responses and self.invoke_error is not None:
+            raise self.invoke_error
         return self.responses.pop(0) if self.responses else self.responses[-1]
 
 
@@ -209,6 +214,20 @@ def ok_response(**overrides: Any) -> dict[str, Any]:
         "raw": mock.Mock(response_metadata={}),
         "parsing_error": None,
     }
+
+
+def billed(prompt: int, cache_hit: int, completion: int) -> mock.Mock:
+    """A response carrying the token counts DeepSeek actually charges for."""
+    return mock.Mock(
+        response_metadata={
+            "token_usage": {
+                "prompt_tokens": prompt,
+                "prompt_cache_hit_tokens": cache_hit,
+                "prompt_cache_miss_tokens": prompt - cache_hit,
+                "completion_tokens": completion,
+            }
+        }
+    )
 
 
 def bad_response() -> dict[str, Any]:
@@ -339,6 +358,63 @@ class GraphTests(unittest.TestCase):
             )
         self.assertIsNone(state["verdict"])
         self.assertIn("429", state["error"])
+
+    def test_a_retry_is_charged_to_the_posting_that_needed_it(self) -> None:
+        """Every attempt, not just the one that produced the verdict.
+
+        The state held one attempt's usage and each retry overwrote it, so a posting that
+        answered on the second try reported the tokens of a single call. Everything
+        downstream inherited that: the run total, and `job_verdicts.cost_usd`, which is
+        the only record of what scoring actually cost.
+        """
+        rejected = bad_response()
+        rejected["raw"] = billed(6_000, 4_800, 200)
+        accepted = ok_response()
+        accepted["raw"] = billed(6_100, 4_800, 1_400)
+
+        state, chain = self.run_graph([rejected, accepted])
+
+        self.assertEqual(len(chain.calls), 2)
+        self.assertIsNotNone(state["verdict"])
+        self.assertEqual(state["usage"]["prompt"], 12_100)
+        self.assertEqual(state["usage"]["cache_hit"], 9_600)
+        self.assertEqual(state["usage"]["cache_miss"], 2_500)
+        self.assertEqual(state["usage"]["completion"], 1_600)
+
+    def test_a_posting_that_never_scored_still_reports_what_it_spent(self) -> None:
+        """A quarantined posting is not a free one -- it is the most expensive kind."""
+        from careerradar.scoring.graph import MAX_ATTEMPTS
+
+        rejected = [bad_response() for _ in range(MAX_ATTEMPTS)]
+        for response in rejected:
+            response["raw"] = billed(6_000, 4_800, 200)
+
+        state, _chain = self.run_graph(rejected)
+
+        self.assertIsNone(state["verdict"])
+        self.assertEqual(state["usage"]["completion"], 200 * MAX_ATTEMPTS)
+
+    def test_an_api_exception_does_not_discard_what_earlier_attempts_spent(self) -> None:
+        """The exception path returns no usage at all, which must mean "nothing to add".
+
+        LangGraph keeps a key a node does not return, so the tokens of the attempts before
+        the exception survive. Returning a zeroed usage here instead would erase them.
+        """
+        from careerradar.scoring.graph import build_graph
+
+        rejected = bad_response()
+        rejected["raw"] = billed(6_000, 4_800, 200)
+        chain = FakeChain([rejected])
+        chain.invoke_error = RuntimeError("429 rate limited")
+        model = mock.Mock()
+        model.with_structured_output.return_value = chain
+        with mock.patch("careerradar.scoring.graph.structured_model", return_value=model):
+            state = build_graph().invoke(
+                {"system": "s", "posting": posting(), "model": "deepseek-v4-flash"}
+            )
+
+        self.assertIsNone(state["verdict"])
+        self.assertEqual(state["usage"]["completion"], 200)
 
 
 if __name__ == "__main__":

@@ -127,14 +127,19 @@ Check any of this with `careerradar score stats`.
 
 ## 6. Measured token shape (for cost estimates)
 
-Against real postings from `jobs.db` with a ~700-token profile prefix:
+Means per call over the scored corpus in `prod_jobs.db`:
 
 | | tokens |
 |---|---|
-| prompt, total | 1,460 – 2,016 |
-| prompt, cached (warm prefix) | ~768 (the system+profile block) |
-| completion | 562 – 670 |
+| prompt, total | ~6,045 |
+| prompt, cached (warm prefix) | ~4,884 (the system+profile block, 81% of input) |
+| completion | ~1,392 |
 
-Completion runs ~600 tokens, not the ~300 originally assumed — verdicts carry quoted
-blockers and reasoning. Budget **~$0.0004/posting**, i.e. roughly **$2.30** to score the
-current 5,932-row backlog.
+Budget **~$0.00057/posting**, plus ~4% for retried attempts.
+
+These are means over the 17,471 verdicts in `prod_jobs.db`, not a spike measurement. The
+v1 numbers here (1,460–2,016 prompt, 562–670 completion, ~$0.0004) described the v1
+verdict schema and a much shorter system block; v2 asks for a role summary and an
+assessment of every quoted requirement, which doubled completion length, and the rules
+that ask for it doubled the cached prefix. Anything quoting ~$0.0003–0.0004 a posting is
+reading the v1 corpus.

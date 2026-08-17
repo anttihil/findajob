@@ -170,9 +170,15 @@ Measured against this corpus, not estimated:
 | | |
 |---|---|
 | model | `deepseek-v4-flash` |
-| per posting | ~$0.0003 |
-| 300-posting run | $0.0966, 68% of input tokens served from cache |
-| full 5,900-posting backlog | ~$1.80 |
+| per posting | ~$0.00057 (17,471 verdicts, $9.89) |
+| tokens per posting | 6,045 in (81% served from cache) / 1,392 out |
+| 300-posting run | ~$0.17 |
+| full 21,700-posting corpus | ~$12.30 |
+
+Retries are on top of that: a posting the model answers unusably is called again, and
+~4% of the bill buys no verdict. The verdict rows carry it since 2026-08-16; older rows
+record only the attempt that succeeded, so summing `job_verdicts.cost_usd` over them
+reads low by about that much.
 
 That is cheap enough that scoring is not a thing to ration — which is the point. The old
 design gated storage on a keyword threshold because judgement was expensive; now every
