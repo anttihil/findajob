@@ -24,10 +24,11 @@ Two properties the tests pin down, because both fail silently in production:
   because "Kubernetes roles vanished from Helsinki" and "my Helsinki query broke" are
   indistinguishable unless you keep probing.
 
-  hours_old >= 1.5x the actual revisit gap -- derived per cell from last_success_at rather
-  than read from config, so a missed run or an outage self-heals on the next visit. Violate
-  it and postings existed inside the gap and were never observed, deflating that cell's flow
-  estimate with no detectable symptom afterwards.
+  hours_old >= 1.5x the actual revisit gap -- how far back a scrape looks is derived from
+  how long that cell really went unvisited, so a long wait widens the next window instead of
+  leaving a hole. A hole does not corrupt the published numbers: analytics unions the
+  exposure intervals, so uncovered time drops out of the denominator. It costs postings.
+  Everything published inside the hole is never collected, never scored and never shown.
 """
 
 import math
@@ -269,10 +270,18 @@ def starved_cells(
 
 
 def adaptive_hours_old(cell: CellState, config: dict[str, Any], now: datetime) -> int:
-    """Derive hours_old from the ACTUAL revisit gap, not from a static config value.
+    """How far back one scrape of this cell looks, in hours.
 
-    Overlap is desirable: dedup absorbs it, and overlap is what keeps the exposure-interval
-    union continuous rather than gappy.
+    Derived from the cell's own revisit gap rather than read from config, because the
+    scheduler rotates: which cells a run visits comes from the priority ranking, so a cell
+    waits anywhere from hours to weeks and no single configured value fits all of them. A
+    window shorter than that wait means postings published between the two visits are never
+    seen. The 1.5x is overlap margin -- dedup drops the repeats, so overlap is cheap and a
+    hole is not.
+
+    Two limits. Past a ~224h wait the ceiling wins and the window no longer covers the whole
+    wait. And results_wanted_for() does not read hours_old, so a wide window asks for the
+    same number of postings and is more likely to come back truncated.
     """
     floors = config.get("hours_old_floor") or {}
     floor = floors.get(cell.tier, 168)

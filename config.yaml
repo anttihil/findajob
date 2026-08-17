@@ -7,112 +7,112 @@
 # ---------------------------------------------------------------------------------------
 # Scraping
 #
-# The cell matrix is 410 cells (205 per source), rotated across runs rather than swept --
-# see careerradar/search/scheduler.py. That rotation assumed LinkedIn rate-limits around the
-# 10th page on a single IP, but that figure was never actually verified: a direct probe
-# (scripts/probe_linkedin_page_wall.py, 2026-08-14) found zero 429s or blocks across 99
-# consecutive pages on one proxied IP, stopping only at the guest API's own ~1000-result
-# pagination ceiling. See experiments/linkedin_page_wall/. At these budgets a full matrix
-# cycle takes ~1.3 days on Indeed and ~1.7 on LinkedIn (four runs a day: 40 and 30 cells a
-# run), which is what makes the 30-day minimum analysis window meaningful. Both the budgets
-# and the timer were raised on 2026-08-15, when the matrix grew past what a two-run day
-# could cover and 266 of the 410 cells had never been scraped once.
+# Work is organised as a matrix of CELLS. One cell is one (source, role family, location)
+# combination, and scraping it means running one search query against one job board. There
+# are 410 cells, 205 per source.
+#
+# A run does not sweep the matrix. It visits a subset, chosen by the scheduler in
+# careerradar/search/scheduler.py, and the settings below are what limit that subset. At the
+# current budgets and four runs a day, a full pass over the matrix takes about 1.3 days on
+# Indeed and 1.7 on LinkedIn. That pass time is why the minimum analysis window under
+# `analytics` is 30 days: comparing role families needs several complete passes, or one
+# family simply got looked at more often than another.
 # ---------------------------------------------------------------------------------------
 scraper:
   sources:
     indeed: true
     linkedin: true
 
-  # Requests a cell spends, as two numbers the scheduler multiplies out
-  # (search/scheduler.py: estimate_pages, estimate_units). Both are measured, not read off
-  # the library: `careerradar search cost` compares them against what a run actually spent.
+  # How many results one page of search results holds. The scheduler uses this to work out
+  # how many HTTP requests a cell will cost before it spends them (estimate_pages and
+  # estimate_units in search/scheduler.py). These are what the boards actually return, not
+  # what the JobSpy library says it asks for, so check them with `careerradar search cost`
+  # rather than reading them off the library.
   page_size:
-    indeed:
-      100 # results per GraphQL page. Was 15 until 2026-08-15, which charged an
-      # Indeed cell 5 pages for what measurement showed costs 1-2 requests
-      # (45 results arrived in one page; JobSpy asks for 100 per page)
-    linkedin:
-      10 # results per guest-API page -- measured 2026-08-14 (see
-      # experiments/linkedin_page_wall/); JobSpy's own jobs_per_page=25
-      # constant does not match what the API actually returns per request
+    indeed: 100
+    linkedin: 10
 
-  # Extra requests per posting to obtain its description. This is the number that made the
-  # LinkedIn budget wrong by 11x while it went uncounted: a 50-posting census cell spends
-  # 6 search pages and 50 description fetches, not 5 requests.
+  # Extra requests needed to read one posting's description. This is easy to forget and it
+  # dominates the cost: a LinkedIn cell that reads 50 descriptions spends about 56 requests,
+  # not the 6 its search pages cost.
   requests_per_description:
-    indeed: 0 # descriptions arrive inside the search page, so a census is free
-    linkedin:
-      1 # one request per posting (jobspy/linkedin/__init__.py
-      # _get_job_details); rewritten to the cheaper guest fragment in
-      # search/sources/jobspy_source.py, which changes the latency, not
-      # the count
+    indeed: 0 # descriptions arrive inside the search page, so reading them is free
+    linkedin: 1 # one extra request per posting
 
-  # How long raw scrape payloads are kept in raw_payloads/ so a normalizer bug can be
-  # replayed without re-scraping. Pruned at the start of every non-dry run. Measured
-  # payloads are ~0.65MB per Indeed cell and ~0.4MB per LinkedIn cell, so at 160 + 120
-  # cells a day this bounds the archive at roughly 2GB -- up from 300-400MB, because the
-  # 2026-08-15 budget and frequency rise multiplied the cell count by ~7. Lower this to 7
-  # if the disk matters more than a two-week replay window. Set to 0 to keep everything.
+  # How long raw scrape payloads are kept in raw_payloads/, so a bug in the normalizer can
+  # be replayed against real data instead of re-scraping. Old payloads are pruned at the
+  # start of every non-dry run. A payload is roughly 0.65MB per Indeed cell and 0.4MB per
+  # LinkedIn cell, so 14 days holds about 2GB. Lower it if disk matters more than the replay
+  # window. Set to 0 to keep everything.
   archive_retention_days: 14
 
-  # How often a cell in each tier should be revisited.
+  # How often a cell in each tier should be revisited. This feeds the priority ranking and
+  # the starvation deadline below; it is a target, not a promise.
   cadence_hours:
     core: 24
     adjacent: 72
     breadth: 168
 
-  # Lower bound on hours_old per tier. The effective value is derived per cell from the
-  # actual revisit gap (>= 1.5x), so a missed run self-heals rather than leaving a hole.
+  # How far back one scrape looks. hours_old is sent to the board as a recency filter, so
+  # only postings published inside the window can come back.
   #
-  # Lowered 2026-08-15 (was 72/168/336) to convert lookback DEPTH into FRESHNESS. A cell
-  # asks for results_wanted postings out of everything in its hours_old window, and boards
-  # rank that window by their own relevance, not by date. So a 72h window means a posting
-  # published an hour ago competes with three days of backlog for the same 50-75 slots --
-  # and it loses often: 45% of core observations and 86% of breadth ones came back
-  # saturated, meaning the cell was truncated and whatever fell below the cut was never
-  # seen. Median lag from date_posted to date_found is 2.0 days, and only 3.3% of the
-  # corpus was found within a day of being posted.
+  # The window is not read straight from here. adaptive_hours_old() derives it per cell as
+  # max(floor, 1.5 * hours since that cell last succeeded), capped at max_hours_old. The
+  # reason is that the scheduler rotates: each run visits a subset of the cells, so how long
+  # a cell waits between visits comes from its priority rank and not from the run timer, and
+  # it varies from hours to weeks. A window shorter than that wait means postings published
+  # between the two visits are never seen at all. Deriving it from the wait keeps the window
+  # covering it, and the 1.5x is overlap margin -- dedup drops the repeats, so overlap is
+  # cheap and a hole is not.
   #
-  # Narrowing the window makes each scrape a sweep of what is actually new. It is safe at
-  # any run frequency because adaptive_hours_old() takes max(floor, 1.5 * actual gap): the
-  # floor binds only while runs are ON TIME, and a sparse or missed run widens the window
-  # back out on its own. So this does nothing until run frequency rises, then it starts
-  # paying immediately -- there is no ordering dependency between the two changes.
+  # The floor is the minimum window, and it applies to cells the rotation visits often.
+  # Prefer it low. A cell asks for a fixed number of postings (results_wanted), and boards
+  # rank the window by their own relevance rather than by date, so in a wide window a
+  # posting from an hour ago competes with the whole backlog for the same slots and often
+  # loses.
   hours_old_floor:
     core: 72
     adjacent: 72
     breadth: 168
+  # Upper bound on the derived window. Past a ~224h wait this wins, and the window then
+  # stops covering the full wait -- accepted, since a board's recency filter is of little
+  # use much further back than two weeks.
   max_hours_old: 336
+  # Window used when a cell has never been scraped successfully, and by backfill runs.
   backfill_hours_old: 336
 
-  # Hard guarantee: core cells in weight-1.0 locations are visited within this many hours,
-  # or their families' supply figures are suppressed with a coverage warning.
+  # Freshness guarantee for the most important cells. If a core cell in a top-weighted
+  # location has not been visited within this many hours, its role family's supply figures
+  # are suppressed and the dashboard shows a coverage warning instead of a stale number.
   max_staleness_hours: 72
 
-  # Per-tier scheduling deadline = cadence_hours * this. Any cell past its deadline is
-  # scheduled ahead of the priority ranking. Coverage is an explicit guarantee rather than
-  # something emerging from the product of six weighting factors -- an earlier design relied
-  # on priority alone and starved every breadth cell indefinitely.
-  # With 4: core within 4 days, adjacent within 12, breadth within 28.
+  # Deadline for any cell, as a multiple of its tier's cadence_hours. A cell past its
+  # deadline jumps the priority ranking and is scheduled regardless of how it ranks.
+  #
+  # This exists because priority alone does not guarantee coverage. Ranking cells by
+  # expected yield starves the low-yield ones forever, and then "this role family has no
+  # jobs" and "this query has been broken for a month" look identical. With 4: core is
+  # visited within 4 days, adjacent within 12, breadth within 28.
   starvation_multiple: 4
 
+  # Per-source limits on one run. Several caps apply at once and the SMALLEST one binds, so
+  # raising a single number often changes nothing -- check which one is actually stopping
+  # the run before tuning.
+  #
+  #   searches_per_run   how many cells the run may visit
+  #   request_units      total HTTP requests, search pages plus description fetches
+  #   max_pages_per_run  search pages only (LinkedIn)
+  #   results_wanted_*   how many postings to ask a cell for
+  #   fetch_descriptions whether to read each posting's description
   budgets:
-    # Indeed is the volume workhorse: descriptions arrive in-response, so a census of
-    # descriptions is free and its cells carry the skill analytics.
+    # Indeed carries the skill analytics, because descriptions come back inside the search
+    # page. Reading every description costs nothing extra, so every cell is a full census.
+    #
+    # A cell here costs 1-2 requests, so searches_per_run is the cap that binds and is meant
+    # to. request_units is sized for a backfill run (results_wanted=200, 3 requests a cell),
+    # so it stays out of the way of a normal one. If you raise searches_per_run, raise
+    # request_units with it or it becomes the binding cap instead.
     indeed:
-      # Measured 2026-08-15: a cell costs 1-2 requests, not the 5 the old page_size=15
-      # implied. searches_per_run is therefore the only cap that binds here, which is the
-      # intent -- request_units is set to cover a backfill run (results_wanted=200 -> 3
-      # requests a cell) rather than to constrain a normal one.
-      #
-      # Raised 2026-08-15 from 20/60, together with the timer going from two runs a day to
-      # four, because the matrix grew to 205 Indeed cells and 89 of them had never been
-      # scraped. 40 cells x 4 runs = 160 a day, a ~1.3-day cycle. The cost is 45s of extra
-      # run time: a cell measures 2.2s, so 40 cells is ~1.5 minutes.
-      #
-      # request_units must be raised WITH searches_per_run or it becomes the binding cap
-      # instead: a normal cell costs 2 units (ceil(75/100) pages + 1) and a backfill cell
-      # 3, so 40 backfill cells need 120.
       searches_per_run: 40
       request_units: 130
       results_wanted_default: 75
@@ -122,103 +122,67 @@ scraper:
       fetch_descriptions: true
       desc_selection: census
 
-    # LinkedIn without proxies: titles only. Each description costs an extra request, and
-    # on a single IP that was assumed to spend the entire ~10-page budget on a handful of
-    # postings -- a probe (see below) found that assumption doesn't hold, and a separate
-    # live run on one unproxied IP (2026-08-14) sustained ~1000 posts with no block or
-    # 429. Descriptions are still off here since a real IP-flag risk hasn't been ruled out
-    # for sustained description-fetching traffic specifically, only for plain search
-    # pagination -- that's what the numbers below spend the new headroom on, raised from
-    # searches_per_run=6/max_pages_per_run=14/max_results_wanted=75, still well under the
-    # with_proxies tier below and far under the ~1000-post figure. Treat as a starting
-    # point to tune further, not a settled ceiling. So these cells are desc_selection='none'
-    # -- they count fully toward role supply (title, company, and location are complete)
-    # but contribute nothing to skill demand.
-    # Set SCRAPER_PROXIES and the scraper.proxies.with_proxies override flips this to a
-    # full description census. See careerradar/search/proxies.py.
+    # LinkedIn on a single IP: titles only.
+    #
+    # Descriptions cost one request each here, and sustained per-posting fetching from one
+    # address is the traffic shape most likely to get that address flagged. Plain search
+    # pagination has been probed and looks safe (see experiments/linkedin_page_wall/);
+    # description fetching has not, so it stays behind the proxy pool below.
+    #
+    # The consequence is worth understanding: these cells have desc_selection='none', so
+    # they count fully toward role SUPPLY -- title, company and location are complete -- but
+    # contribute nothing to skill DEMAND, which needs description text.
+    #
+    # Set SCRAPER_PROXIES and the with_proxies override below turns this into a full
+    # description census. See careerradar/search/proxies.py.
     linkedin:
-      # max_pages_per_run is what binds. At page_size=10 and results_wanted_default=60 a
-      # cell costs 7 requests -- 6 pages plus the one that finds the end (estimate_pages)
-      # -- so 60 pages is ~8 cells a run, not the ~10 this comment claimed before the cost
-      # model was corrected on 2026-08-15. The cap itself is deliberately NOT raised to
-      # make searches_per_run reachable: 60 pages is a traffic limit chosen for a single
-      # unproxied IP, and only the arithmetic describing it was wrong.
-      #
-      # request_units equals max_pages_per_run here because descriptions are off, so every
-      # request this tier makes is a search page. Two caps, one number, on purpose.
-      #
-      # fetch_descriptions stays false here. The probe cleared plain search pagination on
-      # one IP, not sustained per-posting description fetching, and that is the untested
-      # traffic shape -- so the description census stays behind the proxy pool.
+      # max_pages_per_run binds here. At page_size=10 a cell asking for 60 postings costs 7
+      # requests (6 pages, plus one that discovers the end), so 60 pages is about 8 cells.
+      # It is a traffic limit for one unproxied IP, and deliberately not raised to make
+      # searches_per_run reachable. request_units equals it because descriptions are off, so
+      # every request this tier makes is a search page.
       searches_per_run: 15
       request_units: 60
       results_wanted_default: 60
       max_results_wanted: 100
       max_pages_per_run: 60
-      # NOTE: read by nothing. Description fetching is all-or-nothing per cell via
-      # fetch_descriptions/desc_selection (scheduler._make_task), so this caps nothing.
-      # Left in place rather than deleted because a per-run description cap is the right
-      # control to build if the single-IP description risk is ever measured.
+      # Read by nothing. Descriptions are all-or-nothing per cell via fetch_descriptions,
+      # so this caps nothing today. Kept as the place a per-run description cap would go.
       description_fetches_per_run: 40
       min_seconds_between_searches: 6.0
       jitter_seconds: [2.0, 6.0]
       fetch_descriptions: false
       desc_selection: none
 
-  # Rotating proxy pool. Credentials come from the environment, never this file, since
+  # Rotating proxy pool. Credentials come from the environment, never from this file, since
   # config.yaml is committed:
   #
   #   SCRAPER_PROXIES="user:pass@gate.example.net:7000"          # one rotating endpoint
   #   SCRAPER_PROXIES="user:pass@a:7000,user:pass@b:7000"        # or an explicit list
   #
-  # A rotating gateway usually hands out a fresh exit IP per request, which changes what a
-  # 429 means: it flagged one exit IP, not the account. So when proxies are configured the
-  # circuit retries on a new IP instead of tripping the source outright, and the LinkedIn
-  # budget can be raised — the assumed ~10-page-per-IP wall was the reason it was forced
-  # down otherwise, though a direct probe (2026-08-14, see the top of this file) found no
-  # such wall through page 99 on a single proxied IP.
+  # A rotating gateway gives a fresh exit IP per request. That changes what a 429 means: one
+  # exit IP was flagged, not the account. So with proxies the circuit breaker retries on a
+  # new IP before it trips the source, and LinkedIn can afford a much larger budget.
   proxies:
     enabled: true # only takes effect when SCRAPER_PROXIES is set
     rotating: true # the gateway rotates exit IPs per request
     # Budget overrides applied ONLY when proxies are actually available.
     with_proxies:
       linkedin:
-        # max_pages_per_run was the binding constraint, not searches_per_run. At
-        # results_wanted_default=50 and page_size=10 a cell costs 5 pages, so 36 pages
-        # bought 7 cells a run and searches_per_run=12 was never reached. With 189
-        # LinkedIn cells that is a ~13-day cycle at 2 runs/day, and the observed corpus
-        # was far worse than that: 168 of 189 LinkedIn cells had never been scraped once.
+        # All three caps move together. Raising one alone just hands the constraint to the
+        # next: 30 cells need 30 x 6 = 180 pages and 30 x 56 = 1680 request units, because a
+        # census cell spends 6 search pages plus one request per posting.
         #
-        # Raised on 2026-08-15 because LinkedIn earns the budget. Hit rate -- postings
-        # reaching fit_score >= 60 -- measured over 5,831 verdicts:
+        # LinkedIn earns this budget. Postings from it reach a high fit score about 2.7x as
+        # often as Indeed's, so it is worth spending more per posting here.
         #
-        #   linkedin   838 scored    99 hits   11.8%
-        #   indeed   4,872 scored   212 hits    4.4%
+        # This is the expensive lever in wall-clock terms too: a census cell takes about 55
+        # seconds, so 30 cells is roughly 28 minutes of run time. careerradar-search.service
+        # sets TimeoutStartSec to 90min to allow for it.
         #
-        # LinkedIn is 2.7x Indeed per posting and was getting a third of the page budget.
-        # 90 pages is ~18 cells a run, a ~5-day cycle, and it stays far under the probe's
-        # 99 consecutive pages on a SINGLE exit IP -- this pool has 100 rotating endpoints,
-        # so per-IP load falls rather than rises. The circuit breaker still trips the
-        # source outright on the first 429, so the downside is a backoff, not a ban.
-        # Corrected 2026-08-15 from request_units=180/max_pages_per_run=90, which counted
-        # search pages only. Measured, a census cell spends 56 requests: 6 search pages
-        # plus one per posting. So 180 units never bound anything it was meant to bind,
-        # and the run's real cost was ~1000 requests while the config said 90.
-        #
-        # Raised again on 2026-08-15, from searches_per_run=18/request_units=1010/
-        # max_pages_per_run=108, because roles.yaml grew the matrix to 205 LinkedIn cells
-        # and 177 of them had never been scraped once. 30 cells x 4 runs a day = 120, a
-        # ~1.7-day cycle. All three caps move together, since raising one alone just hands
-        # the constraint to the next: 30 x 6 pages = 180, 30 x 56 units = 1680.
-        #
-        # Per-IP load still falls rather than rises. A run's ~810 measured requests spread
-        # over a 100-endpoint rotating pool is ~8 per exit IP, against the 99 consecutive
-        # pages one exit IP took in the probe without a 429. The circuit breaker still
-        # trips the source outright on the first 429, so the downside stays a backoff.
-        #
-        # This is the expensive lever: a census cell measures ~55s (6 search pages plus
-        # ~50 description fetches), so 30 cells is ~28 minutes of run time. That is what
-        # careerradar-search.service raised TimeoutStartSec to 90min for.
+        # Traffic per exit IP still falls rather than rises, because a run's requests spread
+        # over a 100-endpoint pool. And the circuit breaker still trips the whole source on
+        # the first 429, so the worst case is a backoff rather than a ban.
         searches_per_run: 30
         request_units: 1700
         results_wanted_default: 50
@@ -226,27 +190,30 @@ scraper:
         max_pages_per_run: 180
         min_seconds_between_searches: 2.0
         jitter_seconds: [0.5, 2.0]
-        # The payoff of a proxy pool. One extra request per posting is unaffordable on a
-        # single IP, so without proxies LinkedIn yields titles only and contributes to role
-        # supply but not to skill demand. With rotating exits it becomes a full description
-        # census, so LinkedIn feeds the skill analytics too.
+        # This is what the proxy pool buys. One extra request per posting is unaffordable on
+        # a single IP, so unproxied LinkedIn gives titles only. With rotating exits it
+        # becomes a full description census and feeds the skill analytics as well as supply.
         fetch_descriptions: true
         desc_selection: census
 
+  # What to do when a board starts refusing. A cell that keeps failing is backed off on its
+  # own; a source that keeps failing is stopped entirely, and the backoff lengthens each
+  # time it trips again.
   circuit_breaker:
     consecutive_errors_to_trip: 3
     # Retries on a fresh exit IP before tripping, when a rotating pool is configured.
     proxy_rotation_retries: 3
-    # A 429 means the IP is flagged. Retrying in-run deepens the flag, so it trips the
-    # source outright instead -- deliberately unlike a polite API's retry-with-backoff.
+    # A 429 means this IP is flagged. Retrying in-run makes that worse, so the source is
+    # tripped at once instead of being retried with backoff.
     http_429_trips_immediately: true
     transient_retries: 2
     source_backoff_minutes: [15, 60, 240, 1440]
     cell_backoff_minutes: [60, 360, 1440]
 
-  # Staffing firms and consultancies repost one requisition many times under varied
-  # titles, which near-duplicate detection cannot catch because the descriptions genuinely
-  # differ. Excluded from analytics by default; the dashboard offers a toggle.
+  # Staffing firms and consultancies post one job many times under different titles.
+  # Near-duplicate detection cannot catch it, because the descriptions really are different.
+  # Left out of analytics by default, since they would inflate supply for whatever they
+  # happen to be recruiting for. The dashboard has a toggle to put them back in.
   agencies:
     - Robert Half
     - Insight Global
@@ -270,9 +237,9 @@ scraper:
     - HiQ
     - Cygni
 
-  # Static FX rates, used only to put salaries on one annual-USD axis. Precision is not
-  # critical: salary_lift is a ratio computed within a stratum, and strata include country
-  # so cross-currency figures never share a median.
+  # Fixed rates, used only to put salaries on one annual-USD axis. They do not need to be
+  # current: salary comparisons are ratios computed inside a stratum, and a stratum includes
+  # the country, so two currencies never share a median.
   fx:
     USD: 1.00
     EUR: 1.08
@@ -285,50 +252,55 @@ scraper:
 # ---------------------------------------------------------------------------------------
 # Matching
 # ---------------------------------------------------------------------------------------
-# What the keyword layer measures is requirement COVERAGE, not fit. It feeds the skill
-# hint in the scoring prompt, the gap analytics, and a coarse tiebreak -- it does not rank
-# the dashboard. See careerradar/search/keyword_score.py.
+# A cheap keyword pass over each posting, run before any LLM sees it. It measures how much
+# of the posting's stated requirements the profile COVERS -- it is not a fit judgement. Its
+# output feeds the skill hint in the scoring prompt, the gap analytics, and a coarse
+# tiebreak. It does not rank the dashboard. See careerradar/search/keyword_score.py.
 matching:
   weights:
-    # Redistributed proportionally when BM25 was removed. Its query was a fixed bag of the
-    # candidate's skill labels, identical for every posting, so it restated the coverage
-    # component next to it with more noise and no validation.
     skill_coverage: 0.62
     title_family: 0.24
     seniority_fit: 0.14
 
 # ---------------------------------------------------------------------------------------
 # Analytics
+#
+# Turning a rotating, uneven scrape into numbers that can be compared. Most settings here
+# are guards against reporting something the data cannot support.
 # ---------------------------------------------------------------------------------------
 analytics:
   windows: [30, 90]
-  # Derived, not a preference: a full matrix cycle takes ~1.5 days, and comparing supply
-  # across families needs several complete cycles or coverage is irreparably uneven.
+  # Shortest window the analytics will report over. A full pass across the matrix takes
+  # about 1.5 days, and comparing role families needs several complete passes, or coverage
+  # is too uneven to compare at all.
   min_window_days: 30
 
-  # Publication gates. Suppress WITH a reason; never silently omit.
+  # Publication gates. A figure that fails one of these is suppressed WITH a stated reason
+  # and never silently dropped.
   min_postings_for_skill: 20
   min_companies_for_skill: 3
   max_company_share: 0.40 # one employer dominating a skill is not market demand
   min_n_eff_for_scope: 20
+  # Fraction of the analysis window a cell's scrapes must actually cover.
   min_coverage_fraction: 0.50
-  # Was 3, which conflicted with the scheduler's whole purpose: it deliberately ROTATES to
-  # different cells rather than revisiting one, so a cell accumulates observations only
-  # across days. Meanwhile coverage_fraction already measures what actually matters -- one
-  # observation with hours_old=336 is a complete census of a 14-day window. Requiring 3 was
-  # therefore redundant with the coverage gate and suppressed sound estimates. Observation
-  # depth is still reported per row and shown in the coverage panel.
+  # How many separate scrapes of a cell are required. Keep this at 1. The scheduler rotates
+  # on purpose, so a cell gathers repeat observations only slowly, and coverage_fraction
+  # above already measures the thing that matters -- one scrape with a 336h window is a
+  # complete census of two weeks. Requiring more suppresses sound estimates.
   min_observations_per_cell: 1
   min_salary_samples: 12
 
   exclude_agencies: true
 
-  # Post-stratification target mix. Weights are DECLARED, not observed, so the estimate is
-  # stable as the scrape rotation changes -- otherwise every metric wobbles with the
-  # rotation and trend becomes meaningless.
-  #   interest         -- "of the jobs I'd actually consider, X% require this"
+  # Skill demand is reweighted to this mix of role family and location before it is
+  # reported. The weights are DECLARED here rather than taken from what was scraped, so the
+  # numbers stay stable while the rotation moves around. Weighting by the observed sample
+  # instead would make every metric drift with the scrape schedule and make trends
+  # meaningless.
+  #
+  #   interest         -- "of the jobs I would actually consider, X% require this"
   #   estimated_supply -- "of what the market is hiring for, X% require this"
-  #   observed         -- diagnostic ONLY; reflects scrape rotation, not the market
+  #   observed         -- diagnostic ONLY; reflects the scrape rotation, not the market
   weighting_mode: interest
   reference_mix:
     ai_engineer|us_remote: 0.13
@@ -351,8 +323,9 @@ analytics:
     tpm|us_remote: 0.02
     product_manager|us_remote: 0.01
 
-  # Skill-gap composite. blocking_gap dominates deliberately: "this skill is what stands
-  # between me and postings I otherwise match" is more actionable than raw popularity.
+  # How skills are ranked in the gap report. blocking_gap leads on purpose: "this skill is
+  # what stands between me and jobs I otherwise match" is more useful than "this skill is
+  # popular".
   gap_weights:
     blocking_gap: 0.40
     demand: 0.30
@@ -369,24 +342,24 @@ digest:
 # ---------------------------------------------------------------------------------------
 # Agents
 #
-# Three agents, three jobs, two models. Costs below are measured, not estimated -- see
-# docs/deepseek.md for the token shape they come from.
+# Three LLM agents with three different jobs. The big model is used where it runs a handful
+# of times; the small one where it runs once per posting. See docs/deepseek.md.
 # ---------------------------------------------------------------------------------------
 profile:
-  # Built once, interactively. Worth the larger model: this artifact decides how every
-  # posting is scored thereafter, and it is a handful of calls, not thousands.
+  # Built once, interactively, by interviewing the user. Worth the larger model: this one
+  # artifact decides how every posting is scored afterwards, and building it is a few calls
+  # rather than thousands.
   model: deepseek-v4-pro
   max_interview_questions: 15
 
-  # The documents the profile is built from. An explicit list, not a scan of resumes/.
+  # The documents the profile is built from. An explicit list, deliberately not a scan of
+  # resumes/, because that directory also holds resumes tailored for SENDING to employers.
+  # Those are sales documents, not evidence of what the user can do, and letting them in
+  # inflates the skill levels and then every score downstream. Nothing errors when that
+  # happens; the numbers are just wrong.
   #
-  # resumes/ also holds tailored resumes written for SUBMITTING to employers, which is a
-  # different kind of document from evidence about what you can actually do. Scanning the
-  # directory pulled six LLM-generated variants into the profile, and their inflated skill
-  # lists became skill levels and then scores. Nothing errored; the numbers were wrong.
-  #
-  # Paths are relative to the repo root. A named file that is missing is an error, unless
-  # marked `optional: true`.
+  # Paths are relative to the repo root. A listed file that is missing is an error, unless
+  # it is marked `optional: true`.
   corpus:
     - path: achievements.md
       kind: achievements
@@ -394,62 +367,50 @@ profile:
       kind: resume
 
 scoring:
-  # The volume workhorse -- one call per posting. Flash with an automatically cached
-  # profile prefix costs ~$0.0006 a posting (measured over 17,471 v2 verdicts; the
-  # ~$0.0004 quoted here before was the v1 schema), so scoring the whole corpus is a few
-  # dollars rather than a reason to sample.
+  # One call per posting, so this is where the volume is. The profile sits in a cached
+  # prompt prefix, which brings a posting down to about $0.0006. Scoring the whole corpus
+  # therefore costs a few dollars, which is why every posting is scored rather than sampled.
   model: deepseek-v4-flash
   concurrency: 16
-  # Pre-flight: if the estimate exceeds this the run ABORTS rather than trimming the
-  # queue. A budget that silently drops the tail produces a partial pass that looks
-  # complete, and every coverage figure downstream inherits the lie.
+  # Pre-flight ceiling. If the estimated cost of the queue exceeds this, the run ABORTS
+  # instead of scoring part of it. A budget that quietly drops the tail produces a pass that
+  # looks complete, and every coverage figure downstream then inherits that.
   #
-  # Raised from 2.50 with the v2 verdict schema: the model now returns a role summary and
-  # five to eight quoted requirements with an assessment each, roughly doubling completion
-  # length.
-  #
-  # Raised again to 8.00 on 2026-08-15, off the production backlog. The ceiling is a sanity
-  # guard against a runaway queue, not a budget: it has to clear a COLD backlog in one pass
-  # or the pre-flight aborts every single run and nothing is ever scored. Production
-  # reached 11,598 unscored postings while careerradar-score.timer sat disabled, which is
-  # exactly the state that would have deadlocked against the old $4.00 ceiling the moment
-  # the timer came back on. At the measured $0.0006 a posting -- not the $0.0004 assumed
-  # when this was set -- 8.00 covers ~13,000 postings, so a backlog past that aborts.
+  # Because it aborts rather than trims, it has to be large enough to clear a COLD backlog
+  # in one pass -- if the scoring timer is off for a few days, the queue can reach five
+  # figures, and a ceiling below that deadlocks: every run aborts and nothing is ever
+  # scored. Treat it as a guard against a runaway queue, not as a spending target. At
+  # $0.0006 a posting, 8.00 covers about 13,000 postings.
   max_usd_per_run: 8.00
-  # Seniority levels never sent to the judge. Measured on prod_jobs.db (2026-08-16,
-  # 17,471 verdicts): `lead` scores 0.1% (4,147 scored, 3 hits) and `staff` 0.4% (1,388
-  # scored, 5 hits), against 12.8% for `unspecified` and 19.7% for `mid`. Together they are
-  # 32% of every verdict ever written for 8 hits.
+  # Seniority levels never sent to the judge, to save calls and dashboard noise. These
+  # levels score close to zero: together they are about a third of all verdicts ever written
+  # for a handful of hits, and it is not a role-family effect -- they score just as badly
+  # inside the best families.
   #
-  # This is NOT a family effect and cannot be expressed in roles.yaml: inside the seven
-  # highest-yield families lead/staff still score 0.5%. It also explains why tech_lead,
-  # eng_manager, tpm and product_manager are dead families -- roles.yaml maps `\bmanager\b`
-  # to lead, and manager/director/head-of titles are 3,235 scored for ZERO hits.
+  # Note what this catches beyond its literal name: roles.yaml reads manager, director and
+  # head-of titles as `lead`, and those never hit at all. It is also why the tech_lead,
+  # eng_manager, tpm and product_manager families look dead.
   #
-  # What it costs, stated plainly: the `lead`/`leading` titles proper (as opposed to
-  # manager/director) are 912 scored for 3 hits, and those 3 are real IC roles -- "Software
-  # Engineer - Volunteer Program Lead" (74), a Stockholm "Tech Lead/Full-stack Utvecklare"
-  # (62) and "Software Engineer Lead" (62). Dropping `lead` from this list buys them back
-  # for ~5% more scoring volume. `staff` has no such case: excluding architect titles and
-  # "Member of Technical Staff" (which roles.py now reads as unspecified, because it is an
-  # IC title at AI labs and scores 11.5%), genuine staff titles are 928 scored for 1 hit.
-  #
-  # Seniority comes from the title, so this saves LLM calls and dashboard noise -- never
-  # scrape budget. The posting is stored and classified either way, which is what keeps
-  # supply analytics honest about demand the user is choosing not to pursue.
+  # Seniority is read from the title, so this saves LLM calls only -- never scrape budget.
+  # The posting is still stored and classified, which keeps the supply analytics honest
+  # about demand the user is choosing not to pursue.
   skip_seniority: [lead, staff]
-  # Which postings earn a deep-research pass. A predicate rather than a number on a lumpy
-  # scale -- and it states its own reasoning, which `fit_score >= 70` never did.
+  # Which postings earn an expensive deep-research pass. Written as a predicate over the
+  # judge's own structured verdict rather than a score threshold, so it states its reasons:
+  # a `fit_score >= 70` cutoff says nothing about why a posting qualified.
   research_gate:
     eligibility: [eligible]
     role_match: [same_role, adjacent]
     capability_match: [exceeds, meets, most_with_gaps]
 
 research:
+  # Runs at most a few times a run, on companies behind postings that passed research_gate,
+  # and does live web search. Worth the larger model at this volume.
   model: deepseek-v4-pro
   search_provider: tavily
   max_companies_per_run: 5
-  # Dossiers age out rather than being rebuilt on every encounter; company facts move on
-  # a scale of months, and a re-scrape of the same company is pure cost.
+  # A company dossier is reused until it is this old, rather than rebuilt each time the
+  # company appears. Company facts move over months, and re-researching the same company is
+  # pure cost.
   refresh_days: 30
   max_usd_per_run: 2.00
