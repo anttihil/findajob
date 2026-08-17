@@ -56,6 +56,11 @@ if TYPE_CHECKING:
 
 logger = get_logger()
 
+# Share of a run's planned cells that may come back empty or errored before the run stops
+# calling itself ok. Healthy runs lose 0-10% of Indeed cells to genuinely empty 24h windows;
+# the runs that lost 30-50% still reported ok, which is the case this threshold catches.
+LOST_CELLS_PARTIAL = 0.2
+
 from careerradar.core.paths import ARCHIVE_DIR  # noqa: E402
 
 
@@ -147,6 +152,8 @@ def run_sync(
         "cells_planned": 0,
         "cells_succeeded": 0,
         "cells_skipped": 0,
+        "cells_empty": 0,
+        "cells_error": 0,
         "postings_fetched": 0,
         "postings_new": 0,
         "duplicates_merged": 0,
@@ -222,6 +229,8 @@ def run_sync(
 
             logger.info(f"[{source}] {len(tasks)} cells planned")
 
+            empty = 0
+            errored = 0
             for task in tasks:
                 outcome = _scrape_one(
                     db,
@@ -243,17 +252,37 @@ def run_sync(
                         f"{circuit.trip_reason} — {remaining} cells deferred to the next run.",
                     )
                     break
+                # The `else` is a catch-all on purpose: every outcome must land in exactly
+                # one counter. It used to count "ok" and "tripped" only, so a cell that came
+                # back empty was in no counter at all and the run still reported ok -- the
+                # 2026-08-16 runs lost 20 of 40 Indeed cells that way and said nothing.
                 if outcome == "ok":
                     totals["cells_succeeded"] += 1
+                elif outcome == "empty":
+                    empty += 1
+                else:
+                    errored += 1
                 for key in ("postings_fetched", "postings_new", "duplicates_merged", "off_topic"):
                     totals[key] += _LAST_CELL_STATS.get(key, 0)
+
+            totals["cells_empty"] += empty
+            totals["cells_error"] += errored
+            if empty or errored:
+                logger.warning(
+                    f"[{source}] {empty + errored} of {len(tasks)} planned cells returned no "
+                    f"postings ({empty} empty, {errored} error); they contribute nothing to "
+                    "the description census the skill analytics read"
+                )
 
             circuit.note_clean_run()
 
         _report_coverage(db, scraper_config)
 
+        lost = totals["cells_empty"] + totals["cells_error"]
         status = "ok"
         if any(c.is_open for c in circuits.values()) or totals["cells_skipped"]:
+            status = "partial"
+        if totals["cells_planned"] and lost >= LOST_CELLS_PARTIAL * totals["cells_planned"]:
             status = "partial"
         if totals["cells_planned"] and not totals["cells_succeeded"]:
             status = "failed"

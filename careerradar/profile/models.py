@@ -246,6 +246,14 @@ class CoreRequirement(BaseModel):
         return value
 
 
+# The two `eligibility` values that leak into `status`, read as the status they mean. Both
+# scales run from "yes" through "partly" to "no", so the translation is the identity on
+# the reading rather than a lossy guess. `eligible` is not here because it has never
+# arrived: the leak happens when a requirement is also the blocker, which is never the
+# eligible case.
+_ELIGIBILITY_WORDS = {"blocked": "unmet", "conditional": "partial"}
+
+
 class RequirementAssessment(BaseModel):
     requirement: str = Field(
         description="Must repeat one of the requirements you listed above, word for word."
@@ -262,10 +270,23 @@ class RequirementAssessment(BaseModel):
         description="What in the profile shows this, or null if nothing does.",
     )
 
+    @model_validator(mode="before")
+    @classmethod
+    def _accept_a_requirement_written_as_a_question(cls, value: Any) -> Any:
+        """Take `question` where `requirement` belongs, same as `CoreRequirement`.
+
+        The repair was added one class up and not here, so the assessments half of the
+        same response kept failing on the same word: the model that writes `question` in
+        `core_requirements` writes it again when it repeats the requirement below.
+        """
+        if isinstance(value, dict) and "requirement" not in value and "question" in value:
+            return {**value, "requirement": value["question"]}
+        return value
+
     @field_validator("status", mode="before")
     @classmethod
     def _a_blocking_requirement_is_unmet(cls, value: Any) -> Any:
-        """Take `blocked`, which is `eligibility`'s vocabulary leaking one level down.
+        """Take `eligibility`'s vocabulary, which leaks one level down into this field.
 
         This was the single most expensive rejection in the backlog run: 126 calls and 26
         of the 38 postings that ended with no verdict at all. The field had no
@@ -282,10 +303,15 @@ class RequirementAssessment(BaseModel):
         definition, and `hard_blockers` already carries the fact that it disqualifies.
         Nothing downstream reads this field for the number -- `scoring/scale.py` projects
         the score from the five ordinals -- so no stored score can move.
+
+        `conditional` maps to `partial` for the same reason and by the same reading: the
+        two scales run in the same direction, so the middle value of one is the middle
+        value of the other. It was the only enum leak still costing calls after `blocked`
+        was repaired -- 43 rejections, and one posting that ran out of retries on it.
         """
-        if isinstance(value, str) and value.strip().casefold() == "blocked":
-            return "unmet"
-        return value
+        if not isinstance(value, str):
+            return value
+        return _ELIGIBILITY_WORDS.get(value.strip().casefold(), value)
 
 
 # Why HardBlocker has two fields. This is a comment rather than a docstring because a

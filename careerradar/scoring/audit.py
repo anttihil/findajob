@@ -64,11 +64,27 @@ _DASHES = dict.fromkeys(map(ord, "‐‑‒–—―−"), "-")
 _QUOTES = dict.fromkeys(map(ord, "‘’‚‛′"), "'")
 _QUOTES.update(dict.fromkeys(map(ord, "“”„‟″"), '"'))
 
+# Descriptions arrive as Markdown -- 22,360 of 23,415 scraped postings carry `**` -- and
+# the model quotes the words it reads, not the markup around them. `**Clearance
+# Required:** TS/SCI.` came back as `Clearance Required: TS/SCI.`, which is verbatim to
+# anyone reading the posting and absent from the string the auditor was comparing against.
+# Four of the six postings that lost their verdict to an unlocatable blocker over 2026-08-14
+# and 15 were exactly this; a fifth was an ellipsis the separator rule already handles, and
+# only the sixth was a quote the posting genuinely never contained.
+#
+# The markers become a SPACE rather than being deleted. A board that bolds half a phrase
+# emits `an******active`, so deleting the run welds the two words together and the quote
+# misses anyway; a space collapses into the whitespace rule on the next line. Both sides
+# of every comparison go through here, so a quote that legitimately contains an asterisk
+# or an underscore is folded the same way the posting is and still matches.
+_MARKUP = re.compile(r"[*_`\\]+")
+
 
 def normalize(text: str) -> str:
     """Fold the differences that are not the model's fault."""
     text = unicodedata.normalize("NFKC", text or "")
     text = text.translate(_DASHES).translate(_QUOTES)
+    text = _MARKUP.sub(" ", text)
     return re.sub(r"\s+", " ", text).strip().casefold()
 
 

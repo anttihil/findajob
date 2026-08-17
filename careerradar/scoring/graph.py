@@ -125,10 +125,25 @@ def node_score(state: ScoreState) -> dict[str, Any]:
         # hand and separates prose-instead-of-a-tool-call from a truncation, which have
         # different fixes: retry versus a smaller ask.
         reason = parse_error if parse_error is not None else no_tool_call_reason(raw)
-        logger.warning("Scoring returned unusable output (attempt %d): %s", attempts, reason)
+
+        # `no_tool_call_reason` only gets to speak when pydantic has nothing to say, so a
+        # truncation that happened to leave valid JSON was reported as a pile of missing
+        # required fields -- indistinguishable from a model that simply skipped them. That
+        # was 36 of the 71 rejections in the last production run, and the two have
+        # opposite fixes: a higher output ceiling, or a shorter ask. `finish_reason` is
+        # the only thing that separates them, so it is read here regardless of who won the
+        # race to explain the failure.
+        metadata = getattr(raw, "response_metadata", None) or {}
+        truncated = ""
+        if metadata.get("finish_reason") == "length":
+            truncated = " -- and the response hit the output token limit"
+
+        logger.warning(
+            "Scoring returned unusable output (attempt %d): %s%s", attempts, reason, truncated
+        )
         return {
             "attempts": attempts,
-            "error": _rule_from(reason),
+            "error": _rule_from(reason) + truncated,
             "verdict": None,
             "usage": usage,
             "semantic": _is_semantic(parse_error),

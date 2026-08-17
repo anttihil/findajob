@@ -302,12 +302,14 @@ sqlite3 /path/to/old/jobs.db ".backup 'jobs.db'"   # WAL mode: never plain-copy 
 uv run careerradar migrate
 
 sudo cp deploy/careerradar-*.service deploy/careerradar-*.timer /etc/systemd/system/
+sudo install -m 0644 deploy/careerradar.logrotate /etc/logrotate.d/careerradar
 sudo systemctl daemon-reload
 sudo systemctl enable --now careerradar-web.service \
     careerradar-search.timer careerradar-score.timer careerradar-research.timer
 ```
 
-The units hardcode the app root and `User=`; adjust both if the server layout differs.
+The units hardcode the app root and `User=`; the logrotate snippet hardcodes the same two.
+Adjust all of them if the server layout differs.
 
 `careerradar-search.service` deliberately has **no `Restart=`** — the circuit breaker has
 already decided how long to back off, and restarting would discard that decision and
@@ -353,9 +355,9 @@ careerradar/
 ├── web/        FastAPI app, owner gate, frontend/
 └── cli.py
 data/           roles.yaml, skills.yaml
-deploy/         systemd units
+deploy/         systemd units, logrotate snippet for app.log
 docs/           deepseek.md -- the API constraints the scoring design rests on
-                operations.md -- status, the JSON API over ssh, read-only snapshots
+                operations.md -- status, the JSON API over ssh, read-only snapshots, logs
 ```
 
 `core/paths.py` is the single definition of where anything lives. Twelve modules used to

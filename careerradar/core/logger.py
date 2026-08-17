@@ -1,31 +1,28 @@
 import logging
-from logging.handlers import RotatingFileHandler
 
 from careerradar.core.paths import LOG_PATH
 
 LOG_FILE = LOG_PATH
 
-# Rotation, not a plain FileHandler: under a systemd timer nothing ever truncates this by
-# hand, and a scrape logs one line per cell plus every circuit-breaker decision. 5 x 2MB
-# keeps roughly the last few weeks of runs -- long enough to explain a bad chart -- at a
-# fixed 10MB ceiling.
-MAX_BYTES = 2 * 1024 * 1024
-BACKUP_COUNT = 5
-
-# Create a custom logger
+# A plain FileHandler, not RotatingFileHandler: four units -- three timers plus the
+# long-lived web server -- hold this file open at once, and RotatingFileHandler assumes a
+# single writer. When one process rotated, the others kept appending to the renamed inode,
+# whose next rotation deletes it. The evidence is in this checkout: app.log.3 is 74 bytes
+# over the old 2MB cap, which shouldRollover() makes impossible for one writer, and its last
+# line is 71 seconds *newer* than app.log.2's.
+#
+# Rotation is logrotate's job now, with `copytruncate` so every writer keeps the same inode
+# across a rotation. See deploy/careerradar.logrotate -- without it installed, this file
+# grows without bound.
 logger = logging.getLogger("job_search")
 logger.setLevel(logging.DEBUG)
 
-# Create handlers
 c_handler = logging.StreamHandler()
-f_handler = RotatingFileHandler(
-    LOG_FILE, maxBytes=MAX_BYTES, backupCount=BACKUP_COUNT, encoding="utf-8"
-)
+f_handler = logging.FileHandler(LOG_FILE, encoding="utf-8")
 
 c_handler.setLevel(logging.INFO)
 f_handler.setLevel(logging.DEBUG)
 
-# Create formatters and add them to handlers
 log_format = logging.Formatter(
     "[%(asctime)s] [%(levelname)s] [%(filename)s:%(lineno)d]: %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S",
@@ -33,7 +30,6 @@ log_format = logging.Formatter(
 c_handler.setFormatter(log_format)
 f_handler.setFormatter(log_format)
 
-# Add handlers to the logger
 if not logger.handlers:
     logger.addHandler(c_handler)
     logger.addHandler(f_handler)

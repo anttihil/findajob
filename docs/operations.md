@@ -85,6 +85,29 @@ which database produced them. A figure computed on a development copy and a figu
 on production have differed by up to 7x in this project, in both directions. Say which one
 you used.
 
+## The log file
+
+`app.log` in the install directory is still the one place to read. Every stage and the web
+server append to it at DEBUG level; the journal holds the same records at INFO under each
+unit's identifier, which is the faster way to read one run in isolation:
+
+```bash
+tail -f <install-dir>/app.log
+journalctl -t careerradar-search -S -1h     # or -score, -research, -web
+```
+
+**Rotation is logrotate's, not the application's.** Four processes hold `app.log` open at
+once, and the old in-process `RotatingFileHandler` assumed a single writer: when one stage
+rotated, the other three kept appending to the renamed file, which the next rotation
+deleted. `deploy/careerradar.logrotate` uses `copytruncate` so every open handle survives a
+rotation. It is a one-time install and nothing warns you if you skip it — the file simply
+grows until the disk does:
+
+```bash
+sudo install -m 0644 deploy/careerradar.logrotate /etc/logrotate.d/careerradar
+sudo logrotate --debug /etc/logrotate.d/careerradar   # dry run, prints what it would do
+```
+
 ## The stages queue, they do not overlap
 
 `search`, `score`, `research` and `migrate` take an exclusive `flock` on `.pipeline.lock`

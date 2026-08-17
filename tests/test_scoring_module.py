@@ -11,6 +11,8 @@ import unittest
 from typing import Any
 from unittest import mock
 
+from pydantic import ValidationError
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from careerradar.core.llm import PRICES, Spend, estimate_cost, usage_cost
@@ -304,6 +306,26 @@ class GraphTests(unittest.TestCase):
         # No verdict means the posting stays 'new' and the next run retries it.
         self.assertIsNotNone(state.get("error"))
 
+    def test_a_truncation_that_left_valid_json_says_so(self) -> None:
+        """Missing required fields and a stopped generation read identically otherwise.
+
+        The response parses, pydantic names eight absent fields, and nothing had looked at
+        `finish_reason` once pydantic had an answer -- so a token ceiling and a model that
+        skipped the fields were the same log line. They have opposite fixes.
+        """
+        truncated = {
+            "parsed": None,
+            "raw": mock.Mock(response_metadata={"finish_reason": "length"}),
+            "parsing_error": "8 validation errors for FitAssessment\neligibility\n"
+            "  Field required [type=missing, input_value={}, input_type=dict]",
+        }
+        state, _chain = self.run_graph([truncated] * 3)
+        self.assertIn("output token limit", state["error"])
+
+    def test_a_rejection_that_did_not_truncate_says_nothing_about_tokens(self) -> None:
+        state, _chain = self.run_graph([bad_response()] * 3)
+        self.assertNotIn("output token limit", state["error"])
+
     def test_an_api_exception_is_caught_rather_than_killing_the_run(self) -> None:
         from careerradar.scoring.graph import build_graph
 
@@ -482,6 +504,32 @@ class UnenforcedSchemaTests(unittest.TestCase):
             )
         )
         self.assertEqual(parsed.requirement_assessments[0].status, "unmet")
+
+    def test_a_conditional_requirement_is_read_as_partial(self) -> None:
+        """43 rejections and one lost posting: the other half of the same enum leak."""
+        parsed = FitAssessment(
+            **self.assessment_fields(
+                requirement_assessments=[{"requirement": "Kubernetes", "status": "conditional"}]
+            )
+        )
+        self.assertEqual(parsed.requirement_assessments[0].status, "partial")
+
+    def test_a_status_that_is_not_eligibility_vocabulary_is_still_refused(self) -> None:
+        with self.assertRaises(ValidationError):
+            FitAssessment(
+                **self.assessment_fields(
+                    requirement_assessments=[{"requirement": "Kubernetes", "status": "maybe"}]
+                )
+            )
+
+    def test_an_assessment_written_as_a_question_is_still_a_requirement(self) -> None:
+        """The repair lived on `CoreRequirement` only; the model writes it in both halves."""
+        parsed = FitAssessment(
+            **self.assessment_fields(
+                requirement_assessments=[{"question": "Kubernetes", "status": "met"}]
+            )
+        )
+        self.assertEqual(parsed.requirement_assessments[0].requirement, "Kubernetes")
 
     def test_the_three_statuses_are_named_where_the_model_will_read_them(self) -> None:
         """The enum is not enforced, so the description is the only place it is stated."""

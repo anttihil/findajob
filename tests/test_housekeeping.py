@@ -3,19 +3,24 @@
 Both of these only matter once the thing runs unattended: under a systemd timer nothing
 ever truncates app.log or empties raw_payloads/ by hand, and the failure is not an error
 but a disk that fills up months later.
+
+The log half now checks that the *deployment* rotates the file, because the application
+deliberately does not -- see careerradar/core/logger.py.
 """
 
+import logging
 import os
 import shutil
 import sys
 import tempfile
 import time
 import unittest
-from logging.handlers import RotatingFileHandler
+from logging.handlers import RotatingFileHandler, TimedRotatingFileHandler
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from careerradar.core.logger import BACKUP_COUNT, MAX_BYTES, get_logger
+from careerradar.core.logger import get_logger
+from careerradar.core.paths import REPO_ROOT
 from careerradar.search.sources.jobspy_source import prune_archives
 
 
@@ -76,16 +81,20 @@ class ArchivePruningTests(unittest.TestCase):
 
 
 class LogRotationTests(unittest.TestCase):
-    def test_file_handler_rotates(self) -> None:
-        handlers = [h for h in get_logger().handlers if isinstance(h, RotatingFileHandler)]
-        self.assertEqual(len(handlers), 1, "expected exactly one rotating file handler")
-        self.assertEqual(handlers[0].maxBytes, MAX_BYTES)
-        self.assertEqual(handlers[0].backupCount, BACKUP_COUNT)
+    def test_the_application_does_not_rotate(self) -> None:
+        """Four processes share this file; a rename-based rotation orphans three of them."""
+        handlers = [h for h in get_logger().handlers if isinstance(h, logging.FileHandler)]
+        self.assertEqual(len(handlers), 1, "expected exactly one file handler")
+        self.assertNotIsInstance(handlers[0], RotatingFileHandler)
+        self.assertNotIsInstance(handlers[0], TimedRotatingFileHandler)
 
-    def test_total_log_footprint_is_bounded(self) -> None:
-        """The point of rotating at all: a fixed ceiling, not merely smaller files."""
-        ceiling_mb = MAX_BYTES * (BACKUP_COUNT + 1) / 1048576
-        self.assertLessEqual(ceiling_mb, 32)
+    def test_the_deployment_does_rotate(self) -> None:
+        """Nothing else bounds the file now, and copytruncate is why it is safe to share."""
+        snippet = os.path.join(REPO_ROOT, "deploy", "careerradar.logrotate")
+        with open(snippet) as handle:
+            body = handle.read()
+        self.assertIn("copytruncate", body)
+        self.assertIn("app.log", body)
 
 
 if __name__ == "__main__":

@@ -491,3 +491,56 @@ class AssessmentFlagTests(unittest.TestCase):
             posting=POSTING,
         )
         self.assertEqual([f for f in flags if f["flag"] == "assessment_incomplete"], [])
+
+
+class MarkdownQuoteTests(unittest.TestCase):
+    """The boards hand over Markdown; the model quotes the words, not the markup.
+
+    22,360 of 23,415 scraped descriptions carry `**`. Every fatal quote failure left in the
+    last production run was this and nothing else.
+    """
+
+    MARKDOWN: ClassVar[dict[str, Any]] = {
+        **POSTING,
+        "description": (
+            "**Clearance Required:** TS/SCI.\n\n"
+            "****This position requires an******active U.S. national security "
+            "clearance.****\n"
+            "* \\*\\*Relocation\\*\\* to Boston is required\n"
+        ),
+    }
+
+    def test_bold_around_the_phrase_is_not_a_difference(self) -> None:
+        self.assertEqual(
+            locate_blocker("Clearance Required: TS/SCI.", self.MARKDOWN["description"])[0],
+            "verified",
+        )
+
+    def test_bold_inside_the_phrase_does_not_weld_the_words_together(self) -> None:
+        """`an******active` must fold to two words, not to `anactive`."""
+        self.assertEqual(
+            locate_blocker(
+                "This position requires an active U.S. national security clearance.",
+                self.MARKDOWN["description"],
+            )[0],
+            "verified",
+        )
+
+    def test_escaped_markers_fold_the_same_way(self) -> None:
+        self.assertEqual(
+            locate("Relocation to Boston is required", self.MARKDOWN["description"])[0],
+            "verified",
+        )
+
+    def test_folding_markup_does_not_make_an_invented_quote_locatable(self) -> None:
+        self.assertEqual(
+            locate("Requires a commercial pilot licence", self.MARKDOWN["description"])[0],
+            "not_found",
+        )
+
+    def test_a_quote_that_carries_its_own_markup_still_matches(self) -> None:
+        """Both sides are folded, so an underscore in the quote is not a mismatch."""
+        self.assertEqual(
+            locate_blocker("**Clearance Required:** TS/SCI.", self.MARKDOWN["description"])[0],
+            "verified",
+        )

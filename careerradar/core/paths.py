@@ -25,7 +25,10 @@ GRAPH_DB_PATH = os.path.join(REPO_ROOT, "graphs.db")
 
 CONFIG_PATH = os.path.join(REPO_ROOT, "config.yaml")
 ENV_PATH = os.path.join(REPO_ROOT, ".env")
-LOG_PATH = os.path.join(REPO_ROOT, "app.log")
+# Overridable because importing the package is enough to open this file for append, so a
+# bare `pytest` used to write test records into the production log. tests/conftest.py points
+# it at a temporary file. Nothing in production sets it.
+LOG_PATH = os.environ.get("CAREERRADAR_LOG_PATH") or os.path.join(REPO_ROOT, "app.log")
 STATUS_PATH = os.path.join(REPO_ROOT, "sync_status.json")
 
 ARCHIVE_DIR = os.path.join(REPO_ROOT, "raw_payloads")

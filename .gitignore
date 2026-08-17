@@ -4,31 +4,21 @@ __pycache__/
 .venv/
 .pytest_cache/
 
-# Database. Runs in journal_mode=wal, so -wal/-shm are the pair that actually appears;
-# -journal is from rollback mode and never shows up.
-jobs.db
-jobs.db-wal
-jobs.db-shm
-jobs.db-journal
+# don't commit any database
+*.db
+*.db-wal
+*.db-shm
+*.db-journal
 
 # The flock the pipeline stages serialize on. Always empty; the lock is the file, not
 # its contents.
 .pipeline.lock
-
-# LangGraph checkpoints. Not just build artifacts: a checkpoint stores the graph's whole
-# state, and the profile graph's state holds the full text of every corpus document. That
-# puts career history in a repo whose entire .gitignore policy exists to keep it out.
-graphs.db
-graphs.db-wal
-graphs.db-shm
-graphs.db-journal
 
 # Credentials
 .env
 
 # Logging. RotatingFileHandler writes app.log.1 .. app.log.5, and *.log matches only the
 # .log suffix, so the numbered backups need their own pattern.
-app.log
 *.log
 *.log.[0-9]*
 
