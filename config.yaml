@@ -139,10 +139,10 @@ scraper:
       # max_pages_per_run binds here. At page_size=10 a cell asking for 60 postings costs 7
       # requests (6 pages, plus one that discovers the end), so 60 pages is about 8 cells.
       # It is a traffic limit for one unproxied IP, and deliberately not raised to make
-      # searches_per_run reachable. request_units equals it because descriptions are off, so
-      # every request this tier makes is a search page.
+      # searches_per_run reachable. No separate request_units: with descriptions off, every
+      # request this tier makes is a search page, so request_units would just be
+      # max_pages_per_run under a second name -- see estimate_units in search/scheduler.py.
       searches_per_run: 15
-      request_units: 60
       results_wanted_default: 60
       max_results_wanted: 100
       max_pages_per_run: 60
