@@ -21,3 +21,11 @@ export function hostname(url: string): string {
     return url;
   }
 }
+
+/** "45m ago" / "3.2h ago" / "1.5d ago" / "never". Ported from `frontend/js/features/pipeline.js`. */
+export function ago(hours: number | null | undefined): string {
+  if (hours === null || hours === undefined) return "never";
+  if (hours < 1) return `${Math.round(hours * 60)}m ago`;
+  if (hours < 48) return `${hours.toFixed(1)}h ago`;
+  return `${(hours / 24).toFixed(1)}d ago`;
+}
