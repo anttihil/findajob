@@ -141,9 +141,12 @@ timer before the config it depends on has landed.
 ssh <prod-host>
 cd <install-dir>
 git pull
-uv sync                                 # only if dependencies changed
+uv sync                                 # only if Python dependencies changed
 uv run careerradar migrate              # only if a migration was added
-sudo systemctl restart careerradar-web  # only if the web app or its templates changed
+npm ci && npm run build                 # only if careerradar/web/frontend-src/ changed --
+                                         # the built output is gitignored, so a pull alone
+                                         # leaves the previous build in place until this runs
+sudo systemctl restart careerradar-web  # only if the web app or the frontend build changed
 uv run careerradar status               # confirm the pipeline still reads healthy
 ```
 

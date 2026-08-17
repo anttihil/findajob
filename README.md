@@ -28,7 +28,16 @@ cp /path/to/.env .                         # see below
 scripts/sync_corpus.sh /path/to/resume     # pulls achievements.md in
 uv run careerradar migrate                 # schema
 uv run careerradar profile build           # the interview -- do this first
+
+npm install                                # dashboard frontend (Preact + TypeScript)
+npm run build                              # -> careerradar/web/frontend/dist/, gitignored
 ```
+
+The frontend is built output, not something FastAPI generates at request time -- `web/app.py`
+serves whatever is in `frontend/dist/` and 503s with a clear message if nothing has been
+built yet. Re-run `npm run build` after pulling changes that touch
+`careerradar/web/frontend-src/`, or run `npm run dev` for hot reload against a locally
+running `careerradar web` (see `vite.config.ts` for the dev proxy target).
 
 `python-jobspy` is pinned to a git commit rather than the PyPI wheel, which constrains
 numpy to 1.26.3 and has no cp313 wheel.
@@ -307,6 +316,9 @@ cp /path/to/.env .
 sqlite3 /path/to/old/jobs.db ".backup 'jobs.db'"   # WAL mode: never plain-copy a live DB
 uv run careerradar migrate
 
+npm ci                                             # frontend, locked to package-lock.json
+npm run build                                      # -> frontend/dist/; careerradar-web serves it
+
 sudo cp deploy/careerradar-*.service deploy/careerradar-*.timer /etc/systemd/system/
 sudo install -m 0644 deploy/careerradar.logrotate /etc/logrotate.d/careerradar
 sudo systemctl daemon-reload
@@ -358,7 +370,9 @@ careerradar/
 ├── scoring/    prompts, per-posting graph, queue worker
 ├── research/   company dossier graph, search tools, queue worker
 ├── market/     supply analytics, skill-gap analysis, digests
-├── web/        FastAPI app, owner gate, frontend/
+├── web/        FastAPI app, owner gate, JSON API, SPA shell
+│   ├── frontend-src/   Preact + TypeScript dashboard (Vite), source of truth
+│   └── frontend/dist/  built output `npm run build` produces, gitignored
 └── cli.py
 data/           roles.yaml, skills.yaml
 deploy/         systemd units, logrotate snippet for app.log
