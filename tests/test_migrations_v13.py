@@ -72,7 +72,7 @@ class DropDenormalizedFitScoreTests(unittest.TestCase):
 
     def test_the_verdict_record_survives_untouched(self) -> None:
         self.seed_v12()
-        migrate(self.conn)
+        self.migrate_to(13)
         row = self.conn.execute("SELECT * FROM job_verdicts WHERE job_id = 1").fetchone()
         self.assertEqual(row["fit_score"], 87)
         self.assertEqual(row["verdict"], "strong")

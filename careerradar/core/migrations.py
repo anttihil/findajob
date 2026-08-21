@@ -13,7 +13,7 @@ from careerradar.core.logger import get_logger
 
 logger = get_logger()
 
-SCHEMA_VERSION = 14
+SCHEMA_VERSION = 15
 
 
 def _v1_baseline(cursor: sqlite3.Cursor) -> None:
@@ -1118,6 +1118,88 @@ def _v14_simplified_scoring(cursor: sqlite3.Cursor) -> None:
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_verdicts_score ON job_verdicts(fit_score DESC)")
 
 
+def _v15_drop_legacy_verdict_columns(cursor: sqlite3.Cursor) -> None:
+    """Drop legacy 5-ordinal scoring columns from job_verdicts, keeping only simplified schema."""
+    cursor.execute("DROP INDEX IF EXISTS idx_verdicts_score")
+
+    existing = {row[1] for row in cursor.execute("PRAGMA table_info(job_verdicts)")}
+    if not existing:
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS job_verdicts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                job_id INTEGER NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+                profile_version INTEGER NOT NULL,
+                model TEXT NOT NULL,
+                fit INTEGER,
+                reason_type TEXT,
+                reason_description TEXT,
+                verdict_schema_version INTEGER,
+                prompt_hash TEXT,
+                tokens_in INTEGER,
+                tokens_cached INTEGER,
+                tokens_out INTEGER,
+                cost_usd REAL DEFAULT 0,
+                created_at TEXT NOT NULL,
+                UNIQUE(job_id, profile_version)
+            )
+            """
+        )
+    else:
+        cursor.execute(
+            """
+            CREATE TABLE job_verdicts_new (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                job_id INTEGER NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+                profile_version INTEGER NOT NULL,
+                model TEXT NOT NULL,
+                fit INTEGER,
+                reason_type TEXT,
+                reason_description TEXT,
+                verdict_schema_version INTEGER,
+                prompt_hash TEXT,
+                tokens_in INTEGER,
+                tokens_cached INTEGER,
+                tokens_out INTEGER,
+                cost_usd REAL DEFAULT 0,
+                created_at TEXT NOT NULL,
+                UNIQUE(job_id, profile_version)
+            )
+            """
+        )
+        desired_cols = [
+            "id",
+            "job_id",
+            "profile_version",
+            "model",
+            "fit",
+            "reason_type",
+            "reason_description",
+            "verdict_schema_version",
+            "prompt_hash",
+            "tokens_in",
+            "tokens_cached",
+            "tokens_out",
+            "cost_usd",
+            "created_at",
+        ]
+        copy_cols = [col for col in desired_cols if col in existing]
+        cols_str = ", ".join(copy_cols)
+        cursor.execute(
+            f"INSERT INTO job_verdicts_new ({cols_str}) SELECT {cols_str} FROM job_verdicts"
+        )
+        cursor.execute("DROP TABLE job_verdicts")
+        cursor.execute("ALTER TABLE job_verdicts_new RENAME TO job_verdicts")
+
+    cursor.execute(
+        "CREATE INDEX IF NOT EXISTS idx_verdicts_fit ON job_verdicts(profile_version, fit)"
+    )
+    cursor.execute(
+        "CREATE INDEX IF NOT EXISTS idx_verdicts_reason "
+        "ON job_verdicts(profile_version, reason_type)"
+    )
+
+
 MIGRATIONS: list[tuple[int, str, Callable[[sqlite3.Cursor], None]]] = [
     (1, "baseline jobs table", _v1_baseline),
     (2, "market analytics: cells, observations, skills, stats", _v2_analytics),
@@ -1136,6 +1218,11 @@ MIGRATIONS: list[tuple[int, str, Callable[[sqlite3.Cursor], None]]] = [
         14,
         "simplified scoring: fit boolean, reason_type, reason_description",
         _v14_simplified_scoring,
+    ),
+    (
+        15,
+        "remove legacy job_verdict columns",
+        _v15_drop_legacy_verdict_columns,
     ),
 ]
 

@@ -36,12 +36,6 @@ def _gate_sql(gate: dict[str, Any]) -> tuple[str, list[Any]]:
     if gate.get("fit") is not None:
         clauses.append("v.fit = ?")
         params.append(1 if gate.get("fit") else 0)
-    for column in ("eligibility", "role_match", "capability_match"):
-        allowed = gate.get(column)
-        if not allowed or not isinstance(allowed, list):
-            continue
-        clauses.append(f"v.{column} IN ({', '.join('?' * len(allowed))})")
-        params.extend(allowed)
     return (" AND " + " AND ".join(clauses)) if clauses else "", params
 
 

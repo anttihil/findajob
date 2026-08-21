@@ -79,26 +79,10 @@ export interface Job {
   fit: boolean | number | null;
   reason_type: string | null;
   reason_description: string | null;
-  fit_score: number | null;
-  verdict: Verdict | null;
-  eligibility: Eligibility | null;
-  role_match: RoleMatch | null;
-  capability_match: CapabilityMatch | null;
-  seniority_gap: SeniorityGap | null;
-  pareto_tier: number | null;
-  core_requirements: RequirementEntry[];
-  requirement_assessments: RequirementAssessment[];
-  hard_blockers: (HardBlocker | string)[];
-  key_gaps: string[];
-  strengths: string[];
-  reasoning: string | null;
-  role_summary: string | null;
-  evidence_quality: "strong" | "adequate" | "thin" | null;
   pipeline_state: PipelineState | null;
 
   // Computed server-side, not raw columns.
   liveness: Liveness;
-  requirement_summary: RequirementSummary | null;
 }
 
 export interface JobsPage {
@@ -115,9 +99,6 @@ export interface JobFilters {
   country?: string;
   fit?: boolean | "";
   reason_type?: string;
-  max_tier?: number | null;
-  verdict?: Verdict | "";
-  eligibility?: Eligibility | "";
   liveness?: Liveness | "";
   sort?: "fit" | "fit_score" | "match_score" | "date_posted";
   limit?: number;
@@ -157,7 +138,7 @@ export interface JobContext {
 // GET /api/meta
 export interface Meta {
   countries: [string, string][];
-  verdicts: [Verdict, string][];
+  verdicts?: [string, string][];
   reason_types?: [string, string][];
 }
 
@@ -174,7 +155,7 @@ export interface Stats {
   skill_coverage: { matched: number; required: number; ratio: number | null };
   country_counts: Record<string, number>;
   pipeline_counts: Record<string, number>;
-  ordinals: Record<string, Record<string, number>>;
+  ordinals?: Record<string, Record<string, number>>;
   strong_matches: number;
   liveness_counts: { live: number; stale: number; likely_closed: number; unknown: number };
 }

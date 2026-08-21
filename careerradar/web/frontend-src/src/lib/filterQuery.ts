@@ -15,9 +15,6 @@ export interface FilterValues {
   country: string;
   fit: boolean | null;
   reason_type: string;
-  max_tier: number | null;
-  verdict: string;
-  eligibility: string;
   liveness: string;
   q: string;
   sort: SortKey;
@@ -31,9 +28,6 @@ export const FILTER_DEFAULTS: FilterValues = {
   country: "",
   fit: null,
   reason_type: "",
-  max_tier: null,
-  verdict: "",
-  eligibility: "",
   liveness: "",
   q: "",
   sort: "fit",
@@ -63,9 +57,6 @@ function parseValues(search: string): FilterValues {
           ? false
           : FILTER_DEFAULTS.fit,
     reason_type: raw.reason_type ?? FILTER_DEFAULTS.reason_type,
-    max_tier: raw.max_tier ? Number(raw.max_tier) : FILTER_DEFAULTS.max_tier,
-    verdict: raw.verdict ?? FILTER_DEFAULTS.verdict,
-    eligibility: raw.eligibility ?? FILTER_DEFAULTS.eligibility,
     liveness: raw.liveness ?? FILTER_DEFAULTS.liveness,
     q: raw.q ?? FILTER_DEFAULTS.q,
     sort: (raw.sort as SortKey) || FILTER_DEFAULTS.sort,
@@ -95,15 +86,6 @@ export class FilterQuery {
   }
   get reason_type() {
     return this.values.reason_type;
-  }
-  get max_tier() {
-    return this.values.max_tier;
-  }
-  get verdict() {
-    return this.values.verdict;
-  }
-  get eligibility() {
-    return this.values.eligibility;
   }
   get liveness() {
     return this.values.liveness;

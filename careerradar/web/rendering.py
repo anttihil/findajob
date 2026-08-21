@@ -12,14 +12,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
-from careerradar.profile.models import normalize_requirement
-
 if TYPE_CHECKING:
     from careerradar.taxonomy.roles import RoleTaxonomy
-
-# Ordering for the drawer's requirement checklist. Must-haves first: they are the ones
-# that decide whether an application is worth writing.
-IMPORTANCE_RANK = {"must_have": 0, "important": 1, "nice_to_have": 2}
 
 # Every filter the dashboard can express, defaulted. The names match the query parameters
 # of `Database.query_jobs` exactly, which is the point -- a form field whose name is wrong
@@ -29,9 +23,6 @@ FILTER_DEFAULTS: dict[str, Any] = {
     "country": "",
     "fit": None,
     "reason_type": "",
-    "max_tier": None,
-    "verdict": "",
-    "eligibility": "",
     "liveness": "",
     "q": "",
     "sort": "fit",
@@ -49,16 +40,6 @@ REASON_TYPE_CHOICES = [
     ("location", "Location constraint"),
     ("tech_stack", "Tech stack mismatch"),
     ("overqualified", "Overqualified"),
-]
-
-# Ordered as the scale reads them, best first, so `/api/meta`'s verdict list is a ranking
-# rather than a list.
-VERDICT_CHOICES = [
-    ("strong", "Strong match"),
-    ("worth_applying", "Worth applying"),
-    ("stretch", "Stretch"),
-    ("poor_fit", "Poor fit"),
-    ("mismatch", "Mismatch"),
 ]
 
 
@@ -81,43 +62,6 @@ class FilterQuery:
     def as_db_kwargs(self) -> dict[str, Any]:
         """The filter, as arguments to `Database.query_jobs`."""
         return {key: (value if value != "" else None) for key, value in self.values.items()}
-
-
-def requirement_rows(job: dict[str, Any]) -> list[dict[str, Any]]:
-    """Join the posting's stated requirements against the model's assessments.
-
-    Display-side join only; the counts on the card come from
-    `database._requirement_summary`. Both use `profile/models.normalize_requirement`,
-    which owns the join key. This function used `.strip().lower()` where the rest used
-    `.strip().casefold()`, so a requirement could render as `unassessed` in the drawer
-    while the badge above it counted the same requirement as met.
-
-    An unassessed requirement is an expected state, not a defect in this join: the schema
-    no longer refuses a verdict over it, it records an `assessment_incomplete` flag and
-    lets the reader see the gap.
-    """
-    core = job.get("core_requirements") or []
-    if not core:
-        return []
-
-    by_requirement = {
-        normalize_requirement(a.get("requirement") or ""): a
-        for a in (job.get("requirement_assessments") or [])
-    }
-
-    rows = []
-    for req in sorted(core, key=lambda r: IMPORTANCE_RANK.get(r.get("importance"), 3)):
-        assessment = by_requirement.get(normalize_requirement(req.get("requirement") or ""))
-        rows.append(
-            {
-                "requirement": req.get("requirement") or "",
-                "importance": req.get("importance") or "",
-                "quote": req.get("quote") or "",
-                "status": (assessment or {}).get("status") or "unassessed",
-                "evidence": (assessment or {}).get("candidate_evidence") or "",
-            }
-        )
-    return rows
 
 
 # Display names for the country codes that appear in data/roles.yaml. The set of codes is

@@ -38,11 +38,7 @@ export function JobDrawer({
                       ? job.fit
                         ? `Fit${job.reason_type ? ` · ${job.reason_type}` : ""}`
                         : `No fit${job.reason_type ? ` · ${job.reason_type}` : ""}`
-                      : job.pareto_tier != null
-                        ? `tier ${job.pareto_tier}`
-                        : job.fit_score != null
-                          ? `${job.fit_score} fit`
-                          : "Not yet scored"}
+                      : "Not yet scored"}
                   </span>
                   <span class="source-badge">{job.source}</span>
                 </div>

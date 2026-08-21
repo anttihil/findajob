@@ -191,20 +191,8 @@ def get_jobs(
     access: str | None = Query(None, pattern="^(commutable|remote|relocation)$"),
     include_duplicates: bool = False,
     min_score: int | None = None,
-    min_fit_score: int | None = None,
     fit: bool | None = None,
     reason_type: str | None = None,
-    verdict: str | None = Query(
-        None, pattern="^(strong|worth_applying|stretch|poor_fit|mismatch)?$"
-    ),
-    eligibility: str | None = Query(None, pattern="^(eligible|conditional|blocked)?$"),
-    role_match: str | None = Query(
-        None, pattern="^(same_role|adjacent|different_domain|different_field)?$"
-    ),
-    capability_match: str | None = Query(
-        None, pattern="^(exceeds|meets|most_with_gaps|major_gaps|not_close)?$"
-    ),
-    max_tier: int | None = Query(None, ge=1, le=10),
     liveness: str | None = Query(None, pattern="^(live|stale|likely_closed|unknown)?$"),
     pipeline_state: str | None = Query(None, pattern="^(new|scored|researched)?$"),
     q: str | None = None,
@@ -225,14 +213,8 @@ def get_jobs(
             access=access,
             include_duplicates=include_duplicates,
             min_score=min_score,
-            min_fit_score=min_fit_score,
             fit=fit,
             reason_type=reason_type,
-            verdict=verdict,
-            eligibility=eligibility,
-            role_match=role_match,
-            capability_match=capability_match,
-            max_tier=max_tier,
             liveness=liveness,
             pipeline_state=pipeline_state,
             q=q,
@@ -715,7 +697,7 @@ def drawer_context(
     return {
         "job": job,
         "dossier": dossier_for(db, job.get("company")),
-        "requirement_rows": rendering.requirement_rows(job),
+        "requirement_rows": [],
         "next_job_id": next_job_id,
     }
 
@@ -730,15 +712,8 @@ def filter_query(
     status: str = Query("unread", pattern="^(unread|saved|applied|rejected)$"),
     access: str = Query("", pattern="^(commutable|remote|relocation)?$"),
     country: str = "",
-    # A string, not an int, because the control that sets it is a `<select>` whose "Any
-    # tier" option submits an empty value along with every other field in the sidebar
-    # form. Declared as `int | None` it could not parse that, so the whole dashboard
-    # answered 422 -- which meant country, tier and the score slider all looked broken,
     fit: bool | None = None,
     reason_type: str = Query("", pattern="^[a-z_]*$"),
-    max_tier: str = Query("", pattern="^([1-9]|10)?$"),
-    verdict: str = Query("", pattern="^(strong|worth_applying|stretch|poor_fit|mismatch)?$"),
-    eligibility: str = Query("", pattern="^(eligible|conditional|blocked)?$"),
     liveness: str = Query("", pattern="^(live|stale|likely_closed|unknown)?$"),
     q: str = "",
     sort: str = Query("fit", pattern="^(fit|fit_score|match_score|date_posted)$"),
@@ -752,9 +727,6 @@ def filter_query(
             "country": country,
             "fit": fit,
             "reason_type": reason_type if reason_type else None,
-            "max_tier": int(max_tier) if max_tier else None,
-            "verdict": verdict,
-            "eligibility": eligibility,
             "liveness": liveness,
             "q": q,
             "sort": sort,
@@ -771,7 +743,6 @@ def filter_query(
 def get_meta():
     return {
         "countries": rendering.country_choices(load_roles()),
-        "verdicts": rendering.VERDICT_CHOICES,
         "reason_types": rendering.REASON_TYPE_CHOICES,
     }
 

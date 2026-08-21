@@ -3,7 +3,6 @@ import type { Job } from "../api/types";
 import type { FilterQuery } from "../lib/filterQuery";
 import { shortDate } from "../lib/format";
 import { AccessBadge } from "./badges/AccessBadge";
-import { RequirementBadge } from "./badges/RequirementBadge";
 import { TierBadge } from "./badges/TierBadge";
 
 // Ported from `macros/job_card.html`.
@@ -40,7 +39,6 @@ export function JobCard({ job, query }: { job: Job; query: FilterQuery }) {
         <div class="match-badge-wrap">
           {job.status !== "unread" && <span class={`job-status-indicator ${job.status}`}>{job.status}</span>}
           <TierBadge job={job} />
-          <RequirementBadge job={job} />
         </div>
         <span class="source-tag">{job.source}</span>
       </div>

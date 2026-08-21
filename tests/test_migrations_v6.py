@@ -76,7 +76,7 @@ class MigrationV6Tests(unittest.TestCase):
         self.assertGreaterEqual(SCHEMA_VERSION, 6)
 
     def test_the_ordinal_columns_exist(self) -> None:
-        migrate(self.conn)
+        self.migrate_to(6)
         expected = {
             "role_summary",
             "eligibility",
@@ -113,7 +113,7 @@ class MigrationV6Tests(unittest.TestCase):
 
     def test_existing_verdicts_survive(self) -> None:
         self.seed_verdict()
-        migrate(self.conn)
+        self.migrate_to(6)
         row = self.conn.execute(
             "SELECT fit_score, verdict FROM job_verdicts WHERE job_id = 1"
         ).fetchone()
@@ -123,7 +123,7 @@ class MigrationV6Tests(unittest.TestCase):
     def test_existing_verdicts_are_marked_as_a_different_scale(self) -> None:
         """Scale 0 means the model emitted that number. Losing this loses the comparison."""
         self.seed_verdict()
-        migrate(self.conn)
+        self.migrate_to(6)
         row = self.conn.execute(
             "SELECT scale_version, verdict_schema_version FROM job_verdicts WHERE job_id = 1"
         ).fetchone()
@@ -132,7 +132,7 @@ class MigrationV6Tests(unittest.TestCase):
 
     def test_old_verdicts_carry_no_ordinals(self) -> None:
         self.seed_verdict()
-        migrate(self.conn)
+        self.migrate_to(6)
         row = self.conn.execute(
             "SELECT eligibility, role_match, pareto_tier FROM job_verdicts WHERE job_id = 1"
         ).fetchone()

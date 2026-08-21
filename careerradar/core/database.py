@@ -7,7 +7,6 @@ from difflib import SequenceMatcher
 from typing import TYPE_CHECKING, Any, ClassVar
 
 from careerradar.core.paths import DB_PATH
-from careerradar.profile.models import normalize_requirement
 
 if TYPE_CHECKING:
     from careerradar.search.scheduler import CellState
@@ -15,14 +14,6 @@ if TYPE_CHECKING:
 # Memoized `get_stats()` results, keyed by database path: (data_version, write_generation) -> stats.
 _StatsCacheEntry = tuple[tuple[int, int], dict[str, Any]]
 
-# The two requirement lists are stored as separate JSON columns because the model answers
-# them as separate fields, but they are one table: `core_requirements` carries the
-# importance, `requirement_assessments` carries the status, and the join key is the
-# requirement text the model was told to repeat verbatim. `profile/models.py` owns that
-# normalisation as `normalize_requirement` and every site imports it, so the dashboard,
-# the validator and the auditor cannot disagree about which requirement is which. They
-# had: this file and the validator used `strip().casefold()` while `web/rendering.py`
-# used `strip().lower()`.
 # Memoized `get_stats()` results, keyed by database path. See `Database.get_stats`.
 _STATS_CACHE: dict[str, _StatsCacheEntry] = {}
 
@@ -37,32 +28,6 @@ _WRITE_GENERATION = 0
 def _invalidate_stats() -> None:
     global _WRITE_GENERATION
     _WRITE_GENERATION += 1
-
-
-def _requirement_summary(
-    core: list[dict[str, Any]] | None, assessments: list[dict[str, Any]] | None
-) -> dict[str, Any] | None:
-    """Must-have counts for one verdict, or None when there is nothing to count.
-
-    None rather than a zeroed dict: a verdict written before the ordinal schema has no
-    requirement extraction at all, and "0 of 0 must-haves met" would read as a finding
-    about the posting rather than about the row's age.
-    """
-    if not core:
-        return None
-    status = {
-        normalize_requirement(a.get("requirement", "")): a.get("status") for a in assessments or []
-    }
-    counts = {"met": 0, "partial": 0, "unmet": 0, "unassessed": 0}
-    for requirement in core:
-        if requirement.get("importance") != "must_have":
-            continue
-        key = normalize_requirement(requirement.get("requirement", ""))
-        counts[status.get(key) or "unassessed"] += 1
-    total = sum(counts.values())
-    if not total:
-        return None
-    return {"must_total": total, **{f"must_{k}": v for k, v in counts.items()}}
 
 
 def _fuzzy_job_search(
@@ -174,51 +139,20 @@ class Database:
           LEFT JOIN scrape_cells cell ON cell.id = jobs.scrape_cell_id
     """
 
-    # What a job card actually reads (`macros/job_card.html`, `macros/badges.html`).
-    # `core_requirements` and `requirement_assessments` are here despite their size because
-    # `requirement_summary` is derived from them, and that derivation stays in Python where
-    # the matching normalisation already lives.
+    # What a job card and drawer read from job_verdicts.
     _VERDICT_LIST_COLUMNS = (
         "fit",
         "reason_type",
         "reason_description",
-        "fit_score",
-        "verdict",
-        "eligibility",
-        "role_match",
-        "capability_match",
-        "seniority_gap",
-        "pareto_tier",
-        "core_requirements",
-        "requirement_assessments",
     )
-    # Everything else only the drawer renders.
-    _VERDICT_DETAIL_COLUMNS = (
-        *_VERDICT_LIST_COLUMNS,
-        "seniority_fit",
-        "hard_blockers",
-        "key_gaps",
-        "strengths",
-        "reasoning",
-        "role_summary",
-        "evidence_quality",
-        "audit_flags",
-        "scale_version",
-    )
+    _VERDICT_DETAIL_COLUMNS = _VERDICT_LIST_COLUMNS
 
     # Only the drawer renders the posting text, and at ~6KB a row it was 300KB of every
     # 50-card page. Named as an exclusion and applied against `PRAGMA table_info` so that a
     # column added to `jobs` tomorrow still reaches the feed without editing a list here.
     _LIST_OMITTED_JOB_COLUMNS = frozenset({"description"})
 
-    _JSON_COLUMNS = (
-        "matched_skills",
-        "hard_blockers",
-        "key_gaps",
-        "strengths",
-        "core_requirements",
-        "requirement_assessments",
-    )
+    _JSON_COLUMNS = ("matched_skills",)
 
     _SORTS: ClassVar[dict[str, str]] = {
         "fit": (
@@ -226,11 +160,7 @@ class Database:
             "COALESCE(jobs.date_posted, date(jobs.date_found)) DESC, "
             "jobs.date_found DESC"
         ),
-        "fit_score": (
-            "COALESCE(v.fit_score, (v.fit * 100)) DESC NULLS LAST, "
-            "jobs.match_score DESC, "
-            "jobs.date_found DESC"
-        ),
+        "fit_score": ("v.fit DESC NULLS LAST, jobs.match_score DESC, jobs.date_found DESC"),
         "match_score": "jobs.match_score DESC, jobs.date_found DESC",
         "date_posted": (
             "COALESCE(jobs.date_posted, date(jobs.date_found)) DESC, jobs.date_found DESC"
@@ -264,13 +194,7 @@ class Database:
         access: str | None,
         include_duplicates: bool,
         min_score: int | None,
-        verdict: str | None,
         pipeline_state: str | None,
-        min_fit_score: int | None,
-        eligibility: str | None,
-        role_match: str | None,
-        capability_match: str | None,
-        max_tier: int | None,
         liveness: str | None,
         job_id: int | None,
         fit: bool | None = None,
@@ -302,10 +226,6 @@ class Database:
             ("jobs.source", source),
             ("jobs.access", access),
             ("jobs.pipeline_state", pipeline_state),
-            ("v.verdict", verdict),
-            ("v.eligibility", eligibility),
-            ("v.role_match", role_match),
-            ("v.capability_match", capability_match),
             (self._LIVENESS_CASE, liveness),
         ):
             if value:
@@ -329,12 +249,6 @@ class Database:
         if min_score is not None:
             sql += " AND jobs.match_score >= ?"
             params.append(min_score)
-        if min_fit_score is not None:
-            sql += " AND v.fit_score >= ?"
-            params.append(min_fit_score)
-        if max_tier is not None:
-            sql += " AND v.pareto_tier <= ?"
-            params.append(max_tier)
         if q and q.strip():
             sql += (
                 " AND fuzzy_search(?, jobs.title, jobs.company, jobs.matched_skills,"
@@ -355,13 +269,7 @@ class Database:
         access: str | None = None,
         include_duplicates: bool = False,
         min_score: int | None = None,
-        verdict: str | None = None,
         pipeline_state: str | None = None,
-        min_fit_score: int | None = None,
-        eligibility: str | None = None,
-        role_match: str | None = None,
-        capability_match: str | None = None,
-        max_tier: int | None = None,
         liveness: str | None = None,
         job_id: int | None = None,
         fit: bool | None = None,
@@ -399,13 +307,7 @@ class Database:
             access=access,
             include_duplicates=include_duplicates,
             min_score=min_score,
-            verdict=verdict,
             pipeline_state=pipeline_state,
-            min_fit_score=min_fit_score,
-            eligibility=eligibility,
-            role_match=role_match,
-            capability_match=capability_match,
-            max_tier=max_tier,
             liveness=liveness,
             job_id=job_id,
             fit=fit,
@@ -427,18 +329,9 @@ class Database:
         jobs: list[dict[str, Any]] = []
         for row in self.conn.execute(query, params):
             job = dict(row)
-            # Gated on what was actually selected: the list path never fetches the drawer's
-            # verdict JSON, and decoding a column that is not there would invent an empty
-            # one that the template could not tell from a genuinely empty verdict.
             for field in self._JSON_COLUMNS:
                 if field in job:
                     job[field] = json.loads(job[field]) if job[field] else []
-            # Derived here, not in the frontend: the join is on normalised requirement text
-            # and the normalisation has to match the validator in `profile/models.py`. One
-            # implementation, server-side, where the rule already lives.
-            job["requirement_summary"] = _requirement_summary(
-                job.get("core_requirements"), job.get("requirement_assessments")
-            )
             jobs.append(job)
 
         if total is None:
@@ -464,13 +357,7 @@ class Database:
         access: str | None = None,
         include_duplicates: bool = False,
         min_score: int | None = None,
-        verdict: str | None = None,
         pipeline_state: str | None = None,
-        min_fit_score: int | None = None,
-        eligibility: str | None = None,
-        role_match: str | None = None,
-        capability_match: str | None = None,
-        max_tier: int | None = None,
         liveness: str | None = None,
         job_id: int | None = None,
         fit: bool | None = None,
@@ -499,13 +386,7 @@ class Database:
             access=access,
             include_duplicates=include_duplicates,
             min_score=min_score,
-            verdict=verdict,
             pipeline_state=pipeline_state,
-            min_fit_score=min_fit_score,
-            eligibility=eligibility,
-            role_match=role_match,
-            capability_match=capability_match,
-            max_tier=max_tier,
             liveness=liveness,
             job_id=job_id,
             fit=fit,
@@ -641,28 +522,14 @@ class Database:
 
         # Ordinal marginals, not an average score. A mean over a projected scale says
         # very little; a collapsed marginal (90% `meets`) is the thing worth catching, and
-        # it is the new "the model is not using its scale".
+        # Worth applying to, determined by simplified boolean fit.
         active = "(SELECT version FROM profiles WHERE is_active = 1)"
-        stats["ordinals"] = {}
-        for dimension in ("eligibility", "role_match", "capability_match", "evidence_quality"):
-            cursor.execute(
-                f"SELECT {dimension}, COUNT(*) c FROM job_verdicts "
-                f"WHERE profile_version = {active} AND {dimension} IS NOT NULL "
-                f"GROUP BY 1 ORDER BY 2 DESC"
-            )
-            stats["ordinals"][dimension] = {r[0]: r[1] for r in cursor.fetchall()}
-
-        # Worth applying to, stated as a predicate rather than a threshold on a lumpy
-        # scale. The old `fit_score >= 70` sat between two quantisation attractors (62 and
-        # 72), so it was partly measuring where the model liked to round.
         cursor.execute(
             f"""
             SELECT COUNT(*) FROM jobs j
               JOIN job_verdicts v ON v.job_id = j.id AND v.profile_version = {active}
              WHERE j.duplicate_of IS NULL
-               AND v.eligibility = 'eligible'
-               AND v.role_match IN ('same_role', 'adjacent')
-               AND v.capability_match IN ('exceeds', 'meets')
+               AND v.fit = 1
             """
         )
         stats["strong_matches"] = cursor.fetchone()[0]
@@ -704,46 +571,7 @@ class Database:
                 "models": [],
             }
 
-        cols = {row[1] for row in cursor.execute("PRAGMA table_info(job_verdicts)").fetchall()}
-        has_fit = "fit" in cols
-        has_reason_type = "reason_type" in cols
-        has_verdict = "verdict" in cols
-
-        fit_expr = (
-            "v.fit"
-            if has_fit
-            else (
-                "(CASE WHEN v.verdict IN ('strong', 'worth_applying') "
-                "OR (v.fit_score IS NOT NULL AND v.fit_score >= 60) THEN 1 ELSE 0 END)"
-                if has_verdict
-                else "0"
-            )
-        )
-
-        reason_expr = (
-            "COALESCE(v.reason_type, v.verdict, 'unspecified')"
-            if (has_reason_type and has_verdict)
-            else (
-                "COALESCE(v.reason_type, 'unspecified')"
-                if has_reason_type
-                else ("COALESCE(v.verdict, 'unspecified')" if has_verdict else "'unspecified'")
-            )
-        )
-
-        fit_clause = (
-            "WHEN v.verdict IN ('strong', 'worth_applying') "
-            "OR (v.fit_score IS NOT NULL AND v.fit_score >= 60) THEN 1"
-            if has_verdict
-            else ""
-        )
-        nofit_clause = (
-            "WHEN v.verdict IN ('stretch', 'poor_fit', 'mismatch') "
-            "OR (v.fit_score IS NOT NULL AND v.fit_score < 60) THEN 1"
-            if has_verdict
-            else ""
-        )
-
-        stats_sql = f"""
+        stats_sql = """
             SELECT
                 COUNT(*) AS total_verdicts,
                 COALESCE(SUM(v.tokens_in), 0) AS total_tokens_in,
@@ -755,18 +583,8 @@ class Database:
                 COALESCE(ROUND(AVG(v.tokens_in), 1), 0.0) AS avg_tokens_in,
                 COALESCE(SUM(v.cost_usd), 0.0) AS total_cost_usd,
                 COALESCE(ROUND(AVG(v.cost_usd), 6), 0.0) AS avg_cost_usd,
-                SUM(CASE
-                    WHEN {fit_expr} = 1 THEN 1
-                    WHEN {fit_expr} = 0 THEN 0
-                    {fit_clause}
-                    ELSE 0
-                END) AS fit_count,
-                SUM(CASE
-                    WHEN {fit_expr} = 0 THEN 1
-                    WHEN {fit_expr} = 1 THEN 0
-                    {nofit_clause}
-                    ELSE 0
-                END) AS no_fit_count
+                SUM(CASE WHEN v.fit = 1 THEN 1 ELSE 0 END) AS fit_count,
+                SUM(CASE WHEN v.fit = 0 THEN 1 ELSE 0 END) AS no_fit_count
             FROM job_verdicts v
         """
         row = cursor.execute(stats_sql).fetchone()
@@ -778,13 +596,13 @@ class Database:
         no_fit_count = row["no_fit_count"] or 0
         fit_rate = round(fit_count / total_verdicts, 4) if total_verdicts > 0 else 0.0
 
-        reasons_sql = f"""
+        reasons_sql = """
             SELECT
-                {reason_expr} AS reason_type,
+                COALESCE(v.reason_type, 'unspecified') AS reason_type,
                 COUNT(*) AS count,
                 COALESCE(ROUND(AVG(v.tokens_out), 1), 0.0) AS avg_tokens_out
             FROM job_verdicts v
-            GROUP BY {reason_expr}
+            GROUP BY COALESCE(v.reason_type, 'unspecified')
             ORDER BY count DESC
         """
         reasons = []

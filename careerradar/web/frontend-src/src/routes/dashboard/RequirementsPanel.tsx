@@ -1,14 +1,9 @@
 import type { Job, RequirementRow } from "../../api/types";
 
 // Ported from `partials/requirements.html`.
-export function RequirementsPanel({ job, rows }: { job: Job; rows: RequirementRow[] }) {
+export function RequirementsPanel({ rows }: { job?: Job; rows: RequirementRow[] }) {
   return (
     <>
-      {job.requirement_summary && (
-        <p class="req-summary">
-          {job.requirement_summary.must_met} of {job.requirement_summary.must_total} must-haves met
-        </p>
-      )}
       <ul class="req-list">
         {rows.map((row, i) => (
           <li key={i} class={`req-row req-${row.status}`} title={row.quote}>

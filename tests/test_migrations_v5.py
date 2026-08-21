@@ -164,7 +164,7 @@ class MigrationV5Tests(unittest.TestCase):
             )
 
     def test_a_posting_has_at_most_one_verdict_per_profile_version(self) -> None:
-        migrate(self.conn)
+        self.migrate_to(5)
         self.conn.execute("INSERT INTO jobs (id, job_key, title) VALUES (1, 'k', 'T')")
         insert = (
             "INSERT INTO job_verdicts (job_id, profile_version, model, fit_score, "
@@ -175,7 +175,7 @@ class MigrationV5Tests(unittest.TestCase):
             self.conn.execute(insert, (60,))
 
     def test_verdicts_are_removed_with_their_posting(self) -> None:
-        migrate(self.conn)
+        self.migrate_to(5)
         self.conn.execute("PRAGMA foreign_keys=ON")
         self.conn.execute("INSERT INTO jobs (id, job_key, title) VALUES (1, 'k', 'T')")
         self.conn.execute(

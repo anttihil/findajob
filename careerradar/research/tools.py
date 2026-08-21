@@ -102,7 +102,7 @@ def same_company_openings(
         # an inventory question. A posting the active profile has not judged yet still
         # belongs on the list, it just has no score to rank on and sorts last.
         query = f"""
-            SELECT j.id, j.title, j.company, j.location, j.url, v.fit_score, j.role_family
+            SELECT j.id, j.title, j.company, j.location, j.url, v.fit, v.reason_type, j.role_family
               FROM jobs j
               LEFT JOIN {_ACTIVE_VERDICT_JOIN}
              WHERE j.company_normalized = ? AND j.duplicate_of IS NULL
@@ -111,7 +111,7 @@ def same_company_openings(
         if exclude_job_id:
             query += " AND j.id != ?"
             params.append(exclude_job_id)
-        query += " ORDER BY v.fit_score DESC NULLS LAST, j.date_found DESC LIMIT ?"
+        query += " ORDER BY v.fit DESC NULLS LAST, j.date_found DESC LIMIT ?"
         params.append(limit)
         return [dict(r) for r in db.conn.execute(query, params)]
     finally:
@@ -136,13 +136,9 @@ def nearby_company_openings(
     owned = db is None
     db = db or Database()
     try:
-        # Inner, unlike the sibling above: this one claims the postings it returns are a
-        # good fit, and that claim needs a verdict from the profile in force. The old
-        # `AND j.fit_score IS NOT NULL` guard is gone because the join now does that job --
-        # `job_verdicts.fit_score` is NOT NULL.
         rows = db.conn.execute(
             f"""
-            SELECT j.id, j.title, j.company, j.location, j.url, v.fit_score
+            SELECT j.id, j.title, j.company, j.location, j.url, v.fit, v.reason_type
               FROM jobs j
               JOIN scrape_cells c ON c.id = j.scrape_cell_id
               JOIN {_ACTIVE_VERDICT_JOIN}
@@ -150,7 +146,7 @@ def nearby_company_openings(
                AND c.location_id = ?
                AND (j.company_normalized IS NULL OR j.company_normalized != ?)
                AND j.duplicate_of IS NULL
-             ORDER BY v.fit_score DESC
+             ORDER BY v.fit DESC NULLS LAST, j.date_found DESC
              LIMIT ?
             """,
             (role_family, location_id, exclude_company, limit),

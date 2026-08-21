@@ -88,9 +88,9 @@ class _Fixture:
 
     def verdict(self, job_id: int, schema_version: int, profile_version: int = PROFILE) -> None:
         self.conn.execute(
-            "INSERT INTO job_verdicts (job_id, profile_version, model, fit_score, verdict, "
-            "verdict_schema_version, created_at) "
-            "VALUES (?, ?, 'm', 50, 'maybe', ?, '2026-01-01T00:00:00+00:00')",
+            "INSERT INTO job_verdicts (job_id, profile_version, model, fit, reason_type, "
+            "reason_description, verdict_schema_version, created_at) "
+            "VALUES (?, ?, 'm', 1, 'match', 'desc', ?, '2026-01-01T00:00:00+00:00')",
             (job_id, profile_version, schema_version),
         )
         self.conn.commit()

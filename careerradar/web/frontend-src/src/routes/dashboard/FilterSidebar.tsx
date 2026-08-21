@@ -123,42 +123,7 @@ export function FilterSidebar({ query, meta }: { query: FilterQuery; meta: Meta 
         </select>
       </div>
 
-      <div class="filter-group">
-        <label for="filter-tier">Pareto tier</label>
-        <select
-          id="filter-tier"
-          class="form-select"
-          value={query.max_tier ?? ""}
-          onChange={(e) => {
-            const v = (e.target as HTMLSelectElement).value;
-            navigate(query.url({ max_tier: v ? Number(v) : null }));
-          }}
-        >
-          <option value="">Any tier</option>
-          {Array.from({ length: 10 }, (_, i) => i + 1).map((tier) => (
-            <option key={tier} value={tier}>
-              Tier {tier} and better
-            </option>
-          ))}
-        </select>
-      </div>
 
-      <div class="filter-group">
-        <label for="filter-verdict">Verdict</label>
-        <select
-          id="filter-verdict"
-          class="form-select"
-          value={query.verdict}
-          onChange={(e) => navigate(query.url({ verdict: (e.target as HTMLSelectElement).value }))}
-        >
-          <option value="">Any verdict</option>
-          {meta?.verdicts.map(([value, label]) => (
-            <option key={value} value={value}>
-              {label}
-            </option>
-          ))}
-        </select>
-      </div>
 
       <div class="filter-group">
         <label for="filter-liveness">Liveness</label>

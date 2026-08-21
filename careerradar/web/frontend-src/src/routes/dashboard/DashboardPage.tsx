@@ -286,7 +286,7 @@ export function DashboardPage() {
                 value={query.sort}
                 onChange={(e) => navigate(query.url({ sort: (e.target as HTMLSelectElement).value }))}
               >
-                <option value="fit">Fit (eligibility, then tier)</option>
+                <option value="fit">Fit</option>
                 <option value="fit_score">Fit score</option>
                 <option value="match_score">Keyword match</option>
                 <option value="date_posted">Date posted</option>

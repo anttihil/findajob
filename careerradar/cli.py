@@ -26,22 +26,10 @@ def _cmd_score_stats(args: argparse.Namespace) -> Any:
     return run_stats(args.profile_version, scale_version=args.scale_version)
 
 
-def _cmd_score_audit(args: argparse.Namespace) -> Any:
-    from careerradar.scoring.audit_report import run_audit
-
-    return run_audit(args.profile_version, limit=args.limit)
-
-
 def _cmd_score_retry(args: argparse.Namespace) -> Any:
     from careerradar.scoring.worker import run_retry
 
     return run_retry(args.job_id)
-
-
-def _cmd_score_rescale(args: argparse.Namespace) -> Any:
-    from careerradar.scoring.rescale import rescale
-
-    return rescale(args.profile_version, dry_run=args.dry_run)
 
 
 def _cmd_search(args: argparse.Namespace) -> Any:
@@ -201,13 +189,6 @@ def build_parser() -> argparse.ArgumentParser:
     )
     scs.set_defaults(func=_cmd_score_stats)
 
-    sca = scosub.add_parser(
-        "audit", help="re-check stored verdicts against their own evidence (no API calls)"
-    )
-    sca.add_argument("--profile-version", type=int, help="defaults to the active profile")
-    sca.add_argument("--limit", type=int, help="cap the verdicts checked")
-    sca.set_defaults(func=_cmd_score_audit)
-
     scy = scosub.add_parser(
         "retry", help="re-offer postings withdrawn after repeated scoring failures"
     )
@@ -215,16 +196,6 @@ def build_parser() -> argparse.ArgumentParser:
         "--job-id", type=int, help="clear one posting; defaults to every quarantined posting"
     )
     scy.set_defaults(func=_cmd_score_retry)
-
-    scl = scosub.add_parser(
-        "rescale",
-        help="recompute fit_score from stored ordinals after a scale change (no API calls)",
-    )
-    scl.add_argument("--profile-version", type=int, help="defaults to every profile version")
-    scl.add_argument(
-        "--dry-run", action="store_true", help="print the band migration without writing"
-    )
-    scl.set_defaults(func=_cmd_score_rescale, stage="rescale")
 
     # --- research --------------------------------------------------------------------
     r = sub.add_parser("research", help="build company dossiers for strong matches")

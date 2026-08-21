@@ -207,7 +207,7 @@ def node_gather_nearby(state: ResearchState) -> dict[str, Any]:
             "location": r["location"],
             "url": r["url"],
             "source": "same-company",
-            "why": f"fit {r['fit_score']}" if r.get("fit_score") else None,
+            "why": f"fit ({r['reason_type']})" if r.get("fit") else None,
         }
         for r in same
     ] + [
@@ -217,7 +217,7 @@ def node_gather_nearby(state: ResearchState) -> dict[str, Any]:
             "location": r["location"],
             "url": r["url"],
             "source": "nearby-company",
-            "why": f"fit {r['fit_score']}" if r.get("fit_score") else None,
+            "why": f"fit ({r['reason_type']})" if r.get("fit") else None,
         }
         for r in nearby
     ]

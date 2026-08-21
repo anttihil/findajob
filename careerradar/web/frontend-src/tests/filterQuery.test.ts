@@ -7,14 +7,15 @@ describe("FilterQuery", () => {
     expect(q.status).toBe("unread");
     expect(q.sort).toBe("fit");
     expect(q.limit).toBe(50);
-    expect(q.max_tier).toBeNull();
+    expect(q.fit).toBeNull();
   });
 
   it("reads values off the query string", () => {
-    const q = new FilterQuery("?status=saved&country=US&max_tier=3&offset=50&q=python");
+    const q = new FilterQuery("?status=saved&country=US&fit=true&reason_type=match&offset=50&q=python");
     expect(q.status).toBe("saved");
     expect(q.country).toBe("US");
-    expect(q.max_tier).toBe(3);
+    expect(q.fit).toBe(true);
+    expect(q.reason_type).toBe("match");
     expect(q.offset).toBe(50);
     expect(q.q).toBe("python");
   });

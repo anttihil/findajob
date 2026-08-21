@@ -43,16 +43,11 @@ from careerradar.core.config import load_config
 from careerradar.core.database import Database
 from careerradar.core.llm import DEFAULT_SCORING_MODEL, Spend, usage_cost
 from careerradar.profile.adapter import load_profile
-from careerradar.profile.store import load_active
-from careerradar.scoring import rubric, scale
 from careerradar.scoring.graph import build_graph
 from careerradar.scoring.prompts import build_system
 from careerradar.taxonomy.skills import load_taxonomy
 
 SEED = 20260811
-
-# Ordinal ranks, so "must not improve" is expressible. Lower is better, as in scale.py.
-RANK = {name: {v: i for i, v in enumerate(rubric.ANCHORS[name][0])} for name in rubric.DIMENSIONS}
 
 
 # --- perturbations ----------------------------------------------------------------------
@@ -150,43 +145,25 @@ def swap_domain(posting: dict[str, Any]) -> dict[str, Any]:
 
 
 def unchanged(before: dict[str, Any], after: dict[str, Any]) -> str | None:
-    moved = [name for name in rubric.DIMENSIONS if before[name] != after[name]]
+    moved = []
+    if before.get("fit") != after.get("fit"):
+        moved.append(f"fit: {before.get('fit')} -> {after.get('fit')}")
+    if before.get("reason_type") != after.get("reason_type"):
+        moved.append(f"reason_type: {before.get('reason_type')} -> {after.get('reason_type')}")
     if moved:
-        return ", ".join(f"{n}: {before[n]} -> {after[n]}" for n in moved)
+        return ", ".join(moved)
     return None
 
 
-def must_be_blocked(before: dict[str, Any], after: dict[str, Any]) -> str | None:
-    if after["eligibility"] != "blocked":
-        return f"eligibility is {after['eligibility']}, expected blocked"
+def must_be_no_fit(before: dict[str, Any], after: dict[str, Any]) -> str | None:
+    if after.get("fit") is not False and after.get("fit") != 0:
+        return f"fit is {after.get('fit')}, expected False"
     return None
 
 
-def capability_must_not_improve(before: dict[str, Any], after: dict[str, Any]) -> str | None:
-    if (
-        RANK["capability_match"][after["capability_match"]]
-        < RANK["capability_match"][before["capability_match"]]
-    ):
-        return (
-            f"capability_match improved: {before['capability_match']} -> "
-            f"{after['capability_match']} after adding a requirement they lack"
-        )
-    return None
-
-
-def role_match_must_not_improve(before: dict[str, Any], after: dict[str, Any]) -> str | None:
-    """Bolting warehouse robotics onto a posting cannot make it a closer match.
-
-    The candidate has robotics-adjacent history (a robot UI at BrainCorp), so a move
-    toward `same_role` is not absurd on its face -- but it would mean the domain paragraph
-    outweighed the entire original description, which is the anchoring failure this whole
-    schema exists to avoid.
-    """
-    if RANK["role_match"][after["role_match"]] < RANK["role_match"][before["role_match"]]:
-        return (
-            f"role_match improved: {before['role_match']} -> {after['role_match']} "
-            "after the product domain was replaced with warehouse robotics"
-        )
+def fit_must_not_improve(before: dict[str, Any], after: dict[str, Any]) -> str | None:
+    if not before.get("fit") and after.get("fit"):
+        return "fit improved from False to True"
     return None
 
 
@@ -194,10 +171,10 @@ RULES = [
     ("invariance", "company renamed", rename_company, unchanged),
     ("invariance", "salary changed", change_salary, unchanged),
     ("invariance", "bullets reordered", shuffle_bullets, unchanged),
-    ("directional", "TS/SCI clearance added", add_clearance, must_be_blocked),
-    ("directional", "unspoken language added", add_unspoken_language, must_be_blocked),
-    ("directional", "unmet requirement added", add_unmet_requirement, capability_must_not_improve),
-    ("directional", "product domain swapped", swap_domain, role_match_must_not_improve),
+    ("directional", "TS/SCI clearance added", add_clearance, must_be_no_fit),
+    ("directional", "unspoken language added", add_unspoken_language, must_be_no_fit),
+    ("directional", "unmet requirement added", add_unmet_requirement, fit_must_not_improve),
+    ("directional", "product domain swapped", swap_domain, fit_must_not_improve),
 ]
 
 
@@ -238,15 +215,12 @@ def sample_postings(db: Database, limit: int) -> list[dict[str, Any]]:
 
 
 def run(limit: int = 12, dry_run: bool = False, model: str | None = None) -> int:
+    model = model or DEFAULT_SCORING_MODEL
     config = load_config()
-    model = model or (config.get("scoring") or {}).get("model", DEFAULT_SCORING_MODEL)
-    assert isinstance(model, str)
-
-    loaded = load_active()
-    if loaded is None:
-        print("No active profile. Build one with: careerradar profile build")
+    summary = config.get("profile", {}).get("summary_text", "")
+    if not summary:
+        print("No profile configured. Run `careerradar profile build` first.")
         return 1
-    _version, _profile, summary = loaded
 
     db = Database()
     try:
@@ -328,10 +302,10 @@ def report(
                 continue
             bucket = outcomes.setdefault((kind, name), {"held": 0, "broke": 0})
             if kind == "invariance":
-                seen = rank_moves.setdefault(name, {"same_tier": 0, "total": 0})
+                seen = rank_moves.setdefault(name, {"same_fit": 0, "total": 0})
                 seen["total"] += 1
-                if scale.sort_key(baseline) == scale.sort_key(after):
-                    seen["same_tier"] += 1
+                if baseline.get("fit") == after.get("fit"):
+                    seen["same_fit"] += 1
             problem = check(baseline, after)
             if problem is None:
                 bucket["held"] += 1
@@ -339,16 +313,9 @@ def report(
                 bucket["broke"] += 1
                 failures.append((name, posting["id"], posting["title"], problem))
 
-    moved = sum(
-        1
-        for posting in postings
-        if (baseline := results.get((posting["id"], "baseline")))
-        and (after := results.get((posting["id"], "product domain swapped")))
-        and baseline["role_match"] != after["role_match"]
-    )
     print()
     print("rule                          held  broke   rate")
-    print("  (invariance: 'held' = identical tuple; 'rank held' = same eligibility+tier)")
+    print("  (invariance: 'held' = identical tuple; 'fit held' = same fit boolean)")
     directional_broke = 0
     for kind, name, _p, _c in RULES:
         bucket = outcomes.get((kind, name))
@@ -361,7 +328,7 @@ def report(
         if kind == "invariance":
             seen = rank_moves.get(name)
             if seen and seen["total"]:
-                extra = f"   rank held {seen['same_tier'] / seen['total']:.0%}"
+                extra = f"   fit held {seen['same_fit'] / seen['total']:.0%}"
         print(f"  {name:<28}{bucket['held']:>4}{bucket['broke']:>7}  {rate:>5.0%}{extra}{marker}")
         if kind == "directional":
             directional_broke += bucket["broke"]
@@ -372,13 +339,6 @@ def report(
         for name, job_id, title, problem in failures[:25]:
             print(f"  [{name}] job {job_id} {(title or '')[:40]}")
             print(f"      {problem}")
-
-    print()
-    print(
-        f"role_match moved on {moved}/{len(postings)} domain swaps -- reported, not "
-        "gated: the swap prepends context rather than replacing it, so a posting that "
-        "keeps its original reading is defensible"
-    )
 
     if unscored:
         print(f"\n{unscored} baseline posting(s) produced no verdict")

@@ -34,24 +34,8 @@ function job(overrides: Partial<Job>): Job {
     fit: null,
     reason_type: null,
     reason_description: null,
-    fit_score: null,
-    verdict: null,
-    eligibility: null,
-    role_match: null,
-    capability_match: null,
-    seniority_gap: null,
-    pareto_tier: null,
-    core_requirements: [],
-    requirement_assessments: [],
-    hard_blockers: [],
-    key_gaps: [],
-    strengths: [],
-    reasoning: null,
-    role_summary: null,
-    evidence_quality: null,
     pipeline_state: null,
     liveness: "unknown",
-    requirement_summary: null,
     ...overrides,
   };
 }
@@ -73,33 +57,17 @@ describe("TierBadge", () => {
     expect(container.querySelector(".badge-blocked")).toBeTruthy();
   });
 
-  it("shows 'blocked' regardless of tier when eligibility is blocked", () => {
-    const { getByText } = render(<TierBadge job={job({ eligibility: "blocked", pareto_tier: 1 })} />);
-    expect(getByText("blocked")).toBeTruthy();
+  it("shows 'no fit' when fit is false without reason_type", () => {
+    const { getByText, container } = render(
+      <TierBadge job={job({ fit: false, reason_type: null })} />
+    );
+    expect(getByText("no fit")).toBeTruthy();
+    expect(container.querySelector(".badge-blocked")).toBeTruthy();
   });
 
-  it("shows 'unscored' when there is no tier yet", () => {
-    const { getByText } = render(<TierBadge job={job({ pareto_tier: null })} />);
+  it("shows 'unscored' when fit is null", () => {
+    const { getByText, container } = render(<TierBadge job={job({ fit: null })} />);
     expect(getByText("unscored")).toBeTruthy();
-  });
-
-  it("uses badge-top for tier <= 2", () => {
-    const { container } = render(<TierBadge job={job({ pareto_tier: 2, eligibility: "eligible" })} />);
-    expect(container.querySelector(".badge-top")).toBeTruthy();
-  });
-
-  it("uses badge-good for tier 3-4", () => {
-    const { container } = render(<TierBadge job={job({ pareto_tier: 4, eligibility: "eligible" })} />);
-    expect(container.querySelector(".badge-good")).toBeTruthy();
-  });
-
-  it("uses badge-far for tier 5 and beyond", () => {
-    const { container } = render(<TierBadge job={job({ pareto_tier: 5, eligibility: "eligible" })} />);
-    expect(container.querySelector(".badge-far")).toBeTruthy();
-  });
-
-  it("appends an asterisk for conditional eligibility", () => {
-    const { container } = render(<TierBadge job={job({ pareto_tier: 1, eligibility: "conditional" })} />);
-    expect(container.textContent).toContain("*");
+    expect(container.querySelector(".badge-unscored")).toBeTruthy();
   });
 });

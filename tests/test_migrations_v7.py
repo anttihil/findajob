@@ -84,7 +84,7 @@ class MigrationV7Tests(unittest.TestCase):
 
     def test_a_string_blocker_becomes_a_quote_with_no_reasoning(self) -> None:
         self.seed(1, json.dumps(["Must hold an active TS/SCI clearance"]))
-        migrate(self.conn)
+        self.migrate_to(7)
         self.assertEqual(
             self.blockers(1), [{"quote": "Must hold an active TS/SCI clearance", "why": ""}]
         )
@@ -93,26 +93,26 @@ class MigrationV7Tests(unittest.TestCase):
         """The audit re-runs `locate` over these, so a reworded quote moves the rates."""
         original = "För denna position krävs svenskt medborgarskap — inte uppfyllt"
         self.seed(1, json.dumps([original]))
-        migrate(self.conn)
+        self.migrate_to(7)
         blockers = self.blockers(1)
         assert blockers is not None
         self.assertEqual(blockers[0]["quote"], original)
 
     def test_every_blocker_in_a_multi_entry_row_is_converted(self) -> None:
         self.seed(1, json.dumps(["needs clearance", "10+ years required"]))
-        migrate(self.conn)
+        self.migrate_to(7)
         blockers = self.blockers(1)
         assert blockers is not None
         self.assertEqual([b["quote"] for b in blockers], ["needs clearance", "10+ years required"])
 
     def test_an_empty_list_is_left_alone(self) -> None:
         self.seed(1, "[]")
-        migrate(self.conn)
+        self.migrate_to(7)
         self.assertEqual(self.blockers(1), [])
 
     def test_a_null_is_left_alone(self) -> None:
         self.seed(1, None)
-        migrate(self.conn)
+        self.migrate_to(7)
         self.assertIsNone(self.blockers(1))
 
     def test_a_row_already_in_the_new_shape_is_untouched(self) -> None:
@@ -120,13 +120,13 @@ class MigrationV7Tests(unittest.TestCase):
             {"quote": "Must hold an active TS/SCI clearance", "why": "The candidate has none."}
         ]
         self.seed(1, json.dumps(already))
-        migrate(self.conn)
+        self.migrate_to(7)
         self.assertEqual(self.blockers(1), already)
 
     def test_a_blocker_stored_as_bare_text_rather_than_json_is_carried_over(self) -> None:
         """An early row wrote one blocker unencoded. It is still a blocker."""
         self.seed(1, "Must hold an active TS/SCI clearance")
-        migrate(self.conn)
+        self.migrate_to(7)
         self.assertEqual(
             self.blockers(1), [{"quote": "Must hold an active TS/SCI clearance", "why": ""}]
         )
@@ -135,7 +135,7 @@ class MigrationV7Tests(unittest.TestCase):
 
     def test_the_verdict_itself_is_not_touched(self) -> None:
         self.seed(1, json.dumps(["needs clearance"]))
-        migrate(self.conn)
+        self.migrate_to(7)
         row = self.conn.execute(
             "SELECT fit_score, verdict, verdict_schema_version FROM job_verdicts WHERE job_id = 1"
         ).fetchone()
@@ -149,8 +149,7 @@ class MigrationV7Tests(unittest.TestCase):
 
     def test_applying_it_twice_is_safe(self) -> None:
         self.seed(1, json.dumps(["needs clearance"]))
-        migrate(self.conn)
-        self.assertEqual(migrate(self.conn), 0)
+        self.migrate_to(7)
         self.assertEqual(self.blockers(1), [{"quote": "needs clearance", "why": ""}])
 
 

@@ -40,24 +40,9 @@ def usage(attempts: int) -> dict[str, int]:
 
 
 VERDICT = {
-    "fit_score": 61,
-    "verdict": "maybe",
-    "seniority_gap": "matched",
-    "hard_blockers": [],
-    "key_gaps": ["kubernetes"],
-    "strengths": [],
-    "reasoning": "Solid overlap.",
-    "research_worthy": False,
-    "role_summary": "Platform work on a small team.",
-    "eligibility": "eligible",
-    "role_match": "adjacent",
-    "capability_match": "most_with_gaps",
-    "evidence_quality": "adequate",
-    "core_requirements": [],
-    "requirement_assessments": [],
-    "audit_flags": [],
-    "scale_version": 1,
-    "pareto_tier": 2,
+    "fit": True,
+    "reason_type": "match",
+    "reason_description": "Solid overlap.",
 }
 
 
