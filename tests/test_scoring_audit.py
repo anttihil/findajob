@@ -19,10 +19,10 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from careerradar.profile.models import (
     Constraints,
-    FitAssessment,
     Profile,
 )
 from careerradar.scoring.audit import (
+    AuditAssessment,
     audit,
     blocker_contradicts_profile,
     locate,
@@ -55,7 +55,7 @@ def profile(**overrides: Any) -> Profile:
     return Profile(bio="test", constraints=Constraints(**fields))
 
 
-def assessment(**overrides: Any) -> FitAssessment:
+def assessment(**overrides: Any) -> AuditAssessment:
     fields: dict[str, Any] = {
         "role_summary": "Platform engineering for a hosting product.",
         "core_requirements": [
@@ -80,7 +80,7 @@ def assessment(**overrides: Any) -> FitAssessment:
         "research_worthy": False,
     }
     fields.update(overrides)
-    return FitAssessment(**fields)
+    return AuditAssessment(**fields)
 
 
 class LocateTests(unittest.TestCase):

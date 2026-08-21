@@ -187,34 +187,27 @@ def get_jobs(
     source: str | None = None,
     is_remote: bool | None = None,
     has_salary: bool | None = None,
-    # commutable | remote | relocation. candidates have local or remote preferences, so this is the
-    # filter that matters most: anything neither remote nor within commuting distance
-    # requires moving house.
+    # commutable | remote | relocation.
     access: str | None = Query(None, pattern="^(commutable|remote|relocation)$"),
     include_duplicates: bool = False,
     min_score: int | None = None,
-    # The scalar projection of the ordinals. Kept for a coarse cut, but the ordinals below
-    # are what the dashboard should filter on -- they say WHY a posting qualifies, and a
-    # threshold on a projected scale cannot.
     min_fit_score: int | None = None,
+    fit: bool | None = None,
+    reason_type: str | None = None,
     verdict: str | None = Query(
-        None, pattern="^(strong|worth_applying|stretch|poor_fit|mismatch)$"
+        None, pattern="^(strong|worth_applying|stretch|poor_fit|mismatch)?$"
     ),
-    eligibility: str | None = Query(None, pattern="^(eligible|conditional|blocked)$"),
+    eligibility: str | None = Query(None, pattern="^(eligible|conditional|blocked)?$"),
     role_match: str | None = Query(
-        None, pattern="^(same_role|adjacent|different_domain|different_field)$"
+        None, pattern="^(same_role|adjacent|different_domain|different_field)?$"
     ),
     capability_match: str | None = Query(
-        None, pattern="^(exceeds|meets|most_with_gaps|major_gaps|not_close)$"
+        None, pattern="^(exceeds|meets|most_with_gaps|major_gaps|not_close)?$"
     ),
-    # Pareto tier: 1 dominates everything below it. Filtering `max_tier=4` asks for the top
-    # four layers without asserting an exchange rate between the dimensions.
     max_tier: int | None = Query(None, ge=1, le=10),
-    liveness: str | None = Query(None, pattern="^(live|stale|likely_closed|unknown)$"),
-    pipeline_state: str | None = Query(None, pattern="^(new|scored|researched)$"),
+    liveness: str | None = Query(None, pattern="^(live|stale|likely_closed|unknown)?$"),
+    pipeline_state: str | None = Query(None, pattern="^(new|scored|researched)?$"),
     sort: str = Query("fit", pattern="^(fit|fit_score|match_score|date_posted)$"),
-    # Paginated from the start: the corpus reaches thousands of rows within days, and
-    # renderJobCards builds DOM for every row it receives.
     limit: int = Query(200, ge=1, le=1000),
     offset: int = Query(0, ge=0),
 ):
@@ -232,6 +225,8 @@ def get_jobs(
             include_duplicates=include_duplicates,
             min_score=min_score,
             min_fit_score=min_fit_score,
+            fit=fit,
+            reason_type=reason_type,
             verdict=verdict,
             eligibility=eligibility,
             role_match=role_match,
@@ -242,10 +237,6 @@ def get_jobs(
             sort=sort,
             limit=limit,
             offset=offset,
-            # The full row, unlike the dashboard feed. This is a JSON API an external
-            # script may already be consuming, and quietly dropping `description` and the
-            # verdict detail out of its response would be a breaking change made for the
-            # benefit of a caller that is not this one.
             detail=True,
         )
     finally:
@@ -701,14 +692,11 @@ def filter_query(
     # tier" option submits an empty value along with every other field in the sidebar
     # form. Declared as `int | None` it could not parse that, so the whole dashboard
     # answered 422 -- which meant country, tier and the score slider all looked broken,
-    # since none of them can be submitted without it.
+    fit: bool | None = None,
+    reason_type: str = Query("", pattern="^[a-z_]*$"),
     max_tier: str = Query("", pattern="^([1-9]|10)?$"),
     verdict: str = Query("", pattern="^(strong|worth_applying|stretch|poor_fit|mismatch)?$"),
     eligibility: str = Query("", pattern="^(eligible|conditional|blocked)?$"),
-    # `query_jobs` has accepted this all along and /api/jobs has always exposed it; only
-    # the dashboard had no way to say it. It belongs here rather than in the sort, because
-    # four labels partition the feed instead of ranking it -- and the labels track when
-    # each posting's scrape cell was last visited, not the posting.
     liveness: str = Query("", pattern="^(live|stale|likely_closed|unknown)?$"),
     sort: str = Query("fit", pattern="^(fit|fit_score|match_score|date_posted)$"),
     limit: int = Query(50, ge=1, le=200),
@@ -719,6 +707,8 @@ def filter_query(
             "status": status,
             "access": access,
             "country": country,
+            "fit": fit,
+            "reason_type": reason_type if reason_type else None,
             "max_tier": int(max_tier) if max_tier else None,
             "verdict": verdict,
             "eligibility": eligibility,
@@ -731,14 +721,6 @@ def filter_query(
 
 
 # --- SPA JSON endpoints ------------------------------------------------------------------
-#
-# The Preact dashboard needs two things the JSON API never had to serve before, because the
-# old Jinja dashboard rendered them into the page itself: the static option lists a
-# `<select>` needs (`/api/meta`) and the drawer bundle for one posting
-# (`/api/jobs/{id}/context`), which reuses `drawer_context` outright. Highlighting the
-# description against the matched skills now happens client-side (see
-# `frontend-src/src/lib/highlightTerms.ts`), rendered as Preact children instead of an
-# injected HTML string.
 
 
 @app.get("/api/meta")
@@ -746,6 +728,7 @@ def get_meta():
     return {
         "countries": rendering.country_choices(load_roles()),
         "verdicts": rendering.VERDICT_CHOICES,
+        "reason_types": rendering.REASON_TYPE_CHOICES,
     }
 
 

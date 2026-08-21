@@ -20,8 +20,6 @@ from typing import Any, TypedDict
 from careerradar.core.llm import DEFAULT_SCORING_MODEL, structured_model
 from careerradar.core.logger import get_logger
 from careerradar.profile.models import FitAssessment
-from careerradar.scoring import scale
-from careerradar.scoring.audit import audit
 from careerradar.scoring.prompts import render_posting
 
 logger = get_logger()
@@ -152,30 +150,7 @@ def node_score(state: ScoreState) -> dict[str, Any]:
             "semantic": _is_semantic(parse_error),
         }
 
-    # The verbatim-quote check cannot be a Pydantic validator -- it needs the posting text,
-    # and LangChain builds the parser itself with no way to pass context through. It runs
-    # here instead, which is also where the taxonomy cross-check has to live.
-    parsed, flags, fatal = audit(
-        parsed,
-        posting=state.get("posting") or {},
-        profile=state.get("profile"),
-        taxonomy=state.get("taxonomy"),
-    )
-    if fatal is not None:
-        logger.warning("Verdict failed audit (attempt %d): %s", attempts, fatal)
-        return {
-            "attempts": attempts,
-            "error": fatal,
-            "verdict": None,
-            "usage": usage,
-            "semantic": True,
-        }
-
     verdict = parsed.model_dump()
-    verdict["audit_flags"] = flags
-    # The number is computed here rather than in the worker so that anything driving the
-    # graph -- the eval harness included -- gets it through the same path.
-    verdict.update(scale.project(verdict))
     return {
         "attempts": attempts,
         "verdict": verdict,

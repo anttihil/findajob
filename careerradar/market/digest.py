@@ -39,8 +39,7 @@ class DigestGenerator:
 
         cursor.execute(
             """
-            SELECT j.*, v.eligibility, v.role_match, v.capability_match,
-                   v.pareto_tier, v.role_summary
+            SELECT j.*, v.fit, v.reason_type, v.reason_description
               FROM jobs j
               JOIN job_verdicts v
                 ON v.job_id = j.id
@@ -48,12 +47,11 @@ class DigestGenerator:
               LEFT JOIN v_job_liveness l ON l.job_id = j.id
              WHERE j.date_found >= ?
                AND j.duplicate_of IS NULL
-               AND v.eligibility = 'eligible'
-               AND v.pareto_tier <= ?
+               AND v.fit = 1
                AND COALESCE(l.liveness, 'unknown') != 'likely_closed'
-             ORDER BY v.pareto_tier ASC, j.date_found DESC
+             ORDER BY j.date_found DESC
         """,
-            (time_threshold, self.max_tier),
+            (time_threshold,),
         )
 
         rows = cursor.fetchall()
@@ -70,15 +68,10 @@ class DigestGenerator:
 
         md = []
         md.append(f"# Job Search Digest - {now_str}")
-        md.append(
-            f"Jobs found in the last {hours_ago} hours that you are eligible for and that "
-            f"rank in the top {self.max_tier} tiers. Tier 1 is the same role, done at a "
-            f"higher level than asked; the tiers below trade off role match against "
-            f"capability without one being ranked above the other.\n"
-        )
+        md.append(f"Jobs found in the last {hours_ago} hours that fit your profile.\n")
         md.append(f"**Total**: {len(rows)}\n")
-        md.append("| Tier | Position | Company | What it is | Location | Link |")
-        md.append("| :--- | :--- | :--- | :--- | :--- | :--- |")
+        md.append("| Position | Company | Reason | Location | Link |")
+        md.append("| :--- | :--- | :--- | :--- | :--- |")
 
         def cell(value: str | None, fallback: str = "") -> str:
             return (value or fallback).replace("|", "\\|")
@@ -86,11 +79,14 @@ class DigestGenerator:
         for r in rows:
             url = r["url"]
             link_str = f"[View Position]({url})" if url else "N/A"
-            tier = r["pareto_tier"]
-            tier_str = f"**{tier}**" if tier and tier <= 2 else str(tier or "-")
+            reason_str = (
+                f"{r['reason_type']}: {r['reason_description']}"
+                if r["reason_description"]
+                else (r["reason_type"] or "")
+            )
             md.append(
-                f"| {tier_str} | {cell(r['title'])} | {cell(r['company'], 'Unknown')} "
-                f"| {cell(r['role_summary'])} | {cell(r['location'], 'Remote')} "
+                f"| {cell(r['title'])} | {cell(r['company'], 'Unknown')} "
+                f"| {cell(reason_str)} | {cell(r['location'], 'Remote')} "
                 f"| {link_str} |"
             )
 

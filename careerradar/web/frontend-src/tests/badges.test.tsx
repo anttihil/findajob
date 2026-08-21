@@ -31,6 +31,9 @@ function job(overrides: Partial<Job>): Job {
     salary_max: null,
     salary_currency: null,
     salary_annual_usd: null,
+    fit: null,
+    reason_type: null,
+    reason_description: null,
     fit_score: null,
     verdict: null,
     eligibility: null,
@@ -54,6 +57,22 @@ function job(overrides: Partial<Job>): Job {
 }
 
 describe("TierBadge", () => {
+  it("shows fit badge when fit is true", () => {
+    const { getByText, container } = render(
+      <TierBadge job={job({ fit: true, reason_type: "match" })} />
+    );
+    expect(getByText("Fit · match")).toBeTruthy();
+    expect(container.querySelector(".badge-top")).toBeTruthy();
+  });
+
+  it("shows no fit badge when fit is false", () => {
+    const { getByText, container } = render(
+      <TierBadge job={job({ fit: false, reason_type: "skills" })} />
+    );
+    expect(getByText("skills")).toBeTruthy();
+    expect(container.querySelector(".badge-blocked")).toBeTruthy();
+  });
+
   it("shows 'blocked' regardless of tier when eligibility is blocked", () => {
     const { getByText } = render(<TierBadge job={job({ eligibility: "blocked", pareto_tier: 1 })} />);
     expect(getByText("blocked")).toBeTruthy();

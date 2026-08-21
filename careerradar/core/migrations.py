@@ -13,7 +13,7 @@ from careerradar.core.logger import get_logger
 
 logger = get_logger()
 
-SCHEMA_VERSION = 13
+SCHEMA_VERSION = 14
 
 
 def _v1_baseline(cursor: sqlite3.Cursor) -> None:
@@ -976,6 +976,148 @@ def _v13_drop_denormalized_fit_score(cursor: sqlite3.Cursor) -> None:
         cursor.execute("ALTER TABLE jobs DROP COLUMN fit_score")
 
 
+def _v14_simplified_scoring(cursor: sqlite3.Cursor) -> None:
+    """Migrate job_verdicts to simplified schema: fit, reason_type, reason_description."""
+    existing = {row[1] for row in cursor.execute("PRAGMA table_info(job_verdicts)")}
+    if not existing:
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS job_verdicts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                job_id INTEGER NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+                profile_version INTEGER NOT NULL,
+                model TEXT NOT NULL,
+                fit INTEGER,
+                reason_type TEXT,
+                reason_description TEXT,
+                fit_score INTEGER,
+                verdict TEXT,
+                seniority_fit TEXT,
+                hard_blockers TEXT,
+                key_gaps TEXT,
+                strengths TEXT,
+                reasoning TEXT,
+                research_worthy INTEGER DEFAULT 0,
+                role_summary TEXT,
+                eligibility TEXT,
+                role_match TEXT,
+                capability_match TEXT,
+                seniority_gap TEXT,
+                evidence_quality TEXT,
+                core_requirements TEXT,
+                requirement_assessments TEXT,
+                audit_flags TEXT,
+                scale_version INTEGER,
+                verdict_schema_version INTEGER,
+                pareto_tier INTEGER,
+                prompt_hash TEXT,
+                tokens_in INTEGER,
+                tokens_cached INTEGER,
+                tokens_out INTEGER,
+                cost_usd REAL DEFAULT 0,
+                created_at TEXT NOT NULL,
+                UNIQUE(job_id, profile_version)
+            )
+            """
+        )
+    else:
+        cursor.execute(
+            """
+            CREATE TABLE job_verdicts_new (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                job_id INTEGER NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+                profile_version INTEGER NOT NULL,
+                model TEXT NOT NULL,
+                fit INTEGER,
+                reason_type TEXT,
+                reason_description TEXT,
+                fit_score INTEGER,
+                verdict TEXT,
+                seniority_fit TEXT,
+                hard_blockers TEXT,
+                key_gaps TEXT,
+                strengths TEXT,
+                reasoning TEXT,
+                research_worthy INTEGER DEFAULT 0,
+                role_summary TEXT,
+                eligibility TEXT,
+                role_match TEXT,
+                capability_match TEXT,
+                seniority_gap TEXT,
+                evidence_quality TEXT,
+                core_requirements TEXT,
+                requirement_assessments TEXT,
+                audit_flags TEXT,
+                scale_version INTEGER,
+                verdict_schema_version INTEGER,
+                pareto_tier INTEGER,
+                prompt_hash TEXT,
+                tokens_in INTEGER,
+                tokens_cached INTEGER,
+                tokens_out INTEGER,
+                cost_usd REAL DEFAULT 0,
+                created_at TEXT NOT NULL,
+                UNIQUE(job_id, profile_version)
+            )
+            """
+        )
+        common_cols = [
+            "id",
+            "job_id",
+            "profile_version",
+            "model",
+            "fit_score",
+            "verdict",
+            "seniority_fit",
+            "hard_blockers",
+            "key_gaps",
+            "strengths",
+            "reasoning",
+            "research_worthy",
+            "tokens_in",
+            "tokens_cached",
+            "tokens_out",
+            "cost_usd",
+            "created_at",
+        ]
+        for opt_col in [
+            "role_summary",
+            "eligibility",
+            "role_match",
+            "capability_match",
+            "seniority_gap",
+            "evidence_quality",
+            "core_requirements",
+            "requirement_assessments",
+            "audit_flags",
+            "scale_version",
+            "verdict_schema_version",
+            "pareto_tier",
+            "prompt_hash",
+            "fit",
+            "reason_type",
+            "reason_description",
+        ]:
+            if opt_col in existing:
+                common_cols.append(opt_col)
+
+        cols_str = ", ".join(common_cols)
+        cursor.execute(
+            f"INSERT INTO job_verdicts_new ({cols_str}) SELECT {cols_str} FROM job_verdicts"
+        )
+        cursor.execute("DROP TABLE job_verdicts")
+        cursor.execute("ALTER TABLE job_verdicts_new RENAME TO job_verdicts")
+
+    cursor.execute(
+        "CREATE INDEX IF NOT EXISTS idx_verdicts_fit ON job_verdicts(profile_version, fit)"
+    )
+    cursor.execute(
+        "CREATE INDEX IF NOT EXISTS idx_verdicts_reason "
+        "ON job_verdicts(profile_version, reason_type)"
+    )
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_verdicts_score ON job_verdicts(fit_score DESC)")
+
+
 MIGRATIONS: list[tuple[int, str, Callable[[sqlite3.Cursor], None]]] = [
     (1, "baseline jobs table", _v1_baseline),
     (2, "market analytics: cells, observations, skills, stats", _v2_analytics),
@@ -990,6 +1132,11 @@ MIGRATIONS: list[tuple[int, str, Callable[[sqlite3.Cursor], None]]] = [
     (11, "measured per-cell scrape cost: duration, requests, cell_cost view", _v11_cell_cost),
     (12, "liveness requires the re-scrape's window to reach the posting", _v12_liveness_window),
     (13, "drop the unversioned jobs.fit_score copy", _v13_drop_denormalized_fit_score),
+    (
+        14,
+        "simplified scoring: fit boolean, reason_type, reason_description",
+        _v14_simplified_scoring,
+    ),
 ]
 
 

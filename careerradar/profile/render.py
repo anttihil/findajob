@@ -53,12 +53,17 @@ def render_profile(profile: Profile) -> str:
         lines.append("  " + ", ".join(s.label for s in skills))
         lines.append("")
 
-    if profile.strengths:
-        lines += ["STRENGTHS:", _bullets(profile.strengths), ""]
+    if profile.projects:
+        lines += ["KEY PROJECTS / ACHIEVEMENTS:", _bullets(profile.projects), ""]
+    elif profile.strengths:
+        lines += ["KEY PROJECTS / ACHIEVEMENTS:", _bullets(profile.strengths), ""]
+
     if profile.weaknesses:
-        # Included on purpose. A profile that lists only strengths produces a scorer that
-        # rates every posting 'strong' -- it has nothing to weigh a stretch against.
-        lines += ["HONEST GAPS:", _bullets(profile.weaknesses), ""]
+        lines += [
+            "HONEST GAPS / LIMITATIONS:",
+            _bullets(profile.weaknesses),
+            "",
+        ]
 
     constraints = profile.constraints
     constraint_lines = []

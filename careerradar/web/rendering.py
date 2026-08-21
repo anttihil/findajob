@@ -23,12 +23,12 @@ IMPORTANCE_RANK = {"must_have": 0, "important": 1, "nice_to_have": 2}
 
 # Every filter the dashboard can express, defaulted. The names match the query parameters
 # of `Database.query_jobs` exactly, which is the point -- a form field whose name is wrong
-# now fails visibly at the route signature instead of being silently dropped by FastAPI,
-# which is how `/api/search-links?resume=...` went unnoticed.
 FILTER_DEFAULTS: dict[str, Any] = {
     "status": "unread",
     "access": "",
     "country": "",
+    "fit": None,
+    "reason_type": "",
     "max_tier": None,
     "verdict": "",
     "eligibility": "",
@@ -37,6 +37,18 @@ FILTER_DEFAULTS: dict[str, Any] = {
     "limit": 50,
     "offset": 0,
 }
+
+REASON_TYPE_CHOICES = [
+    ("match", "Match"),
+    ("skills", "Skills gap"),
+    ("experience", "Experience gap"),
+    ("seniority", "Seniority mismatch"),
+    ("domain", "Domain mismatch"),
+    ("clearance", "Clearance/Citizenship"),
+    ("location", "Location constraint"),
+    ("tech_stack", "Tech stack mismatch"),
+    ("overqualified", "Overqualified"),
+]
 
 # Ordered as the scale reads them, best first, so `/api/meta`'s verdict list is a ranking
 # rather than a list.

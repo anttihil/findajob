@@ -21,10 +21,8 @@ logger = get_logger()
 
 
 # Mirrors `scoring.research_gate` in config.yaml, for a config that predates the key.
-DEFAULT_RESEARCH_GATE: dict[str, list[str]] = {
-    "eligibility": ["eligible"],
-    "role_match": ["same_role", "adjacent"],
-    "capability_match": ["exceeds", "meets", "most_with_gaps"],
+DEFAULT_RESEARCH_GATE: dict[str, Any] = {
+    "fit": True,
 }
 
 
@@ -32,18 +30,15 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _gate_sql(gate: dict[str, list[str]]) -> tuple[str, list[Any]]:
-    """The research gate as SQL, from the named ordinal values in config.
-
-    A predicate rather than `fit_score >= 70`. The old threshold sat between two of the
-    scale's quantisation attractors (62 and 72), so part of what it measured was where the
-    model liked to round; and it could never say *why* a company qualified.
-    """
+def _gate_sql(gate: dict[str, Any]) -> tuple[str, list[Any]]:
     clauses: list[str] = []
     params: list[Any] = []
+    if gate.get("fit") is not None:
+        clauses.append("v.fit = ?")
+        params.append(1 if gate.get("fit") else 0)
     for column in ("eligibility", "role_match", "capability_match"):
         allowed = gate.get(column)
-        if not allowed:
+        if not allowed or not isinstance(allowed, list):
             continue
         clauses.append(f"v.{column} IN ({', '.join('?' * len(allowed))})")
         params.extend(allowed)
@@ -52,21 +47,12 @@ def _gate_sql(gate: dict[str, list[str]]) -> tuple[str, list[Any]]:
 
 def _candidates(
     db: Database,
-    gate: dict[str, list[str]],
+    gate: dict[str, Any],
     refresh_days: int,
     limit: int | None,
     company: str | None = None,
 ) -> list[dict[str, Any]]:
-    """Companies worth researching, best posting first.
-
-    Grouped by `company_normalized` so a company with a dozen strong postings is one unit
-    of work. The best-ranked posting picks the row whose role_family and location drive
-    the nearby-jobs queries.
-
-    Postings whose cell has been re-scraped without finding them are excluded: researching
-    a company on the strength of a closed listing spends the most expensive model in the
-    pipeline on a job that no longer exists.
-    """
+    """Companies worth researching, best posting first."""
     cutoff = (datetime.now(timezone.utc) - timedelta(days=refresh_days)).isoformat()
 
     params: list[Any]
@@ -78,8 +64,7 @@ def _candidates(
 
     query = f"""
         SELECT j.company_normalized,
-               MAX(v.fit_score)                AS best_score,
-               MIN(v.pareto_tier)              AS best_tier,
+               MAX(COALESCE(v.fit, 0))         AS best_fit,
                COUNT(*)                        AS postings,
                MAX(j.company)                  AS company,
                MAX(j.id)                       AS job_id,
@@ -100,7 +85,7 @@ def _candidates(
            {where}
            AND (d.generated_at IS NULL OR d.generated_at < ?)
          GROUP BY j.company_normalized
-         ORDER BY best_tier ASC, best_score DESC
+         ORDER BY best_fit DESC, postings DESC
     """
     params.append(cutoff)
     if limit:

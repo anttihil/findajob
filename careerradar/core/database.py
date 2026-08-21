@@ -135,8 +135,9 @@ class Database:
     # `requirement_summary` is derived from them, and that derivation stays in Python where
     # the matching normalisation already lives.
     _VERDICT_LIST_COLUMNS = (
-        # `jobs` held a second, unversioned copy of this until v13. There is one score now,
-        # and it is the one belonging to the profile version this join is pinned to.
+        "fit",
+        "reason_type",
+        "reason_description",
         "fit_score",
         "verdict",
         "eligibility",
@@ -175,37 +176,18 @@ class Database:
         "requirement_assessments",
     )
 
-    # The default ranks WITHOUT inventing an exchange rate between the dimensions.
-    # Eligibility partitions -- nothing blocked outranks anything eligible, at any tier --
-    # and `pareto_tier` orders within a partition by dominance, so two postings share a
-    # tier only when neither is better than the other on every dimension. Ties inside a
-    # tier are real; recency breaks them, and nothing should be read into the result.
-    #
-    # `fit_score` remains available as a coarse sort. It is a projection of the same
-    # ordinals through an invented weighting (see scoring/scale.py), which is exactly why
-    # it is not the default.
     _SORTS: ClassVar[dict[str, str]] = {
         "fit": (
-            "CASE v.eligibility WHEN 'eligible' THEN 0 WHEN 'conditional' THEN 1 "
-            "WHEN 'blocked' THEN 2 ELSE 3 END, "
-            "COALESCE(v.pareto_tier, 99), jobs.date_found DESC"
+            "v.fit DESC NULLS LAST, "
+            "COALESCE(jobs.date_posted, date(jobs.date_found)) DESC, "
+            "jobs.date_found DESC"
         ),
-        # Every column is table-qualified. `fit_score` exists on both sides of the verdict
-        # join, so the bare name made SQLite refuse the whole query -- picking this sort in
-        # the dashboard was a 500. The verdict's copy is the one that answers to the active
-        # profile version, which is what the rest of this ordering already reads.
-        "fit_score": "v.fit_score DESC, jobs.match_score DESC, jobs.date_found DESC",
+        "fit_score": (
+            "COALESCE(v.fit_score, (v.fit * 100)) DESC NULLS LAST, "
+            "jobs.match_score DESC, "
+            "jobs.date_found DESC"
+        ),
         "match_score": "jobs.match_score DESC, jobs.date_found DESC",
-        # Replaced `date_found`, which ranked by when the scraper caught a posting rather
-        # than by anything about the posting itself. The COALESCE is not decoration: 121 of
-        # 7124 rows -- the HackerNews, JobTech Sweden and WeWorkRemotely sources -- carry no
-        # date_posted and no posted_window_* either, and SQLite sorts NULL last under DESC,
-        # so a bare column would park them permanently at the end of the feed. The found
-        # date is the only fallback they have, and it is an honest upper bound: a posting
-        # existed at or before the moment it was seen.
-        #
-        # date_posted is day-granular, so ties are large -- 432 rows share one day -- and
-        # date_found breaks them, as it does for every sort above.
         "date_posted": (
             "COALESCE(jobs.date_posted, date(jobs.date_found)) DESC, jobs.date_found DESC"
         ),
@@ -247,6 +229,8 @@ class Database:
         max_tier: int | None,
         liveness: str | None,
         job_id: int | None,
+        fit: bool | None = None,
+        reason_type: str | None = None,
     ) -> tuple[str, list[Any]]:
         """The shared WHERE clause, as (sql, params).
 
@@ -282,6 +266,12 @@ class Database:
             if value:
                 sql += f" AND {column} = ?"
                 params.append(value)
+        if fit is not None:
+            sql += " AND v.fit = ?"
+            params.append(1 if fit else 0)
+        if reason_type:
+            sql += " AND v.reason_type = ?"
+            params.append(reason_type.strip().lower())
         if is_remote is not None:
             sql += " AND jobs.is_remote = ?"
             params.append(1 if is_remote else 0)
@@ -323,6 +313,8 @@ class Database:
         max_tier: int | None = None,
         liveness: str | None = None,
         job_id: int | None = None,
+        fit: bool | None = None,
+        reason_type: str | None = None,
         sort: str = "fit",
         limit: int = 200,
         offset: int = 0,
@@ -364,6 +356,8 @@ class Database:
             max_tier=max_tier,
             liveness=liveness,
             job_id=job_id,
+            fit=fit,
+            reason_type=reason_type,
         )
         query = f"SELECT {self._select_columns(detail)}{self._FROM} WHERE 1=1{where}"
 
@@ -426,6 +420,8 @@ class Database:
         max_tier: int | None = None,
         liveness: str | None = None,
         job_id: int | None = None,
+        fit: bool | None = None,
+        reason_type: str | None = None,
         sort: str = "fit",
         limit: int = 200,
         offset: int = 0,
@@ -458,6 +454,8 @@ class Database:
             max_tier=max_tier,
             liveness=liveness,
             job_id=job_id,
+            fit=fit,
+            reason_type=reason_type,
         )
         query = (
             f"SELECT jobs.id{self._FROM} WHERE 1=1{where}"

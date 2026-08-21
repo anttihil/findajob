@@ -76,6 +76,9 @@ export interface Job {
   salary_annual_usd: number | null;
 
   // Joined from `job_verdicts` for the active profile version; null until scored.
+  fit: boolean | number | null;
+  reason_type: string | null;
+  reason_description: string | null;
   fit_score: number | null;
   verdict: Verdict | null;
   eligibility: Eligibility | null;
@@ -110,6 +113,8 @@ export interface JobFilters {
   status?: JobStatus | "";
   access?: Access | "";
   country?: string;
+  fit?: boolean | "";
+  reason_type?: string;
   max_tier?: number | null;
   verdict?: Verdict | "";
   eligibility?: Eligibility | "";
@@ -153,6 +158,7 @@ export interface JobContext {
 export interface Meta {
   countries: [string, string][];
   verdicts: [Verdict, string][];
+  reason_types?: [string, string][];
 }
 
 export interface StatusCounts {

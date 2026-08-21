@@ -369,6 +369,7 @@ scoring:
   # therefore costs a few dollars, which is why every posting is scored rather than sampled.
   model: deepseek-v4-flash
   concurrency: 16
+  fit_threshold: 90
   # Pre-flight ceiling. If the estimated cost of the queue exceeds this, the run ABORTS
   # instead of scoring part of it. A budget that quietly drops the tail produces a pass that
   # looks complete, and every coverage figure downstream then inherits that.
@@ -392,13 +393,9 @@ scoring:
   # The posting is still stored and classified, which keeps the supply analytics honest
   # about demand the user is choosing not to pursue.
   skip_seniority: [lead, staff]
-  # Which postings earn an expensive deep-research pass. Written as a predicate over the
-  # judge's own structured verdict rather than a score threshold, so it states its reasons:
-  # a `fit_score >= 70` cutoff says nothing about why a posting qualified.
+  # Which postings earn an expensive deep-research pass.
   research_gate:
-    eligibility: [eligible]
-    role_match: [same_role, adjacent]
-    capability_match: [exceeds, meets, most_with_gaps]
+    fit: true
 
 research:
   # Runs at most a few times a run, on companies behind postings that passed research_gate,

@@ -90,6 +90,40 @@ export function FilterSidebar({ query, meta }: { query: FilterQuery; meta: Meta 
       </div>
 
       <div class="filter-group">
+        <label for="filter-fit">Job Fit</label>
+        <select
+          id="filter-fit"
+          class="form-select"
+          value={query.fit === null || query.fit === undefined ? "" : query.fit ? "true" : "false"}
+          onChange={(e) => {
+            const v = (e.target as HTMLSelectElement).value;
+            navigate(query.url({ fit: v === "true" ? true : v === "false" ? false : null }));
+          }}
+        >
+          <option value="">All fits</option>
+          <option value="true">Fit only (≥90%)</option>
+          <option value="false">No fit (&lt;90%)</option>
+        </select>
+      </div>
+
+      <div class="filter-group">
+        <label for="filter-reason">Reason Type</label>
+        <select
+          id="filter-reason"
+          class="form-select"
+          value={query.reason_type || ""}
+          onChange={(e) => navigate(query.url({ reason_type: (e.target as HTMLSelectElement).value }))}
+        >
+          <option value="">All reason types</option>
+          {meta?.reason_types?.map(([value, label]) => (
+            <option key={value} value={value}>
+              {label}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      <div class="filter-group">
         <label for="filter-tier">Pareto tier</label>
         <select
           id="filter-tier"

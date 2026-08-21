@@ -31,14 +31,59 @@ import re
 import unicodedata
 from typing import Any
 
+from pydantic import BaseModel, Field, field_validator
+
 from careerradar.profile.adapter import ProfileAdapter
 from careerradar.profile.models import (
     Constraints,
-    FitAssessment,
     Profile,
     normalize_requirement,
 )
 from careerradar.taxonomy.skills import Taxonomy
+
+
+class Blocker(BaseModel):
+    quote: str
+    why: str = ""
+
+
+class CoreRequirement(BaseModel):
+    requirement: str
+    quote: str = ""
+    importance: str = "must_have"
+
+
+class RequirementAssessment(BaseModel):
+    requirement: str
+    status: str = "met"
+    candidate_evidence: str = ""
+
+
+class AuditAssessment(BaseModel):
+    role_summary: str = ""
+    core_requirements: list[CoreRequirement] = Field(default_factory=list)
+    requirement_assessments: list[RequirementAssessment] = Field(default_factory=list)
+    eligibility: str = "eligible"
+    role_match: str = "adjacent"
+    capability_match: str = "meets"
+    seniority_gap: str = "matched"
+    evidence_quality: str = "strong"
+    hard_blockers: list[Blocker] = Field(default_factory=list)
+    key_gaps: list[str] = Field(default_factory=list)
+    strengths: list[str] = Field(default_factory=list)
+    reasoning: str = ""
+    research_worthy: bool = False
+
+    @field_validator("hard_blockers", mode="before")
+    @classmethod
+    def _coerce_blockers(cls, items: Any) -> list[Blocker]:
+        if not isinstance(items, list):
+            return []
+        return [
+            Blocker(quote=b) if isinstance(b, str) else Blocker(**b) if isinstance(b, dict) else b
+            for b in items
+        ]
+
 
 # Below this ratio a quote is not a garbled version of anything in the posting. 0.85
 # accepts the usual damage -- a smart quote, a collapsed line break, a trimmed bullet --
@@ -475,18 +520,21 @@ def locate_blocker(blocker: str, haystack: str) -> tuple[str, str | None]:
 
 
 def audit(
-    assessment: FitAssessment,
+    assessment: AuditAssessment | dict[str, Any],
     *,
     posting: dict[str, Any],
     profile: "ProfileAdapter | Profile | None" = None,
     taxonomy: Taxonomy | None = None,  # noqa: ARG001
-) -> tuple[FitAssessment, list[dict[str, Any]], str | None]:
+) -> tuple[AuditAssessment, list[dict[str, Any]], str | None]:
     """Check one parsed assessment. Returns `(assessment, flags, fatal_reason)`.
 
     `assessment` is mutated where a quote can be repaired. `fatal_reason` is not None when
     the caller should discard the verdict and retry.
     """
     from careerradar.scoring.prompts import quotable_text
+
+    if isinstance(assessment, dict):
+        assessment = AuditAssessment(**assessment)
 
     # The model only ever saw the truncated description, so a quote must be checked against
     # what it was shown, not against the full row. `quotable_text` is that set, and it

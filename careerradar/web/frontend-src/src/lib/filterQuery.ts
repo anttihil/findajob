@@ -13,6 +13,8 @@ export interface FilterValues {
   status: JobStatusFilter;
   access: string;
   country: string;
+  fit: boolean | null;
+  reason_type: string;
   max_tier: number | null;
   verdict: string;
   eligibility: string;
@@ -26,6 +28,8 @@ export const FILTER_DEFAULTS: FilterValues = {
   status: "unread",
   access: "",
   country: "",
+  fit: null,
+  reason_type: "",
   max_tier: null,
   verdict: "",
   eligibility: "",
@@ -35,7 +39,7 @@ export const FILTER_DEFAULTS: FilterValues = {
   offset: 0,
 };
 
-type Overrides = Partial<Record<keyof FilterValues, string | number | null>>;
+type Overrides = Partial<Record<keyof FilterValues, string | number | boolean | null>>;
 
 // Typed once as an index signature so default-comparisons below don't need a cast per call.
 const DEFAULTS = FILTER_DEFAULTS as unknown as Record<string, unknown>;
@@ -50,6 +54,13 @@ function parseValues(search: string): FilterValues {
     status: (raw.status as JobStatusFilter) || FILTER_DEFAULTS.status,
     access: raw.access ?? FILTER_DEFAULTS.access,
     country: raw.country ?? FILTER_DEFAULTS.country,
+    fit:
+      raw.fit === "true" || raw.fit === "1"
+        ? true
+        : raw.fit === "false" || raw.fit === "0"
+          ? false
+          : FILTER_DEFAULTS.fit,
+    reason_type: raw.reason_type ?? FILTER_DEFAULTS.reason_type,
     max_tier: raw.max_tier ? Number(raw.max_tier) : FILTER_DEFAULTS.max_tier,
     verdict: raw.verdict ?? FILTER_DEFAULTS.verdict,
     eligibility: raw.eligibility ?? FILTER_DEFAULTS.eligibility,
@@ -76,6 +87,12 @@ export class FilterQuery {
   get country() {
     return this.values.country;
   }
+  get fit() {
+    return this.values.fit;
+  }
+  get reason_type() {
+    return this.values.reason_type;
+  }
   get max_tier() {
     return this.values.max_tier;
   }
@@ -98,8 +115,8 @@ export class FilterQuery {
     return this.values.offset;
   }
 
-  private queryString(overrides: Overrides, extra: Record<string, string | number | null> = {}): string {
-    const merged: Record<string, string | number | null> = { ...this.values, ...overrides, ...extra };
+  private queryString(overrides: Overrides, extra: Record<string, string | number | boolean | null> = {}): string {
+    const merged: Record<string, string | number | boolean | null> = { ...this.values, ...overrides, ...extra };
     const params = new URLSearchParams();
     for (const [key, value] of Object.entries(merged)) {
       const isDefault = key in DEFAULTS && value === DEFAULTS[key];

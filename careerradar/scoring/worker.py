@@ -6,7 +6,6 @@ whole reason the stages hand off through `jobs.pipeline_state` rather than shari
 process.
 """
 
-import json
 import sqlite3
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
@@ -41,19 +40,10 @@ if TYPE_CHECKING:
 
 logger = get_logger()
 
-# Chars per token. DeepSeek publishes no token-counting endpoint, so the pre-flight gate
-# uses a ratio measured against the spike's real responses (1,460-2,016 prompt tokens for
-# postings of ~4,700-6,500 chars). Deliberately on the low side: an estimate that runs
-# high aborts a run that would have been affordable, which is the cheaper mistake.
+# Chars per token.
 CHARS_PER_TOKEN = 3.0
-# Measured completion length. The v1 schema returned a score, a band and three short
-# lists at 562-670 tokens. The v2 schema also returns a role summary, five to eight
-# quoted requirements and an assessment for each, which roughly doubles it.
-#
-# Understating this is the dangerous direction, not the expensive one: the pre-flight
-# gate would pass, the run would start, and the live `Spend` ceiling would trip halfway
-# through -- a partial pass, which is exactly what abort-don't-trim exists to prevent.
-EXPECTED_COMPLETION_TOKENS = 1300
+# Measured completion length for simplified JobFitVerdict (fit, reason_type, reason_description).
+EXPECTED_COMPLETION_TOKENS = 60
 
 
 # Consecutive failed runs before a posting stops being offered.
@@ -280,114 +270,59 @@ def _persist(
     db: Database,
     job: dict[str, Any],
     verdict: dict[str, Any],
-    # Tokens and dollars for every attempt this posting took, not just the winning one.
-    # The retry that preceded a verdict has nowhere else to be recorded.
     usage: dict[str, int] | None,
     cost: float,
     model: str,
     profile_version: int,
     phash: str,
 ) -> None:
-    """Write the ordinals AND the projection.
+    fit_val = 1 if verdict.get("fit") else 0
+    reason_type = verdict.get("reason_type") or "unknown"
+    reason_desc = verdict.get("reason_description") or ""
 
-    Both, deliberately. The ordinals are the record -- `careerradar score rescale`
-    recomputes the number from them without an API call, which is what makes the scale
-    cheap to change. The projection is stored alongside so that SQL can sort and threshold
-    without importing Python, and `scale_version` says which table produced it.
-
-    Both land in `job_verdicts`, keyed on (job_id, profile_version), and nowhere else.
-    `jobs` used to carry a second copy of the score for callers that wanted it without the
-    join; it is gone (v13). The copy had no profile version on it, so between a
-    `profile build` and the re-score that followed it every reader of it was reading a
-    number the active profile never produced.
-    """
     db.conn.execute(
         """
         INSERT INTO job_verdicts
-            (job_id, profile_version, model, fit_score, verdict, seniority_fit,
-             hard_blockers, key_gaps, strengths, reasoning, research_worthy,
+            (job_id, profile_version, model, fit, reason_type, reason_description,
              tokens_in, tokens_cached, tokens_out, cost_usd, created_at,
-             role_summary, eligibility, role_match, capability_match, seniority_gap,
-             evidence_quality, core_requirements, requirement_assessments, audit_flags,
-             scale_version, verdict_schema_version, pareto_tier, prompt_hash)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             verdict_schema_version, prompt_hash)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(job_id, profile_version) DO UPDATE SET
             model = excluded.model,
-            fit_score = excluded.fit_score,
-            verdict = excluded.verdict,
-            seniority_fit = excluded.seniority_fit,
-            hard_blockers = excluded.hard_blockers,
-            key_gaps = excluded.key_gaps,
-            strengths = excluded.strengths,
-            reasoning = excluded.reasoning,
-            research_worthy = excluded.research_worthy,
+            fit = excluded.fit,
+            reason_type = excluded.reason_type,
+            reason_description = excluded.reason_description,
             tokens_in = excluded.tokens_in,
             tokens_cached = excluded.tokens_cached,
             tokens_out = excluded.tokens_out,
             cost_usd = excluded.cost_usd,
             created_at = excluded.created_at,
-            role_summary = excluded.role_summary,
-            eligibility = excluded.eligibility,
-            role_match = excluded.role_match,
-            capability_match = excluded.capability_match,
-            seniority_gap = excluded.seniority_gap,
-            evidence_quality = excluded.evidence_quality,
-            core_requirements = excluded.core_requirements,
-            requirement_assessments = excluded.requirement_assessments,
-            audit_flags = excluded.audit_flags,
-            scale_version = excluded.scale_version,
             verdict_schema_version = excluded.verdict_schema_version,
-            pareto_tier = excluded.pareto_tier,
             prompt_hash = excluded.prompt_hash
         """,
         (
             job["id"],
             profile_version,
             model,
-            verdict["fit_score"],
-            verdict["verdict"],
-            # `seniority_fit` is the v1 column name and keeps its meaning; the new value is
-            # explicit about whose level it describes.
-            verdict["seniority_gap"],
-            json.dumps(verdict["hard_blockers"]),
-            json.dumps(verdict["key_gaps"]),
-            json.dumps(verdict["strengths"]),
-            verdict["reasoning"],
-            1 if verdict["research_worthy"] else 0,
+            fit_val,
+            reason_type,
+            reason_desc,
             usage["prompt"] if usage else None,
             usage["cache_hit"] if usage else None,
             usage["completion"] if usage else None,
             cost,
             _now(),
-            verdict["role_summary"],
-            verdict["eligibility"],
-            verdict["role_match"],
-            verdict["capability_match"],
-            verdict["seniority_gap"],
-            verdict["evidence_quality"],
-            json.dumps(verdict["core_requirements"]),
-            json.dumps(verdict["requirement_assessments"]),
-            json.dumps(verdict.get("audit_flags") or []),
-            verdict["scale_version"],
             VERDICT_SCHEMA_VERSION,
-            verdict["pareto_tier"],
             phash,
         ),
     )
-    # The failure counter is cleared here rather than by the caller: a posting that just
-    # produced a verdict is not failing, and tying the reset to the write that proves it
-    # means no future success path can forget to do it.
     db.conn.execute(
         "UPDATE jobs SET scored_at = ?, pipeline_state = 'scored', "
         "scoring_failures = 0, last_scoring_error = NULL WHERE id = ?",
         (_now(), job["id"]),
     )
-    # Feed the cell that surfaced this posting a memory of how it scored, so the scheduler
-    # can eventually reinvest scrape budget in cells with a track record of good matches,
-    # not just cells with high raw yield. See scheduler.quality_multiplier().
     if job.get("scrape_cell_id"):
-        db.update_cell_quality(job["scrape_cell_id"], verdict["fit_score"])
+        db.update_cell_quality(job["scrape_cell_id"], 100.0 if verdict.get("fit") else 0.0)
 
 
 def _skill_hint(scorer: "JobScorer | None", job: dict[str, Any]) -> str:
@@ -447,6 +382,7 @@ def run_scoring(limit: int | None = None, rescore_all: bool = False, dry_run: bo
     model = scoring_config.get("model", DEFAULT_SCORING_MODEL)
     concurrency = int(scoring_config.get("concurrency", 8))
     max_usd = scoring_config.get("max_usd_per_run")
+    fit_threshold = int(scoring_config.get("fit_threshold", 90))
 
     loaded = load_active()
     if loaded is None:
@@ -467,8 +403,8 @@ def run_scoring(limit: int | None = None, rescore_all: bool = False, dry_run: bo
             print("Nothing to score. The backlog is drained.")
             return 0
 
-        system = build_system(summary)
-        phash = prompt_hash()
+        system = build_system(summary, fit_threshold=fit_threshold)
+        phash = prompt_hash(summary, fit_threshold=fit_threshold)
         system_tokens = int(len(system) / CHARS_PER_TOKEN)
         hints = {job["id"]: _skill_hint(scorer, job) for job in jobs}
         posting_tokens = sum(
@@ -514,7 +450,6 @@ def run_scoring(limit: int | None = None, rescore_all: bool = False, dry_run: bo
         spend = Spend(model, max_usd=max_usd)
         results = {"scored": 0, "failed": 0, "retried": 0, "retry_usd": 0.0}
         first_usage = []
-        flagged = {}
 
         def score_one(job: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
             return job, graph.invoke(
@@ -569,8 +504,6 @@ def run_scoring(limit: int | None = None, rescore_all: bool = False, dry_run: bo
                     _persist(db, job, verdict, usage, cost, model, profile_version, phash)
                     db.conn.commit()
                     results["scored"] += 1
-                    for flag in verdict.get("audit_flags") or []:
-                        flagged[flag["flag"]] = flagged.get(flag["flag"], 0) + 1
 
                     if results["scored"] % 25 == 0:
                         print(f"  {results['scored']:,}/{len(jobs):,} scored  ${spend.usd:.4f}")
@@ -587,10 +520,6 @@ def run_scoring(limit: int | None = None, rescore_all: bool = False, dry_run: bo
         if results["failed"]:
             print(f"failed:     {results['failed']:,}  (left as 'new'; the next run retries)")
         print(f"cost:       ${summary_stats['usd']:.4f}")
-        # The retried postings now carry their extra attempts in their own verdict row, so
-        # this line only names them. The dollars are the half that no row can hold: a
-        # posting that produced nothing writes no verdict at all, so summing
-        # `job_verdicts.cost_usd` over a run always reads low by exactly this much.
         if results["retried"] or results["retry_usd"]:
             print(
                 f"  of which: {results['retried']:,} posting(s) needed a retry; "
@@ -603,9 +532,6 @@ def run_scoring(limit: int | None = None, rescore_all: bool = False, dry_run: bo
             f"{summary_stats['tokens_out']:,} out"
         )
 
-        # The regression check from docs/deepseek.md. A zero cache rate across a
-        # multi-posting run means something per-posting leaked into the system half, and
-        # the run just cost ~50x what it should have on input.
         if len(first_usage) > 1 and summary_stats["cache_rate"] < 0.1:
             logger.warning(
                 "Prefix cache hit rate is %.0f%% across %d calls. Something per-posting "
@@ -613,17 +539,6 @@ def run_scoring(limit: int | None = None, rescore_all: bool = False, dry_run: bo
                 summary_stats["cache_rate"] * 100,
                 summary_stats["calls"],
             )
-
-        if flagged:
-            print()
-            print("audit flags (see `careerradar score audit` for detail)")
-            for name, count in sorted(flagged.items(), key=lambda kv: -kv[1]):
-                marker = (
-                    "  <-- a blocker the candidate does not actually have"
-                    if name == "blocker_contradicts_profile"
-                    else ""
-                )
-                print(f"  {name:<32} {count:>6}{marker}")
 
         print(f"remaining:  {_pending(db, profile_version):,} unscored")
         skipped = _ineligible(db)

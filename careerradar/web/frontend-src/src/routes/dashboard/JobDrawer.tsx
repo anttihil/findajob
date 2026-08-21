@@ -34,11 +34,15 @@ export function JobDrawer({
               <div class="drawer-header">
                 <div class="drawer-badge-row">
                   <span class="match-badge-lg">
-                    {job.pareto_tier != null
-                      ? `tier ${job.pareto_tier}`
-                      : job.fit_score != null
-                        ? `${job.fit_score} fit`
-                        : "Not yet scored"}
+                    {job.fit !== null && job.fit !== undefined
+                      ? job.fit
+                        ? `Fit${job.reason_type ? ` · ${job.reason_type}` : ""}`
+                        : `No fit${job.reason_type ? ` · ${job.reason_type}` : ""}`
+                      : job.pareto_tier != null
+                        ? `tier ${job.pareto_tier}`
+                        : job.fit_score != null
+                          ? `${job.fit_score} fit`
+                          : "Not yet scored"}
                   </span>
                   <span class="source-badge">{job.source}</span>
                 </div>
