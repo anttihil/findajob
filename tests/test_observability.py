@@ -1,0 +1,200 @@
+"""Tests for model observability stats and verdict inspection queries."""
+
+import os
+import sys
+import tempfile
+import unittest
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from fastapi.testclient import TestClient
+
+from careerradar.core.database import Database
+from careerradar.core.migrations import migrate
+from careerradar.web.app import app
+
+
+class ObservabilityDatabaseTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+        self.tmp.close()
+        self.db = Database(self.tmp.name)
+        migrate(self.db.conn)
+
+    def tearDown(self) -> None:
+        self.db.close()
+        if os.path.exists(self.tmp.name):
+            os.unlink(self.tmp.name)
+
+    def _seed_data(self) -> None:
+        cur = self.db.conn.cursor()
+        # Seed active profile
+        cur.execute(
+            "INSERT INTO profiles (version, is_active, created_at, model, profile_json, "
+            "summary_text) VALUES (1, 1, '2026-08-21T00:00:00', 'deepseek-v4-pro', '{}', "
+            "'Candidate profile summary')"
+        )
+
+        # Seed jobs
+        cur.execute(
+            """
+            INSERT INTO jobs (
+                id, job_key, title, company, location, url, source, pipeline_state, description
+            ) VALUES (
+                1, 'k1', 'Staff Platform Engineer', 'Datadog', 'San Francisco, CA',
+                'https://example.com/1', 'indeed', 'scored', 'Some long description about platforms'
+            )
+            """
+        )
+        cur.execute(
+            """
+            INSERT INTO jobs (
+                id, job_key, title, company, location, url, source, pipeline_state, description
+            ) VALUES (
+                2, 'k2', 'Senior Backend Engineer', 'Stripe', 'Remote',
+                'https://example.com/2', 'linkedin', 'scored',
+                'Some description about payments and python'
+            )
+            """
+        )
+        cur.execute(
+            """
+            INSERT INTO jobs (
+                id, job_key, title, company, location, url, source, pipeline_state, description
+            ) VALUES (
+                3, 'k3', 'Junior Frontend Dev', 'Startup', 'New York, NY',
+                'https://example.com/3', 'indeed', 'scored',
+                'React typescript html css frontend'
+            )
+            """
+        )
+
+        # Seed verdicts
+        cur.execute(
+            """
+            INSERT INTO job_verdicts (
+                job_id, profile_version, model, fit, reason_type, reason_description,
+                tokens_in, tokens_cached, tokens_out, cost_usd, created_at,
+                verdict_schema_version
+            ) VALUES (
+                1, 1, 'deepseek-v4-flash', 1, 'skills',
+                'Strong match on distributed systems and Kubernetes infrastructure experience.',
+                5200, 4100, 115, 0.00062, '2026-08-21T10:00:00', 3
+            )
+            """
+        )
+        cur.execute(
+            """
+            INSERT INTO job_verdicts (
+                job_id, profile_version, model, fit, reason_type, reason_description,
+                tokens_in, tokens_cached, tokens_out, cost_usd, created_at,
+                verdict_schema_version
+            ) VALUES (
+                2, 1, 'deepseek-v4-flash', 1, 'domain',
+                'Payments background and Python systems match the core criteria.',
+                5400, 4200, 130, 0.00068, '2026-08-21T10:05:00', 3
+            )
+            """
+        )
+        cur.execute(
+            """
+            INSERT INTO job_verdicts (
+                job_id, profile_version, model, fit, reason_type, reason_description,
+                tokens_in, tokens_cached, tokens_out, cost_usd, created_at,
+                verdict_schema_version
+            ) VALUES (
+                3, 1, 'deepseek-v4-flash', 0, 'seniority',
+                'Candidate seniority exceeds junior role requirements by several years.',
+                5100, 4000, 260, 0.00095, '2026-08-21T10:10:00', 3
+            )
+            """
+        )
+        self.db.conn.commit()
+
+    def test_get_observability_stats_empty(self) -> None:
+        stats = self.db.get_observability_stats()
+        self.assertEqual(stats["total_verdicts"], 0)
+        self.assertEqual(stats["total_tokens_out"], 0)
+        self.assertEqual(stats["avg_tokens_out"], 0.0)
+
+    def test_get_observability_stats_populated(self) -> None:
+        self._seed_data()
+        stats = self.db.get_observability_stats()
+        self.assertEqual(stats["total_verdicts"], 3)
+        self.assertEqual(stats["total_tokens_out"], 115 + 130 + 260)
+        self.assertEqual(stats["min_tokens_out"], 115)
+        self.assertEqual(stats["max_tokens_out"], 260)
+        self.assertAlmostEqual(stats["avg_tokens_out"], (115 + 130 + 260) / 3.0, places=1)
+        self.assertEqual(stats["fit_count"], 2)
+        self.assertEqual(stats["no_fit_count"], 1)
+        self.assertGreater(stats["cache_hit_rate"], 0.7)
+        self.assertEqual(len(stats["reasons"]), 3)
+        self.assertEqual(len(stats["models"]), 1)
+
+    def test_query_observability_verdicts_all(self) -> None:
+        self._seed_data()
+        res = self.db.query_observability_verdicts(sort="tokens_out_desc")
+        self.assertEqual(res["total"], 3)
+        self.assertEqual(len(res["items"]), 3)
+        # First item is outlier / highest tokens_out
+        self.assertEqual(res["items"][0]["tokens_out"], 260)
+        self.assertEqual(res["items"][0]["title"], "Junior Frontend Dev")
+        self.assertEqual(res["items"][0]["fit"], False)
+        self.assertEqual(res["items"][0]["reason_type"], "seniority")
+
+    def test_query_observability_verdicts_filtered_by_fit(self) -> None:
+        self._seed_data()
+        res_fit = self.db.query_observability_verdicts(fit="fit")
+        self.assertEqual(res_fit["total"], 2)
+        for it in res_fit["items"]:
+            self.assertTrue(it["fit"])
+
+        res_nofit = self.db.query_observability_verdicts(fit="no_fit")
+        self.assertEqual(res_nofit["total"], 1)
+        self.assertFalse(res_nofit["items"][0]["fit"])
+
+    def test_query_observability_verdicts_search_text(self) -> None:
+        self._seed_data()
+        res = self.db.query_observability_verdicts(q="Kubernetes")
+        self.assertEqual(res["total"], 1)
+        self.assertEqual(res["items"][0]["company"], "Datadog")
+
+        res2 = self.db.query_observability_verdicts(q="Stripe")
+        self.assertEqual(res2["total"], 1)
+        self.assertEqual(res2["items"][0]["title"], "Senior Backend Engineer")
+
+
+class ObservabilityApiEndpointsTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+        self.tmp.close()
+        self.db = Database(self.tmp.name)
+        migrate(self.db.conn)
+        self.client = TestClient(app)
+
+    def tearDown(self) -> None:
+        self.db.close()
+        if os.path.exists(self.tmp.name):
+            os.unlink(self.tmp.name)
+
+    def test_observability_stats_endpoint(self) -> None:
+        response = self.client.get("/api/observability/stats")
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertIn("total_verdicts", data)
+        self.assertIn("total_tokens_out", data)
+        self.assertIn("cache_hit_rate", data)
+        self.assertIn("reasons", data)
+
+    def test_observability_verdicts_endpoint(self) -> None:
+        response = self.client.get("/api/observability/verdicts?limit=10&offset=0")
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertIn("items", data)
+        self.assertIn("total", data)
+        self.assertIn("limit", data)
+        self.assertIn("offset", data)
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -11,11 +11,12 @@ describe("FilterQuery", () => {
   });
 
   it("reads values off the query string", () => {
-    const q = new FilterQuery("?status=saved&country=US&max_tier=3&offset=50");
+    const q = new FilterQuery("?status=saved&country=US&max_tier=3&offset=50&q=python");
     expect(q.status).toBe("saved");
     expect(q.country).toBe("US");
     expect(q.max_tier).toBe(3);
     expect(q.offset).toBe(50);
+    expect(q.q).toBe("python");
   });
 
   describe("url()", () => {
@@ -39,12 +40,22 @@ describe("FilterQuery", () => {
       const q = new FilterQuery("?status=unread&country=US");
       expect(q.url({ country: "FI" })).toBe("/?country=FI");
     });
+
+    it("includes search query q when set and resets offset", () => {
+      const q = new FilterQuery("?status=unread&offset=50");
+      expect(q.url({ q: "devops" })).toBe("/?q=devops");
+    });
+
+    it("drops q when cleared to empty string", () => {
+      const q = new FilterQuery("?q=python");
+      expect(q.url({ q: "" })).toBe("/");
+    });
   });
 
   describe("page()", () => {
     it("preserves the filter and sets offset", () => {
-      const q = new FilterQuery("?status=saved");
-      expect(q.page(50)).toBe("/?status=saved&offset=50");
+      const q = new FilterQuery("?status=saved&q=kubernetes");
+      expect(q.page(50)).toBe("/?status=saved&q=kubernetes&offset=50");
     });
 
     it("clamps negative offsets to 0, which is then dropped as default", () => {
@@ -83,18 +94,19 @@ describe("FilterQuery", () => {
 
   describe("hiddenFields()", () => {
     it("excludes offset and the named field, and default values", () => {
-      const q = new FilterQuery("?status=saved&country=US&sort=fit_score&offset=50");
+      const q = new FilterQuery("?status=saved&country=US&sort=fit_score&offset=50&q=python");
       const fields = Object.fromEntries(q.hiddenFields("sort"));
-      expect(fields).toEqual({ status: "saved", country: "US" });
+      expect(fields).toEqual({ status: "saved", country: "US", q: "python" });
     });
   });
 
   describe("asApiParams()", () => {
     it("omits null/empty values but keeps explicit defaults for the endpoint", () => {
-      const q = new FilterQuery("?status=saved&country=US");
+      const q = new FilterQuery("?status=saved&country=US&q=rust");
       const params = q.asApiParams();
       expect(params.get("status")).toBe("saved");
       expect(params.get("country")).toBe("US");
+      expect(params.get("q")).toBe("rust");
       expect(params.has("access")).toBe(false);
       expect(params.get("sort")).toBe("fit");
     });

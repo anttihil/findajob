@@ -33,6 +33,7 @@ FILTER_DEFAULTS: dict[str, Any] = {
     "verdict": "",
     "eligibility": "",
     "liveness": "",
+    "q": "",
     "sort": "fit",
     "limit": 50,
     "offset": 0,

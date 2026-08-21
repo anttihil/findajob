@@ -207,6 +207,7 @@ def get_jobs(
     max_tier: int | None = Query(None, ge=1, le=10),
     liveness: str | None = Query(None, pattern="^(live|stale|likely_closed|unknown)?$"),
     pipeline_state: str | None = Query(None, pattern="^(new|scored|researched)?$"),
+    q: str | None = None,
     sort: str = Query("fit", pattern="^(fit|fit_score|match_score|date_posted)$"),
     limit: int = Query(200, ge=1, le=1000),
     offset: int = Query(0, ge=0),
@@ -234,6 +235,7 @@ def get_jobs(
             max_tier=max_tier,
             liveness=liveness,
             pipeline_state=pipeline_state,
+            q=q,
             sort=sort,
             limit=limit,
             offset=offset,
@@ -262,6 +264,46 @@ def get_stats():
     db = get_db()
     try:
         return db.get_stats()
+    finally:
+        db.close()
+
+
+# --- Model observability ----------------------------------------------------------------
+
+
+@app.get("/api/observability/stats")
+def get_observability_stats():
+    db = get_db()
+    try:
+        return db.get_observability_stats()
+    finally:
+        db.close()
+
+
+@app.get("/api/observability/verdicts")
+def get_observability_verdicts(
+    q: str | None = None,
+    fit: str | None = None,
+    reason_type: str | None = None,
+    model: str | None = None,
+    sort: str = Query(
+        "tokens_out_desc",
+        pattern="^(tokens_out_desc|tokens_out_asc|cost_desc|date_desc|date_asc)$",
+    ),
+    limit: int = Query(20, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+):
+    db = get_db()
+    try:
+        return db.query_observability_verdicts(
+            q=q,
+            fit=fit,
+            reason_type=reason_type,
+            model=model,
+            sort=sort,
+            limit=limit,
+            offset=offset,
+        )
     finally:
         db.close()
 
@@ -698,6 +740,7 @@ def filter_query(
     verdict: str = Query("", pattern="^(strong|worth_applying|stretch|poor_fit|mismatch)?$"),
     eligibility: str = Query("", pattern="^(eligible|conditional|blocked)?$"),
     liveness: str = Query("", pattern="^(live|stale|likely_closed|unknown)?$"),
+    q: str = "",
     sort: str = Query("fit", pattern="^(fit|fit_score|match_score|date_posted)$"),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
@@ -713,6 +756,7 @@ def filter_query(
             "verdict": verdict,
             "eligibility": eligibility,
             "liveness": liveness,
+            "q": q,
             "sort": sort,
             "limit": limit,
             "offset": offset,

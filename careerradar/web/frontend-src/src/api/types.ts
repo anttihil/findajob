@@ -409,3 +409,65 @@ export interface DigestSummary {
 export interface DigestContent {
   content: string;
 }
+
+// --- Observability --------------------------------------------------------------------
+
+export interface ObservabilityReason {
+  reason_type: string;
+  count: number;
+  avg_tokens_out: number;
+  percentage: number;
+}
+
+export interface ObservabilityModel {
+  model: string;
+  count: number;
+  total_tokens_out: number;
+  avg_tokens_out: number;
+  total_cost_usd: number;
+}
+
+export interface ObservabilityStats {
+  total_verdicts: number;
+  total_tokens_in: number;
+  total_tokens_cached: number;
+  total_tokens_out: number;
+  cache_hit_rate: number;
+  avg_tokens_out: number;
+  min_tokens_out: number;
+  max_tokens_out: number;
+  avg_tokens_in: number;
+  total_cost_usd: number;
+  avg_cost_usd: number;
+  fit_count: number;
+  no_fit_count: number;
+  fit_rate: number;
+  reasons: ObservabilityReason[];
+  models: ObservabilityModel[];
+}
+
+export interface ObservabilityVerdictItem {
+  id: number;
+  job_id: number;
+  title: string;
+  company: string;
+  location: string | null;
+  url: string;
+  fit: boolean;
+  reason_type: string;
+  reason_description: string;
+  tokens_in: number;
+  tokens_cached: number;
+  tokens_out: number;
+  cost_usd: number;
+  model: string;
+  created_at: string;
+}
+
+export interface ObservabilityVerdictsResponse {
+  items: ObservabilityVerdictItem[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+

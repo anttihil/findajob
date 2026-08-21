@@ -1,7 +1,9 @@
 import copy
 import json
+import re
 import sqlite3
 from datetime import datetime, timedelta, timezone
+from difflib import SequenceMatcher
 from typing import TYPE_CHECKING, Any, ClassVar
 
 from careerradar.core.paths import DB_PATH
@@ -63,6 +65,47 @@ def _requirement_summary(
     return {"must_total": total, **{f"must_{k}": v for k, v in counts.items()}}
 
 
+def _fuzzy_job_search(
+    q_str: str | None,
+    title: str | None,
+    company: str | None,
+    skills: str | None,
+    location: str | None,
+    role_family: str | None,
+    seniority: str | None,
+) -> int:
+    """Multi-token typo-tolerant fuzzy matching across primary job posting fields."""
+    if not q_str or not q_str.strip():
+        return 1
+    combined = (
+        f"{title or ''} {company or ''} {skills or ''} "
+        f"{location or ''} {role_family or ''} {seniority or ''}"
+    ).lower()
+    tokens = [t for t in re.split(r"\s+", q_str.strip().lower()) if t]
+    if not tokens:
+        return 1
+    words = None
+    for token in tokens:
+        if token in combined:
+            continue
+        if words is None:
+            words = re.findall(r"[a-zA-Z0-9+#.-]+", combined)
+        token_len = len(token)
+        if token_len < 3:
+            return 0
+        max_dist = 1 if token_len <= 5 else 2
+        matched = False
+        for w in words:
+            if abs(len(w) - token_len) <= max_dist and len(set(token) - set(w)) <= max_dist:
+                ratio = SequenceMatcher(None, token, w).ratio()
+                if ratio >= (0.75 if token_len <= 5 else 0.8):
+                    matched = True
+                    break
+        if not matched:
+            return 0
+    return 1
+
+
 def _utcnow() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -72,6 +115,7 @@ class Database:
         self.db_path = db_path or DB_PATH
         self.conn = sqlite3.connect(self.db_path)
         self.conn.row_factory = sqlite3.Row
+        self.conn.create_function("fuzzy_search", 7, _fuzzy_job_search)
         # Filled on first use by `_select_columns`, which reads it from PRAGMA table_info
         # rather than repeating the `jobs` column list in Python.
         self._jobs_columns: list[str] | None = None
@@ -231,6 +275,7 @@ class Database:
         job_id: int | None,
         fit: bool | None = None,
         reason_type: str | None = None,
+        q: str | None = None,
     ) -> tuple[str, list[Any]]:
         """The shared WHERE clause, as (sql, params).
 
@@ -290,6 +335,12 @@ class Database:
         if max_tier is not None:
             sql += " AND v.pareto_tier <= ?"
             params.append(max_tier)
+        if q and q.strip():
+            sql += (
+                " AND fuzzy_search(?, jobs.title, jobs.company, jobs.matched_skills,"
+                " jobs.location, jobs.role_family, jobs.seniority) = 1"
+            )
+            params.append(q.strip())
         return sql, params
 
     def query_jobs(
@@ -315,6 +366,7 @@ class Database:
         job_id: int | None = None,
         fit: bool | None = None,
         reason_type: str | None = None,
+        q: str | None = None,
         sort: str = "fit",
         limit: int = 200,
         offset: int = 0,
@@ -358,6 +410,7 @@ class Database:
             job_id=job_id,
             fit=fit,
             reason_type=reason_type,
+            q=q,
         )
         query = f"SELECT {self._select_columns(detail)}{self._FROM} WHERE 1=1{where}"
 
@@ -422,6 +475,7 @@ class Database:
         job_id: int | None = None,
         fit: bool | None = None,
         reason_type: str | None = None,
+        q: str | None = None,
         sort: str = "fit",
         limit: int = 200,
         offset: int = 0,
@@ -456,6 +510,7 @@ class Database:
             job_id=job_id,
             fit=fit,
             reason_type=reason_type,
+            q=q,
         )
         query = (
             f"SELECT jobs.id{self._FROM} WHERE 1=1{where}"
@@ -622,6 +677,323 @@ class Database:
         stats["liveness_counts"] = {r[0]: r[1] for r in cursor.fetchall()}
 
         return stats
+
+    def get_observability_stats(self) -> dict[str, Any]:
+        """Aggregate token counts, costs, and reason distributions across all scored verdicts."""
+        cursor = self.conn.cursor()
+        has_table = cursor.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='job_verdicts'"
+        ).fetchone()
+        if not has_table:
+            return {
+                "total_verdicts": 0,
+                "total_tokens_in": 0,
+                "total_tokens_cached": 0,
+                "total_tokens_out": 0,
+                "cache_hit_rate": 0.0,
+                "avg_tokens_out": 0.0,
+                "min_tokens_out": 0,
+                "max_tokens_out": 0,
+                "avg_tokens_in": 0.0,
+                "total_cost_usd": 0.0,
+                "avg_cost_usd": 0.0,
+                "fit_count": 0,
+                "no_fit_count": 0,
+                "fit_rate": 0.0,
+                "reasons": [],
+                "models": [],
+            }
+
+        cols = {row[1] for row in cursor.execute("PRAGMA table_info(job_verdicts)").fetchall()}
+        has_fit = "fit" in cols
+        has_reason_type = "reason_type" in cols
+        has_verdict = "verdict" in cols
+
+        fit_expr = (
+            "v.fit"
+            if has_fit
+            else (
+                "(CASE WHEN v.verdict IN ('strong', 'worth_applying') "
+                "OR (v.fit_score IS NOT NULL AND v.fit_score >= 60) THEN 1 ELSE 0 END)"
+                if has_verdict
+                else "0"
+            )
+        )
+
+        reason_expr = (
+            "COALESCE(v.reason_type, v.verdict, 'unspecified')"
+            if (has_reason_type and has_verdict)
+            else (
+                "COALESCE(v.reason_type, 'unspecified')"
+                if has_reason_type
+                else ("COALESCE(v.verdict, 'unspecified')" if has_verdict else "'unspecified'")
+            )
+        )
+
+        fit_clause = (
+            "WHEN v.verdict IN ('strong', 'worth_applying') "
+            "OR (v.fit_score IS NOT NULL AND v.fit_score >= 60) THEN 1"
+            if has_verdict
+            else ""
+        )
+        nofit_clause = (
+            "WHEN v.verdict IN ('stretch', 'poor_fit', 'mismatch') "
+            "OR (v.fit_score IS NOT NULL AND v.fit_score < 60) THEN 1"
+            if has_verdict
+            else ""
+        )
+
+        stats_sql = f"""
+            SELECT
+                COUNT(*) AS total_verdicts,
+                COALESCE(SUM(v.tokens_in), 0) AS total_tokens_in,
+                COALESCE(SUM(v.tokens_cached), 0) AS total_tokens_cached,
+                COALESCE(SUM(v.tokens_out), 0) AS total_tokens_out,
+                COALESCE(ROUND(AVG(v.tokens_out), 1), 0.0) AS avg_tokens_out,
+                COALESCE(MIN(v.tokens_out), 0) AS min_tokens_out,
+                COALESCE(MAX(v.tokens_out), 0) AS max_tokens_out,
+                COALESCE(ROUND(AVG(v.tokens_in), 1), 0.0) AS avg_tokens_in,
+                COALESCE(SUM(v.cost_usd), 0.0) AS total_cost_usd,
+                COALESCE(ROUND(AVG(v.cost_usd), 6), 0.0) AS avg_cost_usd,
+                SUM(CASE
+                    WHEN {fit_expr} = 1 THEN 1
+                    WHEN {fit_expr} = 0 THEN 0
+                    {fit_clause}
+                    ELSE 0
+                END) AS fit_count,
+                SUM(CASE
+                    WHEN {fit_expr} = 0 THEN 1
+                    WHEN {fit_expr} = 1 THEN 0
+                    {nofit_clause}
+                    ELSE 0
+                END) AS no_fit_count
+            FROM job_verdicts v
+        """
+        row = cursor.execute(stats_sql).fetchone()
+        total_verdicts = row["total_verdicts"] or 0
+        total_in = row["total_tokens_in"] or 0
+        total_cached = row["total_tokens_cached"] or 0
+        cache_hit_rate = round(total_cached / total_in, 4) if total_in > 0 else 0.0
+        fit_count = row["fit_count"] or 0
+        no_fit_count = row["no_fit_count"] or 0
+        fit_rate = round(fit_count / total_verdicts, 4) if total_verdicts > 0 else 0.0
+
+        reasons_sql = f"""
+            SELECT
+                {reason_expr} AS reason_type,
+                COUNT(*) AS count,
+                COALESCE(ROUND(AVG(v.tokens_out), 1), 0.0) AS avg_tokens_out
+            FROM job_verdicts v
+            GROUP BY {reason_expr}
+            ORDER BY count DESC
+        """
+        reasons = []
+        for r in cursor.execute(reasons_sql).fetchall():
+            rtype = r["reason_type"] or "unspecified"
+            rcnt = r["count"]
+            reasons.append(
+                {
+                    "reason_type": rtype,
+                    "count": rcnt,
+                    "avg_tokens_out": r["avg_tokens_out"],
+                    "percentage": round(rcnt / total_verdicts, 4) if total_verdicts > 0 else 0.0,
+                }
+            )
+
+        models_sql = """
+            SELECT
+                COALESCE(v.model, 'unknown') AS model,
+                COUNT(*) AS count,
+                COALESCE(SUM(v.tokens_out), 0) AS total_tokens_out,
+                COALESCE(ROUND(AVG(v.tokens_out), 1), 0.0) AS avg_tokens_out,
+                COALESCE(SUM(v.cost_usd), 0.0) AS total_cost_usd
+            FROM job_verdicts v
+            GROUP BY COALESCE(v.model, 'unknown')
+            ORDER BY count DESC
+        """
+        models = [
+            {
+                "model": m["model"],
+                "count": m["count"],
+                "total_tokens_out": m["total_tokens_out"],
+                "avg_tokens_out": m["avg_tokens_out"],
+                "total_cost_usd": round(m["total_cost_usd"], 6),
+            }
+            for m in cursor.execute(models_sql).fetchall()
+        ]
+
+        return {
+            "total_verdicts": total_verdicts,
+            "total_tokens_in": total_in,
+            "total_tokens_cached": total_cached,
+            "total_tokens_out": row["total_tokens_out"] or 0,
+            "cache_hit_rate": cache_hit_rate,
+            "avg_tokens_out": row["avg_tokens_out"] or 0.0,
+            "min_tokens_out": row["min_tokens_out"] or 0,
+            "max_tokens_out": row["max_tokens_out"] or 0,
+            "avg_tokens_in": row["avg_tokens_in"] or 0.0,
+            "total_cost_usd": round(row["total_cost_usd"] or 0.0, 4),
+            "avg_cost_usd": row["avg_cost_usd"] or 0.0,
+            "fit_count": fit_count,
+            "no_fit_count": no_fit_count,
+            "fit_rate": fit_rate,
+            "reasons": reasons,
+            "models": models,
+        }
+
+    def query_observability_verdicts(
+        self,
+        q: str | None = None,
+        fit: str | None = None,
+        reason_type: str | None = None,
+        model: str | None = None,
+        sort: str = "tokens_out_desc",
+        limit: int = 20,
+        offset: int = 0,
+    ) -> dict[str, Any]:
+        """Query verdicts with token usage details and search filters."""
+        cursor = self.conn.cursor()
+        has_table = cursor.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='job_verdicts'"
+        ).fetchone()
+        if not has_table:
+            return {"items": [], "total": 0, "limit": limit, "offset": offset}
+
+        cols = {row[1] for row in cursor.execute("PRAGMA table_info(job_verdicts)").fetchall()}
+        has_fit = "fit" in cols
+        has_reason_type = "reason_type" in cols
+        has_reason_desc = "reason_description" in cols
+        has_verdict = "verdict" in cols
+        has_reasoning = "reasoning" in cols
+
+        fit_expr = (
+            "v.fit"
+            if has_fit
+            else (
+                "(CASE WHEN v.verdict IN ('strong', 'worth_applying') "
+                "OR (v.fit_score IS NOT NULL AND v.fit_score >= 60) THEN 1 ELSE 0 END)"
+                if has_verdict
+                else "0"
+            )
+        )
+
+        reason_expr = (
+            "COALESCE(v.reason_type, v.verdict, 'unspecified')"
+            if (has_reason_type and has_verdict)
+            else (
+                "COALESCE(v.reason_type, 'unspecified')"
+                if has_reason_type
+                else ("COALESCE(v.verdict, 'unspecified')" if has_verdict else "'unspecified'")
+            )
+        )
+
+        desc_expr = (
+            "COALESCE(v.reason_description, v.reasoning, '')"
+            if (has_reason_desc and has_reasoning)
+            else (
+                "COALESCE(v.reason_description, '')"
+                if has_reason_desc
+                else ("COALESCE(v.reasoning, '')" if has_reasoning else "''")
+            )
+        )
+
+        where_clauses: list[str] = ["1=1"]
+        params: list[Any] = []
+
+        if q and q.strip():
+            term = f"%{q.strip()}%"
+            where_clauses.append(f"(j.title LIKE ? OR j.company LIKE ? OR {desc_expr} LIKE ?)")
+            params.extend([term, term, term])
+
+        if fit in ("true", "1", "fit"):
+            where_clauses.append(f"({fit_expr} = 1)")
+        elif fit in ("false", "0", "no_fit"):
+            where_clauses.append(f"({fit_expr} = 0)")
+
+        if reason_type and reason_type.lower() not in ("all", ""):
+            where_clauses.append(f"LOWER({reason_expr}) = LOWER(?)")
+            params.append(reason_type.strip())
+
+        if model and model.lower() not in ("all", ""):
+            where_clauses.append("COALESCE(v.model, 'unknown') = ?")
+            params.append(model.strip())
+
+        where_sql = " AND ".join(where_clauses)
+
+        # Count total
+        count_sql = f"""
+            SELECT COUNT(*)
+            FROM job_verdicts v
+            JOIN jobs j ON j.id = v.job_id
+            WHERE {where_sql}
+        """
+        total = cursor.execute(count_sql, params).fetchone()[0]
+
+        # Sorting
+        if sort == "tokens_out_desc":
+            order_by = "v.tokens_out DESC NULLS LAST, v.created_at DESC"
+        elif sort == "tokens_out_asc":
+            order_by = "v.tokens_out ASC NULLS LAST, v.created_at DESC"
+        elif sort == "cost_desc":
+            order_by = "v.cost_usd DESC NULLS LAST, v.created_at DESC"
+        elif sort == "date_asc":
+            order_by = "v.created_at ASC"
+        else:  # date_desc
+            order_by = "v.created_at DESC"
+
+        query_sql = f"""
+            SELECT
+                v.id,
+                v.job_id,
+                j.title,
+                j.company,
+                j.location,
+                j.url,
+                {fit_expr} AS fit,
+                {reason_expr} AS reason_type,
+                {desc_expr} AS reason_description,
+                COALESCE(v.tokens_in, 0) AS tokens_in,
+                COALESCE(v.tokens_cached, 0) AS tokens_cached,
+                COALESCE(v.tokens_out, 0) AS tokens_out,
+                COALESCE(v.cost_usd, 0.0) AS cost_usd,
+                COALESCE(v.model, 'unknown') AS model,
+                COALESCE(v.created_at, '') AS created_at
+            FROM job_verdicts v
+            JOIN jobs j ON j.id = v.job_id
+            WHERE {where_sql}
+            ORDER BY {order_by}
+            LIMIT ? OFFSET ?
+        """
+        query_params = [*list(params), limit, offset]
+        rows = cursor.execute(query_sql, query_params).fetchall()
+
+        items = [
+            {
+                "id": r["id"],
+                "job_id": r["job_id"],
+                "title": r["title"] or "Untitled Role",
+                "company": r["company"] or "Unknown Company",
+                "location": r["location"],
+                "url": r["url"] or "",
+                "fit": bool(r["fit"]) if r["fit"] is not None else False,
+                "reason_type": r["reason_type"] or "unknown",
+                "reason_description": r["reason_description"] or "",
+                "tokens_in": r["tokens_in"],
+                "tokens_cached": r["tokens_cached"],
+                "tokens_out": r["tokens_out"],
+                "cost_usd": round(r["cost_usd"], 6),
+                "model": r["model"],
+                "created_at": r["created_at"],
+            }
+            for r in rows
+        ]
+
+        return {
+            "items": items,
+            "total": total,
+            "limit": limit,
+            "offset": offset,
+        }
 
     # =====================================================================================
     # Scrape cells

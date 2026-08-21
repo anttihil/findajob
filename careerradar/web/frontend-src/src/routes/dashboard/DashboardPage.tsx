@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "preact/hooks";
+import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 import { useLocation, useSearch } from "wouter-preact";
 import { getJSON, guard, putJSON, reportError } from "../../api/client";
 import type { JobContext, JobStatus, JobsPage, Meta, Stats } from "../../api/types";
@@ -38,6 +38,62 @@ export function DashboardPage() {
   const [drawerContext, setDrawerContext] = useState<JobContext | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
   const [dismissedErrors, setDismissedErrors] = useState<unknown>(null);
+  const [searchTerm, setSearchTerm] = useState(query.q);
+  const debounceTimerRef = useRef<number | null>(null);
+
+  // Sync search input if URL changed externally (e.g. navigation or reset)
+  useEffect(() => {
+    setSearchTerm(query.q);
+  }, [query.q]);
+
+  const triggerSearch = (val: string) => {
+    if (debounceTimerRef.current !== null) {
+      window.clearTimeout(debounceTimerRef.current);
+      debounceTimerRef.current = null;
+    }
+    const cleanVal = val.trim();
+    if (cleanVal !== query.q) {
+      navigate(query.url({ q: cleanVal }));
+    }
+  };
+
+  const handleSearchChange = (val: string) => {
+    setSearchTerm(val);
+    if (debounceTimerRef.current !== null) {
+      window.clearTimeout(debounceTimerRef.current);
+    }
+    debounceTimerRef.current = window.setTimeout(() => {
+      triggerSearch(val);
+    }, 250);
+  };
+
+  const handleKeyDown = (e: KeyboardEvent) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      triggerSearch(searchTerm);
+    } else if (e.key === "Escape") {
+      handleClearSearch();
+    }
+  };
+
+  const handleClearSearch = () => {
+    if (debounceTimerRef.current !== null) {
+      window.clearTimeout(debounceTimerRef.current);
+      debounceTimerRef.current = null;
+    }
+    setSearchTerm("");
+    if (query.q) {
+      navigate(query.url({ q: "" }));
+    }
+  };
+
+  useEffect(() => {
+    return () => {
+      if (debounceTimerRef.current !== null) {
+        window.clearTimeout(debounceTimerRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     getJSON<Meta>("/api/meta")
@@ -190,6 +246,32 @@ export function DashboardPage() {
         <FilterSidebar query={query} meta={meta} />
 
         <div class="feed-main">
+          <div class="feed-search-bar-wrap">
+            <div class="feed-search-input-box">
+              <i class="fa-solid fa-magnifying-glass search-icon"></i>
+              <input
+                type="text"
+                class="feed-search-input"
+                placeholder="Search jobs by title, company, skills, or location (fuzzy search)..."
+                value={searchTerm}
+                onInput={(e) => handleSearchChange((e.target as HTMLInputElement).value)}
+                onKeyDown={handleKeyDown}
+                aria-label="Search jobs"
+              />
+              {searchTerm && (
+                <button
+                  type="button"
+                  class="search-clear-btn"
+                  onClick={handleClearSearch}
+                  title="Clear search"
+                  aria-label="Clear search"
+                >
+                  <i class="fa-solid fa-xmark"></i>
+                </button>
+              )}
+            </div>
+          </div>
+
           <div class="feed-header">
             <span class="results-count">
               {jobsPage

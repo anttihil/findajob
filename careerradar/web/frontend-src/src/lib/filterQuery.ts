@@ -19,6 +19,7 @@ export interface FilterValues {
   verdict: string;
   eligibility: string;
   liveness: string;
+  q: string;
   sort: SortKey;
   limit: number;
   offset: number;
@@ -34,6 +35,7 @@ export const FILTER_DEFAULTS: FilterValues = {
   verdict: "",
   eligibility: "",
   liveness: "",
+  q: "",
   sort: "fit",
   limit: 50,
   offset: 0,
@@ -65,6 +67,7 @@ function parseValues(search: string): FilterValues {
     verdict: raw.verdict ?? FILTER_DEFAULTS.verdict,
     eligibility: raw.eligibility ?? FILTER_DEFAULTS.eligibility,
     liveness: raw.liveness ?? FILTER_DEFAULTS.liveness,
+    q: raw.q ?? FILTER_DEFAULTS.q,
     sort: (raw.sort as SortKey) || FILTER_DEFAULTS.sort,
     limit: raw.limit ? Number(raw.limit) : FILTER_DEFAULTS.limit,
     offset: raw.offset ? Number(raw.offset) : FILTER_DEFAULTS.offset,
@@ -104,6 +107,9 @@ export class FilterQuery {
   }
   get liveness() {
     return this.values.liveness;
+  }
+  get q() {
+    return this.values.q;
   }
   get sort() {
     return this.values.sort;
