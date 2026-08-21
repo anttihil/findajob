@@ -1,0 +1,30 @@
+{
+  "lint-checker": {
+    "PostToolUse": [
+      {
+        "matcher": "write_to_file|replace_file_content",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 .agents/hooks/check_ruff.py || true",
+            "timeout": 30
+          }
+        ]
+      }
+    ]
+  },
+  "type-checker": {
+    "PostToolUse": [
+      {
+        "matcher": "write_to_file|replace_file_content",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 .agents/hooks/check_pyright.py || true",
+            "timeout": 60
+          }
+        ]
+      }
+    ]
+  }
+}
