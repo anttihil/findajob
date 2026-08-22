@@ -1,12 +1,12 @@
 {
   "lint-checker": {
-    "PostToolUse": [
+    "PreToolUse": [
       {
         "matcher": "write_to_file|replace_file_content",
         "hooks": [
           {
             "type": "command",
-            "command": "python3 .agents/hooks/check_ruff.py || true",
+            "command": "python3 hooks/check_ruff.py || python3 .agents/hooks/check_ruff.py",
             "timeout": 30
           }
         ]
@@ -14,13 +14,13 @@
     ]
   },
   "type-checker": {
-    "PostToolUse": [
+    "PreToolUse": [
       {
         "matcher": "write_to_file|replace_file_content",
         "hooks": [
           {
             "type": "command",
-            "command": "python3 .agents/hooks/check_pyright.py || true",
+            "command": "python3 hooks/check_pyright.py || python3 .agents/hooks/check_pyright.py",
             "timeout": 60
           }
         ]
