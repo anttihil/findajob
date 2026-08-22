@@ -165,10 +165,10 @@ class JobFuzzySearchTests(unittest.TestCase):
         self.add_job(2, "DevOps Engineer", "Cloud Inc", matched_skills=["Terraform", "GCP"])
         self.add_job(3, "Frontend Developer", "Web Inc", matched_skills=["React"])
 
-        q_jobs = self.db.query_jobs(q="Terraform", sort="date_posted")
+        q_jobs = self.db.query_jobs(q="Terraform")
         expected_ids = [j["id"] for j in q_jobs["jobs"]]
 
-        feed_ids = self.db.job_ids_for(q="Terraform", sort="date_posted")
+        feed_ids = self.db.job_ids_for(q="Terraform")
         self.assertEqual(feed_ids, expected_ids)
         self.assertEqual(set(feed_ids), {1, 2})
 

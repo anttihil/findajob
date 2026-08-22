@@ -5,7 +5,6 @@ describe("FilterQuery", () => {
   it("defaults status to unread with an empty query string", () => {
     const q = new FilterQuery("");
     expect(q.status).toBe("unread");
-    expect(q.sort).toBe("fit");
     expect(q.limit).toBe(50);
     expect(q.fit).toBeNull();
   });
@@ -23,7 +22,6 @@ describe("FilterQuery", () => {
   describe("url()", () => {
     it("drops keys left at their default", () => {
       const q = new FilterQuery("?status=saved");
-      // status stays saved (unchanged), sort is left at its default and should not appear.
       expect(q.url({ status: "saved" })).toBe("/?status=saved");
     });
 
@@ -95,9 +93,9 @@ describe("FilterQuery", () => {
 
   describe("hiddenFields()", () => {
     it("excludes offset and the named field, and default values", () => {
-      const q = new FilterQuery("?status=saved&country=US&sort=fit_score&offset=50&q=python");
-      const fields = Object.fromEntries(q.hiddenFields("sort"));
-      expect(fields).toEqual({ status: "saved", country: "US", q: "python" });
+      const q = new FilterQuery("?status=saved&country=US&offset=50&q=python");
+      const fields = Object.fromEntries(q.hiddenFields("country"));
+      expect(fields).toEqual({ status: "saved", q: "python" });
     });
   });
 
@@ -109,7 +107,6 @@ describe("FilterQuery", () => {
       expect(params.get("country")).toBe("US");
       expect(params.get("q")).toBe("rust");
       expect(params.has("access")).toBe(false);
-      expect(params.get("sort")).toBe("fit");
     });
   });
 });

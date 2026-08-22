@@ -100,7 +100,6 @@ export interface JobFilters {
   fit?: boolean | "";
   reason_type?: string;
   liveness?: Liveness | "";
-  sort?: "fit" | "fit_score" | "match_score" | "date_posted";
   limit?: number;
   offset?: number;
 }

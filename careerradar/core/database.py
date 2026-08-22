@@ -154,18 +154,11 @@ class Database:
 
     _JSON_COLUMNS = ("matched_skills",)
 
-    _SORTS: ClassVar[dict[str, str]] = {
-        "fit": (
-            "v.fit DESC NULLS LAST, "
-            "COALESCE(jobs.date_posted, date(jobs.date_found)) DESC, "
-            "jobs.date_found DESC"
-        ),
-        "fit_score": ("v.fit DESC NULLS LAST, jobs.match_score DESC, jobs.date_found DESC"),
-        "match_score": "jobs.match_score DESC, jobs.date_found DESC",
-        "date_posted": (
-            "COALESCE(jobs.date_posted, date(jobs.date_found)) DESC, jobs.date_found DESC"
-        ),
-    }
+    _FEED_ORDER_BY = (
+        "v.fit DESC NULLS LAST, "
+        "COALESCE(jobs.date_posted, date(jobs.date_found)) DESC, "
+        "jobs.date_found DESC"
+    )
 
     def _select_columns(self, detail: bool) -> str:
         """The SELECT list, minus what the caller will not read."""
@@ -275,7 +268,6 @@ class Database:
         fit: bool | None = None,
         reason_type: str | None = None,
         q: str | None = None,
-        sort: str = "fit",
         limit: int = 200,
         offset: int = 0,
         detail: bool = False,
@@ -322,7 +314,7 @@ class Database:
         if job_id is None:
             total = self.conn.execute(f"SELECT COUNT(*) FROM ({query})", params).fetchone()[0]
 
-        query += f" ORDER BY {self._SORTS.get(sort, self._SORTS['fit'])}"
+        query += f" ORDER BY {self._FEED_ORDER_BY}"
         query += " LIMIT ? OFFSET ?"
         params.extend([limit, offset])
 
@@ -363,7 +355,6 @@ class Database:
         fit: bool | None = None,
         reason_type: str | None = None,
         q: str | None = None,
-        sort: str = "fit",
         limit: int = 200,
         offset: int = 0,
         detail: bool | None = None,  # noqa: ARG002 - signature parity with the sibling feed query
@@ -395,7 +386,7 @@ class Database:
         )
         query = (
             f"SELECT jobs.id{self._FROM} WHERE 1=1{where}"
-            f" ORDER BY {self._SORTS.get(sort, self._SORTS['fit'])}"
+            f" ORDER BY {self._FEED_ORDER_BY}"
             f" LIMIT ? OFFSET ?"
         )
         args: list[Any] = [*params, limit, offset]

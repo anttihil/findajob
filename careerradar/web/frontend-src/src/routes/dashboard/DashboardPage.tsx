@@ -211,7 +211,7 @@ export function DashboardPage() {
             <i class="fa-solid fa-star"></i>
           </div>
           <div class="stat-info">
-            <span class="stat-label">Worth Applying To</span>
+            <span class="stat-label">Strong fit</span>
             <h3>{stats.value?.strong_matches ?? 0}</h3>
           </div>
         </div>
@@ -278,20 +278,6 @@ export function DashboardPage() {
                 ? `${jobsPage.total} matching position${jobsPage.total === 1 ? "" : "s"} found`
                 : "Loading…"}
             </span>
-            <div class="feed-sort">
-              <label for="sort-by">Sort by</label>
-              <select
-                id="sort-by"
-                class="form-select-sm"
-                value={query.sort}
-                onChange={(e) => navigate(query.url({ sort: (e.target as HTMLSelectElement).value }))}
-              >
-                <option value="fit">Fit</option>
-                <option value="fit_score">Fit score</option>
-                <option value="match_score">Keyword match</option>
-                <option value="date_posted">Date posted</option>
-              </select>
-            </div>
           </div>
 
           <div class="job-cards-grid">

@@ -289,7 +289,7 @@ def normalize_salary(
 def normalize_date_posted(
     row: dict[str, Any], observed_at: datetime, hours_old: float | None = None
 ) -> dict[str, Any]:
-    """Resolve the posting date, recording how precisely it is known.
+    """Resolve the posting date or timestamp, recording how precisely it is known.
 
     JobSpy does supply `date_posted` for Indeed, so this is usually exact. When it is
     missing, the observation is interval-censored: the posting appeared somewhere inside
@@ -299,19 +299,28 @@ def normalize_date_posted(
     raw = row.get("date_posted")
     posted = None
 
-    if isinstance(raw, datetime):
-        posted = raw.date()
-    elif isinstance(raw, date):
+    if isinstance(raw, (datetime, date)):
         posted = raw
     else:
         text = _text(raw)
         if text:
-            for fmt in ("%Y-%m-%d", "%Y/%m/%d", "%d-%m-%Y", "%Y-%m-%dT%H:%M:%S"):
+            try:
+                posted = datetime.fromisoformat(text.strip())
+            except ValueError:
                 try:
-                    posted = datetime.strptime(text[:19], fmt).date()
-                    break
+                    posted = date.fromisoformat(text.strip())
                 except ValueError:
-                    continue
+                    for fmt in (
+                        "%Y-%m-%d %H:%M:%S",
+                        "%Y/%m/%d",
+                        "%d-%m-%Y",
+                    ):
+                        try:
+                            dt = datetime.strptime(text.strip()[:19], fmt)
+                            posted = dt if "%H" in fmt else dt.date()
+                            break
+                        except ValueError:
+                            continue
 
     window_end = observed_at
     window_start = observed_at - timedelta(hours=hours_old) if hours_old else None

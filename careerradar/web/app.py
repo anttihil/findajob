@@ -196,7 +196,6 @@ def get_jobs(
     liveness: str | None = Query(None, pattern="^(live|stale|likely_closed|unknown)?$"),
     pipeline_state: str | None = Query(None, pattern="^(new|scored|researched)?$"),
     q: str | None = None,
-    sort: str = Query("fit", pattern="^(fit|fit_score|match_score|date_posted)$"),
     limit: int = Query(200, ge=1, le=1000),
     offset: int = Query(0, ge=0),
 ):
@@ -218,7 +217,6 @@ def get_jobs(
             liveness=liveness,
             pipeline_state=pipeline_state,
             q=q,
-            sort=sort,
             limit=limit,
             offset=offset,
             detail=True,
@@ -719,7 +717,6 @@ def filter_query(
     reason_type: str = Query("", pattern="^[a-z_]*$"),
     liveness: str = Query("", pattern="^(live|stale|likely_closed|unknown)?$"),
     q: str = "",
-    sort: str = Query("fit", pattern="^(fit|fit_score|match_score|date_posted)$"),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
 ) -> rendering.FilterQuery:
@@ -732,7 +729,6 @@ def filter_query(
             "reason_type": reason_type if reason_type else None,
             "liveness": liveness,
             "q": q,
-            "sort": sort,
             "limit": limit,
             "offset": offset,
         }

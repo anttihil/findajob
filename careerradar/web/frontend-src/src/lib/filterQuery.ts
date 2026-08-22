@@ -7,7 +7,6 @@
 // in component state to drift from what the address bar says.
 
 export type JobStatusFilter = "unread" | "saved" | "applied" | "rejected";
-export type SortKey = "fit" | "fit_score" | "match_score" | "date_posted";
 
 export interface FilterValues {
   status: JobStatusFilter;
@@ -17,7 +16,6 @@ export interface FilterValues {
   reason_type: string;
   liveness: string;
   q: string;
-  sort: SortKey;
   limit: number;
   offset: number;
 }
@@ -30,7 +28,6 @@ export const FILTER_DEFAULTS: FilterValues = {
   reason_type: "",
   liveness: "",
   q: "",
-  sort: "fit",
   limit: 50,
   offset: 0,
 };
@@ -59,7 +56,6 @@ function parseValues(search: string): FilterValues {
     reason_type: raw.reason_type ?? FILTER_DEFAULTS.reason_type,
     liveness: raw.liveness ?? FILTER_DEFAULTS.liveness,
     q: raw.q ?? FILTER_DEFAULTS.q,
-    sort: (raw.sort as SortKey) || FILTER_DEFAULTS.sort,
     limit: raw.limit ? Number(raw.limit) : FILTER_DEFAULTS.limit,
     offset: raw.offset ? Number(raw.offset) : FILTER_DEFAULTS.offset,
   };
@@ -92,9 +88,6 @@ export class FilterQuery {
   }
   get q() {
     return this.values.q;
-  }
-  get sort() {
-    return this.values.sort;
   }
   get limit() {
     return this.values.limit;

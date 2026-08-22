@@ -25,7 +25,6 @@ FILTER_DEFAULTS: dict[str, Any] = {
     "reason_type": "",
     "liveness": "",
     "q": "",
-    "sort": "fit",
     "limit": 50,
     "offset": 0,
 }
