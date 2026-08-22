@@ -657,9 +657,12 @@ class ImmutableStaticFiles(StaticFiles):
         return response
 
 
+_STATIC_DIST = os.path.join(FRONTEND_DIR, "dist")
+os.makedirs(_STATIC_DIST, exist_ok=True)
+
 app.mount(
     "/static/dist",
-    ImmutableStaticFiles(directory=os.path.join(FRONTEND_DIR, "dist")),
+    ImmutableStaticFiles(directory=_STATIC_DIST, check_dir=False),
     name="static",
 )
 
