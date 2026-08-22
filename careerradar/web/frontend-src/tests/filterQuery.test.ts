@@ -7,14 +7,18 @@ describe("FilterQuery", () => {
     expect(q.status).toBe("unread");
     expect(q.limit).toBe(50);
     expect(q.fit).toBeNull();
+    expect(q.date_posted).toBe("");
   });
 
   it("reads values off the query string", () => {
-    const q = new FilterQuery("?status=saved&country=US&fit=true&reason_type=match&offset=50&q=python");
+    const q = new FilterQuery(
+      "?status=saved&country=US&fit=true&reason_type=match&date_posted=24h&offset=50&q=python"
+    );
     expect(q.status).toBe("saved");
     expect(q.country).toBe("US");
     expect(q.fit).toBe(true);
     expect(q.reason_type).toBe("match");
+    expect(q.date_posted).toBe("24h");
     expect(q.offset).toBe(50);
     expect(q.q).toBe("python");
   });
@@ -45,9 +49,11 @@ describe("FilterQuery", () => {
       expect(q.url({ q: "devops" })).toBe("/?q=devops");
     });
 
-    it("drops q when cleared to empty string", () => {
-      const q = new FilterQuery("?q=python");
-      expect(q.url({ q: "" })).toBe("/");
+    it("includes date_posted when set and drops when default", () => {
+      const q = new FilterQuery("?status=unread&offset=50");
+      expect(q.url({ date_posted: "7d" })).toBe("/?date_posted=7d");
+      const q2 = new FilterQuery("?date_posted=7d");
+      expect(q2.url({ date_posted: "" })).toBe("/");
     });
   });
 
@@ -101,10 +107,11 @@ describe("FilterQuery", () => {
 
   describe("asApiParams()", () => {
     it("omits null/empty values but keeps explicit defaults for the endpoint", () => {
-      const q = new FilterQuery("?status=saved&country=US&q=rust");
+      const q = new FilterQuery("?status=saved&country=US&date_posted=3d&q=rust");
       const params = q.asApiParams();
       expect(params.get("status")).toBe("saved");
       expect(params.get("country")).toBe("US");
+      expect(params.get("date_posted")).toBe("3d");
       expect(params.get("q")).toBe("rust");
       expect(params.has("access")).toBe(false);
     });

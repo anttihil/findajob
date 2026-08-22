@@ -24,6 +24,7 @@ FILTER_DEFAULTS: dict[str, Any] = {
     "fit": None,
     "reason_type": "",
     "liveness": "",
+    "date_posted": "",
     "q": "",
     "limit": 50,
     "offset": 0,

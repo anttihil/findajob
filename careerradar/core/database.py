@@ -154,6 +154,14 @@ class Database:
 
     _JSON_COLUMNS = ("matched_skills",)
 
+    DATE_POSTED_WINDOWS: ClassVar[dict[str, float]] = {
+        "24h": 1.0,
+        "3d": 3.0,
+        "7d": 7.0,
+        "14d": 14.0,
+        "30d": 30.0,
+    }
+
     _FEED_ORDER_BY = (
         "v.fit DESC NULLS LAST, "
         "COALESCE(jobs.date_posted, date(jobs.date_found)) DESC, "
@@ -192,6 +200,7 @@ class Database:
         job_id: int | None,
         fit: bool | None = None,
         reason_type: str | None = None,
+        date_posted: str | None = None,
         q: str | None = None,
     ) -> tuple[str, list[Any]]:
         """The shared WHERE clause, as (sql, params).
@@ -230,6 +239,12 @@ class Database:
         if reason_type:
             sql += " AND v.reason_type = ?"
             params.append(reason_type.strip().lower())
+        if date_posted and date_posted in self.DATE_POSTED_WINDOWS:
+            sql += (
+                " AND (julianday('now') - "
+                "julianday(COALESCE(jobs.date_posted, jobs.date_found))) <= ?"
+            )
+            params.append(self.DATE_POSTED_WINDOWS[date_posted])
         if is_remote is not None:
             sql += " AND jobs.is_remote = ?"
             params.append(1 if is_remote else 0)
@@ -267,6 +282,7 @@ class Database:
         job_id: int | None = None,
         fit: bool | None = None,
         reason_type: str | None = None,
+        date_posted: str | None = None,
         q: str | None = None,
         limit: int = 200,
         offset: int = 0,
@@ -304,6 +320,7 @@ class Database:
             job_id=job_id,
             fit=fit,
             reason_type=reason_type,
+            date_posted=date_posted,
             q=q,
         )
         query = f"SELECT {self._select_columns(detail)}{self._FROM} WHERE 1=1{where}"
@@ -354,6 +371,7 @@ class Database:
         job_id: int | None = None,
         fit: bool | None = None,
         reason_type: str | None = None,
+        date_posted: str | None = None,
         q: str | None = None,
         limit: int = 200,
         offset: int = 0,
@@ -382,6 +400,7 @@ class Database:
             job_id=job_id,
             fit=fit,
             reason_type=reason_type,
+            date_posted=date_posted,
             q=q,
         )
         query = (

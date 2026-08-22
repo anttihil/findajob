@@ -23,6 +23,15 @@ const LIVENESS_OPTIONS: [string, string][] = [
   ["likely_closed", "Probably closed"],
 ];
 
+const DATE_POSTED_OPTIONS: [string, string][] = [
+  ["", "Any time"],
+  ["24h", "Past 24 hours"],
+  ["3d", "Past 3 days"],
+  ["7d", "Past week"],
+  ["14d", "Past 14 days"],
+  ["30d", "Past month"],
+];
+
 // Ported from the `<form class="filter-sidebar">` in `templates/tabs/dashboard.html`. Every
 // control here is a link/select carrying the *whole* current filter plus one change --
 // `query.url()` already merges in the rest, so unlike the Jinja version there is no need
@@ -70,6 +79,22 @@ export function FilterSidebar({ query, meta }: { query: FilterQuery; meta: Meta 
             </Link>
           ))}
         </div>
+      </div>
+
+      <div class="filter-group">
+        <label for="filter-date-posted">Date Posted</label>
+        <select
+          id="filter-date-posted"
+          class="form-select"
+          value={query.date_posted}
+          onChange={(e) => navigate(query.url({ date_posted: (e.target as HTMLSelectElement).value }))}
+        >
+          {DATE_POSTED_OPTIONS.map(([value, label]) => (
+            <option key={value} value={value}>
+              {label}
+            </option>
+          ))}
+        </select>
       </div>
 
       <div class="filter-group">

@@ -15,6 +15,7 @@ export interface FilterValues {
   fit: boolean | null;
   reason_type: string;
   liveness: string;
+  date_posted: string;
   q: string;
   limit: number;
   offset: number;
@@ -27,6 +28,7 @@ export const FILTER_DEFAULTS: FilterValues = {
   fit: null,
   reason_type: "",
   liveness: "",
+  date_posted: "",
   q: "",
   limit: 50,
   offset: 0,
@@ -55,6 +57,7 @@ function parseValues(search: string): FilterValues {
           : FILTER_DEFAULTS.fit,
     reason_type: raw.reason_type ?? FILTER_DEFAULTS.reason_type,
     liveness: raw.liveness ?? FILTER_DEFAULTS.liveness,
+    date_posted: raw.date_posted ?? FILTER_DEFAULTS.date_posted,
     q: raw.q ?? FILTER_DEFAULTS.q,
     limit: raw.limit ? Number(raw.limit) : FILTER_DEFAULTS.limit,
     offset: raw.offset ? Number(raw.offset) : FILTER_DEFAULTS.offset,
@@ -85,6 +88,9 @@ export class FilterQuery {
   }
   get liveness() {
     return this.values.liveness;
+  }
+  get date_posted() {
+    return this.values.date_posted;
   }
   get q() {
     return this.values.q;
