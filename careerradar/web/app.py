@@ -1,7 +1,9 @@
+import asyncio
 import json
 import os
 import threading
 from collections.abc import Awaitable, Callable
+from contextlib import asynccontextmanager, suppress
 from typing import TYPE_CHECKING, Any
 
 from fastapi import (
@@ -16,6 +18,7 @@ from fastapi.responses import (
     FileResponse,
     HTMLResponse,
     JSONResponse,
+    StreamingResponse,
 )
 from fastapi.responses import Response as FastAPIResponse
 from fastapi.staticfiles import StaticFiles
@@ -38,19 +41,32 @@ from careerradar.market.analytics import MarketAnalytics
 from careerradar.market.gap_analysis import GapAnalysis
 from careerradar.profile.adapter import NoActiveProfile, load_profile
 from careerradar.search.runner import run_sync
-from careerradar.search.scheduler import select_cells, with_location_weights
+from careerradar.search.scheduler import scrape_tasks
 from careerradar.search.sources.link_generator import LinkGenerator
 from careerradar.taxonomy.roles import load_roles
 from careerradar.taxonomy.skills import load_taxonomy
 from careerradar.web import rendering
+from careerradar.web.live import live_hub
 
 if TYPE_CHECKING:
     from careerradar.profile.adapter import ProfileAdapter
-    from careerradar.search.scheduler import ScrapeTask
     from careerradar.taxonomy.roles import RoleTaxonomy
     from careerradar.taxonomy.skills import Taxonomy
 
-app = FastAPI(title="Job Search Automation Dashboard")
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    # start monitoring db and sending server-side events
+    task = asyncio.create_task(live_hub.start_monitor())
+    try:
+        yield
+    finally:
+        task.cancel()
+        with suppress(asyncio.CancelledError):
+            await task
+
+
+app = FastAPI(title="Job Search Automation Dashboard", lifespan=lifespan)
 
 logger = get_logger()
 
@@ -539,20 +555,6 @@ def get_sync_status():
     return status
 
 
-def _scrape_tasks(
-    db: Database, config: dict[str, Any], roles: "RoleTaxonomy", source: str
-) -> list["ScrapeTask"]:
-    """The tasks `run_sync` would pick for one source, right now.
-
-    Shared by /api/sync/plan (a source's full plan, for display) and /api/pipeline/status
-    (a count summed over every enabled source, for the live progress denominator) so the
-    two cannot disagree about what "planned" means.
-    """
-    cells = db.get_cells(source=source)
-    scraper_config = with_location_weights(config.get("scraper", {}), roles)
-    return select_cells(cells, scraper_config, roles, source)
-
-
 @app.get("/api/sync/plan")
 def get_sync_plan(source: str = "indeed"):
     """What the next run would scrape, for transparency before a long scrape."""
@@ -560,7 +562,7 @@ def get_sync_plan(source: str = "indeed"):
     try:
         config = load_config()
         roles = load_roles()
-        tasks = _scrape_tasks(db, config, roles, source)
+        tasks = scrape_tasks(db, config, roles, source)
         return {
             "source": source,
             "cells_total": len(db.get_cells(source=source)),
@@ -608,7 +610,7 @@ def pipeline_status():
                     (run["id"],),
                 ).fetchone()[0]
                 scrape["cells_planned"] = sum(
-                    len(_scrape_tasks(db, config, roles, source)) for source in enabled
+                    len(scrape_tasks(db, config, roles, source)) for source in enabled
                 )
 
         recent_verdicts = db.conn.execute(
@@ -757,6 +759,41 @@ def get_job_context(job_id: int, query: rendering.FilterQuery = Depends(filter_q
         return drawer_context(db, query, job_id)
     finally:
         db.close()
+
+
+# --- Real-Time Live Feed Stream ---------------------------------------------------------
+@app.get("/api/live/events")
+async def live_events(request: Request) -> StreamingResponse:
+    """Server-Sent Events (SSE) stream for real-time dashboard updates.
+
+    ARCHITECTURE & HEADERS HINT:
+    - `media_type="text/event-stream"` tells the browser this is an EventSource stream.
+    - `Cache-Control: no-cache, no-transform` prevents proxies and browser from caching.
+    - `X-Accel-Buffering: no` instructs Nginx/reverse-proxies not to buffer the stream.
+    - `request.is_disconnected()` allows terminating the generator on tab close.
+
+    TODO for implementation:
+    1. Import `StreamingResponse` from `fastapi.responses`.
+    2. Import `live_hub` from `careerradar.web.live`.
+    3. Define an async generator over `live_hub.subscribe()` checking `is_disconnected()`.
+    4. Return `StreamingResponse(event_generator(), media_type="text/event-stream", headers=...)`.
+    """
+
+    async def event_generator():
+        async for message in live_hub.subscribe():
+            if await request.is_disconnected():
+                break
+            yield message
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache, no-transform",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 # --- Preact SPA shell -------------------------------------------------------------------

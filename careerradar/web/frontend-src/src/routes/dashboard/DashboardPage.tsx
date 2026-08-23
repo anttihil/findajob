@@ -1,14 +1,22 @@
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 import { useLocation, useSearch } from "wouter-preact";
 import { getJSON, guard, putJSON, reportError } from "../../api/client";
-import type { JobContext, JobStatus, JobsPage, Meta, Stats } from "../../api/types";
+import type {
+  JobContext,
+  JobStatus,
+  JobsPage,
+  Meta,
+  Stats,
+} from "../../api/types";
 import { JobCard } from "../../components/JobCard";
 import { Pagination } from "../../components/Pagination";
 import { FilterQuery } from "../../lib/filterQuery";
 import { setSyncFinishedListener, syncStatus } from "../../state/sync";
 import { stats } from "../../state/stats";
+// import { newJobsPendingCount } from "../../state/liveEvents";
 import { FilterSidebar } from "./FilterSidebar";
 import { JobDrawer } from "./JobDrawer";
+import { newJobsPendingCount } from "../../state/liveEvents";
 
 const SYNC_ERROR_ICONS: Record<string, string> = {
   error: "fa-circle-exclamation",
@@ -117,7 +125,9 @@ export function DashboardPage() {
   useEffect(() => {
     let cancelled = false;
     setJobsPage(null);
-    guard("Loading jobs", () => getJSON<JobsPage>(`/api/jobs?${filterKey}`)).then((data) => {
+    guard("Loading jobs", () =>
+      getJSON<JobsPage>(`/api/jobs?${filterKey}`),
+    ).then((data) => {
       if (!cancelled && data) setJobsPage(data);
     });
     return () => {
@@ -132,7 +142,7 @@ export function DashboardPage() {
     }
     let cancelled = false;
     guard(`Loading job ${openJobId}`, () =>
-      getJSON<JobContext>(`/api/jobs/${openJobId}/context?${filterKey}`)
+      getJSON<JobContext>(`/api/jobs/${openJobId}/context?${filterKey}`),
     ).then((data) => {
       if (!cancelled && data) setDrawerContext(data);
     });
@@ -142,7 +152,9 @@ export function DashboardPage() {
   }, [openJobId, filterKey]);
 
   async function handleStatusChange(jobId: number, newStatus: JobStatus) {
-    const prevStatus = jobsPage?.jobs.find((j) => j.id === jobId)?.status ?? drawerContext?.job?.status;
+    const prevStatus =
+      jobsPage?.jobs.find((j) => j.id === jobId)?.status ??
+      drawerContext?.job?.status;
     try {
       await putJSON(`/api/jobs/${jobId}/status`, { status: newStatus });
     } catch (err) {
@@ -151,7 +163,10 @@ export function DashboardPage() {
     }
 
     if (stats.value && prevStatus) {
-      const counts = { ...stats.value.status_counts, [prevStatus]: stats.value.status_counts[prevStatus] - 1 };
+      const counts = {
+        ...stats.value.status_counts,
+        [prevStatus]: stats.value.status_counts[prevStatus] - 1,
+      };
       counts[newStatus] = (counts[newStatus] ?? 0) + 1;
       stats.value = { ...stats.value, status_counts: counts };
     }
@@ -165,7 +180,12 @@ export function DashboardPage() {
           total: Math.max(0, prev.total - 1),
         };
       }
-      return { ...prev, jobs: prev.jobs.map((j) => (j.id === jobId ? { ...j, status: newStatus } : j)) };
+      return {
+        ...prev,
+        jobs: prev.jobs.map((j) =>
+          j.id === jobId ? { ...j, status: newStatus } : j,
+        ),
+      };
     });
 
     const nextId = drawerContext?.next_job_id ?? null;
@@ -174,7 +194,9 @@ export function DashboardPage() {
 
   const currentSyncErrors = syncStatus.value?.errors;
   const showSyncErrors =
-    currentSyncErrors && currentSyncErrors.length > 0 && dismissedErrors !== currentSyncErrors;
+    currentSyncErrors &&
+    currentSyncErrors.length > 0 &&
+    dismissedErrors !== currentSyncErrors;
 
   return (
     <section class="tab-pane active">
@@ -221,19 +243,27 @@ export function DashboardPage() {
         <div class="sync-error-banner glass-card">
           <div class="banner-title">
             <span>
-              <i class="fa-solid fa-triangle-exclamation text-gold"></i> API Sync Warnings
+              <i class="fa-solid fa-triangle-exclamation text-gold"></i> API
+              Sync Warnings
             </span>
-            <button class="close-banner-btn" onClick={() => setDismissedErrors(currentSyncErrors)}>
+            <button
+              class="close-banner-btn"
+              onClick={() => setDismissedErrors(currentSyncErrors)}
+            >
               <i class="fa-solid fa-xmark"></i>
             </button>
           </div>
           <ul class="sync-errors-list">
             {currentSyncErrors.map((err, i) => {
               const severity = err.severity || "error";
-              const timeStr = err.timestamp ? new Date(err.timestamp).toLocaleTimeString() : "Unknown";
+              const timeStr = err.timestamp
+                ? new Date(err.timestamp).toLocaleTimeString()
+                : "Unknown";
               return (
                 <li key={i} class={`sync-error-${severity}`}>
-                  <i class={`fa-solid ${SYNC_ERROR_ICONS[severity] || SYNC_ERROR_ICONS.error}`}></i>
+                  <i
+                    class={`fa-solid ${SYNC_ERROR_ICONS[severity] || SYNC_ERROR_ICONS.error}`}
+                  ></i>
                   <strong>{err.source}</strong> [{timeStr}]: {err.error}
                 </li>
               );
@@ -254,7 +284,9 @@ export function DashboardPage() {
                 class="feed-search-input"
                 placeholder="Search jobs by title, company, skills, or location (fuzzy search)..."
                 value={searchTerm}
-                onInput={(e) => handleSearchChange((e.target as HTMLInputElement).value)}
+                onInput={(e) =>
+                  handleSearchChange((e.target as HTMLInputElement).value)
+                }
                 onKeyDown={handleKeyDown}
                 aria-label="Search jobs"
               />
@@ -279,14 +311,36 @@ export function DashboardPage() {
                 : "Loading…"}
             </span>
           </div>
-
+          {newJobsPendingCount.value > 0 && (
+            <div
+              class="sync-error-banner glass-card"
+              style={{ cursor: "pointer", marginBottom: "1rem" }}
+              onClick={() => {
+                newJobsPendingCount.value = 0;
+                setRefreshKey((k) => k + 1);
+              }}
+            >
+              <div class="banner-title">
+                <span>
+                  <i class="fa-solid fa-bolt text-gold"></i> New updates scored
+                  in background. Click to refresh feed.
+                </span>
+                <button type="button" class="btn btn-sm btn-primary">
+                  Refresh
+                </button>
+              </div>
+            </div>
+          )}
           <div class="job-cards-grid">
             {jobsPage === null && <p class="chart-empty">Loading…</p>}
             {jobsPage?.jobs.length === 0 && (
               <div class="no-jobs-card">
                 <i class="fa-solid fa-binoculars"></i>
                 <h3>No matching jobs found</h3>
-                <p>Try adjusting your filters, triggering a new database sync, or relaxing your match threshold.</p>
+                <p>
+                  Try adjusting your filters, triggering a new database sync, or
+                  relaxing your match threshold.
+                </p>
               </div>
             )}
             {jobsPage?.jobs.map((job) => (
@@ -294,11 +348,21 @@ export function DashboardPage() {
             ))}
           </div>
 
-          {jobsPage && <Pagination query={query} total={jobsPage.total} hasMore={jobsPage.has_more} />}
+          {jobsPage && (
+            <Pagination
+              query={query}
+              total={jobsPage.total}
+              hasMore={jobsPage.has_more}
+            />
+          )}
         </div>
       </div>
 
-      <JobDrawer context={drawerContext} onClose={() => navigate(query.withoutJob())} onStatusChange={handleStatusChange} />
+      <JobDrawer
+        context={drawerContext}
+        onClose={() => navigate(query.withoutJob())}
+        onStatusChange={handleStatusChange}
+      />
     </section>
   );
 }

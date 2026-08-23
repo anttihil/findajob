@@ -1,10 +1,11 @@
-import { useEffect, useRef, useState } from "preact/hooks";
-import { getJSON, reportError } from "../../api/client";
-import type { PipelineScoreStatus, PipelineScrapeStatus, PipelineStatusResponse } from "../../api/types";
+import { useEffect, useRef } from "preact/hooks";
+import type {
+  PipelineScoreStatus,
+  PipelineScrapeStatus,
+} from "../../api/types";
 import { renderMeters } from "../../charts/charts";
 import { ago } from "../../lib/format";
-
-const POLL_MS = 5000;
+import { livePipelineStatus } from "../../state/liveEvents";
 
 function ScrapeStage({ scrape }: { scrape: PipelineScrapeStatus }) {
   const meterRef = useRef<HTMLDivElement>(null);
@@ -15,8 +16,14 @@ function ScrapeStage({ scrape }: { scrape: PipelineScrapeStatus }) {
     if (running && scrape.cells_planned) {
       renderMeters(
         meterRef.current,
-        [{ label: "cells", value: scrape.cells_done ?? 0, display: `${scrape.cells_done}/${scrape.cells_planned}` }],
-        { max: scrape.cells_planned }
+        [
+          {
+            label: "cells",
+            value: scrape.cells_done ?? 0,
+            display: `${scrape.cells_done}/${scrape.cells_planned}`,
+          },
+        ],
+        { max: scrape.cells_planned },
       );
     } else {
       meterRef.current.innerHTML = "";
@@ -41,7 +48,9 @@ function ScrapeStage({ scrape }: { scrape: PipelineScrapeStatus }) {
       <div class="pipeline-stage-header">
         <span class={`status-dot ${running ? "orange" : "green"}`}></span>
         <span class="pipeline-stage-title">Scraping</span>
-        <span class="pipeline-stage-status">{running ? "running" : "idle"}</span>
+        <span class="pipeline-stage-status">
+          {running ? "running" : "idle"}
+        </span>
       </div>
       <div ref={meterRef}></div>
       <p class="card-note">{detail}</p>
@@ -58,14 +67,25 @@ function ScoreStage({ score }: { score: PipelineScoreStatus }) {
     if (!meterRef.current) return;
     renderMeters(
       meterRef.current,
-      [{ label: "scored", value: scoredFraction, display: `${(scoredFraction * 100).toFixed(0)}%` }],
-      { max: 1 }
+      [
+        {
+          label: "scored",
+          value: scoredFraction,
+          display: `${(scoredFraction * 100).toFixed(0)}%`,
+        },
+      ],
+      { max: 1 },
     );
   }, [scoredFraction]);
 
   const detail = [`${score.backlog.toLocaleString()} unscored`];
-  detail.push(score.last_verdict ? `last verdict ${ago(score.hours_since)}` : "no verdicts yet");
-  if (active) detail.push(`${score.recent_verdicts_5min} scored in the last 5 minutes`);
+  detail.push(
+    score.last_verdict
+      ? `last verdict ${ago(score.hours_since)}`
+      : "no verdicts yet",
+  );
+  if (active)
+    detail.push(`${score.recent_verdicts_5min} scored in the last 5 minutes`);
 
   return (
     <div class="pipeline-stage mt-4">
@@ -80,44 +100,21 @@ function ScoreStage({ score }: { score: PipelineScoreStatus }) {
   );
 }
 
-// Ported from `frontend/js/features/pipeline.js`. Polls independently of the Sync button:
-// both stages also run on their own systemd timer, so this has to reflect whatever is
-// happening right now, not just what this browser session triggered.
 export function PipelineStatus() {
-  const [status, setStatus] = useState<PipelineStatusResponse | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    async function poll() {
-      try {
-        const data = await getJSON<PipelineStatusResponse>("/api/pipeline/status");
-        if (!cancelled) setStatus(data);
-      } catch (err) {
-        reportError("Loading pipeline status", err);
-      }
-    }
-    poll();
-    const handle = setInterval(poll, POLL_MS);
-    return () => {
-      cancelled = true;
-      clearInterval(handle);
-    };
-  }, []);
-
   return (
     <div class="glass-card mt-6">
       <h3>
         <i class="fa-solid fa-gauge-high"></i> Pipeline Progress
       </h3>
       <p>
-        Live status for the two background stages. Both also run on their own timer,
-        independent of the buttons above, so this reflects whatever is happening right now --
-        not just what this browser triggered.
+        Live status for the two background stages. Both also run on their own
+        timer, independent of the buttons above, so this reflects whatever is
+        happening right now -- not just what this browser triggered.
       </p>
-      {status && (
+      {livePipelineStatus.value && (
         <>
-          <ScrapeStage scrape={status.scrape} />
-          <ScoreStage score={status.score} />
+          <ScrapeStage scrape={livePipelineStatus.value.scrape} />
+          <ScoreStage score={livePipelineStatus.value.score} />
         </>
       )}
     </div>

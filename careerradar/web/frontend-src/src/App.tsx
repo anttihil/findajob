@@ -1,3 +1,4 @@
+import { useEffect } from "preact/hooks";
 import { Redirect, Route, Switch, useLocation } from "wouter-preact";
 import { Sidebar } from "./components/Sidebar";
 import { ErrorBanner } from "./components/ErrorBanner";
@@ -9,6 +10,7 @@ import { ResumesPage } from "./routes/resumes/ResumesPage";
 import { ObservabilityPage } from "./routes/observability/ObservabilityPage";
 import { DigestsPage } from "./routes/digests/DigestsPage";
 import { SettingsPage } from "./routes/settings/SettingsPage";
+import { initLiveEvents } from "./state/liveEvents";
 
 const PAGE_TITLES: Record<string, string> = {
   "/": "Career Dashboard",
@@ -29,6 +31,13 @@ const today = new Date().toLocaleDateString("en-US", {
 
 export function App() {
   const [location] = useLocation();
+
+  useEffect(() => {
+    // TODO (Live Feeds): Call initLiveEvents() on mount once implemented in state/liveEvents.ts
+    // initLiveEvents();
+
+    initLiveEvents();
+  }, []);
 
   return (
     <div class="app-container">
@@ -57,4 +66,3 @@ export function App() {
     </div>
   );
 }
-

@@ -36,6 +36,8 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 
+from careerradar.core.database import Database
+
 if TYPE_CHECKING:
     from careerradar.taxonomy.roles import RoleTaxonomy
 
@@ -534,3 +536,17 @@ def is_saturated(returned: int, requested: int, threshold: float = 0.95) -> bool
     if not requested:
         return False
     return returned >= threshold * requested
+
+
+def scrape_tasks(
+    db: Database, config: dict[str, Any], roles: "RoleTaxonomy", source: str
+) -> list["ScrapeTask"]:
+    """The tasks `run_sync` would pick for one source, right now.
+
+    Shared by /api/sync/plan (a source's full plan, for display) and /api/pipeline/status
+    (a count summed over every enabled source, for the live progress denominator) so the
+    two cannot disagree about what "planned" means.
+    """
+    cells = db.get_cells(source=source)
+    scraper_config = with_location_weights(config.get("scraper", {}), roles)
+    return select_cells(cells, scraper_config, roles, source)
