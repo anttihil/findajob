@@ -14,10 +14,7 @@ from unittest import mock
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from careerradar.core.llm import estimate_cost, usage_cost
-from careerradar.profile.models import (
-    FitAssessment,
-    JobFitVerdict,
-)
+from careerradar.profile.models import JobFitVerdict
 from careerradar.scoring.prompts import (
     MAX_DESCRIPTION_CHARS,
     build_system,
@@ -155,14 +152,14 @@ class FakeChain:
         return self.responses.pop(0) if self.responses else self.responses[-1]
 
 
-def assessment(**overrides: Any) -> FitAssessment:
+def assessment(**overrides: Any) -> JobFitVerdict:
     fields: dict[str, Any] = {
         "fit": True,
         "reason_type": "match",
         "reason_description": "Strong alignment with tech stack.",
     }
     fields.update(overrides)
-    return FitAssessment(**fields)
+    return JobFitVerdict(**fields)
 
 
 def ok_response(**overrides: Any) -> dict[str, Any]:

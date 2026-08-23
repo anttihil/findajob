@@ -4,45 +4,10 @@
 // real (job rows, stats, skill-gap analysis). Revisit if `app.py` grows real Pydantic
 // response models.
 
-export type Verdict = "strong" | "worth_applying" | "stretch" | "poor_fit" | "mismatch";
-export type Eligibility = "eligible" | "conditional" | "blocked";
-export type RoleMatch = "same_role" | "adjacent" | "different_domain" | "different_field";
-export type CapabilityMatch =
-  | "exceeds"
-  | "meets"
-  | "most_with_gaps"
-  | "major_gaps"
-  | "not_close";
-export type SeniorityGap = "matched" | "candidate_above" | "candidate_below";
 export type Liveness = "live" | "stale" | "likely_closed" | "unknown";
 export type PipelineState = "new" | "scored" | "researched";
 export type JobStatus = "unread" | "saved" | "applied" | "rejected";
 export type Access = "commutable" | "remote" | "relocation";
-
-export interface RequirementEntry {
-  requirement: string;
-  quote: string;
-  importance: "must_have" | "important" | "nice_to_have" | string;
-}
-
-export interface RequirementAssessment {
-  requirement: string;
-  status: "met" | "partial" | "unmet";
-  candidate_evidence?: string;
-}
-
-export interface RequirementSummary {
-  must_total: number;
-  must_met: number;
-  must_partial: number;
-  must_unmet: number;
-  must_unassessed: number;
-}
-
-export interface HardBlocker {
-  quote: string;
-  why?: string;
-}
 
 // A job row from `Database.query_jobs` (list or detail mode -- `/api/jobs` always uses
 // detail=True, so every field below is present on every row that endpoint returns).
@@ -93,17 +58,6 @@ export interface JobsPage {
   has_more: boolean;
 }
 
-export interface JobFilters {
-  status?: JobStatus | "";
-  access?: Access | "";
-  country?: string;
-  fit?: boolean | "";
-  reason_type?: string;
-  liveness?: Liveness | "";
-  limit?: number;
-  offset?: number;
-}
-
 export interface Dossier {
   intel: {
     summary?: string;
@@ -118,19 +72,11 @@ export interface Dossier {
   sources: string[];
 }
 
-export interface RequirementRow {
-  requirement: string;
-  importance: string;
-  quote: string;
-  status: "met" | "partial" | "unmet" | "unassessed";
-  evidence: string;
-}
-
 // GET /api/jobs/{id}/context
 export interface JobContext {
   job: Job | null;
   dossier: Dossier | null;
-  requirement_rows: RequirementRow[];
+  requirement_rows?: unknown[];
   next_job_id: number | null;
 }
 
@@ -316,12 +262,6 @@ export interface ProfileRecord {
   documents: ProfileDocument[];
 }
 
-export interface ProfileVersionSummary {
-  version: number;
-  created_at: string;
-  active: boolean;
-}
-
 // --- Config -----------------------------------------------------------------------------
 
 // `ConfigUpdate` on the backend is `extra="allow"`, so there is no reason for the client
@@ -337,19 +277,6 @@ export interface SearchLinksResponse {
 }
 
 // --- Sync / pipeline --------------------------------------------------------------------
-
-export interface SyncPlanTask {
-  location_id: string;
-  role_family: string;
-  [key: string]: unknown;
-}
-
-export interface SyncPlanResponse {
-  source: string;
-  cells_total: number;
-  cells_planned: number;
-  tasks: SyncPlanTask[];
-}
 
 export interface PipelineScrapeStatus {
   in_progress: boolean;

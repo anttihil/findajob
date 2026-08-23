@@ -7,7 +7,6 @@ versioned -- not recomputed per request like the regex profile it replaces.
 """
 
 import re
-import unicodedata
 from typing import Any
 
 from pydantic import BaseModel, Field, field_validator
@@ -19,7 +18,6 @@ from pydantic import BaseModel, Field, field_validator
 LEVEL_STRONG = 3
 LEVEL_CLAIMED = 2
 LEVEL_MENTIONED = 1
-LEVEL_ABSENT = 0
 
 
 class Skill(BaseModel):
@@ -174,19 +172,3 @@ class JobFitVerdict(BaseModel):
             return "unknown"
         cleaned = re.sub(r"[^a-z0-9_-]", "", value.strip().lower())
         return cleaned or "unknown"
-
-
-# Backward compatibility alias
-FitAssessment = JobFitVerdict
-
-
-_DASHES = dict.fromkeys(map(ord, "‐‑‒–—―−"), "-")
-_QUOTE_MARKS = dict.fromkeys(map(ord, "‘’‚‛′"), "'")
-_QUOTE_MARKS.update(dict.fromkeys(map(ord, "“”„‟″"), '"'))
-
-
-def normalize_requirement(text: str) -> str:
-    """Normalize requirement text for display/matching."""
-    text = unicodedata.normalize("NFKC", text or "")
-    text = text.translate(_DASHES).translate(_QUOTE_MARKS)
-    return re.sub(r"\s+", " ", text).strip().casefold()

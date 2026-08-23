@@ -42,7 +42,6 @@ SUPPRESS_SMALL_SAMPLE = "small_sample"
 SUPPRESS_TOO_FEW_COMPANIES = "too_few_companies"
 SUPPRESS_COMPANY_CONCENTRATION = "company_concentration"
 SUPPRESS_COVERAGE_INCOMPLETE = "coverage_incomplete"
-SUPPRESS_NO_SALARY_DATA = "insufficient_salary_data"
 
 
 # =========================================================================================
@@ -255,9 +254,6 @@ class MarketAnalytics:
         if self.analytics_config.get("exclude_agencies", True):
             clause += " AND COALESCE(is_agency, 0) = 0"
         return clause
-
-    def _gate(self, value: float, minimum: float, reason: str) -> str | None:
-        return None if value < minimum else reason
 
     # -- role supply ------------------------------------------------------------------
     def role_supply(

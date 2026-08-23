@@ -103,19 +103,6 @@ def _facts(posting: dict[str, Any]) -> list[str]:
     return facts
 
 
-def quotable_text(posting: dict[str, Any]) -> str:
-    facts = _facts(posting)
-    return "\n".join(
-        [
-            posting.get("title") or "",
-            posting.get("company") or "",
-            posting.get("location") or "",
-            "; ".join(facts),
-            (posting.get("description") or "")[:MAX_DESCRIPTION_CHARS],
-        ]
-    )
-
-
 def render_posting(posting: dict[str, Any], *, skill_hint: str = "") -> str:
     """The volatile half. One posting, delimited as untrusted data."""
     description = (posting.get("description") or "")[:MAX_DESCRIPTION_CHARS]
@@ -132,7 +119,3 @@ def render_posting(posting: dict[str, Any], *, skill_hint: str = "") -> str:
         "</posting>"
     )
     return f"{rendered}\n{skill_hint}" if skill_hint else rendered
-
-
-def estimate_prompt_chars(posting: dict[str, Any]) -> int:
-    return len(render_posting(posting))

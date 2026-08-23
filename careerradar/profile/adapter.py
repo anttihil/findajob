@@ -9,12 +9,6 @@ So the new profile grows the old query surface rather than every caller growing 
 This is not a compatibility shim kept out of caution -- it is the boundary that lets one
 well-tested subsystem (skill demand and gap analytics, ~900 lines with careful censoring)
 survive a change of what a "profile" is.
-
-`variants` is the one place the shape genuinely changed. The old profile carried six
-tailored resumes and picked between them; the new one is a single unified picture, so which
-resume to send is derived from `role_family` via roles.yaml instead. The attribute stays as
-an empty mapping so `keyword_score._resume_component` degrades to its documented
-"mapped-but-missing" branch rather than raising.
 """
 
 from typing import TYPE_CHECKING, Any
@@ -47,8 +41,6 @@ class ProfileAdapter:
             }
             for skill in profile.skills
         }
-        # The unified profile has no resume variants; see the module docstring.
-        self.variants: dict[str, Any] = {}
         self.sources = [f"profile v{version}"] if version else ["profile"]
 
     def has(self, key: str, min_level: int = LEVEL_MENTIONED) -> bool:

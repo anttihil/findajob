@@ -5,18 +5,14 @@ from typing import Any
 
 import careerradar.core.database as db_module
 from careerradar.core.config import load_config
-from careerradar.core.paths import REPO_ROOT
+from careerradar.core.paths import DIGEST_DIR
 
 
 class DigestGenerator:
     def __init__(self) -> None:
         self.config = load_config()
         self.digest_config = self.config.get("digest", {})
-        # The digest is "jobs worth reading", so it selects on the judged verdict, not
-        # on keyword coverage. `match_score >= 40` used to gate it and was printed as a
-        # percent, which it never was -- the scale bottoms out around 15.
-        self.max_tier = self.digest_config.get("max_tier", 4)
-        self.output_dir = os.path.abspath(os.path.join(REPO_ROOT, "digests"))
+        self.output_dir = DIGEST_DIR
 
     def generate_digest(self, hours_ago: int = 24) -> str:
         """

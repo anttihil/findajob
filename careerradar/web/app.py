@@ -29,7 +29,7 @@ from careerradar.core import pipeline_lock
 from careerradar.core.config import deep_merge, load_config, save_config
 from careerradar.core.database import Database
 from careerradar.core.logger import get_logger
-from careerradar.core.paths import FRONTEND_DIR, REPO_ROOT
+from careerradar.core.paths import FRONTEND_DIR
 from careerradar.core.status import collect as collect_status
 from careerradar.core.status_manager import (
     clear_stale_lock,
@@ -113,9 +113,6 @@ async def restrict_to_owner(
         return await call_next(request)
     logger.warning("Refused dashboard request from tailnet user %s", login)
     return JSONResponse({"detail": "Not authorised for this dashboard."}, status_code=403)
-
-
-BASE_DIR = REPO_ROOT
 
 
 class _PooledDatabase(Database):

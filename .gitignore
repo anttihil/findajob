@@ -14,6 +14,8 @@ __pycache__/
 # text of every corpus document. That puts career history in a repo whose entire .gitignore
 # policy exists to keep it out.
 *.db
+*.db.*
+*.db.pre-*
 *.db-wal
 *.db-shm
 *.db-journal

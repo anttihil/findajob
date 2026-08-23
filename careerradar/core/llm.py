@@ -13,8 +13,8 @@ full in `docs/deepseek.md`; the short version:
      makes per-posting scoring cost a fraction of a cent -- but only if the prefix is
      byte-identical across calls.
 
-`structured_model()` and `agentic_model()` exist so callers pick a *purpose* rather than
-remembering which of those apply.
+`structured_model()` builds a ChatDeepSeek instance calibrated for deterministic,
+schema-enforced output.
 """
 
 import os
@@ -74,19 +74,6 @@ def structured_model(
 
     require_api_key()
     return ChatDeepSeek(model=model, reasoning_effort="none", temperature=temperature, **kwargs)
-
-
-def agentic_model(model: str = DEFAULT_AGENT_MODEL, **kwargs: Any) -> "ChatDeepSeek":
-    """A model for open-ended tool use. Thinking stays ON.
-
-    Safe here because an agent binds tools with `tool_choice="auto"` -- the model decides
-    whether to call one -- and auto choice *is* accepted in thinking mode. Do not call
-    `with_structured_output(strict=True)` on this; use `structured_model()` for that.
-    """
-    from langchain_deepseek import ChatDeepSeek
-
-    require_api_key()
-    return ChatDeepSeek(model=model, **kwargs)
 
 
 STRUCTURED_ATTEMPTS = 3

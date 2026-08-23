@@ -19,7 +19,7 @@ from typing import Any, TypedDict
 
 from careerradar.core.llm import DEFAULT_SCORING_MODEL, structured_model
 from careerradar.core.logger import get_logger
-from careerradar.profile.models import FitAssessment
+from careerradar.profile.models import JobFitVerdict
 from careerradar.scoring.prompts import render_posting
 
 logger = get_logger()
@@ -34,20 +34,9 @@ RETRY_NUDGE = (
 
 # A generic nudge against a semantic failure just buys the same failure again: the model
 # did call the tool, and telling it otherwise is a description it cannot act on. When the
-# schema or the auditor rejected a well-formed answer, say which rule it broke.
+# schema rejected a well-formed answer, say which rule it broke.
 def semantic_nudge(reason: str) -> str:
-    # The quote advice is conditional because most rejections have nothing to do with
-    # quotes. Sent unconditionally it was the last thing the model read before answering
-    # an enum error or a missing field, which is attention spent on the wrong rule.
-    advice = (
-        " Every quote must be copied from the posting exactly as it appears there."
-        if "quote" in reason.lower()
-        else ""
-    )
-    return (
-        f"Your previous verdict was rejected: {reason}\n"
-        f"Return the verdict again, corrected.{advice}"
-    )
+    return f"Your previous verdict was rejected: {reason}\nReturn the verdict again, corrected."
 
 
 class ScoreState(TypedDict, total=False):
@@ -88,7 +77,7 @@ def node_score(state: ScoreState) -> dict[str, Any]:
     model_name = state.get("model", DEFAULT_SCORING_MODEL)
     model = structured_model(model_name)
     chain = model.with_structured_output(
-        FitAssessment, method="function_calling", strict=True, include_raw=True
+        JobFitVerdict, method="function_calling", strict=True, include_raw=True
     )
 
     messages = [("system", state.get("system") or ""), ("user", state.get("rendered") or "")]

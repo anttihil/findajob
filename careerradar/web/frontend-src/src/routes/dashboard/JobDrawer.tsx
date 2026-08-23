@@ -1,7 +1,6 @@
 import type { JobContext, JobStatus } from "../../api/types";
 import { highlightTerms } from "../../lib/highlightTerms";
 import { DossierPanel } from "./DossierPanel";
-import { RequirementsPanel } from "./RequirementsPanel";
 import { VerdictPanel } from "./VerdictPanel";
 
 // Ported from `partials/job_drawer.html` + the permanent drawer chrome in `base.html`. The
@@ -17,7 +16,6 @@ export function JobDrawer({
   onStatusChange: (jobId: number, status: JobStatus) => void;
 }) {
   const job = context?.job ?? null;
-  const requirementRows = context?.requirement_rows ?? [];
   const dossier = context?.dossier ?? null;
 
   return (
@@ -84,15 +82,6 @@ export function JobDrawer({
                     <VerdictPanel job={job} />
                   </div>
                 </div>
-
-                {requirementRows.length > 0 && (
-                  <div class="drawer-section">
-                    <h4>Requirements</h4>
-                    <div>
-                      <RequirementsPanel job={job} rows={requirementRows} />
-                    </div>
-                  </div>
-                )}
 
                 {dossier && (
                   <div class="drawer-section">

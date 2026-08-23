@@ -1339,26 +1339,6 @@ class Database:
             )
         self.conn.commit()
 
-    def record_skill_candidates(self, terms: dict[str, int]) -> None:
-        """Accumulate unmatched capitalized n-grams for taxonomy review.
-
-        Nothing is auto-promoted; reviewing this table is a manual step.
-        """
-        if not terms:
-            return
-        now = datetime.now(timezone.utc).isoformat()
-        self.conn.executemany(
-            """
-            INSERT INTO skill_candidates (term, n_postings, first_seen, last_seen)
-            VALUES (?, ?, ?, ?)
-            ON CONFLICT (term) DO UPDATE SET
-                n_postings = skill_candidates.n_postings + excluded.n_postings,
-                last_seen = excluded.last_seen
-            """,
-            [(term, count, now, now) for term, count in terms.items()],
-        )
-        self.conn.commit()
-
     def close(self) -> None:
         self.conn.close()
 

@@ -216,6 +216,3 @@ class JobScorer:
             "coverage_ratio": ratio,
             "resume_match": self.roles.resume_for(posting.get("role_family")),
         }
-
-    def score_many(self, postings: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        return [self.score(posting) for posting in postings]

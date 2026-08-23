@@ -296,14 +296,6 @@ class Taxonomy:
 
         return problems
 
-    def shared_aliases(self) -> dict[str, list[str]]:
-        """Aliases that intentionally map to more than one skill, for review."""
-        owners: dict[str, list[str]] = {}
-        for key, skill in self.skills.items():
-            for alias in skill.aliases:
-                owners.setdefault(alias.strip().lower(), []).append(key)
-        return {a: k for a, k in owners.items() if len(k) > 1}
-
     # -- canonicalization --------------------------------------------------------------
     def canonicalize(self, surfaces: list[str]) -> list[str]:
         """Map candidate surface strings onto canonical keys, dropping the unrecognized.

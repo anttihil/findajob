@@ -16,6 +16,8 @@ once per answered question. A cursor in the state and a conditional edge keeps e
 to exactly one turn of work.
 """
 
+from __future__ import annotations
+
 from typing import TYPE_CHECKING, Annotated, Any, TypedDict
 
 from careerradar.core.llm import (
@@ -348,8 +350,8 @@ def route_after_review(state: ProfileState) -> str:
 
 
 def build_graph(
-    checkpointer: "BaseCheckpointSaver[Any] | None" = None,
-) -> "CompiledStateGraph[Any, Any, Any, Any]":
+    checkpointer: BaseCheckpointSaver[Any] | None = None,
+) -> CompiledStateGraph[Any, Any, Any, Any]:
     from langgraph.graph import END, START, StateGraph
 
     builder = StateGraph(ProfileState)

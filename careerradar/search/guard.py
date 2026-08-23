@@ -101,7 +101,6 @@ class SourceCircuit:
         self.rate_limit_trips_immediately = breaker.get("http_429_trips_immediately", True)
         self.source_backoff_minutes = breaker.get("source_backoff_minutes", [15, 60, 240, 1440])
         self.cell_backoff_minutes = breaker.get("cell_backoff_minutes", [60, 360, 1440])
-        self.max_retries = breaker.get("transient_retries", 2)
         self.proxy_rotation_retries = breaker.get("proxy_rotation_retries", 3)
         self.rotation_attempts = 0
 
