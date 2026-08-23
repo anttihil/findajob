@@ -325,8 +325,19 @@ def normalize_date_posted(
     window_end = observed_at
     window_start = observed_at - timedelta(hours=hours_old) if hours_old else None
 
+    if isinstance(posted, datetime):
+        posted_iso = (
+            posted.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+            if posted.tzinfo
+            else f"{posted.strftime('%Y-%m-%dT%H:%M:%S')}Z"
+        )
+    elif isinstance(posted, date):
+        posted_iso = f"{posted.isoformat()}T12:00:00Z"
+    else:
+        posted_iso = None
+
     return {
-        "date_posted": posted.isoformat() if posted else None,
+        "date_posted": posted_iso,
         "date_precision": "exact" if posted else ("interval" if hours_old else "unknown"),
         "posted_window_start": window_start.isoformat() if window_start else None,
         "posted_window_end": window_end.isoformat(),

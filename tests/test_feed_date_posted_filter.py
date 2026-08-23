@@ -119,6 +119,25 @@ class DatePostedDatabaseTests(unittest.TestCase):
         self.assertEqual(ids_3d, q_3d)
         self.assertEqual(ids_3d, [1, 2])
 
+    def test_filter_date_normalized_to_noon(self) -> None:
+        today_noon = datetime.now(timezone.utc).strftime("%Y-%m-%dT12:00:00Z")
+        yesterday_noon = (datetime.now(timezone.utc) - timedelta(days=1)).strftime(
+            "%Y-%m-%dT12:00:00Z"
+        )
+        five_days_ago_noon = (datetime.now(timezone.utc) - timedelta(days=5)).strftime(
+            "%Y-%m-%dT12:00:00Z"
+        )
+
+        self.job(1, date_posted=today_noon)
+        self.job(2, date_posted=yesterday_noon)
+        self.job(3, date_posted=five_days_ago_noon)
+
+        res_24h = self.db.query_jobs(date_posted="24h")
+        self.assertIn(1, [j["id"] for j in res_24h["jobs"]])
+
+        res_7d = self.db.query_jobs(date_posted="7d")
+        self.assertEqual([j["id"] for j in res_7d["jobs"]], [1, 2, 3])
+
     def test_date_posted_parameter_signature_parity(self) -> None:
         query_sig = inspect.signature(self.db.query_jobs)
         ids_sig = inspect.signature(self.db.job_ids_for)

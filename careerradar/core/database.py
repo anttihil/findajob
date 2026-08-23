@@ -116,16 +116,16 @@ class Database:
     _LIVENESS_CASE = """
         CASE
           WHEN jobs.last_seen_at IS NULL OR cell.last_success_at IS NULL THEN 'unknown'
-          WHEN julianday(cell.last_success_at) - julianday(jobs.last_seen_at) > 0.5 THEN
+          WHEN unixepoch(cell.last_success_at) - unixepoch(jobs.last_seen_at) > 43200 THEN
                CASE
                  WHEN jobs.date_posted IS NOT NULL
-                      AND (julianday(cell.last_success_at)
-                           - julianday(jobs.date_posted)) * 24
-                          <= COALESCE(cell.last_hours_old, 0)
+                      AND (unixepoch(cell.last_success_at)
+                           - unixepoch(jobs.date_posted))
+                          <= COALESCE(cell.last_hours_old, 0) * 3600
                       THEN 'likely_closed'
                  ELSE 'unknown'
                END
-          WHEN julianday('now') - julianday(cell.last_success_at) > 7 THEN 'stale'
+          WHEN unixepoch('now') - unixepoch(cell.last_success_at) > 604800 THEN 'stale'
           ELSE 'live'
         END"""
 
@@ -164,7 +164,7 @@ class Database:
 
     _FEED_ORDER_BY = (
         "v.fit DESC NULLS LAST, "
-        "COALESCE(jobs.date_posted, date(jobs.date_found)) DESC, "
+        "COALESCE(jobs.date_posted, jobs.date_found) DESC, "
         "jobs.date_found DESC"
     )
 
@@ -240,11 +240,12 @@ class Database:
             sql += " AND v.reason_type = ?"
             params.append(reason_type.strip().lower())
         if date_posted and date_posted in self.DATE_POSTED_WINDOWS:
-            sql += (
-                " AND (julianday('now') - "
-                "julianday(COALESCE(jobs.date_posted, jobs.date_found))) <= ?"
+            hours = self.DATE_POSTED_WINDOWS[date_posted] * 24
+            cutoff = (datetime.now(timezone.utc) - timedelta(hours=hours)).strftime(
+                "%Y-%m-%dT%H:%M:%SZ"
             )
-            params.append(self.DATE_POSTED_WINDOWS[date_posted])
+            sql += " AND COALESCE(jobs.date_posted, jobs.date_found) >= ?"
+            params.append(cutoff)
         if is_remote is not None:
             sql += " AND jobs.is_remote = ?"
             params.append(1 if is_remote else 0)

@@ -119,7 +119,7 @@ class MigrationV15Tests(unittest.TestCase):
         self.assertEqual(current_version(self.conn), 14)
         migrate(self.conn)
         self.assertEqual(current_version(self.conn), SCHEMA_VERSION)
-        self.assertEqual(SCHEMA_VERSION, 15)
+        self.assertEqual(SCHEMA_VERSION, MIGRATIONS[-1][0])
 
     def test_legacy_columns_are_dropped(self) -> None:
         self.seed_v14()
@@ -169,7 +169,7 @@ class MigrationV15Tests(unittest.TestCase):
     def test_fresh_database(self) -> None:
         migrate(self.conn)
         self.assertEqual(self.columns(), EXPECTED_COLUMNS)
-        self.assertEqual(current_version(self.conn), 15)
+        self.assertEqual(current_version(self.conn), SCHEMA_VERSION)
 
 
 if __name__ == "__main__":

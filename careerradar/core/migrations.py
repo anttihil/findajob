@@ -13,7 +13,7 @@ from careerradar.core.logger import get_logger
 
 logger = get_logger()
 
-SCHEMA_VERSION = 15
+SCHEMA_VERSION = 16
 
 
 def _v1_baseline(cursor: sqlite3.Cursor) -> None:
@@ -670,11 +670,11 @@ def _v6_ordinal_verdicts(cursor: sqlite3.Cursor) -> None:
                  WHEN j.last_seen_at IS NULL OR c.last_success_at IS NULL THEN 'unknown'
                  -- The cell was scraped well after we last saw this posting, and it did
                  -- not come back. That is the only case where absence is evidence.
-                 WHEN julianday(c.last_success_at) - julianday(j.last_seen_at) > 0.5
+                 WHEN unixepoch(c.last_success_at) - unixepoch(j.last_seen_at) > 43200
                       THEN 'likely_closed'
                  -- Nobody has looked at this cell in over a week, so we know nothing
                  -- current about it either way.
-                 WHEN julianday('now') - julianday(c.last_success_at) > 7 THEN 'stale'
+                 WHEN unixepoch('now') - unixepoch(c.last_success_at) > 604800 THEN 'stale'
                  ELSE 'live'
                END AS liveness
         FROM jobs j
@@ -925,18 +925,18 @@ def _v12_liveness_window(cursor: sqlite3.Cursor) -> None:
                  -- The cell was scraped well after we last saw this posting. Absence is
                  -- evidence only if that scrape's recency window reached back far enough
                  -- to have returned the posting at all.
-                 WHEN julianday(c.last_success_at) - julianday(j.last_seen_at) > 0.5 THEN
+                 WHEN unixepoch(c.last_success_at) - unixepoch(j.last_seen_at) > 43200 THEN
                       CASE
                         WHEN j.date_posted IS NOT NULL
-                             AND (julianday(c.last_success_at)
-                                  - julianday(j.date_posted)) * 24
-                                 <= COALESCE(c.last_hours_old, 0)
+                             AND (unixepoch(c.last_success_at)
+                                  - unixepoch(j.date_posted))
+                                 <= COALESCE(c.last_hours_old, 0) * 3600
                              THEN 'likely_closed'
                         ELSE 'unknown'
                       END
                  -- Nobody has looked at this cell in over a week, so we know nothing
                  -- current about it either way.
-                 WHEN julianday('now') - julianday(c.last_success_at) > 7 THEN 'stale'
+                 WHEN unixepoch('now') - unixepoch(c.last_success_at) > 604800 THEN 'stale'
                  ELSE 'live'
                END AS liveness
         FROM jobs j
@@ -1200,6 +1200,49 @@ def _v15_drop_legacy_verdict_columns(cursor: sqlite3.Cursor) -> None:
     )
 
 
+def _v16_timestamp_normalization_and_liveness(cursor: sqlite3.Cursor) -> None:
+    """Normalize date-only date_posted values to 12:00:00Z and use unixepoch in v_job_liveness.
+
+    Date-only strings ('YYYY-MM-DD') lack time granularity and cause rollover issues in
+    windowed queries. Backfilling them to 12:00:00Z sets a deterministic midpoint.
+    v_job_liveness is rewritten to use unixepoch() rather than julianday().
+    """
+    cursor.execute(
+        """
+        UPDATE jobs
+        SET date_posted = date_posted || 'T12:00:00Z'
+        WHERE date_posted IS NOT NULL AND length(date_posted) = 10
+        """
+    )
+    cursor.execute("DROP VIEW IF EXISTS v_job_liveness")
+    cursor.execute(
+        """
+        CREATE VIEW v_job_liveness AS
+        SELECT j.id AS job_id,
+               j.last_seen_at,
+               c.last_success_at AS cell_last_success_at,
+               CASE
+                 WHEN j.last_seen_at IS NULL OR c.last_success_at IS NULL THEN 'unknown'
+                 -- The cell was scraped well after we last saw this posting (12h grace).
+                 WHEN unixepoch(c.last_success_at) - unixepoch(j.last_seen_at) > 43200 THEN
+                      CASE
+                        WHEN j.date_posted IS NOT NULL
+                             AND (unixepoch(c.last_success_at)
+                                  - unixepoch(j.date_posted))
+                                 <= COALESCE(c.last_hours_old, 0) * 3600
+                             THEN 'likely_closed'
+                        ELSE 'unknown'
+                      END
+                 -- Stale if no scrape in over 7 days (7 * 86400s).
+                 WHEN unixepoch('now') - unixepoch(c.last_success_at) > 604800 THEN 'stale'
+                 ELSE 'live'
+               END AS liveness
+        FROM jobs j
+        LEFT JOIN scrape_cells c ON c.id = j.scrape_cell_id
+        """
+    )
+
+
 MIGRATIONS: list[tuple[int, str, Callable[[sqlite3.Cursor], None]]] = [
     (1, "baseline jobs table", _v1_baseline),
     (2, "market analytics: cells, observations, skills, stats", _v2_analytics),
@@ -1223,6 +1266,11 @@ MIGRATIONS: list[tuple[int, str, Callable[[sqlite3.Cursor], None]]] = [
         15,
         "remove legacy job_verdict columns",
         _v15_drop_legacy_verdict_columns,
+    ),
+    (
+        16,
+        "timestamp normalization and unixepoch liveness view",
+        _v16_timestamp_normalization_and_liveness,
     ),
 ]
 

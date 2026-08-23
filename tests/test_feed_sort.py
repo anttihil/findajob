@@ -78,8 +78,8 @@ class DatePostedSortTests(unittest.TestCase):
 
     def test_the_feed_descends_by_posted_date_not_found_date(self) -> None:
         # 1 was posted first and found last; a `date_found` sort would invert these.
-        self.job(1, "2026-08-01", "2026-08-14T09:00:00+00:00")
-        self.job(2, "2026-08-10", "2026-08-11T09:00:00+00:00")
+        self.job(1, "2026-08-01T12:00:00Z", "2026-08-14T09:00:00+00:00")
+        self.job(2, "2026-08-10T12:00:00Z", "2026-08-11T09:00:00+00:00")
         self.assertEqual([2, 1], self.feed())
 
     def test_the_feed_descends_by_posted_timestamp_granularity(self) -> None:
@@ -89,28 +89,28 @@ class DatePostedSortTests(unittest.TestCase):
         self.assertEqual([2, 1], self.feed())
 
     def test_a_same_day_tie_breaks_on_the_found_date(self) -> None:
-        self.job(1, "2026-08-10", "2026-08-10T09:00:00+00:00")
-        self.job(2, "2026-08-10", "2026-08-12T09:00:00+00:00")
+        self.job(1, "2026-08-10T12:00:00Z", "2026-08-10T09:00:00+00:00")
+        self.job(2, "2026-08-10T12:00:00Z", "2026-08-12T09:00:00+00:00")
         self.assertEqual([2, 1], self.feed())
 
     def test_a_posting_with_no_posted_date_sorts_by_the_day_it_was_found(self) -> None:
         # The point of the COALESCE: 2 has no date, and must land between the two dated
         # rows rather than after both of them.
-        self.job(1, "2026-08-12", "2026-08-12T09:00:00+00:00")
+        self.job(1, "2026-08-12T12:00:00Z", "2026-08-12T09:00:00+00:00")
         self.job(2, None, "2026-08-10T09:00:00+00:00")
-        self.job(3, "2026-08-05", "2026-08-05T09:00:00+00:00")
+        self.job(3, "2026-08-05T12:00:00Z", "2026-08-05T09:00:00+00:00")
         self.assertEqual([1, 2, 3], self.feed())
 
-    def test_the_found_timestamp_is_truncated_to_its_day_before_comparison(self) -> None:
-        # Otherwise the full ISO-8601 string compares against a bare YYYY-MM-DD and every
-        # dateless row outranks the dated row it shares a day with.
-        self.job(1, "2026-08-10", "2026-08-10T23:59:00+00:00")
+    def test_a_posting_normalized_to_noon_ranks_consistently_with_found_timestamp(self) -> None:
+        # A date-only posting normalized to noon UTC (12:00:00Z) ranks ahead of early-morning
+        # found timestamps and behind late-night found timestamps.
+        self.job(1, "2026-08-10T12:00:00Z", "2026-08-10T23:59:00+00:00")
         self.job(2, None, "2026-08-10T00:01:00+00:00")
         self.assertEqual([1, 2], self.feed())
 
     def test_job_ids_for_matches_query_jobs_order(self) -> None:
-        self.job(1, "2026-08-01", "2026-08-01T09:00:00+00:00")
-        self.job(2, "2026-08-10", "2026-08-10T09:00:00+00:00")
+        self.job(1, "2026-08-01T12:00:00Z", "2026-08-01T09:00:00+00:00")
+        self.job(2, "2026-08-10T12:00:00Z", "2026-08-10T09:00:00+00:00")
         self.assertEqual([2, 1], self.db.job_ids_for(status="unread", limit=50))
 
     def test_sort_parameter_removed_from_database_methods(self) -> None:
