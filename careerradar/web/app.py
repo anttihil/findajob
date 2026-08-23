@@ -1,5 +1,4 @@
 import asyncio
-import json
 import os
 import threading
 from collections.abc import Awaitable, Callable
@@ -30,7 +29,6 @@ from careerradar.core.config import deep_merge, load_config, save_config
 from careerradar.core.database import Database
 from careerradar.core.logger import get_logger
 from careerradar.core.paths import FRONTEND_DIR
-from careerradar.core.status import collect as collect_status
 from careerradar.core.status_manager import (
     clear_stale_lock,
     is_sync_running,
@@ -403,7 +401,7 @@ def get_profile():
     a blank profile rendered as a real one is how the previous design let a missing corpus
     quietly shift every score.
     """
-    from careerradar.profile.store import load_active_row
+    from careerradar.profile.repository import load_active_row
 
     record = load_active_row()
     if record is None:
@@ -416,7 +414,7 @@ def get_profile():
 
 @app.get("/api/profile/versions")
 def get_profile_versions():
-    from careerradar.profile.store import list_versions
+    from careerradar.profile.repository import list_versions
 
     return list_versions()
 
@@ -431,27 +429,12 @@ def dossier_for(db: Database, company: str | None) -> dict[str, Any] | None:
     serves. The drawer used to fetch this itself and swallow every failure in a bare
     `catch`, which meant "no dossier" and "the request broke" looked identical.
     """
-    from careerradar.search.normalizer import normalize_company
-
     if not company:
         return None
-    # Two indexed probes rather than one `OR`. SQLite will not use an index for either arm
-    # of a disjunction across two columns, so the single-statement version scanned
-    # `company_dossiers` on every drawer open; both columns are indexed as of migration v9.
-    row = db.conn.execute(
-        "SELECT * FROM company_dossiers WHERE company_normalized = ?",
-        (normalize_company(company),),
-    ).fetchone()
-    if row is None:
-        row = db.conn.execute(
-            "SELECT * FROM company_dossiers WHERE company_display = ?", (company,)
-        ).fetchone()
-    if row is None:
-        return None
-    record = dict(row)
-    for field in ("intel_json", "contacts_json", "nearby_jobs_json", "sources_json"):
-        record[field.removesuffix("_json")] = json.loads(record.pop(field) or "null")
-    return record
+
+    from careerradar.research import repository as research_repo
+
+    return research_repo.get_dossier_by_company(db.conn, company)
 
 
 @app.get("/api/companies/{company}/dossier")
@@ -580,44 +563,15 @@ def pipeline_status():
     *in progress right now* has gotten, and whether the scorer -- which has no lock file,
     only a timer -- has written anything in the last few minutes.
     """
+    from careerradar.core import status_repository as status_repo
+
     db = get_db()
     try:
-        report = collect_status(db)
-        running = is_sync_running()
-
-        scrape: dict[str, Any] = {
-            "in_progress": running,
-            "started_at": load_sync_status().get("started_at") if running else None,
-            "previous_run": report["search"],
-        }
-        if running:
-            run = db.conn.execute(
-                "SELECT id FROM sync_runs WHERE status = 'running' ORDER BY id DESC LIMIT 1"
-            ).fetchone()
-            if run is not None:
-                config = load_config()
-                roles = load_roles()
-                enabled = [
-                    name
-                    for name, on in (config.get("scraper", {}).get("sources") or {}).items()
-                    if on
-                ]
-                scrape["cells_done"] = db.conn.execute(
-                    "SELECT COUNT(*) FROM cell_observations WHERE sync_run_id = ?",
-                    (run["id"],),
-                ).fetchone()[0]
-                scrape["cells_planned"] = sum(
-                    len(scrape_tasks(db, config, roles, source)) for source in enabled
-                )
-
-        recent_verdicts = db.conn.execute(
-            "SELECT COUNT(*) FROM job_verdicts WHERE created_at >= datetime('now', '-5 minutes')"
-        ).fetchone()[0]
-
-        return {
-            "scrape": scrape,
-            "score": {**report["score"], "recent_verdicts_5min": recent_verdicts},
-        }
+        return status_repo.get_pipeline_status(
+            db.conn,
+            sync_running=is_sync_running(),
+            db_instance=db,
+        )
     finally:
         db.close()
 

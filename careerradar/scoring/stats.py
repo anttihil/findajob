@@ -1,8 +1,7 @@
-"""Distribution observability for stored verdicts. Reads the database, calls nothing."""
-
 from typing import Any
 
 from careerradar.core.database import Database
+from careerradar.scoring import repository as scoring_repo
 
 
 def collect(
@@ -13,46 +12,7 @@ def collect(
     owned = db is None
     db = db or Database()
     try:
-        if profile_version is None:
-            row = db.conn.execute("SELECT version FROM profiles WHERE is_active = 1").fetchone()
-            if row is None:
-                return None
-            profile_version = row[0]
-
-        query = "SELECT fit, reason_type, cost_usd FROM job_verdicts WHERE profile_version = ?"
-        params: list[Any] = [profile_version]
-        rows = db.conn.execute(query, params).fetchall()
-        if not rows:
-            return {"profile_version": profile_version, "total": 0}
-
-        fit_count = 0
-        no_fit_count = 0
-        unscored_fit_count = 0
-        reasons: dict[str, int] = {}
-        cost = 0.0
-
-        for row in rows:
-            fit_val = row["fit"]
-            if fit_val == 1:
-                fit_count += 1
-            elif fit_val == 0:
-                no_fit_count += 1
-            else:
-                unscored_fit_count += 1
-
-            rtype = (row["reason_type"] or "unspecified").strip().lower()
-            reasons[rtype] = reasons.get(rtype, 0) + 1
-            cost += row["cost_usd"] or 0.0
-
-        return {
-            "profile_version": profile_version,
-            "total": len(rows),
-            "fit_count": fit_count,
-            "no_fit_count": no_fit_count,
-            "unscored_fit_count": unscored_fit_count,
-            "reasons": dict(sorted(reasons.items(), key=lambda kv: -kv[1])),
-            "cost": cost,
-        }
+        return scoring_repo.get_verdict_distribution_stats(db.conn, profile_version=profile_version)
     finally:
         if owned:
             db.close()

@@ -120,7 +120,7 @@ def load_profile(
     required: bool = True,
 ) -> ProfileAdapter | None:
     """Load the active profile as a ProfileAdapter."""
-    from careerradar.profile.store import load_active
+    from careerradar.profile.repository import load_active
 
     loaded = load_active(db=db)
     if loaded is None:

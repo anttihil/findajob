@@ -22,8 +22,8 @@ from careerradar.core.llm import (
 )
 from careerradar.core.logger import get_logger
 from careerradar.profile.adapter import NoActiveProfile, ProfileAdapter, load_profile
-from careerradar.profile.models import VERDICT_SCHEMA_VERSION
-from careerradar.profile.store import load_active
+from careerradar.profile.repository import load_active
+from careerradar.scoring import repository as scoring_repo
 from careerradar.scoring.graph import build_graph
 from careerradar.scoring.prompts import (
     build_system,
@@ -32,7 +32,6 @@ from careerradar.scoring.prompts import (
     render_posting,
     render_skill_hint,
 )
-from careerradar.taxonomy.roles import SENIORITY_UNSPECIFIED
 from careerradar.taxonomy.skills import Taxonomy, load_taxonomy
 
 if TYPE_CHECKING:
@@ -46,15 +45,11 @@ CHARS_PER_TOKEN = 3.0
 EXPECTED_COMPLETION_TOKENS = 60
 
 
-# Consecutive failed runs before a posting stops being offered.
-#
-# 3, not 1: the graph already spends MAX_ATTEMPTS within a run, so one failed run is
-# usually a real transient -- a 429 storm hits every posting in flight and would quarantine
-# the whole batch at 1. Three separate runs failing the same posting is not a draw.
-#
-# Each run costs up to MAX_ATTEMPTS calls, so this bounds a permanently-broken posting at
-# ~9 calls total rather than 3 a run forever.
-MAX_SCORING_FAILURES = 3
+MAX_SCORING_FAILURES = scoring_repo.MAX_SCORING_FAILURES
+_seniority_clause = scoring_repo._seniority_clause
+_live_clause = scoring_repo._live_clause
+_ELIGIBLE = scoring_repo._ELIGIBLE
+_NO_VERDICT = scoring_repo._NO_VERDICT
 
 
 def _build_scorer(
@@ -85,57 +80,6 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-# The eligibility half of the backlog predicate, in one place.
-#
-# `_select` and `_pending` must ask the same question. They did not: the closing counter
-# read `pipeline_state = 'new'`, which counts rows `_select` can never return -- a
-# duplicate, a stub description, a posting a re-scrape could not find. So it reported a
-# backlog no run could drain and that never reached zero, while the postings actually
-# queued (a stale `verdict_schema_version` on a row already marked 'scored') went unnamed.
-_ELIGIBLE = """
-      FROM jobs j
-      LEFT JOIN v_job_liveness l ON l.job_id = j.id
-     WHERE j.duplicate_of IS NULL
-       AND j.description IS NOT NULL AND length(j.description) > 200
-       AND COALESCE(j.scoring_failures, 0) < {max_failures}
-       {live_clause}
-       {seniority_clause}
-"""
-
-
-def _seniority_clause() -> str:
-    """Exclude seniority levels config says are not worth judging.
-
-    Measured on prod_jobs.db (2026-08-16, 17,471 verdicts), `lead` and `staff` together are
-    32% of all verdicts for 8 hits -- 0.1% and 0.4% against 12.8% for `unspecified`. The
-    split is not a family effect: inside the seven highest-yield families lead/staff still
-    score 0.5%, so this is orthogonal to roles.yaml's tiering and cannot be expressed there.
-
-    Scoring is the only stage that can apply it. Seniority is derived from the title, so the
-    posting must already be scraped and stored before the level is known; what this saves is
-    LLM calls and dashboard noise, not scrape budget.
-    """
-    levels = (load_config().get("scoring") or {}).get("skip_seniority") or []
-    if not levels:
-        return ""
-    quoted = ", ".join("'" + level.replace("'", "''") + "'" for level in levels)
-    return f"AND COALESCE(j.seniority, '{SENIORITY_UNSPECIFIED}') NOT IN ({quoted})"
-
-
-# The "needs a verdict under this profile" half. Separate because --rescore-all drops it.
-_NO_VERDICT = """
-       AND NOT EXISTS (
-             SELECT 1 FROM job_verdicts v
-              WHERE v.job_id = j.id AND v.profile_version = ?
-                AND COALESCE(v.verdict_schema_version, 1) >= ?
-           )
-"""
-
-
-def _live_clause(include_closed: bool) -> str:
-    return "" if include_closed else "AND COALESCE(l.liveness, 'unknown') != 'likely_closed'"
-
-
 def _select(
     db: Database,
     limit: int | None,
@@ -143,127 +87,31 @@ def _select(
     profile_version: int,
     include_closed: bool = False,
 ) -> list[dict[str, Any]]:
-    """Postings needing a verdict under the active profile.
-
-    `rescore_all` re-scores everything; the default picks up postings with no verdict for
-    *this* profile version, which is what makes a profile rebuild resumable -- an
-    interrupted re-score continues instead of starting over.
-
-    A verdict stored under an older `verdict_schema_version` counts as missing, so raising
-    VERDICT_SCHEMA_VERSION drains the backlog through the same resumable path instead of
-    needing `--rescore-all`, which starts over on every interruption.
-
-    Postings the cell has been re-scraped without finding are skipped. Measured on the
-    cells scraped in two windows without saturating, roughly half of postings vanish within
-    a week; scoring them spends money to rank dead listings at the top of the dashboard.
-    """
-    where = _ELIGIBLE.format(
-        live_clause=_live_clause(include_closed),
-        max_failures=MAX_SCORING_FAILURES,
-        seniority_clause=_seniority_clause(),
+    return scoring_repo.select_scoring_backlog(
+        db.conn,
+        limit=limit,
+        rescore_all=rescore_all,
+        profile_version=profile_version,
+        include_closed=include_closed,
     )
-
-    if rescore_all:
-        query = "SELECT j.*" + where + " ORDER BY j.date_found DESC"
-        params: list[Any] = []
-    else:
-        query = "SELECT j.*" + where + _NO_VERDICT + " ORDER BY j.date_found DESC"
-        params = [profile_version, VERDICT_SCHEMA_VERSION]
-
-    if limit:
-        query += " LIMIT ?"
-        params.append(limit)
-    return [dict(row) for row in db.conn.execute(query, params)]
 
 
 def _pending(db: Database, profile_version: int, include_closed: bool = False) -> int:
-    """How many postings a *next* run would actually select.
-
-    Always the incremental predicate, even after --rescore-all: "what is left to do" is
-    the backlog, not whatever this run chose to redo.
-    """
-    sql = (
-        "SELECT COUNT(*)"
-        + _ELIGIBLE.format(
-            live_clause=_live_clause(include_closed),
-            max_failures=MAX_SCORING_FAILURES,
-            seniority_clause=_seniority_clause(),
-        )
-        + _NO_VERDICT
+    return scoring_repo.count_pending_scoring(
+        db.conn, profile_version=profile_version, include_closed=include_closed
     )
-    return db.conn.execute(sql, [profile_version, VERDICT_SCHEMA_VERSION]).fetchone()[0]
 
 
 def _ineligible(db: Database) -> sqlite3.Row:
-    """Postings left in 'new' that no run will ever select, by reason.
-
-    Reported rather than hidden, on the same principle as the analytics gates: suppress
-    with a reason, never silently omit. Otherwise they read as pending work forever.
-
-    The reasons are precedence-ordered -- duplicate, then thin, then closed, then seniority
-    -- so they sum to the total. Counted independently they would not: a posting is
-    routinely two of them at once. Under this order `closed` means "unique, substantive,
-    and dead", which is the only one a future scrape can change, and `seniority` means
-    "unique, substantive, live, and deliberately not judged".
-    """
-    seniority = _seniority_clause()
-    # The reason column is the NEGATION of the eligibility clause, so an empty
-    # skip_seniority has to read as "nothing excluded" rather than as SUM(NOT '') .
-    seniority_hit = f"NOT ({seniority[4:]})" if seniority else "0"
-    return db.conn.execute(f"""
-        SELECT
-          COUNT(*) AS total,
-          SUM(j.duplicate_of IS NOT NULL) AS duplicate,
-          SUM(j.duplicate_of IS NULL
-              AND (j.description IS NULL OR length(j.description) <= 200)) AS thin,
-          SUM(j.duplicate_of IS NULL
-              AND j.description IS NOT NULL AND length(j.description) > 200
-              AND COALESCE(l.liveness, 'unknown') = 'likely_closed') AS closed,
-          SUM(j.duplicate_of IS NULL
-              AND j.description IS NOT NULL AND length(j.description) > 200
-              AND COALESCE(l.liveness, 'unknown') != 'likely_closed'
-              AND {seniority_hit}) AS seniority
-          FROM jobs j
-          LEFT JOIN v_job_liveness l ON l.job_id = j.id
-         WHERE j.pipeline_state = 'new'
-           -- Only the rows that are actually ineligible. `pipeline_state = 'new'` alone
-           -- also holds freshly scraped postings that ARE queued, and counting those here
-           -- would report them twice: once as remaining, once as never scoreable.
-           AND (j.duplicate_of IS NOT NULL
-                OR j.description IS NULL OR length(j.description) <= 200
-                OR COALESCE(l.liveness, 'unknown') = 'likely_closed'
-                OR {seniority_hit})
-    """).fetchone()
+    return scoring_repo.get_ineligible_breakdown(db.conn)
 
 
 def _record_failure(db: Database, job_id: int, error: str | BaseException | None) -> None:
-    """Count a failed run against the posting, with the reason that failed it.
-
-    Counts RUNS, not attempts: the graph's three tries inside one run are one draw at the
-    same conditions, so counting each would quarantine after a single rate-limit storm.
-    """
-    db.conn.execute(
-        "UPDATE jobs SET scoring_failures = COALESCE(scoring_failures, 0) + 1, "
-        "last_scoring_error = ?, last_scoring_failure_at = ? WHERE id = ?",
-        (str(error)[:500] if error else None, _now(), job_id),
-    )
+    scoring_repo.record_scoring_failure(db.conn, job_id=job_id, error=error)
 
 
 def _quarantined(db: Database) -> list[sqlite3.Row]:
-    """Postings withdrawn from the queue after failing MAX_SCORING_FAILURES runs.
-
-    Grouped by the error that stopped them, because the useful question is never "which
-    posting" but "what keeps breaking" -- one bad prompt rule and one unparseable posting
-    look identical in a count and nothing alike in a listing.
-    """
-    return db.conn.execute(
-        "SELECT COUNT(*) AS total, "
-        "       MIN(id) AS example, "
-        "       COALESCE(substr(last_scoring_error, 1, 60), '(unrecorded)') AS reason "
-        "  FROM jobs WHERE COALESCE(scoring_failures, 0) >= ? "
-        " GROUP BY reason ORDER BY total DESC",
-        (MAX_SCORING_FAILURES,),
-    ).fetchall()
+    return scoring_repo.get_quarantined_jobs(db.conn, max_failures=MAX_SCORING_FAILURES)
 
 
 def _persist(
@@ -276,53 +124,16 @@ def _persist(
     profile_version: int,
     phash: str,
 ) -> None:
-    fit_val = 1 if verdict.get("fit") else 0
-    reason_type = verdict.get("reason_type") or "unknown"
-    reason_desc = verdict.get("reason_description") or ""
-
-    db.conn.execute(
-        """
-        INSERT INTO job_verdicts
-            (job_id, profile_version, model, fit, reason_type, reason_description,
-             tokens_in, tokens_cached, tokens_out, cost_usd, created_at,
-             verdict_schema_version, prompt_hash)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(job_id, profile_version) DO UPDATE SET
-            model = excluded.model,
-            fit = excluded.fit,
-            reason_type = excluded.reason_type,
-            reason_description = excluded.reason_description,
-            tokens_in = excluded.tokens_in,
-            tokens_cached = excluded.tokens_cached,
-            tokens_out = excluded.tokens_out,
-            cost_usd = excluded.cost_usd,
-            created_at = excluded.created_at,
-            verdict_schema_version = excluded.verdict_schema_version,
-            prompt_hash = excluded.prompt_hash
-        """,
-        (
-            job["id"],
-            profile_version,
-            model,
-            fit_val,
-            reason_type,
-            reason_desc,
-            usage["prompt"] if usage else None,
-            usage["cache_hit"] if usage else None,
-            usage["completion"] if usage else None,
-            cost,
-            _now(),
-            VERDICT_SCHEMA_VERSION,
-            phash,
-        ),
+    scoring_repo.save_verdict(
+        db.conn,
+        job=job,
+        verdict=verdict,
+        usage=usage,
+        cost=cost,
+        model=model,
+        profile_version=profile_version,
+        phash=phash,
     )
-    db.conn.execute(
-        "UPDATE jobs SET scored_at = ?, pipeline_state = 'scored', "
-        "scoring_failures = 0, last_scoring_error = NULL WHERE id = ?",
-        (_now(), job["id"]),
-    )
-    if job.get("scrape_cell_id"):
-        db.update_cell_quality(job["scrape_cell_id"], 100.0 if verdict.get("fit") else 0.0)
 
 
 def _skill_hint(scorer: "JobScorer | None", job: dict[str, Any]) -> str:
@@ -356,19 +167,9 @@ def run_retry(job_id: int | None = None) -> int:
     """
     db = Database()
     try:
-        if job_id is not None:
-            cursor = db.conn.execute(
-                "UPDATE jobs SET scoring_failures = 0, last_scoring_error = NULL WHERE id = ?",
-                (job_id,),
-            )
-        else:
-            cursor = db.conn.execute(
-                "UPDATE jobs SET scoring_failures = 0, last_scoring_error = NULL "
-                "WHERE COALESCE(scoring_failures, 0) > 0"
-            )
-        db.conn.commit()
+        cleared_count = scoring_repo.reset_scoring_failures(db.conn, job_id=job_id)
         print(
-            f"cleared the failure counter on {cursor.rowcount:,} posting(s); "
+            f"cleared the failure counter on {cleared_count:,} posting(s); "
             f"the next `score run` will offer them again."
         )
         return 0

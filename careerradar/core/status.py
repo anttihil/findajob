@@ -23,158 +23,22 @@ at 67% and another at 27%, those ratios describe the scored subset and not the m
 no amount of care downstream repairs it.
 """
 
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Any
 
-from careerradar.core.config import load_config
+from careerradar.core import status_repository as status_repo
 from careerradar.core.database import Database
 
-# A stage quiet for longer than this many times its expected interval is called stalled.
-# Two rather than one, because a single missed timer firing is normal and a report that
-# cries about it gets ignored.
-STALL_MULTIPLE = 2.0
-
-# Verdict coverage this far apart between two sources means family hit rates are describing
-# the better-scored source. Chosen off the observed 67%/27% split, which was enough to move
-# ai_engineer's apparent hit rate by 4x.
-COVERAGE_SKEW = 0.20
-
-
-def _hours_since(stamp: str | None, now: datetime) -> float | None:
-    if not stamp:
-        return None
-    try:
-        moment = datetime.fromisoformat(stamp)
-    except ValueError:
-        return None
-    if moment.tzinfo is None:
-        moment = moment.replace(tzinfo=timezone.utc)
-    return (now - moment).total_seconds() / 3600.0
+STALL_MULTIPLE = status_repo.STALL_MULTIPLE
+COVERAGE_SKEW = status_repo.COVERAGE_SKEW
+_hours_since = status_repo.hours_since
 
 
 def collect(db: Database | None = None, now: datetime | None = None) -> dict[str, Any]:
     owned = db is None
     db = db or Database()
-    now = now or datetime.now(timezone.utc)
-    config = load_config()
-    scraper = config.get("scraper", {}) or {}
-    cadence = scraper.get("cadence_hours") or {}
     try:
-        conn = db.conn
-        report: dict[str, Any] = {"generated_at": now.isoformat()}
-
-        # -- stages ---------------------------------------------------------------------
-        run = conn.execute(
-            "SELECT started_at, mode, status, cells_planned, cells_succeeded, postings_new "
-            "FROM sync_runs ORDER BY id DESC LIMIT 1"
-        ).fetchone()
-        runs_per_day = (
-            conn.execute(
-                "SELECT COUNT(*) FROM sync_runs WHERE started_at >= datetime('now', '-7 days')"
-            ).fetchone()[0]
-            / 7.0
-        )
-        report["search"] = {
-            "last_run": run["started_at"] if run else None,
-            "hours_since": _hours_since(run["started_at"], now) if run else None,
-            "status": run["status"] if run else None,
-            "cells": (run["cells_succeeded"], run["cells_planned"]) if run else None,
-            "postings_new": run["postings_new"] if run else None,
-            "runs_per_day_7d": round(runs_per_day, 1),
-        }
-
-        verdict = conn.execute("SELECT MAX(created_at) FROM job_verdicts").fetchone()[0]
-        backlog, oldest_new = conn.execute(
-            "SELECT COUNT(*), MIN(date_found) FROM jobs WHERE pipeline_state = 'new'"
-        ).fetchone()
-        total_jobs = conn.execute("SELECT COUNT(*) FROM jobs").fetchone()[0]
-        report["score"] = {
-            "last_verdict": verdict,
-            "hours_since": _hours_since(verdict, now),
-            "backlog": backlog,
-            "backlog_share": (backlog / total_jobs) if total_jobs else 0.0,
-            "oldest_unscored": oldest_new,
-            "oldest_unscored_days": (_hours_since(oldest_new, now) or 0) / 24.0,
-        }
-
-        research = conn.execute(
-            "SELECT started_at, status, companies FROM research_runs ORDER BY id DESC LIMIT 1"
-        ).fetchone()
-        report["research"] = {
-            "last_run": research["started_at"] if research else None,
-            "hours_since": _hours_since(research["started_at"], now) if research else None,
-            "status": research["status"] if research else None,
-            "dossiers": conn.execute("SELECT COUNT(*) FROM company_dossiers").fetchone()[0],
-        }
-
-        # -- verdict coverage, by source ---------------------------------------------------
-        report["coverage"] = [
-            {
-                "source": row["source"] or "unknown",
-                "postings": row["postings"],
-                "scored": row["scored"],
-                "share": (row["scored"] / row["postings"]) if row["postings"] else 0.0,
-            }
-            for row in conn.execute(
-                "SELECT j.source, COUNT(*) AS postings, "
-                "SUM(CASE WHEN v.id IS NOT NULL THEN 1 ELSE 0 END) AS scored "
-                "FROM jobs j LEFT JOIN job_verdicts v ON v.job_id = j.id "
-                "GROUP BY j.source ORDER BY postings DESC"
-            )
-        ]
-
-        # -- cells ------------------------------------------------------------------------
-        cells = []
-        for row in conn.execute(
-            "SELECT tier, COUNT(*) AS cells, "
-            "SUM(CASE WHEN last_success_at IS NULL THEN 1 ELSE 0 END) AS never, "
-            "MAX(last_success_at) AS newest, MIN(last_success_at) AS oldest, "
-            "SUM(CASE WHEN consecutive_error > 0 THEN 1 ELSE 0 END) AS erroring, "
-            "SUM(CASE WHEN backoff_until IS NOT NULL THEN 1 ELSE 0 END) AS backed_off "
-            "FROM scrape_cells WHERE enabled = 1 GROUP BY tier"
-        ):
-            oldest_hours = _hours_since(row["oldest"], now)
-            tier_cadence = cadence.get(row["tier"], 168)
-            cells.append(
-                {
-                    "tier": row["tier"],
-                    "cells": row["cells"],
-                    "never_scraped": row["never"],
-                    "oldest_success_hours": oldest_hours,
-                    "cadence_hours": tier_cadence,
-                    "stale": bool(oldest_hours and oldest_hours > tier_cadence * STALL_MULTIPLE),
-                    "erroring": row["erroring"],
-                    "backed_off": row["backed_off"],
-                }
-            )
-        report["cells"] = cells
-
-        # -- quarantine ---------------------------------------------------------------------
-        report["quarantined"] = [
-            {"id": row["id"], "title": row["title"], "error": row["last_scoring_error"]}
-            for row in conn.execute(
-                "SELECT id, title, last_scoring_error FROM jobs WHERE scoring_failures >= 3 "
-                "ORDER BY last_scoring_failure_at DESC LIMIT 10"
-            )
-        ]
-
-        # -- taxonomy drift -----------------------------------------------------------------
-        from careerradar.taxonomy.roles import load_roles
-        from careerradar.taxonomy.skills import load_taxonomy
-
-        stored = [
-            (row["taxonomy_hash"], row["n"])
-            for row in conn.execute(
-                "SELECT taxonomy_hash, COUNT(*) AS n FROM jobs WHERE taxonomy_hash IS NOT NULL "
-                "GROUP BY taxonomy_hash ORDER BY n DESC"
-            )
-        ]
-        report["taxonomy"] = {
-            "skills_hash": load_taxonomy().hash,
-            "roles_hash": load_roles().hash,
-            "stored": stored,
-        }
-        return report
+        return status_repo.collect_status_report(db.conn, now=now)
     finally:
         if owned:
             db.close()

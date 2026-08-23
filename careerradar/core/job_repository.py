@@ -1,0 +1,443 @@
+"""Job repository: job feed queries, filtering, sorting, dashboard stats, and status updates."""
+
+import copy
+import json
+import re
+import sqlite3
+from datetime import datetime, timedelta, timezone
+from difflib import SequenceMatcher
+from typing import Any
+
+# Memoized `get_stats()` results, keyed by database path: (data_version, write_generation) -> stats.
+_StatsCacheEntry = tuple[tuple[int, int], dict[str, Any]]
+
+# Memoized `get_stats()` results, keyed by database path.
+_STATS_CACHE: dict[str, _StatsCacheEntry] = {}
+
+# Memoized `job_ids_for()` results.
+_FEED_IDS_CACHE: dict[tuple[Any, ...], list[int]] = {}
+
+# Bumped by writes made on the same connection that later reads stats.
+_WRITE_GENERATION = 0
+
+
+def invalidate_stats() -> None:
+    global _WRITE_GENERATION
+    _WRITE_GENERATION += 1
+
+
+def fuzzy_job_search(
+    q_str: str | None,
+    title: str | None,
+    company: str | None,
+    skills: str | None,
+    location: str | None,
+    role_family: str | None,
+    seniority: str | None,
+) -> int:
+    """Multi-token typo-tolerant fuzzy matching across primary job posting fields."""
+    if not q_str or not q_str.strip():
+        return 1
+    combined = (
+        f"{title or ''} {company or ''} {skills or ''} "
+        f"{location or ''} {role_family or ''} {seniority or ''}"
+    ).lower()
+    tokens = [t for t in re.split(r"\s+", q_str.strip().lower()) if t]
+    if not tokens:
+        return 1
+    words = None
+    for token in tokens:
+        if token in combined:
+            continue
+        if words is None:
+            words = re.findall(r"[a-zA-Z0-9+#.-]+", combined)
+        token_len = len(token)
+        if token_len < 3:
+            return 0
+        max_dist = 1 if token_len <= 5 else 2
+        matched = False
+        for w in words:
+            if abs(len(w) - token_len) <= max_dist and len(set(token) - set(w)) <= max_dist:
+                ratio = SequenceMatcher(None, token, w).ratio()
+                if ratio >= (0.75 if token_len <= 5 else 0.8):
+                    matched = True
+                    break
+        if not matched:
+            return 0
+    return 1
+
+
+LIVENESS_CASE = """
+    CASE
+      WHEN jobs.last_seen_at IS NULL OR cell.last_success_at IS NULL THEN 'unknown'
+      WHEN unixepoch(cell.last_success_at) - unixepoch(jobs.last_seen_at) > 43200 THEN
+           CASE
+             WHEN jobs.date_posted IS NOT NULL
+                  AND (unixepoch(cell.last_success_at)
+                       - unixepoch(jobs.date_posted))
+                      <= COALESCE(cell.last_hours_old, 0) * 3600
+                  THEN 'likely_closed'
+             ELSE 'unknown'
+           END
+      WHEN unixepoch('now') - unixepoch(cell.last_success_at) > 604800 THEN 'stale'
+      ELSE 'live'
+    END"""
+
+FEED_FROM = """
+      FROM jobs
+      LEFT JOIN job_verdicts v
+             ON v.job_id = jobs.id
+            AND v.profile_version = (
+                SELECT version FROM profiles WHERE is_active = 1
+            )
+      LEFT JOIN scrape_cells cell ON cell.id = jobs.scrape_cell_id
+"""
+
+VERDICT_LIST_COLUMNS = (
+    "fit",
+    "reason_type",
+    "reason_description",
+)
+VERDICT_DETAIL_COLUMNS = VERDICT_LIST_COLUMNS
+
+LIST_OMITTED_JOB_COLUMNS = frozenset({"description"})
+JSON_COLUMNS = ("matched_skills",)
+
+DATE_POSTED_WINDOWS: dict[str, float] = {
+    "24h": 1.0,
+    "3d": 3.0,
+    "7d": 7.0,
+    "14d": 14.0,
+    "30d": 30.0,
+}
+
+FEED_ORDER_BY = (
+    "v.fit DESC NULLS LAST, COALESCE(jobs.date_posted, jobs.date_found) DESC, jobs.date_found DESC"
+)
+
+
+def select_columns(
+    conn: sqlite3.Connection,
+    detail: bool,
+    cached_columns: list[str] | None = None,
+) -> tuple[str, list[str]]:
+    """The SELECT list, minus what the caller will not read."""
+    if cached_columns is None:
+        cached_columns = [row[1] for row in conn.execute("PRAGMA table_info(jobs)")]
+    omitted = frozenset() if detail else LIST_OMITTED_JOB_COLUMNS
+    job_columns = [f"jobs.{name}" for name in cached_columns if name not in omitted]
+    verdict_columns = [
+        f"v.{name} AS {name}"
+        for name in (VERDICT_DETAIL_COLUMNS if detail else VERDICT_LIST_COLUMNS)
+    ]
+    columns_str = ",\n                   ".join(
+        job_columns + verdict_columns + [f"{LIVENESS_CASE} AS liveness"]
+    )
+    return columns_str, cached_columns
+
+
+def feed_filters(
+    *,
+    status: str | None = None,
+    country: str | None = None,
+    role_family: str | None = None,
+    seniority: str | None = None,
+    source: str | None = None,
+    is_remote: bool | None = None,
+    has_salary: bool | None = None,
+    access: str | None = None,
+    include_duplicates: bool = False,
+    min_score: int | None = None,
+    pipeline_state: str | None = None,
+    liveness: str | None = None,
+    job_id: int | None = None,
+    fit: bool | None = None,
+    reason_type: str | None = None,
+    date_posted: str | None = None,
+    q: str | None = None,
+) -> tuple[str, list[Any]]:
+    """The shared WHERE clause for feed queries, as (sql, params)."""
+    sql = ""
+    params: list[Any] = []
+
+    if job_id is not None:
+        sql += " AND jobs.id = ?"
+        params.append(job_id)
+    if not include_duplicates:
+        sql += " AND duplicate_of IS NULL"
+    for column, value in (
+        ("jobs.status", status),
+        ("jobs.country", country),
+        ("jobs.role_family", role_family),
+        ("jobs.seniority", seniority),
+        ("jobs.source", source),
+        ("jobs.access", access),
+        ("jobs.pipeline_state", pipeline_state),
+        (LIVENESS_CASE, liveness),
+    ):
+        if value:
+            sql += f" AND {column} = ?"
+            params.append(value)
+    if fit is not None:
+        sql += " AND v.fit = ?"
+        params.append(1 if fit else 0)
+    if reason_type:
+        sql += " AND v.reason_type = ?"
+        params.append(reason_type.strip().lower())
+    if date_posted and date_posted in DATE_POSTED_WINDOWS:
+        hours = DATE_POSTED_WINDOWS[date_posted] * 24
+        cutoff = (datetime.now(timezone.utc) - timedelta(hours=hours)).strftime(
+            "%Y-%m-%dT%H:%M:%SZ"
+        )
+        sql += " AND COALESCE(jobs.date_posted, jobs.date_found) >= ?"
+        params.append(cutoff)
+    if is_remote is not None:
+        sql += " AND jobs.is_remote = ?"
+        params.append(1 if is_remote else 0)
+    if has_salary is not None:
+        sql += (
+            " AND jobs.salary_annual_usd IS NOT NULL"
+            if has_salary
+            else " AND jobs.salary_annual_usd IS NULL"
+        )
+    if min_score is not None:
+        sql += " AND jobs.match_score >= ?"
+        params.append(min_score)
+    if q and q.strip():
+        sql += (
+            " AND fuzzy_search(?, jobs.title, jobs.company, jobs.matched_skills,"
+            " jobs.location, jobs.role_family, jobs.seniority) = 1"
+        )
+        params.append(q.strip())
+    return sql, params
+
+
+def query_jobs(
+    conn: sqlite3.Connection,
+    status: str | None = None,
+    country: str | None = None,
+    role_family: str | None = None,
+    seniority: str | None = None,
+    source: str | None = None,
+    is_remote: bool | None = None,
+    has_salary: bool | None = None,
+    access: str | None = None,
+    include_duplicates: bool = False,
+    min_score: int | None = None,
+    pipeline_state: str | None = None,
+    liveness: str | None = None,
+    job_id: int | None = None,
+    fit: bool | None = None,
+    reason_type: str | None = None,
+    date_posted: str | None = None,
+    q: str | None = None,
+    limit: int = 200,
+    offset: int = 0,
+    detail: bool = False,
+    cached_columns: list[str] | None = None,
+) -> tuple[dict[str, Any], list[str]]:
+    """Filtered, paginated posting list for the dashboard."""
+    if job_id is not None:
+        detail = True
+
+    where, params = feed_filters(
+        status=status,
+        country=country,
+        role_family=role_family,
+        seniority=seniority,
+        source=source,
+        is_remote=is_remote,
+        has_salary=has_salary,
+        access=access,
+        include_duplicates=include_duplicates,
+        min_score=min_score,
+        pipeline_state=pipeline_state,
+        liveness=liveness,
+        job_id=job_id,
+        fit=fit,
+        reason_type=reason_type,
+        date_posted=date_posted,
+        q=q,
+    )
+    cols_sql, new_cached_columns = select_columns(conn, detail, cached_columns)
+    query = f"SELECT {cols_sql}{FEED_FROM} WHERE 1=1{where}"
+
+    total = None
+    if job_id is None:
+        total = conn.execute(f"SELECT COUNT(*) FROM ({query})", params).fetchone()[0]
+
+    query += f" ORDER BY {FEED_ORDER_BY}"
+    query += " LIMIT ? OFFSET ?"
+    params.extend([limit, offset])
+
+    jobs: list[dict[str, Any]] = []
+    for row in conn.execute(query, params):
+        job = dict(row)
+        for field in JSON_COLUMNS:
+            if field in job:
+                job[field] = json.loads(job[field]) if job[field] else []
+        jobs.append(job)
+
+    if total is None:
+        total = len(jobs)
+
+    result = {
+        "jobs": jobs,
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+        "has_more": offset + len(jobs) < total,
+    }
+    return result, new_cached_columns
+
+
+def job_ids_for(
+    conn: sqlite3.Connection,
+    db_path: str,
+    status: str | None = None,
+    country: str | None = None,
+    role_family: str | None = None,
+    seniority: str | None = None,
+    source: str | None = None,
+    is_remote: bool | None = None,
+    has_salary: bool | None = None,
+    access: str | None = None,
+    include_duplicates: bool = False,
+    min_score: int | None = None,
+    pipeline_state: str | None = None,
+    liveness: str | None = None,
+    job_id: int | None = None,
+    fit: bool | None = None,
+    reason_type: str | None = None,
+    date_posted: str | None = None,
+    q: str | None = None,
+    limit: int = 200,
+    offset: int = 0,
+    detail: bool | None = None,  # noqa: ARG001
+) -> list[int]:
+    """Just the IDs on this page of the feed, in feed order."""
+    where, params = feed_filters(
+        status=status,
+        country=country,
+        role_family=role_family,
+        seniority=seniority,
+        source=source,
+        is_remote=is_remote,
+        has_salary=has_salary,
+        access=access,
+        include_duplicates=include_duplicates,
+        min_score=min_score,
+        pipeline_state=pipeline_state,
+        liveness=liveness,
+        job_id=job_id,
+        fit=fit,
+        reason_type=reason_type,
+        date_posted=date_posted,
+        q=q,
+    )
+    query = f"SELECT jobs.id{FEED_FROM} WHERE 1=1{where} ORDER BY {FEED_ORDER_BY} LIMIT ? OFFSET ?"
+    args: list[Any] = [*params, limit, offset]
+
+    key = (
+        db_path,
+        query,
+        tuple(args),
+        conn.execute("PRAGMA data_version").fetchone()[0],
+        _WRITE_GENERATION,
+    )
+    cached = _FEED_IDS_CACHE.get(key)
+    if cached is not None:
+        return list(cached)
+
+    ids = [row[0] for row in conn.execute(query, args)]
+    if len(_FEED_IDS_CACHE) > 32:
+        _FEED_IDS_CACHE.clear()
+    _FEED_IDS_CACHE[key] = ids
+    return list(ids)
+
+
+def update_job_status(conn: sqlite3.Connection, job_id: int, status: str) -> bool:
+    cursor = conn.cursor()
+    now_str = datetime.now().isoformat() if status == "applied" else None
+
+    if status == "applied":
+        cursor.execute(
+            "UPDATE jobs SET status = ?, date_applied = ? WHERE id = ?",
+            (status, now_str, job_id),
+        )
+    else:
+        cursor.execute("UPDATE jobs SET status = ? WHERE id = ?", (status, job_id))
+    conn.commit()
+    invalidate_stats()
+    return cursor.rowcount > 0
+
+
+def status_counts(conn: sqlite3.Connection) -> dict[str, int]:
+    """Postings per status, zero-filled."""
+    counts = {
+        row["status"]: row["count"]
+        for row in conn.execute("SELECT status, COUNT(*) as count FROM jobs GROUP BY status")
+    }
+    for status in ("unread", "saved", "applied", "rejected"):
+        counts.setdefault(status, 0)
+    return counts
+
+
+def compute_stats(conn: sqlite3.Connection) -> dict[str, Any]:
+    cursor = conn.cursor()
+    stats: dict[str, Any] = {}
+
+    stats["status_counts"] = status_counts(conn)
+
+    cursor.execute("SELECT COUNT(*) FROM jobs")
+    stats["total_jobs"] = cursor.fetchone()[0]
+
+    cursor.execute(
+        "SELECT SUM(matched_count), SUM(required_count) FROM jobs WHERE required_count > 0"
+    )
+    matched, required = cursor.fetchone()
+    stats["skill_coverage"] = {
+        "matched": matched or 0,
+        "required": required or 0,
+        "ratio": round(matched / required, 3) if required else None,
+    }
+
+    cursor.execute("SELECT country, COUNT(*) as count FROM jobs GROUP BY country")
+    stats["country_counts"] = {r["country"]: r["count"] for r in cursor.fetchall() if r["country"]}
+
+    cursor.execute("SELECT pipeline_state, COUNT(*) as count FROM jobs GROUP BY pipeline_state")
+    stats["pipeline_counts"] = {r["pipeline_state"]: r["count"] for r in cursor.fetchall()}
+
+    active = "(SELECT version FROM profiles WHERE is_active = 1)"
+    cursor.execute(
+        f"""
+        SELECT COUNT(*) FROM jobs j
+          JOIN job_verdicts v ON v.job_id = j.id AND v.profile_version = {active}
+         WHERE j.duplicate_of IS NULL
+           AND v.fit = 1
+        """
+    )
+    stats["strong_matches"] = cursor.fetchone()[0]
+
+    cursor.execute(
+        f"SELECT {LIVENESS_CASE} AS liveness, COUNT(*)"
+        f"  FROM jobs LEFT JOIN scrape_cells cell ON cell.id = jobs.scrape_cell_id"
+        f" GROUP BY 1"
+    )
+    stats["liveness_counts"] = {r[0]: r[1] for r in cursor.fetchall()}
+
+    return stats
+
+
+def get_stats(conn: sqlite3.Connection, db_path: str) -> dict[str, Any]:
+    """Dashboard counters, memoized between writes."""
+    key = (
+        conn.execute("PRAGMA data_version").fetchone()[0],
+        _WRITE_GENERATION,
+    )
+    cached = _STATS_CACHE.get(db_path)
+    if cached is not None and cached[0] == key:
+        return copy.deepcopy(cached[1])
+    stats = compute_stats(conn)
+    _STATS_CACHE[db_path] = (key, stats)
+    return copy.deepcopy(stats)

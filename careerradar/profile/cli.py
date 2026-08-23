@@ -167,7 +167,7 @@ def cmd_build(args: argparse.Namespace) -> int:
     from careerradar.profile.graph import build_graph, open_checkpointer
     from careerradar.profile.ingest import CorpusError, collect_documents
     from careerradar.profile.models import Profile
-    from careerradar.profile.store import corpus_changed, save_profile
+    from careerradar.profile.repository import corpus_changed, save_profile
 
     config = load_config()
     profile_config = config.get("profile") or {}
@@ -334,7 +334,7 @@ def cmd_build(args: argparse.Namespace) -> int:
 
 
 def cmd_show(args: argparse.Namespace) -> int:  # noqa: ARG001 - argparse handler signature
-    from careerradar.profile.store import load_active_row
+    from careerradar.profile.repository import load_active_row
 
     record = load_active_row()
     if record is None:
@@ -352,7 +352,7 @@ def cmd_show(args: argparse.Namespace) -> int:  # noqa: ARG001 - argparse handle
 
 
 def cmd_history(args: argparse.Namespace) -> int:  # noqa: ARG001 - argparse handler signature
-    from careerradar.profile.store import list_versions
+    from careerradar.profile.repository import list_versions
 
     versions = list_versions()
     if not versions:

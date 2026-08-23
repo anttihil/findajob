@@ -13,7 +13,6 @@ kills it.
 """
 
 import argparse
-import json
 import sys
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
@@ -29,6 +28,7 @@ from careerradar.core.status_manager import (
     set_sync_progress,
 )
 from careerradar.profile.adapter import NoActiveProfile, load_profile
+from careerradar.search import repository as search_repo
 from careerradar.search.guard import (
     ERROR_TRANSIENT,
     SourceCircuit,
@@ -614,14 +614,8 @@ def _warn_if_taxonomy_moved(db: Database, taxonomy: "Taxonomy") -> None:
     nothing previously noticed: `jobs.taxonomy_hash` went stale and the rows kept being
     compared with fresh ones. The remedy is one flag, so the warning names it.
     """
-    stale = db.conn.execute(
-        "SELECT COUNT(*) FROM jobs WHERE taxonomy_hash IS NOT NULL AND taxonomy_hash != ?",
-        (taxonomy.hash,),
-    ).fetchone()[0]
-    old_scorer = db.conn.execute(
-        "SELECT COUNT(*) FROM jobs WHERE COALESCE(scorer_version, 0) < ?",
-        (SCORER_VERSION,),
-    ).fetchone()[0]
+    stale = search_repo.count_stale_taxonomy(db.conn, taxonomy.hash)
+    old_scorer = search_repo.count_old_scorer(db.conn, SCORER_VERSION)
     if stale or old_scorer:
         logger.warning(
             "%s posting(s) scored under an older taxonomy and %s under an older scorer. "
@@ -638,43 +632,32 @@ def _rescore(db: Database, scorer: JobScorer, taxonomy: "Taxonomy") -> dict[str,
     older taxonomy is not comparable. This makes the choice explicit: keep snapshots as
     recorded (reproducible), or rescore everything (consistent).
     """
-    # Not `description_quality = 'full'`. The v2 migration only set that flag where the
-    # description was already >= 400 chars, so the shorter rows were permanently
-    # unreachable by rescore -- which is part of why 121 postings still carried display
-    # labels in `matched_skills` from a scorer two versions old.
-    rows = db.conn.execute(
-        "SELECT id, title, description, role_family, seniority FROM jobs "
-        "WHERE description IS NOT NULL AND length(description) > 0"
-    ).fetchall()
+    rows = search_repo.get_jobs_for_rescore(db.conn)
     logger.info(f"Rescoring {len(rows)} postings under taxonomy {taxonomy.hash}")
 
     for row in rows:
         posting = dict(row)
         posting["skills"] = taxonomy.extract(posting["description"], title=posting["title"])
         result = scorer.score(posting)
-        # The failure that produced the 121 stale rows was silent for the whole life of the
-        # column: a scorer wrote display labels where canonical keys belong and nothing
-        # noticed. One set lookup is cheap insurance.
         unknown = [k for k in result["matched_skills"] if k not in taxonomy.skills]
         if unknown:
             raise ValueError(
                 f"matched_skills for job {row['id']} contains non-canonical keys: {unknown}"
             )
-        db.conn.execute(
-            "UPDATE jobs SET match_score = ?, matched_skills = ?, matched_count = ?, "
-            "required_count = ?, scorer_version = ?, taxonomy_hash = ? WHERE id = ?",
-            (
-                result["score"],
-                json.dumps(result["matched_skills"]),
-                result["matched_count"],
-                result["required_count"],
-                SCORER_VERSION,
-                taxonomy.hash,
-                row["id"],
-            ),
+        search_repo.update_job_rescore(
+            db.conn,
+            job_id=row["id"],
+            match_score=result["score"],
+            matched_skills=result["matched_skills"],
+            matched_count=result["matched_count"],
+            required_count=result["required_count"],
+            scorer_version=SCORER_VERSION,
+            taxonomy_hash=taxonomy.hash,
         )
-        db.replace_job_skills(row["id"], posting["skills"])
-        db.replace_job_blockers(row["id"], taxonomy.extract_blockers(posting["description"]))
+        search_repo.replace_job_skills(db.conn, row["id"], posting["skills"])
+        search_repo.replace_job_blockers(
+            db.conn, row["id"], taxonomy.extract_blockers(posting["description"])
+        )
     db.conn.commit()
     logger.info("Rescore complete")
     return {"rescored": len(rows)}

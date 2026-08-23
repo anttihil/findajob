@@ -18,6 +18,7 @@ from typing import Any
 
 from careerradar.core.database import Database
 from careerradar.core.logger import get_logger
+from careerradar.research import repository as research_repo
 
 logger = get_logger()
 
@@ -98,22 +99,12 @@ def same_company_openings(
     owned = db is None
     db = db or Database()
     try:
-        # LEFT, unlike the sibling below: this answers "what else is open here", which is
-        # an inventory question. A posting the active profile has not judged yet still
-        # belongs on the list, it just has no score to rank on and sorts last.
-        query = f"""
-            SELECT j.id, j.title, j.company, j.location, j.url, v.fit, v.reason_type, j.role_family
-              FROM jobs j
-              LEFT JOIN {_ACTIVE_VERDICT_JOIN}
-             WHERE j.company_normalized = ? AND j.duplicate_of IS NULL
-        """
-        params: list[Any] = [company_normalized]
-        if exclude_job_id:
-            query += " AND j.id != ?"
-            params.append(exclude_job_id)
-        query += " ORDER BY v.fit DESC NULLS LAST, j.date_found DESC LIMIT ?"
-        params.append(limit)
-        return [dict(r) for r in db.conn.execute(query, params)]
+        return research_repo.get_same_company_openings(
+            db.conn,
+            company_normalized=company_normalized,
+            exclude_job_id=exclude_job_id,
+            limit=limit,
+        )
     finally:
         if owned:
             db.close()
@@ -136,22 +127,13 @@ def nearby_company_openings(
     owned = db is None
     db = db or Database()
     try:
-        rows = db.conn.execute(
-            f"""
-            SELECT j.id, j.title, j.company, j.location, j.url, v.fit, v.reason_type
-              FROM jobs j
-              JOIN scrape_cells c ON c.id = j.scrape_cell_id
-              JOIN {_ACTIVE_VERDICT_JOIN}
-             WHERE j.role_family = ?
-               AND c.location_id = ?
-               AND (j.company_normalized IS NULL OR j.company_normalized != ?)
-               AND j.duplicate_of IS NULL
-             ORDER BY v.fit DESC NULLS LAST, j.date_found DESC
-             LIMIT ?
-            """,
-            (role_family, location_id, exclude_company, limit),
+        return research_repo.get_nearby_company_openings(
+            db.conn,
+            role_family=role_family,
+            location_id=location_id,
+            exclude_company=exclude_company,
+            limit=limit,
         )
-        return [dict(r) for r in rows]
     finally:
         if owned:
             db.close()

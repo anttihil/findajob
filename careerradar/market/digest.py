@@ -1,11 +1,11 @@
 import os
-import sqlite3
 from datetime import datetime, timedelta
 from typing import Any
 
-import careerradar.core.database as db_module
 from careerradar.core.config import load_config
+from careerradar.core.database import Database
 from careerradar.core.paths import DIGEST_DIR
+from careerradar.market import repository as market_repo
 
 
 class DigestGenerator:
@@ -25,33 +25,13 @@ class DigestGenerator:
         # Ensure directory exists
         os.makedirs(self.output_dir, exist_ok=True)
 
-        # Connect to DB
-        conn = sqlite3.connect(db_module.DB_PATH)
-        conn.row_factory = sqlite3.Row
-        cursor = conn.cursor()
-
         # Fetch jobs in the timeframe
         time_threshold = (datetime.now() - timedelta(hours=hours_ago)).isoformat()
-
-        cursor.execute(
-            """
-            SELECT j.*, v.fit, v.reason_type, v.reason_description
-              FROM jobs j
-              JOIN job_verdicts v
-                ON v.job_id = j.id
-               AND v.profile_version = (SELECT version FROM profiles WHERE is_active = 1)
-              LEFT JOIN v_job_liveness l ON l.job_id = j.id
-             WHERE j.date_found >= ?
-               AND j.duplicate_of IS NULL
-               AND v.fit = 1
-               AND COALESCE(l.liveness, 'unknown') != 'likely_closed'
-             ORDER BY j.date_found DESC
-        """,
-            (time_threshold,),
-        )
-
-        rows = cursor.fetchall()
-        conn.close()
+        db = Database()
+        try:
+            rows = market_repo.get_recent_good_fit_jobs(db.conn, time_threshold)
+        finally:
+            db.close()
 
         if not rows:
             return ""

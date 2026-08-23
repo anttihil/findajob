@@ -5,38 +5,27 @@ whose answers age slowest, so it does not belong on the same cadence as either s
 scoring.
 """
 
-import json
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from typing import Any
 
 from careerradar.core.config import load_config
 from careerradar.core.database import Database
 from careerradar.core.llm import DEFAULT_AGENT_MODEL, MissingApiKey
 from careerradar.core.logger import get_logger
-from careerradar.profile.store import load_active
+from careerradar.profile.repository import load_active
+from careerradar.research import repository as research_repo
 from careerradar.research.graph import build_graph
 from careerradar.research.tools import search_available
 
 logger = get_logger()
 
 
-# Mirrors `scoring.research_gate` in config.yaml, for a config that predates the key.
-DEFAULT_RESEARCH_GATE: dict[str, Any] = {
-    "fit": True,
-}
+DEFAULT_RESEARCH_GATE = research_repo.DEFAULT_RESEARCH_GATE
+_gate_sql = research_repo._gate_sql
 
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
-
-
-def _gate_sql(gate: dict[str, Any]) -> tuple[str, list[Any]]:
-    clauses: list[str] = []
-    params: list[Any] = []
-    if gate.get("fit") is not None:
-        clauses.append("v.fit = ?")
-        params.append(1 if gate.get("fit") else 0)
-    return (" AND " + " AND ".join(clauses)) if clauses else "", params
 
 
 def _candidates(
@@ -46,46 +35,13 @@ def _candidates(
     limit: int | None,
     company: str | None = None,
 ) -> list[dict[str, Any]]:
-    """Companies worth researching, best posting first."""
-    cutoff = (datetime.now(timezone.utc) - timedelta(days=refresh_days)).isoformat()
-
-    params: list[Any]
-    if company:
-        where = "AND (j.company_normalized = ? OR j.company = ?)"
-        params = [company, company]
-    else:
-        where, params = _gate_sql(gate)
-
-    query = f"""
-        SELECT j.company_normalized,
-               MAX(COALESCE(v.fit, 0))         AS best_fit,
-               COUNT(*)                        AS postings,
-               MAX(j.company)                  AS company,
-               MAX(j.id)                       AS job_id,
-               MAX(j.role_family)              AS role_family,
-               MAX(c.location_id)              AS location_id
-          FROM jobs j
-          JOIN job_verdicts v
-                    ON v.job_id = j.id
-                   AND v.profile_version = (
-                       SELECT version FROM profiles WHERE is_active = 1
-                   )
-          LEFT JOIN scrape_cells c ON c.id = j.scrape_cell_id
-          LEFT JOIN v_job_liveness l ON l.job_id = j.id
-          LEFT JOIN company_dossiers d ON d.company_normalized = j.company_normalized
-         WHERE j.duplicate_of IS NULL
-           AND j.company_normalized IS NOT NULL
-           AND COALESCE(l.liveness, 'unknown') != 'likely_closed'
-           {where}
-           AND (d.generated_at IS NULL OR d.generated_at < ?)
-         GROUP BY j.company_normalized
-         ORDER BY best_fit DESC, postings DESC
-    """
-    params.append(cutoff)
-    if limit:
-        query += " LIMIT ?"
-        params.append(limit)
-    return [dict(r) for r in db.conn.execute(query, params)]
+    return research_repo.get_research_candidates(
+        db.conn,
+        gate=gate,
+        refresh_days=refresh_days,
+        limit=limit,
+        company=company,
+    )
 
 
 def _persist(
@@ -96,49 +52,13 @@ def _persist(
     profile_version: int,
     cost: float,
 ) -> None:
-    db.conn.execute(
-        """
-        INSERT INTO company_dossiers
-            (company_normalized, company_display, generated_at, profile_version, model,
-             intel_json, contacts_json, nearby_jobs_json, sources_json, cost_usd)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(company_normalized) DO UPDATE SET
-            company_display  = excluded.company_display,
-            generated_at     = excluded.generated_at,
-            profile_version  = excluded.profile_version,
-            model            = excluded.model,
-            intel_json       = excluded.intel_json,
-            contacts_json    = excluded.contacts_json,
-            nearby_jobs_json = excluded.nearby_jobs_json,
-            sources_json     = excluded.sources_json,
-            cost_usd         = excluded.cost_usd
-        """,
-        (
-            row["company_normalized"],
-            dossier.get("company") or row["company"],
-            _now(),
-            profile_version,
-            model,
-            json.dumps(
-                {
-                    **(dossier.get("intel") or {}),
-                    "application_angle": dossier.get("application_angle"),
-                }
-            ),
-            json.dumps(dossier.get("contacts") or []),
-            json.dumps(dossier.get("nearby_jobs") or []),
-            json.dumps(dossier.get("sources") or []),
-            cost,
-        ),
-    )
-    dossier_id = db.conn.execute(
-        "SELECT id FROM company_dossiers WHERE company_normalized = ?",
-        (row["company_normalized"],),
-    ).fetchone()["id"]
-    db.conn.execute(
-        "UPDATE jobs SET dossier_id = ?, pipeline_state = 'researched' "
-        "WHERE company_normalized = ? AND duplicate_of IS NULL",
-        (dossier_id, row["company_normalized"]),
+    research_repo.save_dossier(
+        db.conn,
+        row=row,
+        dossier=dossier,
+        model=model,
+        profile_version=profile_version,
+        cost=cost,
     )
 
 
@@ -191,11 +111,7 @@ def run_research(
             print("\n(dry run -- nothing researched, nothing written)")
             return 0
 
-        run_id = db.conn.execute(
-            "INSERT INTO research_runs (started_at, status) VALUES (?, 'running')",
-            (_now(),),
-        ).lastrowid
-        db.conn.commit()
+        run_id = research_repo.start_research_run(db.conn)
 
         graph = build_graph()
         done = 0
@@ -236,11 +152,10 @@ def run_research(
             if dossier.get("application_angle"):
                 print(f"  angle: {dossier['application_angle'][:170]}")
 
-        db.conn.execute(
-            "UPDATE research_runs SET finished_at = ?, companies = ?, status = 'ok' WHERE id = ?",
-            (_now(), done, run_id),
-        )
-        db.conn.commit()
+        if run_id is not None:
+            research_repo.finish_research_run(
+                db.conn, run_id=run_id, companies_count=done, status="ok"
+            )
         print(f"\n{done} dossier(s) written.")
         return 0
     except MissingApiKey as exc:

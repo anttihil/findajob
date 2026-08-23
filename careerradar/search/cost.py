@@ -21,35 +21,16 @@ from typing import Any
 
 from careerradar.core.config import load_config
 from careerradar.core.database import Database
+from careerradar.search import repository as search_repo
 from careerradar.search.scheduler import estimate_units
-
-CELLS_SQL = """
-SELECT source, query, location_id, status, desc_selection, requested, returned, new_unique,
-       duration_ms, requests_made, seconds, ms_per_request
-FROM cell_cost
-WHERE sync_run_id = ?
-ORDER BY duration_ms DESC
-"""
 
 
 def collect(db: Database, run_id: int | None = None, limit: int = 10) -> dict[str, Any]:
-    conn = db.conn
-    if run_id is None:
-        row = conn.execute(
-            "SELECT sync_run_id FROM cell_observations WHERE duration_ms IS NOT NULL "
-            "ORDER BY id DESC LIMIT 1"
-        ).fetchone()
-        run_id = row[0] if row else None
+    run_id, run, cells = search_repo.get_sync_run_cost_data(db.conn, run_id=run_id)
     if run_id is None:
         return {"run_id": None, "run": None, "sources": [], "slowest": []}
 
-    run = conn.execute(
-        "SELECT started_at, finished_at, mode, status, cells_planned, cells_succeeded "
-        "FROM sync_runs WHERE id = ?",
-        (run_id,),
-    ).fetchone()
     scraper = load_config().get("scraper", {}) or {}
-    cells = [dict(row) for row in conn.execute(CELLS_SQL, (run_id,))]
     for cell in cells:
         # `desc_selection` is what the cell actually did, so the estimate is rebuilt on the
         # same terms the scheduler would have used for it. Charging a titles-only cell for

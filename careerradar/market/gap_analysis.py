@@ -17,6 +17,7 @@ import json
 from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING, Any
 
+from careerradar.market import repository as market_repo
 from careerradar.market.analytics import (
     SUPPRESS_COMPANY_CONCENTRATION,
     SUPPRESS_COVERAGE_INCOMPLETE,
@@ -105,39 +106,23 @@ class GapAnalysis:
         it useless.
         """
         window_start = datetime.now(timezone.utc) - timedelta(days=window_days)
-        query = "SELECT * FROM v_skill_eligible WHERE date_found >= ?"
-        params = [window_start.isoformat()]
-        if self.analytics_config.get("exclude_agencies", True):
-            query += " AND COALESCE(is_agency, 0) = 0"
-        if location_id:
-            query += " AND scrape_cell_id IN (SELECT id FROM scrape_cells WHERE location_id = ?)"
-            params.append(location_id)
-        if role_family:
-            query += " AND role_family = ?"
-            params.append(role_family)
-
-        postings = [dict(row) for row in self.db.conn.execute(query, params)]
+        postings = market_repo.load_gap_analysis_corpus(
+            self.db.conn,
+            eligibility_sql="SELECT * FROM v_skill_eligible",
+            window_start=window_start.isoformat(),
+            location_id=location_id,
+            role_family=role_family,
+            exclude_agencies=self.analytics_config.get("exclude_agencies", True),
+        )
         if not postings:
             return [], {}
 
         ids = [p["id"] for p in postings]
-        skills_by_job = {}
-        # Chunked to stay under SQLite's variable limit.
-        for start in range(0, len(ids), 500):
-            chunk = ids[start : start + 500]
-            placeholders = ",".join("?" for _ in chunk)
-            for row in self.db.conn.execute(
-                f"SELECT job_id, skill, in_title FROM job_skills WHERE job_id IN ({placeholders})",
-                chunk,
-            ):
-                skills_by_job.setdefault(row["job_id"], {})[row["skill"]] = bool(row["in_title"])
+        skills_by_job = market_repo.load_job_skills_chunked(self.db.conn, ids)
         return postings, skills_by_job
 
     def _cell_locations(self) -> dict[int, str]:
-        return {
-            row["id"]: row["location_id"]
-            for row in self.db.conn.execute("SELECT id, location_id FROM scrape_cells")
-        }
+        return market_repo.get_cell_locations(self.db.conn)
 
     # -- main entry point --------------------------------------------------------------
     def analyse(
@@ -503,46 +488,23 @@ class GapAnalysis:
     def skill_detail(self, skill: str, window_days: int = 90, limit: int = 40) -> dict[str, Any]:
         """Everything behind one skill's numbers, so a ranking can be audited."""
         window_start = datetime.now(timezone.utc) - timedelta(days=window_days)
-        postings = [
-            dict(row)
-            for row in self.db.conn.execute(
-                """
-                SELECT j.id, j.title, j.company, j.location, j.url, j.match_score,
-                       j.role_family, j.seniority, j.salary_annual_usd, j.date_posted,
-                       js.in_title
-                  FROM v_skill_eligible j
-                  JOIN job_skills js ON js.job_id = j.id
-                 WHERE js.skill = ? AND j.date_found >= ?
-                 ORDER BY j.match_score DESC
-                 LIMIT ?
-                """,
-                (skill, window_start.isoformat(), limit),
-            )
-        ]
-
-        cooccurring = self.db.conn.execute(
-            """
-            SELECT other.skill, COUNT(*) n
-              FROM job_skills js
-              JOIN job_skills other ON other.job_id = js.job_id AND other.skill != js.skill
-              JOIN v_skill_eligible j ON j.id = js.job_id
-             WHERE js.skill = ? AND j.date_found >= ?
-             GROUP BY other.skill
-             ORDER BY n DESC
-             LIMIT 15
-            """,
-            (skill, window_start.isoformat()),
-        ).fetchall()
-
-        by_family = self.db.conn.execute(
-            """
-            SELECT j.role_family, COUNT(*) n
-              FROM job_skills js JOIN v_skill_eligible j ON j.id = js.job_id
-             WHERE js.skill = ? AND j.date_found >= ?
-             GROUP BY j.role_family ORDER BY n DESC
-            """,
-            (skill, window_start.isoformat()),
-        ).fetchall()
+        postings = market_repo.get_skill_drilldown_postings(
+            self.db.conn,
+            skill=skill,
+            window_start=window_start.isoformat(),
+            limit=limit,
+        )
+        cooccurring = market_repo.get_skill_cooccurring(
+            self.db.conn,
+            skill=skill,
+            window_start=window_start.isoformat(),
+            limit=15,
+        )
+        by_family = market_repo.get_skill_by_family(
+            self.db.conn,
+            skill=skill,
+            window_start=window_start.isoformat(),
+        )
 
         return {
             "skill": skill,

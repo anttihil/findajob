@@ -215,7 +215,7 @@ class StoreTests(unittest.TestCase):
         return cast(Database, self._Db(self.conn))
 
     def test_saving_twice_leaves_exactly_one_active_profile(self) -> None:
-        from careerradar.profile.store import load_active, save_profile
+        from careerradar.profile.repository import load_active, save_profile
 
         db = self._db()
         tax = load_taxonomy()
@@ -237,7 +237,7 @@ class StoreTests(unittest.TestCase):
 
     def test_summary_text_is_persisted_not_recomputed(self) -> None:
         """The stored prefix must survive a round trip byte-for-byte."""
-        from careerradar.profile.store import load_active, save_profile
+        from careerradar.profile.repository import load_active, save_profile
 
         db = self._db()
         profile = Profile(bio="b", skills=[skill("python", "Python", LEVEL_STRONG)])
@@ -246,7 +246,7 @@ class StoreTests(unittest.TestCase):
         self.assertEqual(summary, render_profile(loaded))
 
     def test_save_canonicalizes_so_bad_keys_cannot_be_persisted(self) -> None:
-        from careerradar.profile.store import load_active, save_profile
+        from careerradar.profile.repository import load_active, save_profile
 
         db = self._db()
         save_profile(
@@ -520,8 +520,8 @@ class ResumeTests(unittest.TestCase):
         with (
             mock.patch("careerradar.profile.cli.load_config", return_value={}),
             mock.patch("careerradar.profile.ingest.collect_documents", return_value=[document]),
-            mock.patch("careerradar.profile.store.corpus_changed", return_value=True),
-            mock.patch("careerradar.profile.store.save_profile", return_value=3),
+            mock.patch("careerradar.profile.repository.corpus_changed", return_value=True),
+            mock.patch("careerradar.profile.repository.save_profile", return_value=3),
             mock.patch("careerradar.profile.graph.open_checkpointer", return_value=mock.Mock()),
             mock.patch("careerradar.profile.graph.build_graph", return_value=graph),
         ):

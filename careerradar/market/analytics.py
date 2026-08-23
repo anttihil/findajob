@@ -30,6 +30,8 @@ import math
 from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING, Any
 
+from careerradar.market import repository as market_repo
+
 if TYPE_CHECKING:
     from careerradar.core.database import Database
     from careerradar.profile.adapter import ProfileAdapter
@@ -272,18 +274,12 @@ class MarketAnalytics:
         min_coverage = self.analytics_config.get("min_coverage_fraction", 0.5)
         min_observations = self.analytics_config.get("min_observations_per_cell", 3)
 
-        observations = self.db.conn.execute(
-            """
-            SELECT role_family, location_id, source, hours_old, requested, returned,
-                   returned_on_topic, saturated, window_start, window_end, status
-              FROM cell_observations
-             WHERE status IN ('ok', 'empty')
-               AND observed_at >= ?
-               AND (? IS NULL OR location_id = ?)
-               AND (? IS NULL OR source = ?)
-            """,
-            (window_start.isoformat(), location_id, location_id, source, source),
-        ).fetchall()
+        observations = market_repo.get_cell_observations_in_window(
+            self.db.conn,
+            window_start=window_start.isoformat(),
+            location_id=location_id,
+            source=source,
+        )
 
         grouped = {}
         for row in observations:
@@ -384,20 +380,15 @@ class MarketAnalytics:
     def _postings_by_family(
         self, window_start: datetime, location_id: str | None, source: str | None
     ) -> dict[str, dict[str, Any]]:
-        query = self._eligibility_sql() + " AND date_found >= ?"
-        params = [window_start.isoformat()]
-        if source:
-            query += " AND source = ?"
-            params.append(source)
-        if location_id:
-            # Filter through the cell that produced the posting. Without this every location
-            # reported identical counts -- Swedish SRE postings equalling US ones -- because
-            # the exposure intervals were location-scoped but the postings were not.
-            query += " AND scrape_cell_id IN (SELECT id FROM scrape_cells WHERE location_id = ?)"
-            params.append(location_id)
-
-        grouped = {}
-        for row in self.db.conn.execute(query, params):
+        rows = market_repo.get_postings_by_family(
+            self.db.conn,
+            eligibility_sql=self._eligibility_sql(),
+            window_start=window_start.isoformat(),
+            location_id=location_id,
+            source=source,
+        )
+        grouped: dict[str, dict[str, Any]] = {}
+        for row in rows:
             family = row["role_family"]
             record = grouped.setdefault(
                 family,
@@ -426,27 +417,7 @@ class MarketAnalytics:
         answered by a live A/B probe against the boards once already, purely because the
         numbers the scheduler was already keeping were not exposed anywhere.
         """
-        rows = self.db.conn.execute(
-            """
-            SELECT source, location_id, role_family, tier, enabled, query,
-                   last_scraped_at, last_success_at, last_result_count,
-                   last_saturated, consecutive_empty, consecutive_error,
-                   total_scrapes, backoff_until,
-                   ewma_new_per_scrape, ewma_fit_score, quality_samples
-              FROM scrape_cells
-             ORDER BY source, location_id, role_family
-            """
-        ).fetchall()
-        now = datetime.now(timezone.utc)
-        out = []
-        for row in rows:
-            record = dict(row)
-            success = _parse(row["last_success_at"])
-            record["hours_since_success"] = (
-                round((now - success).total_seconds() / 3600, 1) if success else None
-            )
-            out.append(record)
-        return out
+        return market_repo.get_coverage_report_cells(self.db.conn)
 
     def _provenance(self, window_days: int, published: int, total: int) -> dict[str, Any]:
         return {

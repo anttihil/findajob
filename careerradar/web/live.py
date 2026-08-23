@@ -35,12 +35,8 @@ from collections.abc import AsyncGenerator
 from contextlib import suppress
 from typing import Any
 
-from careerradar.core.config import load_config
 from careerradar.core.database import Database
-from careerradar.core.status import collect as collect_status
-from careerradar.core.status_manager import is_sync_running, load_sync_status
-from careerradar.search.scheduler import scrape_tasks
-from careerradar.taxonomy.roles import load_roles
+from careerradar.core.status_manager import is_sync_running
 
 
 def format_sse_message(event_type: str, data: dict[str, Any]) -> str:
@@ -188,41 +184,13 @@ class LiveEventHub:
             await asyncio.sleep(poll_interval_seconds)
 
     def _get_pipeline_status(self, db: Database, sync_running: bool):
-        report = collect_status(db)
+        from careerradar.core import status_repository as status_repo
 
-        scrape: dict[str, Any] = {
-            "in_progress": sync_running,
-            "started_at": load_sync_status().get("started_at") if sync_running else None,
-            "previous_run": report["search"],
-        }
-        if sync_running:
-            run = db.conn.execute(
-                "SELECT id FROM sync_runs WHERE status = 'running' ORDER BY id DESC LIMIT 1"
-            ).fetchone()
-            if run is not None:
-                config = load_config()
-                roles = load_roles()
-                enabled = [
-                    name
-                    for name, on in (config.get("scraper", {}).get("sources") or {}).items()
-                    if on
-                ]
-                scrape["cells_done"] = db.conn.execute(
-                    "SELECT COUNT(*) FROM cell_observations WHERE sync_run_id = ?",
-                    (run["id"],),
-                ).fetchone()[0]
-                scrape["cells_planned"] = sum(
-                    len(scrape_tasks(db, config, roles, source)) for source in enabled
-                )
-
-        recent_verdicts = db.conn.execute(
-            "SELECT COUNT(*) FROM job_verdicts WHERE created_at >= datetime('now', '-5 minutes')"
-        ).fetchone()[0]
-
-        return {
-            "scrape": scrape,
-            "score": {**report["score"], "recent_verdicts_5min": recent_verdicts},
-        }
+        return status_repo.get_pipeline_status(
+            db.conn,
+            sync_running=sync_running,
+            db_instance=db,
+        )
 
 
 # Global singleton instance for the FastAPI web server

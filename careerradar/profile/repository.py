@@ -128,7 +128,11 @@ def load_active(db: Database | None = None) -> tuple[int, Profile, str] | None:
         ).fetchone()
         if row is None:
             return None
-        return row["version"], Profile.model_validate_json(row["profile_json"]), row["summary_text"]
+        return (
+            row["version"],
+            Profile.model_validate_json(row["profile_json"]),
+            row["summary_text"],
+        )
     finally:
         if owned:
             db.close()
