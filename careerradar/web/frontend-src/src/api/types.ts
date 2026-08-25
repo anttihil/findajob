@@ -268,14 +268,6 @@ export interface ProfileRecord {
 // side to be any stricter than the server it is posting to.
 export type Config = Record<string, unknown>;
 
-// --- Search links -----------------------------------------------------------------------
-
-export interface SearchLinksResponse {
-  search_query_used: string;
-  linkedin: string;
-  indeed: string;
-}
-
 // --- Sync / pipeline --------------------------------------------------------------------
 
 export interface PipelineScrapeStatus {

@@ -6,7 +6,6 @@ const NAV_ITEMS: { href: string; icon: string; label: string }[] = [
   { href: "/market", icon: "fa-chart-simple", label: "Market Supply" },
   { href: "/skills", icon: "fa-arrow-trend-up", label: "Skill Gaps" },
   { href: "/observability", icon: "fa-gauge-high", label: "Model Observability" },
-  { href: "/search-links", icon: "fa-link", label: "Direct Search Links" },
   { href: "/resumes", icon: "fa-file-invoice", label: "Resumes & Skills" },
   { href: "/digests", icon: "fa-envelope-open-text", label: "Digests" },
   { href: "/settings", icon: "fa-sliders", label: "Settings & Sync" },

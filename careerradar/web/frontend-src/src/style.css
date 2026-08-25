@@ -696,28 +696,6 @@ body {
     padding: 28px;
 }
 
-.instruction-box h2 {
-    font-size: 20px;
-    margin-bottom: 8px;
-}
-
-.instruction-box p {
-    font-size: 14px;
-    color: var(--text-secondary);
-    line-height: 1.5;
-}
-
-/* TAB 2: LINK GENERATOR PANEL */
-.link-generator-card {
-    background: var(--bg-panel);
-    backdrop-filter: blur(15px);
-    -webkit-backdrop-filter: blur(15px);
-    border: 1px solid var(--border-light);
-    border-radius: var(--radius-lg);
-    padding: 28px;
-    margin-top: 1.5rem;
-}
-
 .form-grid-3 {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
@@ -759,88 +737,6 @@ body {
     height: 1px;
     background: var(--border-light);
     margin: 24px 0;
-}
-
-.search-query-display {
-    background: rgba(15, 23, 42, 0.5);
-    border: 1px solid var(--border-light);
-    border-radius: var(--radius-sm);
-    padding: 14px 18px;
-    margin-bottom: 20px;
-    font-size: 14px;
-}
-
-.search-query-display span {
-    color: var(--text-muted);
-    font-weight: 500;
-    display: block;
-    margin-bottom: 6px;
-}
-
-.search-query-display code {
-    font-family: var(--font-mono);
-    color: var(--accent-purple);
-    font-size: 13px;
-}
-
-.link-buttons-grid {
-    display: grid;
-    grid-template-columns: repeat(2, 1fr);
-    gap: 20px;
-}
-
-.board-link {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    background: rgba(255, 255, 255, 0.03);
-    border: 1px solid var(--border-light);
-    padding: 18px 24px;
-    border-radius: var(--radius-lg);
-    text-decoration: none;
-    color: var(--text-primary);
-    transition: var(--transition-smooth);
-}
-
-.board-link i.fa-brands, .board-link i.fa-solid {
-    font-size: 26px;
-}
-
-.board-link.linkedin i.fa-brands { color: #0077b5; }
-.board-link.indeed i { color: #2164f3; }
-
-.link-label {
-    display: flex;
-    flex-direction: column;
-    margin-left: 16px;
-    flex-grow: 1;
-}
-
-.link-label strong {
-    font-size: 16px;
-    font-weight: 600;
-}
-
-.link-label span {
-    font-size: 12px;
-    color: var(--text-muted);
-    margin-top: 2px;
-}
-
-.arrow-out {
-    font-size: 14px !important;
-    color: var(--text-muted);
-    transition: var(--transition-smooth);
-}
-
-.board-link:hover {
-    background: rgba(255, 255, 255, 0.06);
-    border-color: rgba(255, 255, 255, 0.15);
-}
-
-.board-link:hover .arrow-out {
-    color: var(--text-primary);
-    transform: translate(2px, -2px);
 }
 
 .hide {

@@ -34,9 +34,8 @@ from careerradar.core.status_manager import (
 )
 from careerradar.market.analytics import MarketAnalytics
 from careerradar.market.gap_analysis import GapAnalysis
-from careerradar.profile.adapter import NoActiveProfile, load_profile
+from careerradar.profile.adapter import load_profile
 from careerradar.search.scheduler import scrape_tasks
-from careerradar.search.sources.link_generator import LinkGenerator
 from careerradar.taxonomy.roles import load_roles
 from careerradar.taxonomy.skills import load_taxonomy
 from careerradar.web import rendering
@@ -475,32 +474,6 @@ def update_current_config(payload: ConfigUpdate):
     merged = deep_merge(load_config(), incoming)
     save_config(merged)
     return {"success": True, "config": merged}
-
-
-@app.get("/api/search-links")
-def get_search_links(
-    country: str,
-    query: str,
-    role_family: str | None = None,  # noqa: ARG001 - declared query parameter, part of the HTTP contract
-) -> dict[str, Any]:
-    """Boolean search links, built from the profile's strongest skills.
-
-    Previously keyed on a parsed resume variant. The profile is now one unified artifact,
-    so the skills come from it directly -- and they are the *canonical* skills the scorer
-    uses, rather than whatever the regex parser found in a bulleted list.
-    """
-    taxonomy = load_taxonomy()
-    try:
-        profile = load_profile(taxonomy=taxonomy)
-    except NoActiveProfile as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
-    # `required` defaults to True, so load_profile raises NoActiveProfile rather than
-    # returning None -- this is here only to narrow the type for the calls below.
-    assert profile is not None
-    strongest = [taxonomy.label(key) for key in sorted(profile.keys(min_level=3))] or [
-        taxonomy.label(k) for k in sorted(profile.keys(min_level=2))
-    ]
-    return LinkGenerator.generate_links(strongest, country, query)
 
 
 # --- Sync ------------------------------------------------------------------------------
