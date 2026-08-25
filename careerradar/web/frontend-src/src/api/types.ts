@@ -296,19 +296,6 @@ export interface PipelineStatusResponse {
   scrape: PipelineScrapeStatus;
   score: PipelineScoreStatus;
 }
-
-// --- Digests --------------------------------------------------------------------------
-
-export interface DigestSummary {
-  filename: string;
-  date_created: string;
-  size_bytes: number;
-}
-
-export interface DigestContent {
-  content: string;
-}
-
 // --- Observability --------------------------------------------------------------------
 
 export interface ObservabilityReason {

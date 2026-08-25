@@ -32,7 +32,6 @@ LOG_PATH = os.environ.get("CAREERRADAR_LOG_PATH") or os.path.join(REPO_ROOT, "ap
 STATUS_PATH = os.path.join(REPO_ROOT, "sync_status.json")
 
 ARCHIVE_DIR = os.path.join(REPO_ROOT, "raw_payloads")
-DIGEST_DIR = os.path.join(REPO_ROOT, "digests")
 FRONTEND_DIR = os.path.join(PACKAGE_ROOT, "web", "frontend")
 
 # The pipeline stages serialize on this file. See core/pipeline_lock.py.

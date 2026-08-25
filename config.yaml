@@ -330,13 +330,6 @@ analytics:
     salary_lift: 0.10
 
 # ---------------------------------------------------------------------------------------
-# Digest
-# ---------------------------------------------------------------------------------------
-digest:
-  enabled: true
-  include_skill_gap: true
-
-# ---------------------------------------------------------------------------------------
 # Agents
 #
 # Three LLM agents with three different jobs. The big model is used where it runs a handful

@@ -1,4 +1,4 @@
-"""Market repository: analytics observations, postings by family, gap analysis, and digests."""
+"""Market repository: analytics observations, postings by family, and gap analysis."""
 
 import sqlite3
 from datetime import datetime, timezone
@@ -185,26 +185,3 @@ def get_skill_by_family(
          GROUP BY j.role_family ORDER BY n DESC
     """
     return conn.execute(query, (skill, window_start)).fetchall()
-
-
-# =====================================================================================
-# Digest queries
-# =====================================================================================
-
-
-def get_recent_good_fit_jobs(conn: sqlite3.Connection, time_threshold: str) -> list[sqlite3.Row]:
-    """Fetch live jobs matching active profile since time_threshold."""
-    query = """
-        SELECT j.*, v.fit, v.reason_type, v.reason_description
-          FROM jobs j
-          JOIN job_verdicts v
-            ON v.job_id = j.id
-           AND v.profile_version = (SELECT version FROM profiles WHERE is_active = 1)
-          LEFT JOIN v_job_liveness l ON l.job_id = j.id
-         WHERE j.date_found >= ?
-           AND j.duplicate_of IS NULL
-           AND v.fit = 1
-           AND COALESCE(l.liveness, 'unknown') != 'likely_closed'
-         ORDER BY j.date_found DESC
-    """
-    return conn.execute(query, (time_threshold,)).fetchall()

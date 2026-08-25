@@ -41,11 +41,6 @@ raw_payloads/
 # analyzed, not the jsonl itself.
 experiments/
 
-# Generated digests. Anchored to repo root: unanchored `digests/` also matched
-# `careerradar/web/frontend-src/src/routes/digests/`, silently dropping that route from
-# every commit.
-/digests/
-
 # Runtime state: rewritten on every sync and holds the PID lock. Tracked in the old repo by
 # accident, which made every run show up as a dirty working tree.
 sync_status.json

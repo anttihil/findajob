@@ -92,11 +92,6 @@ def load_config() -> dict[str, Any]:
             "exclude_agencies": True,
             "weighting_mode": "interest",
         },
-        "digest": {
-            "enabled": True,
-            "max_tier": 4,
-            "include_skill_gap": True,
-        },
         "scheduler": {
             "enabled": True,
             "search": {

@@ -1,6 +1,6 @@
 """Expose an LLM-built Profile through the interface the keyword layer already speaks.
 
-`keyword_score.py`, `gap_analysis.py`, and `digest.py` all take a profile object and call
+`keyword_score.py` and `gap_analysis.py` take a profile object and call
 `has()`, `level()`, `keys()`, and `evidence()` on it. Those modules are not being replaced:
 the keyword score still feeds `match_score`, and `gap_analysis` still measures its blocking
 gap against postings the user matches at GOOD_FIT_THRESHOLD or better.

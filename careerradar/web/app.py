@@ -560,24 +560,6 @@ def pipeline_status():
         db.close()
 
 
-# --- Digests ----------------------------------------------------------------------------
-
-from careerradar.market.digest import DigestGenerator  # noqa: E402
-
-
-@app.get("/api/digests")
-def list_digests():
-    return DigestGenerator().list_digests()
-
-
-@app.get("/api/digests/{filename}")
-def get_digest_content(filename: str):
-    content = DigestGenerator().get_digest_content(filename)
-    if not content:
-        raise HTTPException(status_code=404, detail="Digest not found")
-    return {"content": content}
-
-
 # --- Static frontend --------------------------------------------------------------------
 #
 # Vite's production build gives every asset a content hash in its filename, so a changed

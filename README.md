@@ -360,7 +360,7 @@ careerradar/
 ├── search/     scheduler, sources, circuit breaker, proxies, normalizer, keyword score
 ├── scoring/    prompts, per-posting graph, queue worker
 ├── research/   company dossier graph, search tools, queue worker
-├── market/     supply analytics, skill-gap analysis, digests
+├── market/     supply analytics, skill-gap analysis
 ├── web/        FastAPI app, owner gate, JSON API, SPA shell
 │   ├── frontend-src/   Preact + TypeScript dashboard (Vite), source of truth
 │   └── frontend/dist/  built output `npm run build` produces, gitignored

@@ -7,7 +7,6 @@ import { MarketPage } from "./routes/market/MarketPage";
 import { SkillsPage } from "./routes/skills/SkillsPage";
 import { ResumesPage } from "./routes/resumes/ResumesPage";
 import { ObservabilityPage } from "./routes/observability/ObservabilityPage";
-import { DigestsPage } from "./routes/digests/DigestsPage";
 import { SettingsPage } from "./routes/settings/SettingsPage";
 import { initLiveEvents } from "./state/liveEvents";
 
@@ -17,7 +16,6 @@ const PAGE_TITLES: Record<string, string> = {
   "/skills": "Skill Gap Analysis",
   "/observability": "Model Observability & Token Inspection",
   "/resumes": "My Resumes & Skill Profiles",
-  "/digests": "Daily Job Digests",
   "/settings": "Radar Configurations",
 };
 
@@ -53,7 +51,6 @@ export function App() {
           <Route path="/skills" component={SkillsPage} />
           <Route path="/observability" component={ObservabilityPage} />
           <Route path="/resumes" component={ResumesPage} />
-          <Route path="/digests" component={DigestsPage} />
           <Route path="/settings" component={SettingsPage} />
           <Route>
             <Redirect to="/" />
