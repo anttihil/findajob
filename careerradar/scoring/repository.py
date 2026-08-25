@@ -68,9 +68,8 @@ def _live_clause(include_closed: bool) -> str:
 
 def select_scoring_backlog(
     conn: sqlite3.Connection,
-    limit: int | None,
-    rescore_all: bool,
     profile_version: int,
+    limit: int | None = None,
     include_closed: bool = False,
 ) -> list[dict[str, Any]]:
     """Postings needing a verdict under the active profile."""
@@ -81,12 +80,8 @@ def select_scoring_backlog(
         age_clause=_age_clause(),
     )
 
-    if rescore_all:
-        query = "SELECT j.*" + where + " ORDER BY j.date_found DESC"
-        params: list[Any] = []
-    else:
-        query = "SELECT j.*" + where + _NO_VERDICT + " ORDER BY j.date_found DESC"
-        params = [profile_version, VERDICT_SCHEMA_VERSION]
+    query = "SELECT j.*" + where + _NO_VERDICT + " ORDER BY j.date_found DESC"
+    params: list[Any] = [profile_version, VERDICT_SCHEMA_VERSION]
 
     if limit:
         query += " LIMIT ?"

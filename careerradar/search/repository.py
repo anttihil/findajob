@@ -364,36 +364,6 @@ def record_observation(
     conn.commit()
 
 
-def get_sync_run_cost_data(
-    conn: sqlite3.Connection, run_id: int | None = None
-) -> tuple[int | None, dict[str, Any] | None, list[dict[str, Any]]]:
-    """Retrieve run info and cell cost observations for cost reporting."""
-    if run_id is None:
-        row = conn.execute(
-            "SELECT sync_run_id FROM cell_observations WHERE duration_ms IS NOT NULL "
-            "ORDER BY id DESC LIMIT 1"
-        ).fetchone()
-        run_id = row[0] if row else None
-    if run_id is None:
-        return None, None, []
-
-    run_row = conn.execute(
-        "SELECT started_at, finished_at, mode, status, cells_planned, cells_succeeded "
-        "FROM sync_runs WHERE id = ?",
-        (run_id,),
-    ).fetchone()
-
-    cells_sql = """
-    SELECT source, query, location_id, status, desc_selection, requested, returned, new_unique,
-           duration_ms, requests_made, seconds, ms_per_request
-    FROM cell_cost
-    WHERE sync_run_id = ?
-    ORDER BY duration_ms DESC
-    """
-    cells = [dict(row) for row in conn.execute(cells_sql, (run_id,))]
-    return run_id, dict(run_row) if run_row else None, cells
-
-
 # =====================================================================================
 # Enriched posting upsert & deduplication
 # =====================================================================================
@@ -554,38 +524,3 @@ def count_old_scorer(conn: sqlite3.Connection, scorer_version: int) -> int:
         "SELECT COUNT(*) FROM jobs WHERE COALESCE(scorer_version, 0) < ?",
         (scorer_version,),
     ).fetchone()[0]
-
-
-def get_jobs_for_rescore(conn: sqlite3.Connection) -> list[dict[str, Any]]:
-    return [
-        dict(r)
-        for r in conn.execute(
-            "SELECT id, title, description, role_family, seniority FROM jobs "
-            "WHERE description IS NOT NULL AND length(description) > 0"
-        ).fetchall()
-    ]
-
-
-def update_job_rescore(
-    conn: sqlite3.Connection,
-    job_id: int,
-    match_score: int,
-    matched_skills: list[str],
-    matched_count: int,
-    required_count: int,
-    scorer_version: int,
-    taxonomy_hash: str,
-) -> None:
-    conn.execute(
-        "UPDATE jobs SET match_score = ?, matched_skills = ?, matched_count = ?, "
-        "required_count = ?, scorer_version = ?, taxonomy_hash = ? WHERE id = ?",
-        (
-            match_score,
-            json.dumps(matched_skills),
-            matched_count,
-            required_count,
-            scorer_version,
-            taxonomy_hash,
-            job_id,
-        ),
-    )

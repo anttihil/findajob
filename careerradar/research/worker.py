@@ -62,9 +62,7 @@ def _persist(
     )
 
 
-def run_research(
-    company: str | None = None, limit: int | None = None, dry_run: bool = False
-) -> int:
+def run_research(company: str | None = None, limit: int | None = None) -> int:
     config = load_config()
     research_config = config.get("research") or {}
     scoring_config = config.get("scoring") or {}
@@ -106,10 +104,6 @@ def run_research(
                 f"  {row['company'][:44]:<46} tier {row['best_tier']}  "
                 f"({row['postings']} posting(s))"
             )
-
-        if dry_run:
-            print("\n(dry run -- nothing researched, nothing written)")
-            return 0
 
         run_id = research_repo.start_research_run(db.conn)
 

@@ -84,15 +84,13 @@ def _now() -> str:
 def _select(
     db: Database,
     limit: int | None,
-    rescore_all: bool,
     profile_version: int,
     include_closed: bool = False,
 ) -> list[dict[str, Any]]:
     return scoring_repo.select_scoring_backlog(
         db.conn,
-        limit=limit,
-        rescore_all=rescore_all,
         profile_version=profile_version,
+        limit=limit,
         include_closed=include_closed,
     )
 
@@ -178,7 +176,7 @@ def run_retry(job_id: int | None = None) -> int:
         db.close()
 
 
-def run_scoring(limit: int | None = None, rescore_all: bool = False, dry_run: bool = False) -> int:
+def run_scoring(limit: int | None = None) -> int:
     config = load_config()
     scoring_config = config.get("scoring") or {}
     model = scoring_config.get("model", DEFAULT_SCORING_MODEL)
@@ -194,11 +192,9 @@ def run_scoring(limit: int | None = None, rescore_all: bool = False, dry_run: bo
 
     db = Database()
     try:
-        jobs = _select(db, limit, rescore_all, profile_version)
+        jobs = _select(db, limit, profile_version)
         taxonomy = load_taxonomy()
         adapter = load_profile(db=db, taxonomy=taxonomy)
-        # `required=True` (the default) means load_profile never actually returns None --
-        # it raises NoActiveProfile instead. The signature just doesn't say so yet.
         assert adapter is not None
         scorer = _build_scorer(adapter, taxonomy, config)
         if not jobs:
@@ -213,9 +209,6 @@ def run_scoring(limit: int | None = None, rescore_all: bool = False, dry_run: bo
             int(len(render_posting(j, skill_hint=hints[j["id"]])) / CHARS_PER_TOKEN) for j in jobs
         )
 
-        # The system half is paid uncached exactly once, then read from cache. Modelling
-        # it any other way overstates the bill by ~50x on the cached portion and makes the
-        # ceiling useless.
         estimate = (
             estimate_cost(model, system_tokens, 0)
             + estimate_cost(
@@ -235,18 +228,12 @@ def run_scoring(limit: int | None = None, rescore_all: bool = False, dry_run: bo
         print(f"estimated cost:    ${estimate:.4f}")
 
         if max_usd is not None and estimate > max_usd:
-            # Abort rather than trim. Trimming produces a partial pass that looks complete,
-            # and every coverage number downstream silently inherits the shortfall.
             print()
             print(
                 f"ABORT: estimate ${estimate:.2f} exceeds scoring.max_usd_per_run ${max_usd:.2f}."
             )
             print("Raise the ceiling in config.yaml, or scope the run with --limit.")
             return 1
-
-        if dry_run:
-            print("\n(dry run -- nothing scored, nothing written)")
-            return 0
 
         graph = build_graph()
         spend = Spend(model, max_usd=max_usd)
@@ -268,10 +255,6 @@ def run_scoring(limit: int | None = None, rescore_all: bool = False, dry_run: bo
         with ThreadPoolExecutor(max_workers=concurrency) as pool:
             for job, state in pool.map(score_one, jobs):
                 verdict = state.get("verdict")
-                # Every attempt the graph made on this posting, retries included. Charged
-                # before the verdict is examined, because a posting that never produced
-                # one still spent its tokens: accounting only for successes hid the whole
-                # retry volume from the run total and from `job_verdicts.cost_usd`.
                 usage = state.get("usage")
                 cost = usage_cost(model, usage) if usage else 0.0
                 spend.usd += cost
@@ -297,12 +280,6 @@ def run_scoring(limit: int | None = None, rescore_all: bool = False, dry_run: bo
                 else:
                     if state.get("attempts", 1) > 1:
                         results["retried"] += 1
-                    # Commit per posting, not per 25. Python opens a deferred transaction
-                    # on the first write and holds SQLite's single writer slot until the
-                    # commit, so batching 25 verdicts held that slot for 25 LLM
-                    # round-trips -- longer than the 30s busy_timeout, which is how a
-                    # concurrent `sync` died with `database is locked`. One WAL append per
-                    # posting costs nothing next to the API call that produced it.
                     _persist(db, job, verdict, usage, cost, model, profile_version, phash)
                     db.conn.commit()
                     results["scored"] += 1

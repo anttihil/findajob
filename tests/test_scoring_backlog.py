@@ -107,21 +107,14 @@ class BacklogAccountingTests(_Fixture, unittest.TestCase):
         self.job(5, description="too short")  # stub -> never
         self.job(6, description=None)  # no description -> never
 
-        self.assertEqual(_pending(self.db, PROFILE), len(_select(self.db, None, False, PROFILE)))
+        self.assertEqual(_pending(self.db, PROFILE), len(_select(self.db, None, PROFILE)))
         self.assertEqual(_pending(self.db, PROFILE), 2)
 
     def test_pending_ignores_verdicts_from_another_profile(self) -> None:
         self.job(1, state="scored")
         self.verdict(1, VERDICT_SCHEMA_VERSION, profile_version=PROFILE - 1)
-        self.assertEqual(_pending(self.db, PROFILE), len(_select(self.db, None, False, PROFILE)))
+        self.assertEqual(_pending(self.db, PROFILE), len(_select(self.db, None, PROFILE)))
         self.assertEqual(_pending(self.db, PROFILE), 1)
-
-    def test_pending_stays_incremental_after_rescore_all(self) -> None:
-        """--rescore-all widens what a run does, not what is left to do afterwards."""
-        self.job(1, state="scored")
-        self.verdict(1, VERDICT_SCHEMA_VERSION)
-        self.assertEqual(len(_select(self.db, None, True, PROFILE)), 1)
-        self.assertEqual(_pending(self.db, PROFILE), 0)
 
     def test_ineligible_reasons_sum_to_the_total(self) -> None:
         self.job(1)  # eligible, not counted here
@@ -143,7 +136,7 @@ class BacklogAccountingTests(_Fixture, unittest.TestCase):
         self.job(2, duplicate_of=1)
         self.job(3, description="short")
 
-        queued = {row["id"] for row in _select(self.db, None, False, PROFILE)}
+        queued = {row["id"] for row in _select(self.db, None, PROFILE)}
         excluded = {
             row[0]
             for row in self.conn.execute(
@@ -156,13 +149,7 @@ class BacklogAccountingTests(_Fixture, unittest.TestCase):
 
 
 class SenioritySkipTests(_Fixture, unittest.TestCase):
-    """`scoring.skip_seniority` must move rows from pending to excluded, never lose them.
-
-    The levels are a yield decision (config.yaml records the measurement), so these tests
-    patch the config rather than asserting today's list: what is pinned is the mechanism --
-    the selector and the counter still agree, and a skipped posting is reported with a
-    reason instead of vanishing from both numbers.
-    """
+    """`scoring.skip_seniority` must move rows from pending to excluded, never lose them."""
 
     def setUp(self) -> None:
         super().setUp()
@@ -180,7 +167,7 @@ class SenioritySkipTests(_Fixture, unittest.TestCase):
         self.job(4, seniority="lead")
         self.job(5, seniority="staff")
 
-        queued = {row["id"] for row in _select(self.db, None, False, PROFILE)}
+        queued = {row["id"] for row in _select(self.db, None, PROFILE)}
         self.assertEqual(queued, {1, 2, 3})
         self.assertEqual(_pending(self.db, PROFILE), len(queued))
 
@@ -201,18 +188,9 @@ class SenioritySkipTests(_Fixture, unittest.TestCase):
         for job_id, level in enumerate(("mid", "lead", "staff", "senior"), start=1):
             self.job(job_id, seniority=level)
 
-        queued = {row["id"] for row in _select(self.db, None, False, PROFILE)}
+        queued = {row["id"] for row in _select(self.db, None, PROFILE)}
         self.assertEqual(queued, {1, 4})
         self.assertEqual(_ineligible(self.db)["total"], 2)
-
-    def test_rescore_all_still_honours_the_skip(self) -> None:
-        """--rescore-all widens which verdicts are redone, not which levels are judged."""
-        self.job(1, seniority="mid", state="scored")
-        self.job(2, seniority="lead", state="scored")
-        self.verdict(1, VERDICT_SCHEMA_VERSION)
-        self.verdict(2, VERDICT_SCHEMA_VERSION)
-
-        self.assertEqual({row["id"] for row in _select(self.db, None, True, PROFILE)}, {1})
 
 
 class EmptySenioritySkipTests(_Fixture, unittest.TestCase):
@@ -231,7 +209,7 @@ class EmptySenioritySkipTests(_Fixture, unittest.TestCase):
         self.job(1, seniority="lead")
         self.job(2, seniority="staff")
 
-        self.assertEqual(len(_select(self.db, None, False, PROFILE)), 2)
+        self.assertEqual(len(_select(self.db, None, PROFILE)), 2)
         self.assertEqual(_pending(self.db, PROFILE), 2)
         self.assertEqual(_ineligible(self.db)["total"], 0)
 
@@ -263,23 +241,13 @@ class PostingAgeFilterTests(_Fixture, unittest.TestCase):
         )
         self.conn.commit()
 
-        queued = [r["id"] for r in _select(self.db, None, False, PROFILE)]
+        queued = [r["id"] for r in _select(self.db, None, PROFILE)]
         self.assertEqual(queued, [1])
         self.assertEqual(_pending(self.db, PROFILE), 1)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class QuarantineTests(_Fixture, unittest.TestCase):
-    """A posting that fails the same way every run stops being offered.
-
-    The retry design assumes failure is a draw -- a rate limit, or the model answering in
-    prose. Some failures are a property of the posting: a record that is not a job ad
-    extracts no requirements, the validator rejects it, and that outcome is identical on
-    every attempt of every run. Three calls a run, indefinitely, with nothing recorded.
-    """
+    """A posting that fails the same way every run stops being offered."""
 
     def record_failures(
         self, job_id: int, times: int, error: str = "core_requirements is empty"
@@ -298,15 +266,7 @@ class QuarantineTests(_Fixture, unittest.TestCase):
             self.assertEqual(_pending(self.db, PROFILE), 1, f"withdrawn after only {n} failures")
             self.record_failures(1, 1)
         self.assertEqual(_pending(self.db, PROFILE), 0)
-        self.assertEqual(_select(self.db, None, False, PROFILE), [])
-
-    def test_rescore_all_does_not_resurrect_a_quarantined_posting(self) -> None:
-        """--rescore-all widens the verdict predicate, not the eligibility one."""
-        from careerradar.scoring.worker import MAX_SCORING_FAILURES
-
-        self.job(1)
-        self.record_failures(1, MAX_SCORING_FAILURES)
-        self.assertEqual(_select(self.db, None, True, PROFILE), [])
+        self.assertEqual(_select(self.db, None, PROFILE), [])
 
     def test_a_success_clears_the_counter(self) -> None:
         """Two failures then a verdict must not leave the posting one failure from exile."""
@@ -371,3 +331,7 @@ _VERDICT = {
     "scale_version": 1,
     "pareto_tier": 1,
 }
+
+
+if __name__ == "__main__":
+    unittest.main()

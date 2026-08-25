@@ -84,9 +84,7 @@ class TestStagesTakeTheLock(unittest.TestCase):
     def test_read_only_commands_are_not(self) -> None:
         """A report must not block for the 20 minutes a scrape takes."""
         self.assertIsNone(self._stage(["status"]))
-        self.assertIsNone(self._stage(["score", "stats"]))
-        self.assertIsNone(self._stage(["search", "cost"]))
-        self.assertIsNone(self._stage(["web"]))
+        self.assertIsNone(self._stage(["start"]))
 
 
 if __name__ == "__main__":

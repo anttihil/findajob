@@ -3,23 +3,16 @@
 Replaces the previous Gmail-IMAP pipeline, which read UNSEEN inbox mail (mutating the
 mailbox, making each run non-idempotent) and produced zero rows.
 
-    uv run python sync.py --dry-run --limit 5     # writes nothing; verifies the scrapers
-    uv run python sync.py --backfill --limit 25   # deep first pass, Indeed only
-    uv run python sync.py                         # incremental, both sources
-
-Run this from the CLI rather than the dashboard's Sync button during development: run.py
-starts uvicorn with reload=True and the sync runs in-process, so saving a file mid-scrape
-kills it.
+    careerradar search run [--dry-run]
 """
 
-import argparse
-import sys
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 
 from careerradar.core.config import load_config
 from careerradar.core.database import Database
 from careerradar.core.logger import get_logger
+from careerradar.core.paths import ARCHIVE_DIR
 from careerradar.core.status_manager import (
     add_sync_error,
     clear_stale_lock,
@@ -61,8 +54,6 @@ logger = get_logger()
 # the runs that lost 30-50% still reported ok, which is the case this threshold catches.
 LOST_CELLS_PARTIAL = 0.2
 
-from careerradar.core.paths import ARCHIVE_DIR  # noqa: E402
-
 
 def plan_hash(roles: "RoleTaxonomy", config: dict[str, Any]) -> str:
     """Identify the scrape plan, so trend queries can refuse to cross plan changes.
@@ -86,14 +77,12 @@ def plan_hash(roles: "RoleTaxonomy", config: dict[str, Any]) -> str:
 
 def run_sync(
     dry_run: bool = False,
-    backfill: bool = False,
     limit: int | None = None,
     sources: list[str] | None = None,
-    rescore_only: bool = False,
     force: bool = False,
 ) -> dict[str, Any] | None:
     logger.info("=" * 60)
-    mode = "dry_run" if dry_run else ("backfill" if backfill else "incremental")
+    mode = "dry_run" if dry_run else "incremental"
     logger.info(f"Starting sync ({mode})")
     logger.info("=" * 60)
 
@@ -128,12 +117,6 @@ def run_sync(
     logger.info(f"Profile: v{profile.version}, {len(profile)} skills (taxonomy {taxonomy.hash})")
 
     if not dry_run:
-        # The dashboard's /api/sync has always checked this; the CLI never did, which was
-        # survivable while every run was launched by hand. Under a timer it is not: a
-        # scheduled run landing on top of a manual one double-scrapes the same cells,
-        # races both writers on cell rotation state, and leaves whichever finishes second
-        # owning sync_status.json. systemd only guarantees a unit is not started twice --
-        # it knows nothing about a run started from a terminal.
         if is_sync_running() and not force:
             logger.error(
                 "another sync holds the lock (pid "
@@ -169,9 +152,6 @@ def run_sync(
             weights=(config.get("matching") or {}).get("weights"),
         )
 
-        if rescore_only:
-            return _rescore(db, scorer, taxonomy)
-
         if not dry_run:
             run_id = db.start_sync_run(
                 mode,
@@ -182,11 +162,6 @@ def run_sync(
         enabled = sources or [
             name for name, on in (scraper_config.get("sources") or {}).items() if on
         ]
-        # A 429 during a backfill would poison the incremental phase too, and LinkedIn
-        # contributes little to a deep first pass.
-        if backfill:
-            enabled = [s for s in enabled if s == "indeed"] or ["indeed"]
-            logger.info("Backfill mode: Indeed only")
 
         from careerradar.search.sources.jobspy_source import JobSpySource, prune_archives
 
@@ -217,12 +192,10 @@ def run_sync(
 
             cells = db.get_cells(source=source)
             if not cells:
-                logger.warning(
-                    f"[{source}] no cells seeded. Run: uv run python -m scripts.seed_cells"
-                )
+                logger.warning(f"[{source}] no cells seeded. Run: uv run careerradar migrate")
                 continue
 
-            tasks = select_cells(cells, scraper_config, roles, source, backfill=backfill)
+            tasks = select_cells(cells, scraper_config, roles, source)
             if limit:
                 tasks = tasks[:limit]
             totals["cells_planned"] += len(tasks)
@@ -252,10 +225,6 @@ def run_sync(
                         f"{circuit.trip_reason} — {remaining} cells deferred to the next run.",
                     )
                     break
-                # The `else` is a catch-all on purpose: every outcome must land in exactly
-                # one counter. It used to count "ok" and "tripped" only, so a cell that came
-                # back empty was in no counter at all and the run still reported ok -- the
-                # 2026-08-16 runs lost 20 of 40 Indeed cells that way and said nothing.
                 if outcome == "ok":
                     totals["cells_succeeded"] += 1
                 elif outcome == "empty":
@@ -343,12 +312,7 @@ def _scrape_one(
     observed_at = datetime.now(timezone.utc)
     attempts = 0
     max_attempts = 1 + (scraper_retries(config))
-    # The whole pool travels on the task; one endpoint is pinned per attempt so the cell
-    # keeps a warm connection, and a retry moves to a different exit IP.
     pool = payload.get("proxies") or []
-    # Summed over attempts, not taken from the last one: a cell that timed out twice before
-    # it succeeded really did spend those requests, and the request budget it is measured
-    # against (scheduler.estimate_units) is per cell visit, not per attempt.
     cost = {"duration_ms": 0, "requests_made": 0}
 
     while True:
@@ -389,11 +353,6 @@ def _scrape_one(
     )
     saturated = 1 if is_saturated(stats["returned"], task.results_wanted) else 0
 
-    # A census that came back with no descriptions is the silent failure mode of every
-    # description fetch, including the guest-fragment rewrite in jobspy_source.py: JobSpy
-    # returns {} rather than raising, so the cell looks healthy and only the skill-demand
-    # denominators shrink. Nothing downstream can tell that apart from postings that
-    # genuinely have no text.
     if task.desc_selection == "census" and stats["returned"] and not stats["with_full_description"]:
         logger.warning(
             f"[{task.source}] {task.query!r} in {task.location_id}: {stats['returned']} "
@@ -415,19 +374,6 @@ def _scrape_one(
         posting["pipeline_state"] = "new"
         stored.append((posting, result))
 
-        # Store on relevance, not on keyword score or title classification. The old gate
-        # dropped anything scoring below matching.min_match_score, which meant a keyword
-        # heuristic decided what the judgement layer was ever allowed to see -- and keyword
-        # coverage is exactly the thing that misjudges a career change or an unusual title.
-        # A second gate on `role_family is None` used to sit here too, on the claim that an
-        # unclassified title is reliably non-software work. It isn't: `role_family` comes
-        # from the same declarative regex matching that, until this fix, silently mistagged
-        # every "Senior Associate" title in the corpus as junior (see roles.yaml's
-        # seniority: block) -- a title-matching miss here was unrecoverable, since the
-        # posting was scored in memory and then discarded with no record. `title_family_fit`
-        # already scores 0.0 for role_family=None (keyword_score.py), so an unclassified
-        # posting is demoted, not deleted -- it still gets skill_coverage and seniority_fit,
-        # which read the actual posting rather than guessing from the title.
         if dry_run:
             continue
 
@@ -467,10 +413,6 @@ def _scrape_one(
             new_unique=new_count,
             saturated=saturated,
             status="ok" if stats["returned"] else "empty",
-            # `task.ewma_new_per_scrape` carries the cell's persisted value. Passing
-            # None here (as this did) makes update_ewma return the raw observation, so the
-            # stored EWMA was overwritten with the latest count on every attempt and the
-            # smoothing in cell_priority's productivity term never actually smoothed.
             ewma=update_ewma(task.ewma_new_per_scrape, new_count),
         )
 
@@ -489,12 +431,7 @@ def _scrape_one(
 
 
 def _add_cost(cost: dict[str, int], client: "BaseJobSource") -> None:
-    """Fold one attempt's measured cost into the cell's total, then clear it.
-
-    Clearing matters: `fetch_for_task` resets `last_fetch` on entry, but an attempt that
-    fails before reaching that line (a bad kwarg, a missing library) would otherwise leave
-    the previous attempt's numbers in place and get them counted twice.
-    """
+    """Fold one attempt's measured cost into the cell's total, then clear it."""
     measured = client.last_fetch or {}
     cost["duration_ms"] += measured.get("duration_ms", 0)
     cost["requests_made"] += measured.get("requests_made", 0)
@@ -583,11 +520,7 @@ def _print_dry_run(
 
 
 def _report_coverage(db: Database, scraper_config: dict[str, Any]) -> None:
-    """Surface scheduler coverage failures as warnings.
-
-    A coverage gap must become a visible caveat on the affected families rather than a
-    quietly wrong bar in the supply chart.
-    """
+    """Surface scheduler coverage failures as warnings."""
     overdue = overdue_cells(db.get_cells(), scraper_config)
     if not overdue:
         return
@@ -602,117 +535,16 @@ def _report_coverage(db: Database, scraper_config: dict[str, Any]) -> None:
     )
 
 
-# Which scorer wrote `match_score`. 1 is the coverage scorer without BM25; 0 means a row
-# predates the column and its score is not comparable with anything.
 SCORER_VERSION = 1
 
 
 def _warn_if_taxonomy_moved(db: Database, taxonomy: "Taxonomy") -> None:
-    """Say so when stored postings were scored under a different skills.yaml.
-
-    Editing the taxonomy silently changes what `match_score` and `job_skills` mean, and
-    nothing previously noticed: `jobs.taxonomy_hash` went stale and the rows kept being
-    compared with fresh ones. The remedy is one flag, so the warning names it.
-    """
+    """Say so when stored postings were scored under a different skills.yaml."""
     stale = search_repo.count_stale_taxonomy(db.conn, taxonomy.hash)
     old_scorer = search_repo.count_old_scorer(db.conn, SCORER_VERSION)
     if stale or old_scorer:
         logger.warning(
-            "%s posting(s) scored under an older taxonomy and %s under an older scorer. "
-            "Run `careerradar search run --rescore-only` to bring them current.",
+            "%s posting(s) scored under an older taxonomy and %s under an older scorer.",
             f"{stale:,}",
             f"{old_scorer:,}",
         )
-
-
-def _rescore(db: Database, scorer: JobScorer, taxonomy: "Taxonomy") -> dict[str, int]:
-    """Re-derive scores and skills for stored postings under the current taxonomy.
-
-    Editing skills.yaml changes what a run would have measured, so history recorded under an
-    older taxonomy is not comparable. This makes the choice explicit: keep snapshots as
-    recorded (reproducible), or rescore everything (consistent).
-    """
-    rows = search_repo.get_jobs_for_rescore(db.conn)
-    logger.info(f"Rescoring {len(rows)} postings under taxonomy {taxonomy.hash}")
-
-    for row in rows:
-        posting = dict(row)
-        posting["skills"] = taxonomy.extract(posting["description"], title=posting["title"])
-        result = scorer.score(posting)
-        unknown = [k for k in result["matched_skills"] if k not in taxonomy.skills]
-        if unknown:
-            raise ValueError(
-                f"matched_skills for job {row['id']} contains non-canonical keys: {unknown}"
-            )
-        search_repo.update_job_rescore(
-            db.conn,
-            job_id=row["id"],
-            match_score=result["score"],
-            matched_skills=result["matched_skills"],
-            matched_count=result["matched_count"],
-            required_count=result["required_count"],
-            scorer_version=SCORER_VERSION,
-            taxonomy_hash=taxonomy.hash,
-        )
-        search_repo.replace_job_skills(db.conn, row["id"], posting["skills"])
-        search_repo.replace_job_blockers(
-            db.conn, row["id"], taxonomy.extract_blockers(posting["description"])
-        )
-    db.conn.commit()
-    logger.info("Rescore complete")
-    return {"rescored": len(rows)}
-
-
-def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description=(__doc__ or "").split("\n")[0])
-    parser.add_argument(
-        "--dry-run",
-        action="store_true",
-        help="scrape a small sample, print what would be stored, write nothing",
-    )
-    parser.add_argument(
-        "--backfill",
-        action="store_true",
-        help="deep first pass: Indeed only, max results, widest window",
-    )
-    parser.add_argument("--limit", type=int, help="cap cells per source (use with --dry-run)")
-    parser.add_argument(
-        "--source",
-        action="append",
-        dest="sources",
-        choices=["indeed", "linkedin"],
-        help="restrict to one source (repeatable)",
-    )
-    parser.add_argument(
-        "--rescore-only",
-        action="store_true",
-        help="re-derive scores and skills for stored postings under the "
-        "current taxonomy; no scraping",
-    )
-    parser.add_argument(
-        "--force",
-        action="store_true",
-        help="start even if another sync holds the lock (only when you know the other run is gone)",
-    )
-    args = parser.parse_args(argv)
-
-    if args.dry_run and not args.limit:
-        args.limit = 3
-
-    result = run_sync(
-        dry_run=args.dry_run,
-        backfill=args.backfill,
-        limit=args.limit,
-        sources=args.sources,
-        rescore_only=args.rescore_only,
-        force=args.force,
-    )
-    # run_sync returns its totals on every path that actually ran, and None only when it
-    # refused to start (invalid taxonomy, or the lock is held). Propagate that as an exit
-    # code so a timer-launched unit records a failure rather than reporting success for a
-    # sync that never happened.
-    return 0 if result is not None else 1
-
-
-if __name__ == "__main__":
-    sys.exit(main())
