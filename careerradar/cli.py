@@ -136,7 +136,7 @@ def build_parser() -> argparse.ArgumentParser:
     scy.add_argument(
         "--job-id", type=int, help="clear one posting; defaults to every quarantined posting"
     )
-    scy.set_defaults(func=_cmd_score_retry)
+    scy.set_defaults(func=_cmd_score_retry, stage="score")
 
     # --- research --------------------------------------------------------------------
     r = sub.add_parser("research", help="build company dossiers for strong matches")

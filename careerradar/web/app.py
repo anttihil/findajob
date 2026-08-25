@@ -24,21 +24,17 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict
 from starlette.types import Scope
 
-from careerradar.core import pipeline_lock
 from careerradar.core.config import deep_merge, load_config, save_config
 from careerradar.core.database import Database
 from careerradar.core.logger import get_logger
 from careerradar.core.paths import FRONTEND_DIR
 from careerradar.core.status_manager import (
-    clear_stale_lock,
     is_sync_running,
     load_sync_status,
-    set_sync_progress,
 )
 from careerradar.market.analytics import MarketAnalytics
 from careerradar.market.gap_analysis import GapAnalysis
 from careerradar.profile.adapter import NoActiveProfile, load_profile
-from careerradar.search.runner import run_sync
 from careerradar.search.scheduler import scrape_tasks
 from careerradar.search.sources.link_generator import LinkGenerator
 from careerradar.taxonomy.roles import load_roles
@@ -510,41 +506,15 @@ def get_search_links(
 # --- Sync ------------------------------------------------------------------------------
 
 
-def bg_sync_task():
-    # trigger_sync() already validated-and-set the lock synchronously, right before
-    # scheduling this task, specifically to close the check-then-act race between two
-    # rapid clicks. Without force=True, run_sync()'s own internal lock check sees that
-    # same lock -- owner_pid is THIS process, since a FastAPI background task runs
-    # in-process, not as a subprocess -- and refuses, mistaking itself for a concurrent
-    # sync. The refusal returns before run_sync()'s try/finally, so the lock it never
-    # actually held is never released either: every dashboard Sync click silently failed
-    # and stuck sync_in_progress=true for up to 90 minutes.
-    #
-    # The pipeline lock is separate from that one and does a different job: it keeps this
-    # scrape off the database while `careerradar score run` (every 30 minutes) is writing.
-    with pipeline_lock.hold("dashboard sync"):
-        run_sync(force=True)
-
-
 @app.post("/api/sync")
 async def trigger_sync(background_tasks: BackgroundTasks):
     from careerradar.core.scheduler import scheduler
 
-    if scheduler.is_running:
-        status = scheduler.get_status()
-        if status.get("active_stage") == "search":
-            return JSONResponse(status_code=409, content={"message": "Sync is already in progress"})
-        background_tasks.add_task(scheduler.trigger, "search", manual=True)
-        return {"message": "Sync triggered in background via scheduler"}
-
-    # Fallback if scheduler is disabled in config
-    if is_sync_running():
+    status = scheduler.get_status()
+    if status.get("active_stage") == "search" or is_sync_running():
         return JSONResponse(status_code=409, content={"message": "Sync is already in progress"})
-    if clear_stale_lock():
-        pass  # a previous run died; the lock has been released
-    set_sync_progress(True)
-    background_tasks.add_task(bg_sync_task)
-    return {"message": "Sync triggered in background"}
+    background_tasks.add_task(scheduler.trigger, "search", manual=True)
+    return {"message": "Sync triggered in background via scheduler"}
 
 
 @app.get("/api/sync/status")

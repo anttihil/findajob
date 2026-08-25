@@ -78,6 +78,7 @@ class TestStagesTakeTheLock(unittest.TestCase):
     def test_writing_commands_are_serialized(self) -> None:
         self.assertEqual(self._stage(["search", "run"]), "search")
         self.assertEqual(self._stage(["score", "run"]), "score")
+        self.assertEqual(self._stage(["score", "retry"]), "score")
         self.assertEqual(self._stage(["research", "run"]), "research")
         self.assertEqual(self._stage(["migrate"]), "migrate")
 

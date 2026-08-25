@@ -1,19 +1,12 @@
 """One writing stage at a time.
 
-`search`, `score` and `research` run on independent systemd timers (deploy/*.timer): a
-scrape takes ~20 minutes and scoring fires every half hour, so two stages overlap by
-design. SQLite in WAL mode still admits one writer, and sustained contention between two
-stages outlived the 30s busy_timeout and surfaced as `database is locked`. The stages are
-steps of one pipeline and gain nothing from running together, so the second one queues.
+Pipeline stages (`search`, `score`, `research`, `migrate`) write to SQLite in WAL mode.
+Even in WAL mode, SQLite admits only one active writer at a time. To prevent sustained
+write contention from exceeding SQLite's busy timeout and throwing `database is locked`,
+all writing stages serialize on an exclusive flock managed centrally in `careerradar.cli`.
 
-A context manager rather than a process-lifetime lock, because the dashboard runs a sync
-in-process as a background task: a web server that acquired and never released would hold
-the pipeline shut until it restarted. The kernel also drops an flock when the holder dies,
-so a crashed stage cannot wedge the next one -- unlike the sync_status.json lock, which
-needs the stale-lock timeout in status_manager.py.
-
-Waiting is unbounded on purpose. Every unit sets TimeoutStartSec, which is the bound that
-already exists; a second one here would only disagree with it.
+The kernel drops the flock automatically when the holder process terminates or dies,
+so a crashed stage cannot wedge subsequent runs.
 """
 
 import fcntl
