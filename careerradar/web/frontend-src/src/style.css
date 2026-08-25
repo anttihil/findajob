@@ -355,7 +355,36 @@ html, body {
   gap: 16px;
   box-shadow: 2px 2px 0px var(--ink-primary);
   font-family: var(--font-mono);
+  color: var(--ink-primary);
+  text-decoration: none;
+  cursor: pointer;
+  user-select: none;
 }
+
+.stat-card:hover {
+  background-color: var(--bg-screen-alt);
+  box-shadow: 3px 3px 0px var(--ink-primary);
+}
+
+.stat-card.active {
+  background-color: var(--bg-inverse);
+  color: var(--ink-inverse);
+}
+
+.stat-card.active .stat-icon {
+  background-color: var(--bg-screen);
+  color: var(--ink-primary);
+  border-color: var(--bg-screen);
+}
+
+.stat-card.active .stat-label {
+  color: var(--ink-inverse);
+}
+
+.stat-card.active .stat-info h3 {
+  color: var(--ink-inverse);
+}
+
 
 .stat-icon {
   width: 46px;

@@ -83,15 +83,19 @@ LIVENESS_CASE = """
       ELSE 'live'
     END"""
 
-FEED_FROM = """
+ACTIVE_PROFILE_VERSION = """COALESCE(
+    (SELECT version FROM profiles WHERE is_active = 1 ORDER BY version DESC LIMIT 1),
+    (SELECT MAX(version) FROM profiles)
+)"""
+
+FEED_FROM = f"""
       FROM jobs
       LEFT JOIN job_verdicts v
              ON v.job_id = jobs.id
-            AND v.profile_version = (
-                SELECT version FROM profiles WHERE is_active = 1
-            )
+            AND v.profile_version = ({ACTIVE_PROFILE_VERSION})
       LEFT JOIN scrape_cells cell ON cell.id = jobs.scrape_cell_id
 """
+
 
 VERDICT_LIST_COLUMNS = (
     "fit",
@@ -408,16 +412,19 @@ def compute_stats(conn: sqlite3.Connection) -> dict[str, Any]:
     cursor.execute("SELECT pipeline_state, COUNT(*) as count FROM jobs GROUP BY pipeline_state")
     stats["pipeline_counts"] = {r["pipeline_state"]: r["count"] for r in cursor.fetchall()}
 
-    active = "(SELECT version FROM profiles WHERE is_active = 1)"
     cursor.execute(
         f"""
         SELECT COUNT(*) FROM jobs j
-          JOIN job_verdicts v ON v.job_id = j.id AND v.profile_version = {active}
+          JOIN job_verdicts v ON v.job_id = j.id
+           AND (
+               v.profile_version = ({ACTIVE_PROFILE_VERSION})
+               OR ({ACTIVE_PROFILE_VERSION}) IS NULL
+           )
          WHERE j.duplicate_of IS NULL
-           AND v.fit = 1
+           AND (v.fit = 1 OR v.fit IS TRUE)
         """
     )
-    stats["strong_matches"] = cursor.fetchone()[0]
+    stats["strong_matches"] = cursor.fetchone()[0] or 0
 
     cursor.execute(
         f"SELECT {LIVENESS_CASE} AS liveness, COUNT(*)"

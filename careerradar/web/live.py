@@ -102,6 +102,7 @@ class LiveEventHub:
             yield format_sse_message(
                 "pipeline_progress", self._get_pipeline_status(db, sync_running)
             )
+            yield format_sse_message("stats_update", db.get_stats())
         finally:
             db.close()
 

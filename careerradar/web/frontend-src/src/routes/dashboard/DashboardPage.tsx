@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
-import { useLocation, useSearch } from "wouter-preact";
+import { Link, useLocation, useSearch } from "wouter-preact";
 import { getJSON, guard, putJSON, reportError } from "../../api/client";
 import type {
   JobContext,
@@ -13,7 +13,6 @@ import { Pagination } from "../../components/Pagination";
 import { FilterQuery } from "../../lib/filterQuery";
 import { setSyncFinishedListener, syncStatus } from "../../state/sync";
 import { stats } from "../../state/stats";
-// import { newJobsPendingCount } from "../../state/liveEvents";
 import { FilterSidebar } from "./FilterSidebar";
 import { JobDrawer } from "./JobDrawer";
 import { newJobsPendingCount } from "../../state/liveEvents";
@@ -171,6 +170,14 @@ export function DashboardPage() {
       stats.value = { ...stats.value, status_counts: counts };
     }
 
+    // Refresh stats in background to keep all counters (including strong matches) synchronized
+    getJSON<Stats>("/api/stats")
+      .then((d) => {
+        if (d) stats.value = d;
+      })
+      .catch(() => {});
+
+
     setJobsPage((prev) => {
       if (!prev) return prev;
       if (newStatus !== query.status) {
@@ -202,7 +209,10 @@ export function DashboardPage() {
     <section class="tab-pane active">
       {/* Top Stats Cards Grid (Monochrome 1983 Style) */}
       <div class="stats-grid">
-        <div class="stat-card">
+        <Link
+          href={query.url({ status: "unread", fit: null })}
+          class={`stat-card ${query.status === "unread" && query.fit === null ? "active" : ""}`}
+        >
           <div class="stat-icon">
             <i class="fa-solid fa-magnifying-glass"></i>
           </div>
@@ -210,8 +220,11 @@ export function DashboardPage() {
             <span class="stat-label">Total Postings</span>
             <h3>{stats.value?.total_jobs ?? 0}</h3>
           </div>
-        </div>
-        <div class="stat-card">
+        </Link>
+        <Link
+          href={query.url({ status: "saved", fit: null })}
+          class={`stat-card ${query.status === "saved" ? "active" : ""}`}
+        >
           <div class="stat-icon">
             <i class="fa-solid fa-bookmark"></i>
           </div>
@@ -219,8 +232,11 @@ export function DashboardPage() {
             <span class="stat-label">Saved Matches</span>
             <h3>{stats.value?.status_counts.saved ?? 0}</h3>
           </div>
-        </div>
-        <div class="stat-card">
+        </Link>
+        <Link
+          href={query.url({ status: "applied", fit: null })}
+          class={`stat-card ${query.status === "applied" ? "active" : ""}`}
+        >
           <div class="stat-icon">
             <i class="fa-solid fa-paper-plane"></i>
           </div>
@@ -228,8 +244,11 @@ export function DashboardPage() {
             <span class="stat-label">Applications</span>
             <h3>{stats.value?.status_counts.applied ?? 0}</h3>
           </div>
-        </div>
-        <div class="stat-card">
+        </Link>
+        <Link
+          href={query.url({ fit: query.fit === true ? null : true })}
+          class={`stat-card ${query.fit === true ? "active" : ""}`}
+        >
           <div class="stat-icon">
             <i class="fa-solid fa-star"></i>
           </div>
@@ -237,7 +256,7 @@ export function DashboardPage() {
             <span class="stat-label">Strong Fit</span>
             <h3>{stats.value?.strong_matches ?? 0}</h3>
           </div>
-        </div>
+        </Link>
       </div>
 
 

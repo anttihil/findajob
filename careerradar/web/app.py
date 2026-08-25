@@ -262,7 +262,7 @@ def update_job_status(job_id: int, payload: StatusUpdate):
 def get_stats():
     db = get_db()
     try:
-        return db.get_stats()
+        return JSONResponse(content=db.get_stats(), headers=CACHE_HEADERS)
     finally:
         db.close()
 
