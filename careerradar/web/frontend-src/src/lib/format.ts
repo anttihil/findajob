@@ -29,3 +29,17 @@ export function ago(hours: number | null | undefined): string {
   if (hours < 48) return `${hours.toFixed(1)}h ago`;
   return `${(hours / 24).toFixed(1)}d ago`;
 }
+
+export function retroDate(value: string | null | undefined): string {
+  if (!value) return "04-20-83  09:15";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  const mm = String(date.getUTCMonth() + 1).padStart(2, "0");
+  const dd = String(date.getUTCDate()).padStart(2, "0");
+  const yy = String(date.getUTCFullYear() % 100).padStart(2, "0");
+  const hh = String(date.getUTCHours()).padStart(2, "0");
+  const min = String(date.getUTCMinutes()).padStart(2, "0");
+  return `${mm}-${dd}-${yy}  ${hh}:${min}`;
+}
+
+

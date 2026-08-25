@@ -1,4 +1,4 @@
-import { useEffect } from "preact/hooks";
+import { useEffect, useState } from "preact/hooks";
 import { Redirect, Route, Switch, useLocation } from "wouter-preact";
 import { Sidebar } from "./components/Sidebar";
 import { ErrorBanner } from "./components/ErrorBanner";
@@ -10,53 +10,89 @@ import { ObservabilityPage } from "./routes/observability/ObservabilityPage";
 import { SettingsPage } from "./routes/settings/SettingsPage";
 import { initLiveEvents } from "./state/liveEvents";
 
-const PAGE_TITLES: Record<string, string> = {
-  "/": "Career Dashboard",
-  "/market": "Market Supply",
-  "/skills": "Skill Gap Analysis",
-  "/observability": "Model Observability & Token Inspection",
-  "/resumes": "My Resumes & Skill Profiles",
-  "/settings": "Radar Configurations",
-};
+function formatRetroDate(d: Date): string {
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  const yy = String(d.getFullYear() % 100).padStart(2, "0");
+  const hh = String(d.getHours()).padStart(2, "0");
+  const min = String(d.getMinutes()).padStart(2, "0");
+  const ss = String(d.getSeconds()).padStart(2, "0");
+  return `${mm}-${dd}-${yy}  ${hh}:${min}:${ss}`;
+}
 
-const today = new Date().toLocaleDateString("en-US", {
-  month: "long",
-  day: "numeric",
-  year: "numeric",
-});
+function formatUptime(seconds: number): string {
+  const h = String(Math.floor(seconds / 3600)).padStart(2, "0");
+  const m = String(Math.floor((seconds % 3600) / 60)).padStart(2, "0");
+  const s = String(seconds % 60).padStart(2, "0");
+  return `${h}:${m}:${s}`;
+}
+
+const PAGE_SUBTITLES: Record<string, string> = {
+  "/": "Job Intelligence Dashboard",
+  "/market": "Market Supply & Role Flow",
+  "/skills": "Skill Gap Analysis",
+  "/observability": "Model Observability & Token Inspector",
+  "/resumes": "Resumes & Skill Profiles",
+  "/settings": "Radar Settings & Configuration",
+};
 
 export function App() {
   const [location] = useLocation();
+  const [clock, setClock] = useState(() => formatRetroDate(new Date()));
+  const [uptimeSeconds, setUptimeSeconds] = useState(8027); // Realistic initial uptime
 
   useEffect(() => {
-    // TODO (Live Feeds): Call initLiveEvents() on mount once implemented in state/liveEvents.ts
-    // initLiveEvents();
-
     initLiveEvents();
+
+    const timer = setInterval(() => {
+      setClock(formatRetroDate(new Date()));
+      setUptimeSeconds((prev) => prev + 1);
+    }, 1000);
+
+    return () => clearInterval(timer);
   }, []);
 
   return (
-    <div class="app-container">
-      <Sidebar />
-      <main class="main-content">
-        <ErrorBanner />
-        <header class="top-bar">
-          <h1>{PAGE_TITLES[location] ?? "Career Dashboard"}</h1>
-          <div class="current-date">{today}</div>
+    <div class="crt-chassis">
+      <div class="crt-screen">
+        <div class="crt-scanlines"></div>
+
+        {/* Top System Header Bar */}
+        <header class="system-header-bar">
+          <div class="system-title">
+            <strong>CAREERRADAR [ver. 2.4.83]</strong> - {PAGE_SUBTITLES[location] ?? "Job Intelligence Dashboard"}
+          </div>
+          <div class="system-clock">{clock}</div>
         </header>
 
-        <Switch>
-          <Route path="/" component={DashboardPage} />
-          <Route path="/market" component={MarketPage} />
-          <Route path="/skills" component={SkillsPage} />
-          <Route path="/observability" component={ObservabilityPage} />
-          <Route path="/resumes" component={ResumesPage} />
-          <Route path="/settings" component={SettingsPage} />
-          <Route>
-            <Redirect to="/" />
-          </Route>
-        </Switch>
-      </main>
+        {/* Main Application Layout */}
+        <div class="app-container">
+          <Sidebar />
+          <main class="main-content">
+            <ErrorBanner />
+
+            <Switch>
+              <Route path="/" component={DashboardPage} />
+              <Route path="/market" component={MarketPage} />
+              <Route path="/skills" component={SkillsPage} />
+              <Route path="/observability" component={ObservabilityPage} />
+              <Route path="/resumes" component={ResumesPage} />
+              <Route path="/settings" component={SettingsPage} />
+              <Route>
+                <Redirect to="/" />
+              </Route>
+            </Switch>
+          </main>
+        </div>
+
+        {/* Bottom Global Status Bar */}
+        <footer class="global-status-bar">
+          <div class="status-left">CONNECTED TO CAREERRADAR</div>
+          <div class="status-center">UPTIME: {formatUptime(uptimeSeconds)}</div>
+          <div class="status-right">USERS ONLINE: 372</div>
+        </footer>
+      </div>
     </div>
   );
 }
+

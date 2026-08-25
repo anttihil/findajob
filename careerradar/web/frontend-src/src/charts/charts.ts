@@ -292,8 +292,9 @@ export function renderHeatmap(
       } else {
         // Alpha carries magnitude; the number is also printed, so the encoding is not
         // color-alone.
-        const alpha = 0.12 + 0.78 * (value / max);
-        cell.style.background = `rgba(168, 85, 247, ${alpha.toFixed(3)})`;
+        const alpha = 0.10 + 0.85 * (value / max);
+        cell.style.background = `rgba(0, 0, 0, ${alpha.toFixed(3)})`;
+        cell.style.color = alpha > 0.5 ? "#ffffff" : "#000000";
         cell.textContent = value > 0 ? formatValue(value) : "0";
         cell.title =
           `${rowLabels[rowIndex]} / ${colLabels[colIndex]}: ` + `${formatValue(value)}/day`;

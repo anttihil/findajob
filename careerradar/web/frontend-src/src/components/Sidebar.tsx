@@ -2,29 +2,41 @@ import { Link, useLocation } from "wouter-preact";
 import { SyncStatusWidget } from "./SyncStatusWidget";
 
 const NAV_ITEMS: { href: string; icon: string; label: string }[] = [
-  { href: "/", icon: "fa-house", label: "Dashboard" },
-  { href: "/market", icon: "fa-chart-simple", label: "Market Supply" },
-  { href: "/skills", icon: "fa-arrow-trend-up", label: "Skill Gaps" },
-  { href: "/observability", icon: "fa-gauge-high", label: "Model Observability" },
-  { href: "/resumes", icon: "fa-file-invoice", label: "Resumes & Skills" },
-  { href: "/settings", icon: "fa-sliders", label: "Settings & Sync" },
+  { href: "/", icon: "fa-satellite-dish", label: "DASHBOARD" },
+  { href: "/market", icon: "fa-chart-simple", label: "MARKET SUPPLY" },
+  { href: "/skills", icon: "fa-arrow-trend-up", label: "SKILL GAPS" },
+  { href: "/observability", icon: "fa-gauge-high", label: "OBSERVABILITY" },
+  { href: "/resumes", icon: "fa-file-invoice", label: "RESUMES & SKILLS" },
+  { href: "/settings", icon: "fa-sliders", label: "SETTINGS & SYNC" },
 ];
 
 
-// Ported from `partials/sidebar.html`.
 export function Sidebar() {
   const [location] = useLocation();
 
   return (
     <aside class="sidebar">
-      <div class="logo">
-        <div class="logo-icon">
-          <i class="fa-solid fa-satellite-dish animate-pulse"></i>
+      {/* 1983 NETLINK-style Hatched Logo */}
+      <div class="retro-logo-container">
+        <div class="hatched-logo-box">
+          <svg class="hatched-logo-svg" viewBox="0 0 54 54" width="54" height="54">
+            <defs>
+              <pattern id="retroHatch" width="4" height="4" patternUnits="userSpaceOnUse">
+                <line x1="0" y1="2" x2="4" y2="2" stroke="#000000" stroke-width="1.8" />
+              </pattern>
+            </defs>
+            {/* Outer Box */}
+            <rect x="2" y="2" width="50" height="50" fill="none" stroke="#000000" stroke-width="2" />
+            {/* Bold Hatched 'N' / 'CR' Symbol */}
+            <path
+              d="M 10 10 L 18 10 L 18 30 L 36 10 L 44 10 L 44 44 L 36 44 L 36 24 L 18 44 L 10 44 Z"
+              fill="url(#retroHatch)"
+              stroke="#000000"
+              stroke-width="1.5"
+            />
+          </svg>
         </div>
-        <div class="logo-text">
-          <h2>CareerRadar</h2>
-          <span>Daily Job Intelligence</span>
-        </div>
+        <div class="hatched-logo-caption">CAREERRADAR</div>
       </div>
 
       <nav class="nav-menu">
@@ -34,7 +46,8 @@ export function Sidebar() {
             href={item.href}
             class={`nav-item ${location === item.href ? "active" : ""}`}
           >
-            <i class={`fa-solid ${item.icon}`}></i> {item.label}
+            <i class={`fa-solid ${item.icon}`}></i>
+            <span>{item.label}</span>
           </Link>
         ))}
       </nav>
@@ -43,3 +56,4 @@ export function Sidebar() {
     </aside>
   );
 }
+

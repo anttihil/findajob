@@ -200,18 +200,19 @@ export function DashboardPage() {
 
   return (
     <section class="tab-pane active">
+      {/* Top Stats Cards Grid (Monochrome 1983 Style) */}
       <div class="stats-grid">
         <div class="stat-card">
-          <div class="stat-icon purple">
+          <div class="stat-icon">
             <i class="fa-solid fa-magnifying-glass"></i>
           </div>
           <div class="stat-info">
-            <span class="stat-label">Total Jobs</span>
+            <span class="stat-label">Total Postings</span>
             <h3>{stats.value?.total_jobs ?? 0}</h3>
           </div>
         </div>
         <div class="stat-card">
-          <div class="stat-icon green">
+          <div class="stat-icon">
             <i class="fa-solid fa-bookmark"></i>
           </div>
           <div class="stat-info">
@@ -220,27 +221,28 @@ export function DashboardPage() {
           </div>
         </div>
         <div class="stat-card">
-          <div class="stat-icon blue">
+          <div class="stat-icon">
             <i class="fa-solid fa-paper-plane"></i>
           </div>
           <div class="stat-info">
-            <span class="stat-label">Applied</span>
+            <span class="stat-label">Applications</span>
             <h3>{stats.value?.status_counts.applied ?? 0}</h3>
           </div>
         </div>
         <div class="stat-card">
-          <div class="stat-icon gold">
+          <div class="stat-icon">
             <i class="fa-solid fa-star"></i>
           </div>
           <div class="stat-info">
-            <span class="stat-label">Strong fit</span>
+            <span class="stat-label">Strong Fit</span>
             <h3>{stats.value?.strong_matches ?? 0}</h3>
           </div>
         </div>
       </div>
 
+
       {showSyncErrors && currentSyncErrors && (
-        <div class="sync-error-banner glass-card">
+        <div class="sync-error-banner glass-card mt-4">
           <div class="banner-title">
             <span>
               <i class="fa-solid fa-triangle-exclamation text-gold"></i> API
@@ -272,89 +274,113 @@ export function DashboardPage() {
         </div>
       )}
 
-      <div class="feed-layout">
-        <FilterSidebar query={query} meta={meta} />
-
+      {/* Main Content Grid: Recent Posts (Left) & Connections/Filters (Right) */}
+      <div class="feed-layout mt-4">
+        {/* Left Column: Recent Posts / Matched Postings */}
         <div class="feed-main">
-          <div class="feed-search-bar-wrap">
-            <div class="feed-search-input-box">
-              <i class="fa-solid fa-magnifying-glass search-icon"></i>
-              <input
-                type="text"
-                class="feed-search-input"
-                placeholder="Search jobs by title, company, skills, or location (fuzzy search)..."
-                value={searchTerm}
-                onInput={(e) =>
-                  handleSearchChange((e.target as HTMLInputElement).value)
-                }
-                onKeyDown={handleKeyDown}
-                aria-label="Search jobs"
-              />
-              {searchTerm && (
-                <button
-                  type="button"
-                  class="search-clear-btn"
-                  onClick={handleClearSearch}
-                  title="Clear search"
-                  aria-label="Clear search"
+          <div class="panel-section-box">
+            <div class="panel-section-header">RECENT POSTS</div>
+            <div class="panel-section-body">
+              <div class="feed-search-bar-wrap">
+                <div class="feed-search-input-box">
+                  <i class="fa-solid fa-magnifying-glass search-icon"></i>
+                  <input
+                    type="text"
+                    class="feed-search-input"
+                    placeholder="Search jobs by title, company, skills, or location..."
+                    value={searchTerm}
+                    onInput={(e) =>
+                      handleSearchChange((e.target as HTMLInputElement).value)
+                    }
+                    onKeyDown={handleKeyDown}
+                    aria-label="Search jobs"
+                  />
+                  {searchTerm && (
+                    <button
+                      type="button"
+                      class="search-clear-btn"
+                      onClick={handleClearSearch}
+                      title="Clear search"
+                      aria-label="Clear search"
+                    >
+                      <i class="fa-solid fa-xmark"></i>
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              <div class="feed-header">
+                <span class="results-count">
+                  {jobsPage
+                    ? `DISPLAYING ${jobsPage.jobs.length} OF ${jobsPage.total} MATCHING POSITIONS`
+                    : "LOADING INTELLIGENCE..."}
+                </span>
+              </div>
+
+              {newJobsPendingCount.value > 0 && (
+                <div
+                  class="sync-error-banner glass-card"
+                  style={{ cursor: "pointer", marginBottom: "1rem" }}
+                  onClick={() => {
+                    newJobsPendingCount.value = 0;
+                    setRefreshKey((k) => k + 1);
+                  }}
                 >
-                  <i class="fa-solid fa-xmark"></i>
-                </button>
+                  <div class="banner-title">
+                    <span>
+                      <i class="fa-solid fa-bolt text-gold"></i> New updates scored
+                      in background. Click to refresh feed.
+                    </span>
+                    <button type="button" class="btn btn-sm btn-primary">
+                      Refresh
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              <div class="job-cards-grid">
+                {jobsPage === null && <p class="chart-empty">Loading…</p>}
+                {jobsPage?.jobs.length === 0 && (
+                  <div class="no-jobs-card">
+                    <i class="fa-solid fa-binoculars"></i>
+                    <h3>No matching jobs found</h3>
+                    <p>
+                      Try adjusting your filters, triggering a new database sync, or
+                      relaxing your match threshold.
+                    </p>
+                  </div>
+                )}
+                {jobsPage?.jobs.map((job) => (
+                  <JobCard key={job.id} job={job} query={query} />
+                ))}
+              </div>
+
+              {jobsPage && (
+                <div class="feed-footer-actions">
+                  <Pagination
+                    query={query}
+                    total={jobsPage.total}
+                    hasMore={jobsPage.has_more}
+                  />
+                </div>
               )}
             </div>
           </div>
+        </div>
 
-          <div class="feed-header">
-            <span class="results-count">
-              {jobsPage
-                ? `${jobsPage.total} matching position${jobsPage.total === 1 ? "" : "s"} found`
-                : "Loading…"}
-            </span>
-          </div>
-          {newJobsPendingCount.value > 0 && (
-            <div
-              class="sync-error-banner glass-card"
-              style={{ cursor: "pointer", marginBottom: "1rem" }}
-              onClick={() => {
-                newJobsPendingCount.value = 0;
-                setRefreshKey((k) => k + 1);
-              }}
-            >
-              <div class="banner-title">
-                <span>
-                  <i class="fa-solid fa-bolt text-gold"></i> New updates scored
-                  in background. Click to refresh feed.
-                </span>
-                <button type="button" class="btn btn-sm btn-primary">
-                  Refresh
-                </button>
-              </div>
-            </div>
-          )}
-          <div class="job-cards-grid">
-            {jobsPage === null && <p class="chart-empty">Loading…</p>}
-            {jobsPage?.jobs.length === 0 && (
-              <div class="no-jobs-card">
-                <i class="fa-solid fa-binoculars"></i>
-                <h3>No matching jobs found</h3>
-                <p>
-                  Try adjusting your filters, triggering a new database sync, or
-                  relaxing your match threshold.
-                </p>
-              </div>
-            )}
-            {jobsPage?.jobs.map((job) => (
-              <JobCard key={job.id} job={job} query={query} />
-            ))}
-          </div>
+        {/* Right Column: Filter Controls / Connections */}
+        <div class="feed-sidebar-col">
+          <FilterSidebar query={query} meta={meta} />
+        </div>
+      </div>
 
-          {jobsPage && (
-            <Pagination
-              query={query}
-              total={jobsPage.total}
-              hasMore={jobsPage.has_more}
-            />
-          )}
+      {/* System Message Box (NETLINK 1983 Style) */}
+      <div class="retro-system-message-box mt-4">
+        <div class="system-message-header">SYSTEM MESSAGE</div>
+        <div class="system-message-body">
+          NETLINK will be undergoing scheduled maintenance on 04-25-83 from 01:00 to 03:00 EST.
+          <br />
+          During this time, the network may be unavailable. Thank you.
         </div>
       </div>
 
@@ -366,3 +392,4 @@ export function DashboardPage() {
     </section>
   );
 }
+

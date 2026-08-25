@@ -1,7 +1,6 @@
 import { useEffect } from "preact/hooks";
 import { checkSyncStatus, syncBusy, syncStatus, triggerSync } from "../state/sync";
 
-// Ported from the `.sync-status-widget` block in `partials/sidebar.html`.
 export function SyncStatusWidget() {
   useEffect(() => {
     checkSyncStatus();
@@ -12,22 +11,26 @@ export function SyncStatusWidget() {
 
   return (
     <div class="sync-status-widget">
+      <div class="sync-widget-header">SYS-ENGINE</div>
       <div class="sync-indicator">
-        <span class={`status-dot ${syncBusy.value ? "orange" : "green"}`}></span>
-        <span class="status-text">{syncBusy.value ? "Syncing Database..." : "Database Idle"}</span>
+        <span class="status-label">STATUS:</span>
+        <span class={`status-badge-retro ${syncBusy.value ? "is-busy" : "is-online"}`}>
+          {syncBusy.value ? "BUSY" : "ONLINE"}
+        </span>
       </div>
       {showStats && stats && (
         <div class="sync-stats-info">
-          Last Sync Scanned: <strong>{stats.total_fetched.toLocaleString()}</strong> posts
+          SCANNED: <strong>{stats.total_fetched.toLocaleString()}</strong>
           <br />
-          Evaluated: <strong>{stats.total_evaluated.toLocaleString()}</strong> fits
+          EVAL: <strong>{stats.total_evaluated.toLocaleString()}</strong>
           <br />
-          Saved: <strong>{stats.total_new}</strong> new
+          SAVED: <strong>{stats.total_new}</strong>
         </div>
       )}
       <button class="quick-sync-btn" disabled={syncBusy.value} onClick={triggerSync}>
-        <i class="fa-solid fa-rotate"></i> Sync Now
+        <span>SYNC NOW ▶</span>
       </button>
     </div>
   );
 }
+
