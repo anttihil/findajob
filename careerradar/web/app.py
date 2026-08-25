@@ -54,14 +54,25 @@ if TYPE_CHECKING:
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    # start monitoring db and sending server-side events
-    task = asyncio.create_task(live_hub.start_monitor())
+    # Auto-seed cells on startup to sync taxonomy changes without manual commands
+    from careerradar.search.seed import seed_cells
+
+    try:
+        seed_cells(prune=True)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("Auto cell seeding failed on startup: %s", e)
+
+    live_task = asyncio.create_task(live_hub.start_monitor())
+    from careerradar.core.scheduler import scheduler
+
+    await scheduler.start()
     try:
         yield
     finally:
-        task.cancel()
+        await scheduler.stop()
+        live_task.cancel()
         with suppress(asyncio.CancelledError):
-            await task
+            await live_task
 
 
 app = FastAPI(title="Job Search Automation Dashboard", lifespan=lifespan)
@@ -516,9 +527,17 @@ def bg_sync_task():
 
 
 @app.post("/api/sync")
-def trigger_sync(background_tasks: BackgroundTasks):
-    # is_sync_running checks the owning PID rather than trusting the flag, so a crashed
-    # sync no longer wedges this endpoint permanently.
+async def trigger_sync(background_tasks: BackgroundTasks):
+    from careerradar.core.scheduler import scheduler
+
+    if scheduler.is_running:
+        status = scheduler.get_status()
+        if status.get("active_stage") == "search":
+            return JSONResponse(status_code=409, content={"message": "Sync is already in progress"})
+        background_tasks.add_task(scheduler.trigger, "search", manual=True)
+        return {"message": "Sync triggered in background via scheduler"}
+
+    # Fallback if scheduler is disabled in config
     if is_sync_running():
         return JSONResponse(status_code=409, content={"message": "Sync is already in progress"})
     if clear_stale_lock():
@@ -533,6 +552,28 @@ def get_sync_status():
     status = load_sync_status()
     status["sync_in_progress"] = is_sync_running()
     return status
+
+
+@app.get("/api/scheduler/status")
+def get_scheduler_status():
+    from careerradar.core.scheduler import scheduler
+
+    return scheduler.get_status()
+
+
+@app.post("/api/scheduler/trigger/{stage}")
+async def trigger_scheduler_stage(stage: str, background_tasks: BackgroundTasks):
+    from careerradar.core.scheduler import scheduler
+
+    if stage not in ["search", "score", "research"]:
+        raise HTTPException(status_code=400, detail=f"Invalid stage: {stage}")
+    status = scheduler.get_status()
+    if status.get("active_stage") == stage:
+        return JSONResponse(
+            status_code=409, content={"message": f"Stage '{stage}' is already in progress"}
+        )
+    background_tasks.add_task(scheduler.trigger, stage, manual=True)
+    return {"message": f"Stage '{stage}' triggered in background"}
 
 
 @app.get("/api/sync/plan")

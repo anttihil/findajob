@@ -297,15 +297,9 @@ dossier says so.
 
 ## Deployment
 
-Runs on a Tailscale-reachable home server: one long-lived web service and three `oneshot`
-units driven by timers.
-
-| unit | schedule | why |
-|---|---|---|
-| `careerradar-search.timer` | 01:00, 07:00, 13:00, 19:00 ±30min | matches the 410-cell/~1.5-day rotation. `Persistent=true` — a missed run means suppressed supply figures, not a neutral gap |
-| `careerradar-score.timer` | every 30 min ±3min | cheap and idempotent; a posting scraped at 07:00 is judged by 07:30. `Persistent=false` — the queue is in the database, nothing to catch up |
-| `careerradar-research.timer` | 20:30 ±20min | after the evening scrape and its scoring have settled |
-| `careerradar-web.service` | always | binds `127.0.0.1:8010` |
+Runs as a single unified service: FastAPI dashboard and background `asyncio` scheduler running
+in one process, executing pipeline stages (`search`, `score`, `research`) as isolated worker
+subprocesses with automated pipeline chaining.
 
 ```bash
 git clone https://github.com/your-username/careerradar.git ~/projects/careerradar
@@ -314,25 +308,22 @@ uv sync
 scripts/sync_corpus.sh /path/to/resume
 cp /path/to/.env .
 sqlite3 /path/to/old/jobs.db ".backup 'jobs.db'"   # WAL mode: never plain-copy a live DB
-uv run careerradar migrate
+uv run careerradar migrate                         # applies migrations & auto-seeds scrape cells
 
 npm ci                                             # frontend, locked to package-lock.json
 npm run build                                      # -> frontend/dist/; careerradar-web serves it
 
-sudo cp deploy/careerradar-*.service deploy/careerradar-*.timer /etc/systemd/system/
+sudo cp deploy/careerradar.service /etc/systemd/system/
 sudo install -m 0644 deploy/careerradar.logrotate /etc/logrotate.d/careerradar
 sudo systemctl daemon-reload
-sudo systemctl enable --now careerradar-web.service \
-    careerradar-search.timer careerradar-score.timer careerradar-research.timer
+sudo systemctl enable --now careerradar.service
 ```
 
-The units hardcode the app root and `User=`; the logrotate snippet hardcodes the same two.
+The unit hardcodes the app root and `User=`; the logrotate snippet hardcodes the same two.
 Adjust all of them if the server layout differs.
 
-`careerradar-search.service` deliberately has **no `Restart=`** — the circuit breaker has
-already decided how long to back off, and restarting would discard that decision and
-re-approach a board that just rate-limited us. The score and research units *do* retry: they
-talk to an API with its own rate-limit semantics, and a failed posting simply stays queued.
+The background scheduler manages stage execution, boot catch-up (`persistent_catchup: true`),
+and pipeline chaining (Search $\rightarrow$ Score $\rightarrow$ Research) as configured in `config.yaml`.
 
 The web service binds `127.0.0.1:8010` and stays there. Tailscale fronts it:
 

@@ -142,33 +142,23 @@ ssh <prod-host>
 cd <install-dir>
 git pull
 uv sync                                 # only if Python dependencies changed
-uv run careerradar migrate              # only if a migration was added
+uv run careerradar migrate              # applies migrations and auto-seeds/prunes cells
 npm ci && npm run build                 # only if careerradar/web/frontend-src/ changed --
                                          # the built output is gitignored, so a pull alone
                                          # leaves the previous build in place until this runs
-sudo systemctl restart careerradar-web  # only if the web app or the frontend build changed
+sudo systemctl restart careerradar      # restarts dashboard + background scheduler
 uv run careerradar status               # confirm the pipeline still reads healthy
-```
-
-Timers are the part that is easy to forget, because a disabled one produces no error
-anywhere — it simply never runs:
-
-```bash
-systemctl list-timers 'careerradar-*'   # enabled AND scheduled, not just present
-systemctl is-enabled careerradar-score.timer
 ```
 
 ## Deploying a taxonomy change
 
-Two things do NOT happen on their own after you edit `data/roles.yaml`:
+Editing `data/roles.yaml` or `data/skills.yaml` is automatically applied on restart or via:
 
 ```bash
-careerradar search seed-cells --prune   # query_terms changes reach the cell matrix
+careerradar migrate
 ```
 
-Without it the matrix keeps running whatever queries it was seeded with. `--prune` disables
-cells that are no longer in the taxonomy rather than deleting them, so their history stays
-auditable.
+This runs schema migrations and automatically syncs `roles.yaml` queries into `scrape_cells` (with `--prune` to disable retired cells).
 
 And a pattern edit is **not retroactive**. `role_family` is written at ingest, and
 `--rescore-only` passes it through rather than re-deriving it, so a pattern edit applies to

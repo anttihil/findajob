@@ -74,7 +74,7 @@ def render(report: dict[str, Any]) -> str:
     # The stall test is on the SCORER, not on the queue: a large backlog with a recent
     # verdict is a budget question, a small backlog with no recent verdict is a broken timer.
     if score["hours_since"] is None or score["hours_since"] > 24 * STALL_MULTIPLE:
-        out.append("  ! scoring looks stalled -- check: systemctl status careerradar-score.timer")
+        out.append("  ! scoring looks stalled -- check: systemctl status careerradar")
 
     research = report["research"]
     out += ["", "RESEARCH"]

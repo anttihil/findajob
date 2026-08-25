@@ -72,7 +72,7 @@ class StatusRenderTests(unittest.TestCase):
         score["hours_since"] = 24 * 7
         out = render(_report(score=score))
         self.assertIn("scoring looks stalled", out)
-        self.assertIn("careerradar-score.timer", out)
+        self.assertIn("systemctl status careerradar", out)
 
     def test_never_scored_corpus_is_called_out(self) -> None:
         score = dict(_report()["score"])

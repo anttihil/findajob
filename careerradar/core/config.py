@@ -97,6 +97,32 @@ def load_config() -> dict[str, Any]:
             "max_tier": 4,
             "include_skill_gap": True,
         },
+        "scheduler": {
+            "enabled": True,
+            "search": {
+                "schedule": ["01:00", "07:00", "13:00", "19:00"],
+                "jitter_minutes": 30,
+                "persistent_catchup": True,
+                "timeout_minutes": 90,
+            },
+            "score": {
+                "interval_minutes": 30,
+                "jitter_minutes": 3,
+                "timeout_minutes": 90,
+            },
+            "research": {
+                "schedule": ["20:30"],
+                "jitter_minutes": 20,
+                "timeout_minutes": 45,
+            },
+            "chaining": {
+                "search_triggers_score": True,
+                "score_triggers_research": True,
+            },
+        },
+        "scoring": {
+            "max_posting_age_days": 3,
+        },
     }
 
     if not os.path.exists(CONFIG_PATH):

@@ -47,6 +47,7 @@ EXPECTED_COMPLETION_TOKENS = 60
 
 MAX_SCORING_FAILURES = scoring_repo.MAX_SCORING_FAILURES
 _seniority_clause = scoring_repo._seniority_clause
+_age_clause = scoring_repo._age_clause
 _live_clause = scoring_repo._live_clause
 _ELIGIBLE = scoring_repo._ELIGIBLE
 _NO_VERDICT = scoring_repo._NO_VERDICT

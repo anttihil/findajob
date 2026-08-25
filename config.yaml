@@ -393,6 +393,9 @@ scoring:
   # The posting is still stored and classified, which keeps the supply analytics honest
   # about demand the user is choosing not to pursue.
   skip_seniority: [lead, staff]
+  # Maximum age (in days) of postings to score with LLM. Postings older than this are skipped
+  # to preserve budget for fresh, actionable opportunities.
+  max_posting_age_days: 3
   # Which postings earn an expensive deep-research pass.
   research_gate:
     fit: true
@@ -408,3 +411,29 @@ research:
   # pure cost.
   refresh_days: 30
   max_usd_per_run: 2.00
+
+# ---------------------------------------------------------------------------------------
+# Scheduler
+#
+# Python-managed background pipeline scheduler. Executes each stage as an isolated
+# subprocess to maintain pristine memory boundaries and fault isolation.
+# ---------------------------------------------------------------------------------------
+scheduler:
+  enabled: true
+  search:
+    schedule: ["01:00", "07:00", "13:00", "19:00"]
+    jitter_minutes: 30
+    persistent_catchup: true
+    timeout_minutes: 90
+  score:
+    interval_minutes: 30
+    jitter_minutes: 3
+    timeout_minutes: 90
+  research:
+    schedule: ["20:30"]
+    jitter_minutes: 20
+    timeout_minutes: 45
+  chaining:
+    search_triggers_score: true
+    score_triggers_research: true
+

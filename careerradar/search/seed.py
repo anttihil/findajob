@@ -14,9 +14,8 @@ from careerradar.core.config import load_config
 from careerradar.core.database import Database
 from careerradar.taxonomy.roles import load_roles
 
-# Only used for the cycle-length line this command prints. The schedule itself lives in
-# deploy/careerradar-search.timer, which has no config file to read it from -- keep the two
-# in step, or the printed cycle is wrong in exactly the way that hid the last shortfall.
+# Only used for the cycle-length line this command prints. The schedule lives in
+# config.yaml (scheduler.search.schedule), defaulting to 4 runs/day.
 RUNS_PER_DAY = 4
 
 

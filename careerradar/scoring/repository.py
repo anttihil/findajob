@@ -27,6 +27,21 @@ def _seniority_clause() -> str:
     return f"AND COALESCE(j.seniority, '{SENIORITY_UNSPECIFIED}') NOT IN ({quoted})"
 
 
+def _age_clause() -> str:
+    import sys
+
+    worker = sys.modules.get("careerradar.scoring.worker")
+    cfg_fn = getattr(worker, "load_config", load_config) if worker else load_config
+    max_days = (cfg_fn().get("scoring") or {}).get("max_posting_age_days")
+    if not max_days:
+        return ""
+    max_seconds = int(max_days * 86400)
+    return (
+        f"AND (COALESCE(j.date_posted, j.date_found) IS NULL "
+        f"OR unixepoch('now') - unixepoch(COALESCE(j.date_posted, j.date_found)) <= {max_seconds})"
+    )
+
+
 _ELIGIBLE = """
       FROM jobs j
       LEFT JOIN v_job_liveness l ON l.job_id = j.id
@@ -35,6 +50,7 @@ _ELIGIBLE = """
        AND COALESCE(j.scoring_failures, 0) < {max_failures}
        {live_clause}
        {seniority_clause}
+       {age_clause}
 """
 
 _NO_VERDICT = """
@@ -42,7 +58,7 @@ _NO_VERDICT = """
              SELECT 1 FROM job_verdicts v
               WHERE v.job_id = j.id AND v.profile_version = ?
                 AND COALESCE(v.verdict_schema_version, 1) >= ?
-           )
+            )
 """
 
 
@@ -62,6 +78,7 @@ def select_scoring_backlog(
         live_clause=_live_clause(include_closed),
         max_failures=MAX_SCORING_FAILURES,
         seniority_clause=_seniority_clause(),
+        age_clause=_age_clause(),
     )
 
     if rescore_all:
@@ -87,6 +104,7 @@ def count_pending_scoring(
             live_clause=_live_clause(include_closed),
             max_failures=MAX_SCORING_FAILURES,
             seniority_clause=_seniority_clause(),
+            age_clause=_age_clause(),
         )
         + _NO_VERDICT
     )

@@ -236,6 +236,38 @@ class EmptySenioritySkipTests(_Fixture, unittest.TestCase):
         self.assertEqual(_ineligible(self.db)["total"], 0)
 
 
+class PostingAgeFilterTests(_Fixture, unittest.TestCase):
+    def test_stale_postings_are_skipped(self) -> None:
+        patcher = mock.patch(
+            "careerradar.scoring.worker.load_config",
+            return_value={"scoring": {"max_posting_age_days": 3, "skip_seniority": []}},
+        )
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+        # Fresh posting (today)
+        self.conn.execute(
+            "INSERT INTO jobs (id, job_key, title, url, description, "
+            "pipeline_state, date_found, sync_run_id) "
+            "VALUES (1, 'k1', 'Platform Engineer', 'https://example.test/1', ?, "
+            "'new', datetime('now'), 1)",
+            (LONG,),
+        )
+        # Stale posting (10 days ago)
+        self.conn.execute(
+            "INSERT INTO jobs (id, job_key, title, url, description, "
+            "pipeline_state, date_found, sync_run_id) "
+            "VALUES (2, 'k2', 'Platform Engineer', 'https://example.test/2', ?, "
+            "'new', datetime('now', '-10 days'), 1)",
+            (LONG,),
+        )
+        self.conn.commit()
+
+        queued = [r["id"] for r in _select(self.db, None, False, PROFILE)]
+        self.assertEqual(queued, [1])
+        self.assertEqual(_pending(self.db, PROFILE), 1)
+
+
 if __name__ == "__main__":
     unittest.main()
 

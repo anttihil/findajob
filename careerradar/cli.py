@@ -5,14 +5,10 @@ The pipeline is four stages that talk to each other only through `jobs.pipeline_
     search    scrape boards, write postings as state='new'
     score     drain 'new', write a verdict, mark 'scored'
     research  drain high-scoring 'scored' companies, write a dossier, mark 'researched'
-    web       serve the dashboard
+    start     serve the dashboard and run the background scheduler
 
-Each runs on its own systemd timer. They are separate commands rather than one `sync`
-because a failure in one stage should not cost the work of another -- a rate-limited board
-must not stall scoring of the backlog, and a bad API key must not lose a scrape.
-
-`profile build` is the odd one out: it runs once, interactively, and everything else reads
-what it produces.
+`start` runs the FastAPI dashboard and background asyncio scheduler, which runs
+stages in isolated worker subprocesses and automatically chains search -> score -> research.
 """
 
 import argparse
@@ -84,6 +80,7 @@ def _cmd_migrate(args: argparse.Namespace) -> int:  # noqa: ARG001 - argparse ha
 
     from careerradar.core.migrations import current_version, migrate
     from careerradar.core.paths import DB_PATH
+    from careerradar.search.seed import seed_cells
 
     conn = sqlite3.connect(DB_PATH)
     try:
@@ -91,6 +88,8 @@ def _cmd_migrate(args: argparse.Namespace) -> int:  # noqa: ARG001 - argparse ha
         print(f"schema version: {current_version(conn)}")
     finally:
         conn.close()
+
+    seed_cells(prune=True)
     return 0
 
 
@@ -100,7 +99,7 @@ def _cmd_status(args: argparse.Namespace) -> Any:
     return run_status(as_json=args.json)
 
 
-def _cmd_web(args: argparse.Namespace) -> int:
+def _cmd_start(args: argparse.Namespace) -> int:
     import uvicorn
 
     uvicorn.run("careerradar.web.app:app", host=args.host, port=args.port, reload=args.reload)
@@ -114,6 +113,19 @@ def build_parser() -> argparse.ArgumentParser:
     # must never queue behind a 20-minute scrape.
     parser.set_defaults(stage=None)
     sub = parser.add_subparsers(dest="command", required=True)
+
+    # --- start / web -----------------------------------------------------------------
+    st_parser = sub.add_parser("start", help="start the web dashboard and background scheduler")
+    st_parser.add_argument("--host", default="127.0.0.1")
+    st_parser.add_argument("--port", type=int, default=8010)
+    st_parser.add_argument("--reload", action="store_true", help="development autoreload")
+    st_parser.set_defaults(func=_cmd_start)
+
+    w = sub.add_parser("web", help="alias for start")
+    w.add_argument("--host", default="127.0.0.1")
+    w.add_argument("--port", type=int, default=8010)
+    w.add_argument("--reload", action="store_true", help="development autoreload")
+    w.set_defaults(func=_cmd_start)
 
     # --- profile ---------------------------------------------------------------------
     p = sub.add_parser("profile", help="build or inspect the candidate profile")
@@ -155,6 +167,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     sr.add_argument("--force", action="store_true", help="ignore the sync lock")
     sr.set_defaults(func=_cmd_search, stage="search")
+
     scost = ssub.add_parser("cost", help="measured time and requests per cell for one run")
     scost.add_argument("--run", type=int, default=None, help="sync_runs.id (default: latest)")
     scost.add_argument("--limit", type=int, default=10, help="how many slow cells to list")
@@ -206,19 +219,13 @@ def build_parser() -> argparse.ArgumentParser:
     rr.add_argument("--dry-run", action="store_true", help="show what would be researched and exit")
     rr.set_defaults(func=_cmd_research, stage="research")
 
-    # --- db / web --------------------------------------------------------------------
+    # --- db / status -----------------------------------------------------------------
     d = sub.add_parser("migrate", help="apply pending schema migrations")
     d.set_defaults(func=_cmd_migrate, stage="migrate")
 
     st = sub.add_parser("status", help="one health report for every stage of the pipeline")
     st.add_argument("--json", action="store_true", help="machine-readable, for piping over ssh")
     st.set_defaults(func=_cmd_status)
-
-    w = sub.add_parser("web", help="serve the dashboard")
-    w.add_argument("--host", default="127.0.0.1")
-    w.add_argument("--port", type=int, default=8010)
-    w.add_argument("--reload", action="store_true", help="development autoreload")
-    w.set_defaults(func=_cmd_web)
 
     return parser
 
