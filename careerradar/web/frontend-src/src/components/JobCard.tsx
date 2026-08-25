@@ -15,9 +15,8 @@ export function JobCard({ job, query }: { job: Job; query: FilterQuery }) {
         <div class="job-card-header">
           <h4>{job.title}</h4>
         </div>
-        <div class="job-company">
-          <strong>ORGANIZATION:</strong> {job.company}
-        </div>
+        <div class="job-company">{job.company}</div>
+
         <div class="job-meta-row">
           <span>
             <i class="fa-solid fa-location-dot"></i> {job.location || "Remote"}
