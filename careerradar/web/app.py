@@ -425,6 +425,91 @@ def get_profile_versions():
     return list_versions()
 
 
+# --- Resume Builder & Generator Endpoints -----------------------------------------------
+
+
+@app.get("/api/resume-builder/profile")
+def get_resume_builder_profile():
+    from careerradar.resumes.repository import load_master_profile
+
+    return load_master_profile().model_dump()
+
+
+@app.put("/api/resume-builder/profile")
+def update_resume_builder_profile(profile_data: dict[str, Any]):
+    from careerradar.resumes.models import ResumeMasterProfile
+    from careerradar.resumes.repository import save_master_profile
+
+    try:
+        profile = ResumeMasterProfile.model_validate(profile_data)
+        save_master_profile(profile)
+        return {"status": "ok", "profile": profile.model_dump()}
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/jobs/{job_id}/resume/generate")
+def generate_job_resume(job_id: int):
+    from careerradar.resumes.builder import build_resume_for_job
+
+    try:
+        record = build_resume_for_job(job_id)
+        return {"status": "ok", "record": record}
+    except Exception as exc:
+        logger.exception("Resume generation failed for job %d", job_id)
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.get("/api/jobs/{job_id}/resume")
+def get_job_resume(job_id: int):
+    from careerradar.resumes.repository import get_latest_resume_for_job
+
+    db = get_db()
+    try:
+        record = get_latest_resume_for_job(job_id, db.conn)
+        if not record:
+            raise HTTPException(status_code=404, detail="No resume generated for this job yet")
+        return record
+    finally:
+        db.close()
+
+
+@app.get("/api/resumes")
+def get_generated_resumes(limit: int = 50, offset: int = 0):
+    from careerradar.resumes.repository import list_generated_resumes
+
+    db = get_db()
+    try:
+        return list_generated_resumes(limit=limit, offset=offset, conn=db.conn)
+    finally:
+        db.close()
+
+
+@app.get("/api/resumes/{resume_id}/download")
+def download_resume(resume_id: int, format: str = Query("docx", pattern="^(docx|pdf)$")):
+    from careerradar.resumes.repository import get_resume_by_id
+
+    db = get_db()
+    try:
+        record = get_resume_by_id(resume_id, db.conn)
+        if not record:
+            raise HTTPException(status_code=404, detail="Resume record not found")
+
+        file_path = record.get("pdf_path") if format == "pdf" else record.get("docx_path")
+        if not file_path or not os.path.exists(file_path):
+            raise HTTPException(status_code=404, detail=f"{format.upper()} file not found on disk")
+
+        media_type = (
+            "application/pdf"
+            if format == "pdf"
+            else "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        )
+        filename = os.path.basename(file_path)
+        return FileResponse(file_path, media_type=media_type, filename=filename)
+    finally:
+        db.close()
+
+
 # --- Company dossiers ------------------------------------------------------------------
 
 
@@ -616,9 +701,12 @@ def drawer_context(
     else:
         next_job_id = ids[position + 1] if position + 1 < len(ids) else None
 
+    from careerradar.resumes.repository import get_latest_resume_for_job
+
     return {
         "job": job,
         "dossier": dossier_for(db, job.get("company")),
+        "resume": get_latest_resume_for_job(job["id"], db.conn),
         "requirement_rows": [],
         "next_job_id": next_job_id,
     }

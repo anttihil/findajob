@@ -1,0 +1,246 @@
+"""LangGraph Actor-Critic StateGraph for 1-Page Tailored Resume Generation."""
+
+import os
+import re
+from typing import Any, TypedDict
+
+from langgraph.graph import END, START, StateGraph
+from langgraph.graph.state import CompiledStateGraph
+
+from careerradar.core.llm import (
+    DEFAULT_AGENT_MODEL,
+    DEFAULT_SCORING_MODEL,
+    invoke_structured,
+    structured_model,
+)
+from careerradar.core.logger import get_logger
+from careerradar.core.paths import GENERATED_RESUMES_DIR
+from careerradar.resumes.layout_validator import validate_resume_layout
+from careerradar.resumes.models import (
+    ATSScreeningVerdict,
+    LayoutValidationResult,
+    ResumeMasterProfile,
+    TailoredResumePayload,
+)
+from careerradar.resumes.prompts import (
+    GENERATOR_SYSTEM_PROMPT,
+    render_job_context,
+    render_master_profile_context,
+)
+from careerradar.resumes.renderer import convert_to_pdf, render_docx, verify_page_count
+from careerradar.resumes.repository import load_master_profile, save_generated_resume
+from careerradar.resumes.screener import screen_resume
+
+logger = get_logger()
+
+MAX_ATTEMPTS = 3
+
+
+class ResumeState(TypedDict, total=False):
+    job: dict[str, Any]
+    master_profile: ResumeMasterProfile
+    model_name: str
+    attempts: int
+    max_attempts: int
+    feedback: str | None
+    resume_payload: TailoredResumePayload | None
+    layout_result: LayoutValidationResult | None
+    ats_verdict: ATSScreeningVerdict | None
+    docx_path: str | None
+    pdf_path: str | None
+    saved_id: int | None
+    error: str | None
+
+
+def node_prepare_context(state: ResumeState) -> dict[str, Any]:
+    """Prepare candidate and job context for tailoring."""
+    profile = state.get("master_profile")
+    if not profile or not profile.name:
+        profile = load_master_profile()
+    return {
+        "master_profile": profile,
+        "attempts": state.get("attempts", 0),
+        "max_attempts": state.get("max_attempts", MAX_ATTEMPTS),
+        "model_name": state.get("model_name", DEFAULT_AGENT_MODEL),
+    }
+
+
+def node_generate(state: ResumeState) -> dict[str, Any]:
+    """Invoke DeepSeek Generator Agent to tailor the resume."""
+    profile = state.get("master_profile") or load_master_profile()
+    job = state.get("job") or {}
+    model_name = state.get("model_name", DEFAULT_AGENT_MODEL)
+    attempts = state.get("attempts", 0) + 1
+
+    candidate_ctx = render_master_profile_context(profile)
+    job_ctx = render_job_context(job)
+
+    user_parts = [
+        "=== TARGET JOB DETAILS ===",
+        job_ctx,
+        "\n=== CANDIDATE MASTER PROFILE & ACHIEVEMENTS POOL ===",
+        candidate_ctx,
+        "\nGenerate the tailored 1-page resume for this target job.",
+    ]
+
+    feedback = state.get("feedback")
+    if feedback:
+        user_parts.append(f"\n=== FEEDBACK FROM PREVIOUS ATTEMPT (PLEASE RESOLVE) ===\n{feedback}")
+
+    messages = [
+        ("system", GENERATOR_SYSTEM_PROMPT),
+        ("user", "\n".join(user_parts)),
+    ]
+
+    model = structured_model(model=model_name)
+    payload: TailoredResumePayload = invoke_structured(
+        model=model,
+        schema=TailoredResumePayload,
+        messages=messages,
+        label="resume_generator",
+    )
+    logger.info("Generated resume payload for job id=%s (attempt %d)", job.get("id"), attempts)
+    return {"resume_payload": payload, "attempts": attempts}
+
+
+def node_validate_layout(state: ResumeState) -> dict[str, Any]:
+    """Validate that the tailored resume fits the 1-page vertical budget."""
+    payload = state.get("resume_payload")
+    if payload is None:
+        return {"layout_result": None, "feedback": "No resume payload produced."}
+
+    layout_res = validate_resume_layout(payload)
+    if not layout_res.is_valid:
+        violations_str = "\n- ".join(layout_res.violations)
+        feedback = (
+            f"LAYOUT OVERFLOW: The resume is {layout_res.estimated_points:.1f} pt "
+            f"(ceiling is {layout_res.max_points:.1f} pt).\nViolations:\n- {violations_str}\n"
+            f"Please shorten or condense bullets and summary so it fits strictly on 1 page."
+        )
+        logger.warning("Resume layout validation failed: %s", feedback)
+        return {"layout_result": layout_res, "feedback": feedback}
+
+    logger.info("Resume layout validation passed (estimated %s pt)", layout_res.estimated_points)
+    return {"layout_result": layout_res, "feedback": None}
+
+
+def node_screen_resume(state: ResumeState) -> dict[str, Any]:
+    """Simulate external ATS screening on the rendered resume text."""
+    job = state.get("job") or {}
+    payload = state.get("resume_payload")
+    if payload is None:
+        return {"ats_verdict": None}
+
+    ats_verdict = screen_resume(job, payload, model_name=DEFAULT_SCORING_MODEL)
+    if not ats_verdict.passed and ats_verdict.score < 9:
+        missing = ", ".join(ats_verdict.missing_signals)
+        feedback = (
+            f"ATS SCREENER FEEDBACK (Score: {ats_verdict.score}/10):\n"
+            f"Actionable advice: {ats_verdict.actionable_feedback}\n"
+            f"Missing or under-emphasized signals from JD: {missing}\n"
+            f"If the candidate has relevant experience in the master profile, emphasize it."
+        )
+        return {"ats_verdict": ats_verdict, "feedback": feedback}
+
+    return {"ats_verdict": ats_verdict, "feedback": None}
+
+
+def node_render_artifacts(state: ResumeState) -> dict[str, Any]:
+    """Render output DOCX and PDF files and verify 1-page PDF count."""
+    payload = state.get("resume_payload")
+    job = state.get("job") or {}
+    if payload is None:
+        return {"docx_path": None, "pdf_path": None}
+
+    job_id = job.get("id", 0)
+    company = re.sub(r"[^a-zA-Z0-9_-]", "_", str(job.get("company", "company")).lower())[:20]
+    title = re.sub(r"[^a-zA-Z0-9_-]", "_", str(job.get("title", "role")).lower())[:20]
+    filename = f"resume_job_{job_id}_{company}_{title}.docx"
+    docx_path = os.path.join(GENERATED_RESUMES_DIR, filename)
+
+    render_docx(payload, docx_path)
+    pdf_path = convert_to_pdf(docx_path, GENERATED_RESUMES_DIR)
+    if pdf_path:
+        pages = verify_page_count(pdf_path)
+        logger.info("Rendered PDF page count: %d", pages)
+
+    return {"docx_path": docx_path, "pdf_path": pdf_path}
+
+
+def node_save_resume(state: ResumeState) -> dict[str, Any]:
+    """Persist generated resume record in database."""
+    payload = state.get("resume_payload")
+    job = state.get("job") or {}
+    docx_path = state.get("docx_path")
+    if payload is None or not docx_path:
+        return {"saved_id": None}
+
+    ats_v = state.get("ats_verdict")
+    resume_id = save_generated_resume(
+        job_id=int(job.get("id") or 0),
+        model=str(state.get("model_name") or DEFAULT_AGENT_MODEL),
+        docx_path=docx_path,
+        pdf_path=state.get("pdf_path"),
+        payload=payload,
+        summary=payload.summary,
+        ats_score=ats_v.score if ats_v else None,
+        ats_verdict="passed" if (ats_v and ats_v.passed) else "flagged",
+        ats_feedback=ats_v.actionable_feedback if ats_v else None,
+    )
+    logger.info("Saved generated resume record id=%d for job id=%s", resume_id, job.get("id"))
+    return {"saved_id": resume_id}
+
+
+def _route_after_layout(state: ResumeState) -> str:
+    layout_res = state.get("layout_result")
+    if layout_res and not layout_res.is_valid:
+        if state.get("attempts", 0) < state.get("max_attempts", MAX_ATTEMPTS):
+            return "generate"
+        return "render_artifacts"
+    return "screen_resume"
+
+
+def _route_after_screener(state: ResumeState) -> str:
+    ats_v = state.get("ats_verdict")
+    failed_screen = bool(ats_v and not ats_v.passed and ats_v.score < 9)
+    can_retry = state.get("attempts", 0) < state.get("max_attempts", MAX_ATTEMPTS)
+    if failed_screen and can_retry:
+        return "generate"
+    return "render_artifacts"
+
+
+def build_resume_graph() -> CompiledStateGraph[Any, Any, Any, Any]:
+    """Construct and compile the Resume Builder Actor-Critic LangGraph."""
+    builder = StateGraph(ResumeState)
+
+    builder.add_node("prepare_context", node_prepare_context)
+    builder.add_node("generate", node_generate)
+    builder.add_node("validate_layout", node_validate_layout)
+    builder.add_node("screen_resume", node_screen_resume)
+    builder.add_node("render_artifacts", node_render_artifacts)
+    builder.add_node("save_resume", node_save_resume)
+
+    builder.add_edge(START, "prepare_context")
+    builder.add_edge("prepare_context", "generate")
+    builder.add_edge("generate", "validate_layout")
+
+    builder.add_conditional_edges(
+        "validate_layout",
+        _route_after_layout,
+        {
+            "generate": "generate",
+            "screen_resume": "screen_resume",
+            "render_artifacts": "render_artifacts",
+        },
+    )
+
+    builder.add_conditional_edges(
+        "screen_resume",
+        _route_after_screener,
+        {"generate": "generate", "render_artifacts": "render_artifacts"},
+    )
+
+    builder.add_edge("render_artifacts", "save_resume")
+    builder.add_edge("save_resume", END)
+
+    return builder.compile()

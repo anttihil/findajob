@@ -33,6 +33,9 @@ STATUS_PATH = os.path.join(REPO_ROOT, "sync_status.json")
 
 ARCHIVE_DIR = os.path.join(REPO_ROOT, "raw_payloads")
 FRONTEND_DIR = os.path.join(PACKAGE_ROOT, "web", "frontend")
+TEMPLATES_DIR = os.path.join(REPO_ROOT, "templates")
+RESUMES_DIR = os.path.join(REPO_ROOT, "resumes")
+GENERATED_RESUMES_DIR = os.path.join(RESUMES_DIR, "generated")
 
 # The pipeline stages serialize on this file. See core/pipeline_lock.py.
 PIPELINE_LOCK_PATH = os.path.join(REPO_ROOT, ".pipeline.lock")

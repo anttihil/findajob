@@ -13,7 +13,7 @@ from careerradar.core.logger import get_logger
 
 logger = get_logger()
 
-SCHEMA_VERSION = 16
+SCHEMA_VERSION = 17
 
 
 def _v1_baseline(cursor: sqlite3.Cursor) -> None:
@@ -1243,6 +1243,250 @@ def _v16_timestamp_normalization_and_liveness(cursor: sqlite3.Cursor) -> None:
     )
 
 
+def _v17_resume_builder(cursor: sqlite3.Cursor) -> None:
+    """Add tables for dynamic Master Resume Profile and Tailored Generated Resumes."""
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS resume_master_profile (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            updated_at TEXT NOT NULL,
+            name TEXT NOT NULL,
+            email TEXT,
+            phone TEXT,
+            location TEXT,
+            github TEXT,
+            linkedin TEXT,
+            website TEXT,
+            summary_guidance TEXT,
+            education_json TEXT NOT NULL DEFAULT '[]',
+            skills_json TEXT NOT NULL DEFAULT '[]',
+            experience_json TEXT NOT NULL DEFAULT '[]',
+            raw_achievements_md TEXT
+        )
+        """
+    )
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS generated_resumes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            job_id INTEGER NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+            profile_version INTEGER REFERENCES profiles(version),
+            model TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            docx_path TEXT NOT NULL,
+            pdf_path TEXT,
+            resume_json TEXT NOT NULL,
+            summary TEXT,
+            ats_score INTEGER,
+            ats_verdict TEXT,
+            ats_feedback TEXT,
+            status TEXT DEFAULT 'generated'
+        )
+        """
+    )
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_resumes_job_id ON generated_resumes(job_id)")
+
+    # Seed master profile if empty
+    existing = cursor.execute("SELECT COUNT(*) FROM resume_master_profile").fetchone()[0]
+    if existing == 0:
+        import json
+        from datetime import datetime, timezone
+        from pathlib import Path
+
+        now = datetime.now(timezone.utc).isoformat()
+        ach_file = Path("achievements.md")
+        raw_ach = ach_file.read_text("utf-8") if ach_file.exists() else ""
+
+        default_education = [
+            {
+                "institution": "UCLA",
+                "degree": "PhD in Philosophy (2019); MA in Philosophy",
+                "details": "",
+            },
+            {
+                "institution": "State University",
+                "degree": "BSocSc in Philosophy, Mathematics, Linguistics",
+                "details": "",
+            },
+        ]
+        default_skills = [
+            {
+                "category": "Infrastructure",
+                "skills": [
+                    "AWS",
+                    "Terraform",
+                    "Ansible",
+                    "GitHub Actions",
+                    "Docker",
+                    "Linux",
+                    "nginx",
+                    "PostgreSQL",
+                ],
+            },
+            {
+                "category": "AI systems",
+                "skills": [
+                    "Python",
+                    "FastAPI",
+                    "LLM applications",
+                    "AWS Bedrock",
+                    "Claude API",
+                    "vLLM",
+                    "OCR",
+                ],
+            },
+            {
+                "category": "Frontend",
+                "skills": [
+                    "TypeScript",
+                    "React",
+                    "DeckGL",
+                    "HTML5 Canvas",
+                    "Jest",
+                    "Vitest",
+                    "SolidJS",
+                ],
+            },
+            {
+                "category": "Languages & Other",
+                "skills": ["Go", "PHP", "Bash", "Selenium", "Figma"],
+            },
+        ]
+        default_experience = [
+            {
+                "title": "Software Engineer",
+                "company": "University of California Los Angeles",
+                "dates": "Jan 2025 - present",
+                "location": "Los Angeles, CA",
+                "projects": [
+                    {
+                        "name": "AI Content Migration Pipeline",
+                        "heading": (
+                            "Designed and delivered the replacement end-to-end for 20 legacy sites:"
+                        ),
+                        "bullets": [
+                            (
+                                "Cut ~1,000 hours of manual migration by having coding agents "
+                                "mine millions of lines of site data into deterministic XML "
+                                "transformation rules"
+                            ),
+                            (
+                                "Consolidated independently maintained sites into a "
+                                "multi-tenant platform with centralized CI/CD and IaC, "
+                                "onboarding first 15 clients"
+                            ),
+                            (
+                                "Enabled decommissioning decisions with a content inventory "
+                                "tool surfacing media volume, page age, and content issues "
+                                "invisible to admin users"
+                            ),
+                        ],
+                    },
+                    {
+                        "name": "Luna AI Portal & Platform",
+                        "heading": (
+                            "Architected an on-premise platform for faculty data that can't "
+                            "leave university hardware:"
+                        ),
+                        "bullets": [
+                            (
+                                "Shipped a self-service WCAG compliance system targeting an "
+                                "ADA exposure of ~60,000 public PDFs; adopted by a five-person "
+                                "remediation team"
+                            ),
+                            (
+                                "Built the full stack alone, from GPU provisioning and job "
+                                "scheduling through multi-tenant auth, admin, and "
+                                "application UI"
+                            ),
+                            (
+                                "Piloted self-hosted models for a classroom collaborative "
+                                "chat, tuned with vLLM to serve concurrent users"
+                            ),
+                        ],
+                    },
+                ],
+            },
+            {
+                "title": "Software Engineer (Robotics)",
+                "company": "Acme Robotics",
+                "dates": "May 2022 - Dec 2024",
+                "location": "San Diego, CA",
+                "projects": [
+                    {
+                        "name": "Autonomous Robot UI Platform",
+                        "heading": (
+                            "Owned UI development for two commercial robot models across "
+                            "~20 releases:"
+                        ),
+                        "bullets": [
+                            (
+                                "Reduced dev cycles from days to minutes by embedding a "
+                                "protocol-level robot simulator in the frontend, eliminating "
+                                "all hardware and backend dependencies"
+                            ),
+                            (
+                                "Repurposed the simulator for portable sales demos by creating "
+                                "a CI/CD flow from the robot monorepo to a company website"
+                            ),
+                            (
+                                "Delivered the robot UI for on-demand A-to-B cleaning, a "
+                                "flagship feature replacing pre-taught fixed routes, using "
+                                "DeckGL for autonomy map with point-of-interest clusters"
+                            ),
+                            (
+                                "Cut the robot UI field troubleshooting time by 50% for QA "
+                                "by shipping an embedded observability dashboard"
+                            ),
+                            (
+                                "Expanded market reach to 15 countries by internationalizing "
+                                "the UI from a single hard-coded language"
+                            ),
+                        ],
+                    }
+                ],
+            },
+            {
+                "title": "Lecturer",
+                "company": "UCLA",
+                "dates": "Jul 2019 - Jan 2022",
+                "location": "Los Angeles, CA",
+                "projects": [
+                    {
+                        "name": "Logic Instruction",
+                        "heading": "",
+                        "bullets": ["Taught formal logic and critical thinking to ~500 students"],
+                    }
+                ],
+            },
+        ]
+
+        cursor.execute(
+            """
+            INSERT INTO resume_master_profile
+                (updated_at, name, email, phone, location, github, linkedin, website,
+                 summary_guidance, education_json, skills_json, experience_json,
+                 raw_achievements_md)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                now,
+                "Jane Doe",
+                "jane.doe@example.com",
+                "(555) 019-2834",
+                "Los Angeles, CA",
+                "github.com/janedoe",
+                "linkedin.com/in/janedoe",
+                "",
+                "",
+                json.dumps(default_education),
+                json.dumps(default_skills),
+                json.dumps(default_experience),
+                raw_ach,
+            ),
+        )
+
+
 MIGRATIONS: list[tuple[int, str, Callable[[sqlite3.Cursor], None]]] = [
     (1, "baseline jobs table", _v1_baseline),
     (2, "market analytics: cells, observations, skills, stats", _v2_analytics),
@@ -1271,6 +1515,11 @@ MIGRATIONS: list[tuple[int, str, Callable[[sqlite3.Cursor], None]]] = [
         16,
         "timestamp normalization and unixepoch liveness view",
         _v16_timestamp_normalization_and_liveness,
+    ),
+    (
+        17,
+        "resume builder: master profile and generated tailored resumes",
+        _v17_resume_builder,
     ),
 ]
 

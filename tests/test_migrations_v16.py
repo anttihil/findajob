@@ -61,8 +61,8 @@ class MigrationV16Tests(unittest.TestCase):
         self.conn.commit()
 
         migrate(self.conn)
-        self.assertEqual(current_version(self.conn), 16)
-        self.assertEqual(SCHEMA_VERSION, 16)
+        self.assertEqual(current_version(self.conn), SCHEMA_VERSION)
+        self.assertEqual(SCHEMA_VERSION, 17)
 
         query = "SELECT id, date_posted FROM jobs"
         jobs = {row["id"]: row["date_posted"] for row in self.conn.execute(query)}

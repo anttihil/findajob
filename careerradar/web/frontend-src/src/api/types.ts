@@ -76,8 +76,70 @@ export interface Dossier {
 export interface JobContext {
   job: Job | null;
   dossier: Dossier | null;
+  resume?: GeneratedResumeRecord | null;
   requirement_rows?: unknown[];
   next_job_id: number | null;
+}
+
+// --- Resume Builder -------------------------------------------------------------------
+
+export interface MasterEducation {
+  institution: string;
+  degree: string;
+  details?: string;
+}
+
+export interface MasterSkillCategory {
+  category: string;
+  skills: string[];
+}
+
+export interface MasterProject {
+  name: string;
+  heading?: string;
+  bullets: string[];
+}
+
+export interface MasterRole {
+  title: string;
+  company: string;
+  dates: string;
+  location?: string;
+  projects: MasterProject[];
+}
+
+export interface ResumeMasterProfile {
+  name: string;
+  email: string;
+  phone: string;
+  location: string;
+  github: string;
+  linkedin: string;
+  website: string;
+  summary_guidance: string;
+  education: MasterEducation[];
+  skills: MasterSkillCategory[];
+  experience: MasterRole[];
+  raw_achievements_md: string;
+}
+
+export interface GeneratedResumeRecord {
+  id: number;
+  job_id: number;
+  profile_version?: number;
+  model?: string;
+  created_at: string;
+  docx_path?: string;
+  pdf_path?: string;
+  resume?: Record<string, unknown>;
+  summary?: string;
+  ats_score?: number | null;
+  ats_verdict?: string | null;
+  ats_feedback?: string | null;
+  status?: string;
+  job_title?: string;
+  job_company?: string;
+  job_location?: string;
 }
 
 // GET /api/meta
