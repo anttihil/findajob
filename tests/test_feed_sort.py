@@ -1,8 +1,9 @@
 """The default feed sort: strong fit first, then date posted (with timestamps/dates).
 
 Postings are sorted by strong fit (`v.fit DESC NULLS LAST`), then by when they
-were posted (`COALESCE(jobs.date_posted, date(jobs.date_found)) DESC`), with
-`jobs.date_found DESC` as the final tie-breaker.
+were posted (`COALESCE(jobs.date_posted, jobs.date_found) DESC`), with
+`jobs.match_score DESC` as secondary sort for same-day items, followed by
+`jobs.date_found DESC` and `jobs.id DESC` as the final tie-breakers.
 
 The fallback ensures dateless rows (which carry no `date_posted`) are coalesced
 to the date they were found rather than being parked at the end of the feed.
@@ -48,12 +49,25 @@ class DatePostedSortTests(unittest.TestCase):
             )
             self.db.conn.commit()
 
-    def job(self, job_id: int, date_posted: str | None, date_found: str) -> None:
+    def job(
+        self,
+        job_id: int,
+        date_posted: str | None,
+        date_found: str,
+        match_score: int = 0,
+    ) -> None:
         self.db.conn.execute(
             "INSERT INTO jobs (id, job_key, title, url, description, status, "
-            "date_posted, date_found, sync_run_id) "
-            "VALUES (?, ?, 'Platform Engineer', ?, 'desc', 'unread', ?, ?, 1)",
-            (job_id, f"k{job_id}", f"https://example.test/{job_id}", date_posted, date_found),
+            "date_posted, date_found, match_score, sync_run_id) "
+            "VALUES (?, ?, 'Platform Engineer', ?, 'desc', 'unread', ?, ?, ?, 1)",
+            (
+                job_id,
+                f"k{job_id}",
+                f"https://example.test/{job_id}",
+                date_posted,
+                date_found,
+                match_score,
+            ),
         )
         self.db.conn.commit()
 
@@ -112,6 +126,18 @@ class DatePostedSortTests(unittest.TestCase):
         self.job(1, "2026-08-01T12:00:00Z", "2026-08-01T09:00:00+00:00")
         self.job(2, "2026-08-10T12:00:00Z", "2026-08-10T09:00:00+00:00")
         self.assertEqual([2, 1], self.db.job_ids_for(status="unread", limit=50))
+
+    def test_same_day_sorts_by_match_score_desc(self) -> None:
+        # Same day and found time, but job 2 has a higher match_score
+        self.job(1, "2026-08-10T12:00:00Z", "2026-08-10T09:00:00+00:00", match_score=50)
+        self.job(2, "2026-08-10T12:00:00Z", "2026-08-10T09:00:00+00:00", match_score=85)
+        self.assertEqual([2, 1], self.feed())
+
+    def test_same_day_and_match_score_tie_breaks_on_id_desc(self) -> None:
+        # Same day, same found timestamp, same match score -> id DESC breaks tie
+        self.job(1, "2026-08-10T12:00:00Z", "2026-08-10T09:00:00+00:00", match_score=75)
+        self.job(2, "2026-08-10T12:00:00Z", "2026-08-10T09:00:00+00:00", match_score=75)
+        self.assertEqual([2, 1], self.feed())
 
     def test_sort_parameter_removed_from_database_methods(self) -> None:
         query_sig = inspect.signature(self.db.query_jobs)

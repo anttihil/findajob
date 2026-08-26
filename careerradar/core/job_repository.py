@@ -116,7 +116,11 @@ DATE_POSTED_WINDOWS: dict[str, float] = {
 }
 
 FEED_ORDER_BY = (
-    "v.fit DESC NULLS LAST, COALESCE(jobs.date_posted, jobs.date_found) DESC, jobs.date_found DESC"
+    "v.fit DESC NULLS LAST, "
+    "COALESCE(jobs.date_posted, jobs.date_found) DESC, "
+    "jobs.match_score DESC, "
+    "jobs.date_found DESC, "
+    "jobs.id DESC"
 )
 
 
