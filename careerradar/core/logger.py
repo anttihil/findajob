@@ -30,6 +30,8 @@ log_format = logging.Formatter(
 c_handler.setFormatter(log_format)
 f_handler.setFormatter(log_format)
 
+logging.getLogger("uvicorn.error").addHandler(f_handler)
+
 if not logger.handlers:
     logger.addHandler(c_handler)
     logger.addHandler(f_handler)

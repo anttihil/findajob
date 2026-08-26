@@ -818,3 +818,9 @@ def spa_shell(path: str):
             status_code=503, detail="Frontend not built yet -- run `npm run build`."
         )
     return FileResponse(_SPA_INDEX, headers=CACHE_HEADERS)
+
+
+@app.exception_handler(Exception)
+async def global_exception_handler(req: Request, exc: Exception):
+    logger.error("Unhandled exception: %s %s %s", req.method, req.url.path, exc)
+    return JSONResponse(status_code=500, content={"detail": "Unhandled server exception"})
