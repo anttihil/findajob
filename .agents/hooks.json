@@ -26,5 +26,19 @@
         ]
       }
     ]
+  },
+  "eslint-checker": {
+    "PreToolUse": [
+      {
+        "matcher": "write_to_file|replace_file_content",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 hooks/check_eslint.py || python3 .agents/hooks/check_eslint.py",
+            "timeout": 30
+          }
+        ]
+      }
+    ]
   }
 }
