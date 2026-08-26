@@ -68,6 +68,7 @@ def test_graph_routing_helpers():
     assert _route_after_screener(state_ats_failed) == "generate"
 
 
+@patch("careerradar.resumes.graph.structured_model")
 @patch("careerradar.resumes.graph.render_docx")
 @patch("careerradar.resumes.graph.convert_to_pdf")
 @patch("careerradar.resumes.graph.screen_resume")
@@ -79,7 +80,9 @@ def test_full_graph_execution(
     mock_screen: MagicMock,
     mock_pdf: MagicMock,
     mock_docx: MagicMock,
+    mock_model: MagicMock,
 ):
+    mock_model.return_value = MagicMock()
     mock_docx.return_value = "/tmp/test_resume.docx"
     mock_pdf.return_value = "/tmp/test_resume.pdf"
     mock_save.return_value = 101
