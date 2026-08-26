@@ -108,8 +108,9 @@ export function ResumesPage() {
         const err = await resp.json();
         setSaveStatus(`Save error: ${err.detail || "Unknown"}`);
       }
-    } catch (e: any) {
-      setSaveStatus(`Save error: ${e?.message || e}`);
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setSaveStatus(`Save error: ${msg}`);
     } finally {
       setSaving(false);
     }

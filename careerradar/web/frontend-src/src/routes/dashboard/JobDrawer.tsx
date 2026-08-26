@@ -44,8 +44,9 @@ export function JobDrawer({
         const err = await resp.json();
         setGenerateError(err.detail || "Resume generation failed");
       }
-    } catch (e: any) {
-      setGenerateError(e?.message || "Resume generation failed");
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setGenerateError(msg || "Resume generation failed");
     } finally {
       setGenerating(false);
     }
