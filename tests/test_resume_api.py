@@ -36,7 +36,6 @@ def test_update_master_profile(mock_save: MagicMock):
         "education": [],
         "skills": [],
         "experience": [],
-        "raw_achievements_md": "",
     }
     resp = client.put("/api/resume-builder/profile", json=payload)
     assert resp.status_code == 200

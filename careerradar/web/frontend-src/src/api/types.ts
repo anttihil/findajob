@@ -120,7 +120,6 @@ export interface ResumeMasterProfile {
   education: MasterEducation[];
   skills: MasterSkillCategory[];
   experience: MasterRole[];
-  raw_achievements_md: string;
 }
 
 export interface GeneratedResumeRecord {

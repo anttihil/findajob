@@ -78,7 +78,7 @@ def node_generate(state: ResumeState) -> dict[str, Any]:
     user_parts = [
         "=== TARGET JOB DETAILS ===",
         job_ctx,
-        "\n=== CANDIDATE MASTER PROFILE & ACHIEVEMENTS POOL ===",
+        "\n=== CANDIDATE MASTER PROFILE ===",
         candidate_ctx,
         "\nGenerate the tailored 1-page resume for this target job.",
     ]

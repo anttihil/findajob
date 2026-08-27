@@ -7,7 +7,7 @@ from careerradar.resumes.models import ResumeMasterProfile, TailoredResumePayloa
 
 GENERATOR_SYSTEM_PROMPT = """You are an expert technical resume strategist.
 Generate a concise, tailored 1-page resume for the target job posting based strictly on the
-candidate's provided profile and verified achievements pool.
+candidate's provided master profile.
 
 CRITICAL RULES:
 1. STRICT TRUTHFULNESS & ZERO HALLUCINATION:
@@ -41,7 +41,7 @@ Be rigorous:
 
 
 def render_master_profile_context(profile: ResumeMasterProfile) -> str:
-    """Render the master profile and achievements pool into prompt context."""
+    """Render the master profile into prompt context."""
     parts: list[str] = [
         f"CANDIDATE NAME: {profile.name}",
         f"LOCATION: {profile.location}",
@@ -71,10 +71,6 @@ def render_master_profile_context(profile: ResumeMasterProfile) -> str:
     parts.append("\n--- MASTER EDUCATION ---")
     for edu in profile.education:
         parts.append(f"{edu.institution}, {edu.degree}")
-
-    if profile.raw_achievements_md:
-        parts.append("\n--- DETAILED ACHIEVEMENTS KNOWLEDGE BASE ---")
-        parts.append(profile.raw_achievements_md)
 
     return "\n".join(parts)
 

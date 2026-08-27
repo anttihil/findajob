@@ -40,7 +40,6 @@ class ResumeMasterProfile(BaseModel):
     education: list[MasterEducation] = Field(default_factory=list)
     skills: list[MasterSkillCategory] = Field(default_factory=list)
     experience: list[MasterRole] = Field(default_factory=list)
-    raw_achievements_md: str = ""
 
 
 class ResumeSubsection(BaseModel):

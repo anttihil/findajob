@@ -28,8 +28,7 @@ def load_master_profile(conn: sqlite3.Connection | None = None) -> ResumeMasterP
         row = connection.execute(
             """
             SELECT name, email, phone, location, github, linkedin, website,
-                   summary_guidance, education_json, skills_json, experience_json,
-                   raw_achievements_md
+                   summary_guidance, education_json, skills_json, experience_json
               FROM resume_master_profile
              ORDER BY id DESC LIMIT 1
             """
@@ -54,7 +53,6 @@ def load_master_profile(conn: sqlite3.Connection | None = None) -> ResumeMasterP
             education=[MasterEducation.model_validate(e) for e in edu_raw],
             skills=[MasterSkillCategory.model_validate(s) for s in skills_raw],
             experience=[MasterRole.model_validate(r) for r in exp_raw],
-            raw_achievements_md=row["raw_achievements_md"] or "",
         )
     finally:
         if owned and db:
@@ -80,9 +78,8 @@ def save_master_profile(
                 """
                 INSERT INTO resume_master_profile
                     (updated_at, name, email, phone, location, github, linkedin, website,
-                     summary_guidance, education_json, skills_json, experience_json,
-                     raw_achievements_md)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     summary_guidance, education_json, skills_json, experience_json)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     now,
@@ -97,7 +94,6 @@ def save_master_profile(
                     edu_json,
                     skills_json,
                     exp_json,
-                    profile.raw_achievements_md,
                 ),
             )
         else:
@@ -115,8 +111,7 @@ def save_master_profile(
                        summary_guidance = ?,
                        education_json = ?,
                        skills_json = ?,
-                       experience_json = ?,
-                       raw_achievements_md = ?
+                       experience_json = ?
                 """,
                 (
                     now,
@@ -131,7 +126,6 @@ def save_master_profile(
                     edu_json,
                     skills_json,
                     exp_json,
-                    profile.raw_achievements_md,
                 ),
             )
         connection.commit()

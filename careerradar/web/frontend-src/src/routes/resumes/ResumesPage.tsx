@@ -65,7 +65,6 @@ export function ResumesPage() {
           education: [],
           skills: [],
           experience: [],
-          raw_achievements_md: "",
         }
       );
       setMasterLoading(false);
@@ -168,7 +167,7 @@ export function ResumesPage() {
                 }}
               >
                 <div>
-                  <h3 style={{ margin: 0 }}>Master Resume Profile & Achievements Knowledge Base</h3>
+                  <h3 style={{ margin: 0 }}>Master Resume Profile</h3>
                   <p style={{ color: "var(--text-muted, #888)", margin: "0.25rem 0 0 0" }}>
                     This data is saved directly in your CareerRadar database and dynamically loaded
                     by the DeepSeek resume builder.
@@ -672,27 +671,6 @@ export function ResumesPage() {
                     </div>
                   </div>
                 ))}
-              </div>
-
-              {/* Raw Achievements Knowledge Base Markdown */}
-              <div class="resume-card" style={{ marginBottom: "1.5rem" }}>
-                <h4>Detailed Achievements Knowledge Base (Markdown)</h4>
-                <p style={{ color: "#888", fontSize: "0.85rem", margin: "0.25rem 0 0.5rem 0" }}>
-                  Additional factual achievements pool provided to the DeepSeek generator agent to
-                  draw from.
-                </p>
-                <textarea
-                  class="filter-input"
-                  rows={10}
-                  style={{ width: "100%", fontFamily: "monospace", fontSize: "0.85rem" }}
-                  value={masterProfile.raw_achievements_md}
-                  onInput={(e) =>
-                    setMasterProfile({
-                      ...masterProfile,
-                      raw_achievements_md: (e.target as HTMLTextAreaElement).value,
-                    })
-                  }
-                />
               </div>
 
               {/* Bottom Save Bar */}

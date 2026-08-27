@@ -48,7 +48,6 @@ def test_master_profile_crud():
                 ],
             )
         ],
-        raw_achievements_md="## Key Achievements\n- Built scalable microservices.",
     )
 
     save_master_profile(p1, conn)
@@ -64,5 +63,4 @@ def test_master_profile_crud():
     assert loaded.experience[0].company == "TechCorp"
     assert len(loaded.experience[0].projects[0].bullets) == 1
     assert "p99 latency" in loaded.experience[0].projects[0].bullets[0]
-    assert "Key Achievements" in loaded.raw_achievements_md
     conn.close()
