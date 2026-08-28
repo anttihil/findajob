@@ -95,3 +95,46 @@ def test_list_resumes_endpoint(mock_list: MagicMock):
     data = resp.json()
     assert len(data) == 1
     assert data[0]["job_company"] == "Stripe"
+
+
+@patch("careerradar.profile.copilot.extract_profile_from_resume_text")
+@patch("careerradar.profile.copilot.parse_resume_file")
+def test_upload_resume_success(mock_parse: MagicMock, mock_extract: MagicMock):
+    import io
+
+    mock_parse.return_value = "Jane Doe Software Engineer 5 years experience Python Go"
+    mock_extract.return_value = Profile(name="Jane Doe", email="jane@example.com")
+
+    client = TestClient(app)
+    file_bytes = b"Sample resume content"
+    files = {"file": ("resume.pdf", io.BytesIO(file_bytes), "application/pdf")}
+
+    resp = client.post("/api/profile/upload-resume", files=files)
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["status"] == "ok"
+    assert data["filename"] == "resume.pdf"
+    assert data["profile"]["name"] == "Jane Doe"
+    mock_parse.assert_called_once_with(file_bytes, "resume.pdf")
+    mock_extract.assert_called_once()
+
+
+def test_upload_resume_missing_file():
+    client = TestClient(app)
+    resp = client.post("/api/profile/upload-resume", data={"other_field": "val"})
+    assert resp.status_code == 400
+    data = resp.json()
+    assert "Missing 'file' in upload form payload." in data["detail"]
+
+
+@patch("careerradar.profile.copilot.parse_resume_file")
+def test_upload_resume_empty_content(mock_parse: MagicMock):
+    import io
+
+    mock_parse.return_value = "   "
+    client = TestClient(app)
+    files = {"file": ("resume.txt", io.BytesIO(b""), "text/plain")}
+    resp = client.post("/api/profile/upload-resume", files=files)
+    assert resp.status_code == 400
+    data = resp.json()
+    assert "Uploaded file contained no readable text." in data["detail"]

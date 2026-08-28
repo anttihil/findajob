@@ -842,6 +842,7 @@ class ProfileChatPayload(BaseModel):
 @app.post("/api/profile/upload-resume")
 async def upload_resume(request: Request):
     from fastapi import UploadFile
+    from starlette.datastructures import UploadFile as StarletteUploadFile
 
     from careerradar.profile.copilot import (
         extract_profile_from_resume_text,
@@ -852,7 +853,10 @@ async def upload_resume(request: Request):
     try:
         form = await request.form()
         uploaded_file = form.get("file")
-        if not isinstance(uploaded_file, UploadFile):
+        if (
+            not isinstance(uploaded_file, (UploadFile, StarletteUploadFile))
+            or not uploaded_file.filename
+        ):
             raise HTTPException(status_code=400, detail="Missing 'file' in upload form payload.")
 
         content = await uploaded_file.read()

@@ -13,6 +13,11 @@ export function ResumeDropzone({ onUploadSuccess, disabled }: ResumeDropzoneProp
   const [uploadSuccessMsg, setUploadSuccessMsg] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  const handleDragEnter = (e: DragEvent) => {
+    e.preventDefault();
+    if (!disabled) setIsDragging(true);
+  };
+
   const handleDragOver = (e: DragEvent) => {
     e.preventDefault();
     if (!disabled) setIsDragging(true);
@@ -75,6 +80,7 @@ export function ResumeDropzone({ onUploadSuccess, disabled }: ResumeDropzoneProp
     <div class="resume-dropzone-container">
       <div
         class={`resume-dropzone ${isDragging ? "dragging" : ""} ${isUploading ? "uploading" : ""}`}
+        onDragEnter={handleDragEnter}
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
