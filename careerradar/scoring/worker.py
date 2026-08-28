@@ -21,7 +21,7 @@ from careerradar.core.llm import (
     usage_cost,
 )
 from careerradar.core.logger import get_logger
-from careerradar.profile.adapter import NoActiveProfile, ProfileAdapter, load_profile
+from careerradar.profile.adapter import NoActiveProfile, ProfileAdapter, load_profile_adapter
 from careerradar.profile.repository import load_active
 from careerradar.scoring import repository as scoring_repo
 from careerradar.scoring.graph import build_graph
@@ -194,7 +194,7 @@ def run_scoring(limit: int | None = None) -> int:
     try:
         jobs = _select(db, limit, profile_version)
         taxonomy = load_taxonomy()
-        adapter = load_profile(db=db, taxonomy=taxonomy)
+        adapter = load_profile_adapter(db=db, taxonomy=taxonomy)
         assert adapter is not None
         scorer = _build_scorer(adapter, taxonomy, config)
         if not jobs:

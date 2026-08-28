@@ -4,6 +4,7 @@ import json
 from typing import Any
 
 from careerradar.profile.models import Profile, TailoredResumePayload
+from careerradar.profile.render import render_profile_for_resume
 
 GENERATOR_SYSTEM_PROMPT = """You are an expert technical resume strategist.
 Generate a concise, tailored 1-page resume for the target job posting based strictly on the
@@ -41,55 +42,30 @@ Be rigorous:
 """
 
 
-def render_master_profile_context(profile: Profile) -> str:
-    """Render the master profile into prompt context."""
-    parts: list[str] = [
-        f"CANDIDATE NAME: {profile.name}",
-        f"LOCATION: {profile.location}",
-        f"EMAIL: {profile.email} | PHONE: {profile.phone}",
-        f"GITHUB: {profile.github} | LINKEDIN: {profile.linkedin}",
+# Backward compatibility alias
+render_master_profile_context = render_profile_for_resume
+
+
+def build_generator_system(profile: Profile) -> str:
+    """The cached half for resume generation. Byte-identical across all target jobs."""
+    candidate_ctx = render_profile_for_resume(profile)
+    return (
+        f"{GENERATOR_SYSTEM_PROMPT}\n\n"
+        f"=== CANDIDATE MASTER PROFILE (GROUND TRUTH) ===\n"
+        f"{candidate_ctx}"
+    )
+
+
+def render_generator_user(job: dict[str, Any], feedback: str | None = None) -> str:
+    """The volatile half for resume generation. One target job + optional retry critique."""
+    job_ctx = render_job_context(job)
+    parts = [
+        "=== TARGET JOB DETAILS ===",
+        job_ctx,
+        "\nGenerate the tailored 1-page resume for this target job.",
     ]
-    if profile.website:
-        parts.append(f"WEBSITE: {profile.website}")
-
-    exec_summary = profile.executive_summary or profile.summary_guidance
-    if exec_summary:
-        parts.append(f"\nEXECUTIVE SUMMARY:\n{exec_summary}")
-
-    if profile.model_guidance:
-        parts.append(f"\nMODEL GUIDANCE:\n{profile.model_guidance}")
-
-    parts.append("\n--- EXPERIENCE ---")
-    for role in profile.experience:
-        loc_str = f" ({role.location})" if role.location else ""
-        parts.append(f"\nROLE: {role.title} at {role.company}{loc_str} [{role.dates}]")
-        for proj in role.projects:
-            if proj.heading and proj.heading.strip():
-                parts.append(f"  Scope / Project: {proj.heading.strip()}")
-            for b in proj.bullets:
-                parts.append(f"    * {b}")
-
-    if profile.projects:
-        parts.append("\n--- PROJECTS ---")
-        for proj in profile.projects:
-            url_str = f" ({proj.url})" if proj.url else ""
-            if proj.heading and proj.heading.strip():
-                parts.append(f"\nPROJECT: {proj.heading.strip()}{url_str}")
-            else:
-                parts.append(f"\nPROJECT{url_str}")
-            for b in proj.bullets:
-                parts.append(f"  * {b}")
-
-    parts.append("\n--- SKILLS ---")
-    for cat in profile.skills:
-        skills_str = ", ".join(cat.skills)
-        parts.append(f"{cat.category}: {skills_str}")
-
-    parts.append("\n--- EDUCATION ---")
-    for edu in profile.education:
-        detail_str = f" ({edu.details})" if edu.details else ""
-        parts.append(f"{edu.institution}, {edu.degree}{detail_str}")
-
+    if feedback:
+        parts.append(f"\n=== FEEDBACK FROM PREVIOUS ATTEMPT (PLEASE RESOLVE) ===\n{feedback}")
     return "\n".join(parts)
 
 

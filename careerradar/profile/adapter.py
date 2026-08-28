@@ -117,12 +117,12 @@ class NoActiveProfile(RuntimeError):
     """Raised when profile is not configured."""
 
 
-def load_profile(
+def load_profile_adapter(
     db: "Database | None" = None,
     taxonomy: "Taxonomy | None" = None,
     required: bool = True,
 ) -> ProfileAdapter | None:
-    """Load the singleton Profile as a ProfileAdapter."""
+    """Load the singleton Profile as a ProfileAdapter for deterministic keyword scoring."""
     from careerradar.profile.repository import load_profile as repo_load_profile
 
     profile = repo_load_profile(conn=db.conn if db else None)
@@ -131,3 +131,7 @@ def load_profile(
     if profile is None:
         return None
     return ProfileAdapter(profile, version=1, taxonomy=taxonomy)
+
+
+# Backward compatibility alias
+load_profile = load_profile_adapter

@@ -13,6 +13,10 @@ from careerradar.profile.graph import (
 from careerradar.profile.models import (
     ATSScreeningVerdict,
     LayoutValidationResult,
+    MasterEducation,
+    MasterProject,
+    MasterRole,
+    MasterSkillCategory,
     Profile,
     ResumeEducation,
     ResumeRole,
@@ -20,6 +24,59 @@ from careerradar.profile.models import (
     ResumeSubsection,
     TailoredResumePayload,
 )
+from careerradar.profile.prompts import (
+    GENERATOR_SYSTEM_PROMPT,
+    build_generator_system,
+    render_generator_user,
+)
+
+
+def test_generator_system_prefix_caching():
+    profile = Profile(
+        name="Alex River",
+        email="alex@example.com",
+        location="Austin, TX",
+        executive_summary="Staff Infrastructure Engineer.",
+        skills=[MasterSkillCategory(category="Cloud", skills=["AWS", "Kubernetes"])],
+        experience=[
+            MasterRole(
+                title="Staff Engineer",
+                company="CloudScale",
+                dates="2022 - Present",
+                projects=[
+                    MasterProject(
+                        heading="Scaled streaming platform",
+                        bullets=["Handled 50k events/sec."],
+                    )
+                ],
+            )
+        ],
+        education=[MasterEducation(institution="UT Austin", degree="BS CS")],
+    )
+
+    sys1 = build_generator_system(profile)
+    sys2 = build_generator_system(profile)
+
+    # 1. Byte-identical prefix
+    assert sys1 == sys2
+
+    # 2. Contains generator rules and profile ground truth
+    assert GENERATOR_SYSTEM_PROMPT in sys1
+    assert "Alex River" in sys1
+    assert "Staff Infrastructure Engineer." in sys1
+    assert "Scaled streaming platform" in sys1
+    assert "Cloud: AWS, Kubernetes" in sys1
+
+    # 3. Contains no posting leak
+    assert "TARGET JOB" not in sys1
+    assert "Anthropic" not in sys1
+
+    # 4. User prompt carries volatile posting info
+    job = {"id": 1, "title": "Platform Lead", "company": "Anthropic", "description": "LLMs."}
+    user_prompt = render_generator_user(job, feedback="Shorten summary")
+    assert "Platform Lead" in user_prompt
+    assert "Anthropic" in user_prompt
+    assert "Shorten summary" in user_prompt
 
 
 def test_graph_routing_helpers():

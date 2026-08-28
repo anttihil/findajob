@@ -21,7 +21,11 @@ from careerradar.profile.models import (
     RoleTargeting,
     WorkEligibility,
 )
-from careerradar.profile.render import render_profile
+from careerradar.profile.render import (
+    render_profile,
+    render_profile_for_resume,
+    render_profile_for_scoring,
+)
 from careerradar.taxonomy.skills import load_taxonomy
 
 
@@ -84,12 +88,15 @@ class RenderTests(unittest.TestCase):
         """The prefix cache matches bytes. Instability is a ~50x input-cost regression."""
         profile = self.sample_profile()
         self.assertEqual(render_profile(profile), render_profile(profile))
+        self.assertEqual(render_profile_for_scoring(profile), render_profile_for_scoring(profile))
+        self.assertEqual(render_profile_for_resume(profile), render_profile_for_resume(profile))
 
     def test_render_is_stable_under_skill_reordering(self) -> None:
         """Two profiles with the same skills in a different order must render stably."""
         a = self.sample_profile()
         b = a.model_copy(update={"skills": list(reversed(a.skills))})
         self.assertEqual(render_profile(a), render_profile(b))
+        self.assertEqual(render_profile_for_resume(a), render_profile_for_resume(b))
 
     def test_render_carries_the_parts_the_scorer_needs(self) -> None:
         text = render_profile(self.sample_profile())
@@ -99,6 +106,16 @@ class RenderTests(unittest.TestCase):
         self.assertIn("$150,000", text)
         self.assertIn("DEALBREAKERS", text)
         self.assertIn("No 24/7 on-call", text)
+
+    def test_render_resume_context(self) -> None:
+        text = render_profile_for_resume(self.sample_profile())
+        self.assertIn("CANDIDATE NAME: Jane Doe", text)
+        self.assertIn("San Francisco, CA", text)
+        self.assertIn("ROLE: Lead Software Engineer at TechCorp", text)
+        self.assertIn("Built high throughput data engine", text)
+        self.assertIn("Languages: Python, TypeScript, Go", text)
+        self.assertNotIn("DEALBREAKERS", text)
+        self.assertNotIn("$150,000", text)
 
     def test_render_contains_no_clock(self) -> None:
         """A timestamp anywhere in the prefix invalidates the cache on every call."""

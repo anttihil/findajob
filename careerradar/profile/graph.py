@@ -23,9 +23,8 @@ from careerradar.profile.models import (
     TailoredResumePayload,
 )
 from careerradar.profile.prompts import (
-    GENERATOR_SYSTEM_PROMPT,
-    render_job_context,
-    render_master_profile_context,
+    build_generator_system,
+    render_generator_user,
 )
 from careerradar.profile.renderer import convert_to_pdf, render_docx, verify_page_count
 from careerradar.profile.repository import load_profile, save_tailored_resume
@@ -72,24 +71,12 @@ def node_generate(state: ResumeState) -> dict[str, Any]:
     model_name = state.get("model_name", DEFAULT_AGENT_MODEL)
     attempts = state.get("attempts", 0) + 1
 
-    candidate_ctx = render_master_profile_context(profile)
-    job_ctx = render_job_context(job)
-
-    user_parts = [
-        "=== TARGET JOB DETAILS ===",
-        job_ctx,
-        "\n=== CANDIDATE MASTER PROFILE ===",
-        candidate_ctx,
-        "\nGenerate the tailored 1-page resume for this target job.",
-    ]
-
-    feedback = state.get("feedback")
-    if feedback:
-        user_parts.append(f"\n=== FEEDBACK FROM PREVIOUS ATTEMPT (PLEASE RESOLVE) ===\n{feedback}")
+    system_prompt = build_generator_system(profile)
+    user_prompt = render_generator_user(job, feedback=state.get("feedback"))
 
     messages = [
-        ("system", GENERATOR_SYSTEM_PROMPT),
-        ("user", "\n".join(user_parts)),
+        ("system", system_prompt),
+        ("user", user_prompt),
     ]
 
     model = structured_model(model=model_name)
