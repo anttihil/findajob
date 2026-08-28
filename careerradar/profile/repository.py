@@ -1,222 +1,331 @@
-"""Persist and load profile versions.
-
-Profiles are append-only. Rebuilding writes a new version and moves the `is_active` flag;
-it never edits an old row. Verdicts record the `profile_version` they were produced under,
-so "why did this posting's score change?" stays answerable after a rebuild.
-"""
+"""SQLite persistence for the singleton candidate Profile and generated tailored resumes."""
 
 import json
 import sqlite3
-from datetime import datetime, timezone
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
-from careerradar.core.database import Database
-from careerradar.profile.ingest import Document
-from careerradar.profile.models import Profile
-from careerradar.profile.render import render_profile
+from careerradar.core.logger import get_logger
+from careerradar.profile.models import (
+    MasterEducation,
+    MasterRole,
+    MasterSkillCategory,
+    Profile,
+    RoleTargeting,
+    TailoredResumePayload,
+    WorkEligibility,
+)
 
-if TYPE_CHECKING:
-    from careerradar.taxonomy.skills import Taxonomy
+logger = get_logger()
 
 
-def _now() -> str:
-    return datetime.now(timezone.utc).isoformat()
+def _get_connection(
+    conn: sqlite3.Connection | None,
+) -> tuple[sqlite3.Connection, Any, bool]:
+    """Resolve active database connection and ownership."""
+    if conn is not None:
+        return conn, None, False
+    from careerradar.core.database import Database
+
+    db = Database()
+    return db.conn, db, True
 
 
-def next_version(conn: sqlite3.Connection) -> int:
-    row = conn.execute("SELECT MAX(version) FROM profiles").fetchone()
-    return (row[0] or 0) + 1
+def load_profile(conn: sqlite3.Connection | None = None) -> Profile:
+    """Load the singleton Profile from SQLite."""
+    connection, db, owned = _get_connection(conn)
+    try:
+        row = connection.execute(
+            """
+            SELECT *
+              FROM profile
+             WHERE id = 1
+             LIMIT 1
+            """
+        ).fetchone()
+
+        if row is None:
+            return Profile()
+
+        r_dict = dict(row)
+
+        # Parse eligibility
+        elig_raw = r_dict.get("eligibility_json")
+        eligibility = (
+            WorkEligibility.model_validate_json(elig_raw) if elig_raw else WorkEligibility()
+        )
+
+        # Parse targeting
+        targ_raw = r_dict.get("targeting_json")
+        targeting = RoleTargeting.model_validate_json(targ_raw) if targ_raw else RoleTargeting()
+
+        # Parse lists
+        edu_raw = json.loads(r_dict.get("education_json") or "[]")
+        skills_raw = json.loads(r_dict.get("skills_json") or "[]")
+        exp_raw = json.loads(r_dict.get("experience_json") or "[]")
+
+        return Profile(
+            name=r_dict.get("name") or "",
+            email=r_dict.get("email") or "",
+            phone=r_dict.get("phone") or "",
+            location=r_dict.get("location") or "",
+            github=r_dict.get("github") or "",
+            linkedin=r_dict.get("linkedin") or "",
+            website=r_dict.get("website") or "",
+            summary_guidance=r_dict.get("summary_guidance") or "",
+            seniority=r_dict.get("seniority") or "Mid / Senior",
+            years_experience=r_dict.get("years_experience") or 4.0,
+            eligibility=eligibility,
+            targeting=targeting,
+            education=[MasterEducation(**e) for e in edu_raw],
+            skills=[MasterSkillCategory(**s) for s in skills_raw],
+            experience=[MasterRole(**r) for r in exp_raw],
+        )
+    finally:
+        if owned and db:
+            db.close()
 
 
 def save_profile(
     profile: Profile,
-    model: str,
-    documents: list[Document] | None = None,
-    turns: list[dict[str, Any]] | None = None,
-    db: Database | None = None,
-    taxonomy: "Taxonomy | None" = None,
-) -> int:
-    """Write a new profile version and make it active. Returns the version number.
+    conn: sqlite3.Connection | None = None,
+    render_prompt: bool = True,
+) -> None:
+    """Save the singleton Profile to SQLite and update the cached summary text."""
+    from careerradar.profile.render import render_profile
 
-    Skill keys are canonicalized against the taxonomy on the way in, so a profile can
-    never be persisted with keys the keyword layer cannot look up. See
-    `profile/canonicalize.py` for why this is an invariant here rather than a prompt.
-    """
-    from careerradar.profile.canonicalize import canonicalize_profile
-    from careerradar.profile.ingest import corpus_hash
-
-    if taxonomy is None:
-        from careerradar.taxonomy.skills import load_taxonomy
-
-        taxonomy = load_taxonomy()
-    profile, _report = canonicalize_profile(profile, taxonomy)
-
-    owned = db is None
-    db = db or Database()
-    conn = db.conn
+    connection, db, owned = _get_connection(conn)
     try:
-        version = next_version(conn)
-        summary = render_profile(profile)
+        summary_text = render_profile(profile) if render_prompt else ""
+        eligibility_json = profile.eligibility.model_dump_json()
+        targeting_json = profile.targeting.model_dump_json()
+        education_json = json.dumps([e.model_dump() for e in profile.education])
+        skills_json = json.dumps([s.model_dump() for s in profile.skills])
+        experience_json = json.dumps([r.model_dump() for r in profile.experience])
 
-        # Clearing first: `idx_profiles_one_active` is a partial unique index on
-        # is_active = 1, so activating a second profile without this is an IntegrityError.
-        conn.execute("UPDATE profiles SET is_active = 0 WHERE is_active = 1")
-        conn.execute(
+        connection.execute(
             """
-            INSERT INTO profiles
-                (version, created_at, is_active, model, profile_json, summary_text, corpus_hash)
-            VALUES (?, ?, 1, ?, ?, ?, ?)
+            INSERT OR REPLACE INTO profile (
+                id, updated_at, name, email, phone, location, github, linkedin, website,
+                summary_guidance, seniority, years_experience, eligibility_json,
+                targeting_json, education_json, skills_json, experience_json, summary_text
+            ) VALUES (
+                1, strftime('%Y-%m-%dT%H:%M:%SZ', 'now'), ?, ?, ?, ?, ?, ?, ?,
+                ?, ?, ?, ?,
+                ?, ?, ?, ?, ?
+            )
             """,
             (
-                version,
-                _now(),
-                model,
-                profile.model_dump_json(),
-                summary,
-                corpus_hash(documents) if documents else None,
+                profile.name,
+                profile.email,
+                profile.phone,
+                profile.location,
+                profile.github,
+                profile.linkedin,
+                profile.website,
+                profile.summary_guidance,
+                profile.seniority,
+                profile.years_experience,
+                eligibility_json,
+                targeting_json,
+                education_json,
+                skills_json,
+                experience_json,
+                summary_text,
             ),
         )
-
-        for document in documents or []:
-            conn.execute(
-                """
-                INSERT OR REPLACE INTO profile_documents
-                    (profile_version, path, kind, sha256, chars, ingested_at)
-                VALUES (?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    version,
-                    document.path,
-                    document.kind,
-                    document.sha256,
-                    len(document.text),
-                    _now(),
-                ),
-            )
-
-        for seq, turn in enumerate(turns or []):
-            conn.execute(
-                """
-                INSERT OR REPLACE INTO interview_turns
-                    (profile_version, seq, topic, question, answer, asked_at)
-                VALUES (?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    version,
-                    seq,
-                    turn.get("topic"),
-                    turn.get("question"),
-                    turn.get("answer"),
-                    turn.get("asked_at") or _now(),
-                ),
-            )
-
-        conn.commit()
-        return version
-    finally:
         if owned:
+            connection.commit()
+    finally:
+        if owned and db:
             db.close()
 
 
-def load_active(db: Database | None = None) -> tuple[int, Profile, str] | None:
-    """The active profile, or None. Returns (version, Profile, summary_text)."""
+def load_active(db: Any | None = None) -> tuple[int, Profile, str] | None:
+    """Compatibility loader returning (version, profile, summary_text) for scoring."""
     owned = db is None
-    db = db or Database()
-    try:
-        row = db.conn.execute(
-            "SELECT version, profile_json, summary_text FROM profiles WHERE is_active = 1"
-        ).fetchone()
-        if row is None:
-            from careerradar.resumes.repository import (
-                load_master_profile,
-                master_profile_to_scoring_profile,
-            )
+    database = db
+    if database is None:
+        from careerradar.core.database import Database
 
-            master = load_master_profile(db.conn)
-            if master.name or master.experience or master.skills:
-                scoring_prof = master_profile_to_scoring_profile(master)
-                v = save_profile(scoring_prof, model="master-profile-sync", db=db)
-                row = db.conn.execute(
-                    "SELECT version, profile_json, summary_text FROM profiles WHERE version = ?",
-                    (v,),
-                ).fetchone()
-        if row is None:
-            return None
-        return (
-            row["version"],
-            Profile.model_validate_json(row["profile_json"]),
-            row["summary_text"],
+        database = Database()
+    try:
+        row = database.conn.execute(
+            "SELECT summary_text FROM profile WHERE id = 1 LIMIT 1"
+        ).fetchone()
+        prof = load_profile(conn=database.conn)
+        summary_text = (row["summary_text"] if row else "") or ""
+        if not summary_text:
+            from careerradar.profile.render import render_profile
+
+            summary_text = render_profile(prof)
+        return (1, prof, summary_text)
+    finally:
+        if owned and database:
+            database.close()
+
+
+def load_active_row(db: Any | None = None) -> dict[str, Any] | None:
+    """Return raw profile dict for dashboard status views."""
+    owned = db is None
+    database = db
+    if database is None:
+        from careerradar.core.database import Database
+
+        database = Database()
+    try:
+        row = database.conn.execute("SELECT * FROM profile WHERE id = 1 LIMIT 1").fetchone()
+        return dict(row) if row else None
+    finally:
+        if owned and database:
+            database.close()
+
+
+def list_versions(_conn: sqlite3.Connection | None = None) -> list[dict[str, Any]]:
+    """Return active profile versions."""
+    return [{"version": 1, "is_active": 1, "name": "Current Profile"}]
+
+
+# --- Generated Resumes Persistence ------------------------------------------------------
+
+
+def save_tailored_resume(
+    job_id: int,
+    model: str,
+    docx_path: str,
+    pdf_path: str | None,
+    resume: TailoredResumePayload,
+    summary: str,
+    ats_score: int | None = None,
+    ats_verdict: str | None = None,
+    ats_feedback: str | None = None,
+    status: str = "generated",
+    conn: sqlite3.Connection | None = None,
+) -> int:
+    """Save a generated tailored resume record linked to a job."""
+    connection, db, owned = _get_connection(conn)
+    try:
+        cur = connection.execute(
+            """
+            INSERT INTO generated_resumes (
+                job_id, model, created_at, docx_path, pdf_path, resume_json,
+                summary, ats_score, ats_verdict, ats_feedback, status
+            ) VALUES (
+                ?, ?, strftime('%Y-%m-%dT%H:%M:%SZ', 'now'), ?, ?, ?,
+                ?, ?, ?, ?, ?
+            )
+            """,
+            (
+                job_id,
+                model,
+                docx_path,
+                pdf_path,
+                resume.model_dump_json(),
+                summary,
+                ats_score,
+                ats_verdict,
+                ats_feedback,
+                status,
+            ),
         )
-    finally:
         if owned:
+            connection.commit()
+        return int(cur.lastrowid or 0)
+    finally:
+        if owned and db:
             db.close()
 
 
-def load_active_row(db: Database | None = None) -> dict[str, Any] | None:
-    """The active profile row as a dict, for the API. None if no profile exists."""
-    owned = db is None
-    db = db or Database()
+def get_latest_tailored_resume(
+    job_id: int, conn: sqlite3.Connection | None = None
+) -> dict[str, Any] | None:
+    """Retrieve the most recent tailored resume record for a job."""
+    connection, db, owned = _get_connection(conn)
     try:
-        row = db.conn.execute(
+        row = connection.execute(
             """
-            SELECT version, created_at, model, profile_json, summary_text, corpus_hash
-              FROM profiles WHERE is_active = 1
-            """
+            SELECT *
+              FROM generated_resumes
+             WHERE job_id = ?
+             ORDER BY id DESC LIMIT 1
+            """,
+            (job_id,),
         ).fetchone()
-        if row is None:
+        if not row:
             return None
-        record = dict(row)
-        record["profile"] = json.loads(record.pop("profile_json"))
-        record["documents"] = [
-            dict(r)
-            for r in db.conn.execute(
-                "SELECT path, kind, sha256, chars FROM profile_documents "
-                "WHERE profile_version = ? ORDER BY path",
-                (row["version"],),
-            )
-        ]
-        return record
+        res = dict(row)
+        if res.get("resume_json"):
+            try:
+                res["resume"] = json.loads(res["resume_json"])
+            except json.JSONDecodeError:
+                res["resume"] = {}
+        return res
     finally:
-        if owned:
+        if owned and db:
             db.close()
 
 
-def list_versions(db: Database | None = None) -> list[dict[str, Any]]:
-    owned = db is None
-    db = db or Database()
+def get_resume_by_id(
+    resume_id: int, conn: sqlite3.Connection | None = None
+) -> dict[str, Any] | None:
+    """Retrieve a specific generated resume record by id."""
+    connection, db, owned = _get_connection(conn)
     try:
-        return [
-            dict(r)
-            for r in db.conn.execute(
-                """
-                SELECT p.version, p.created_at, p.is_active, p.model, p.corpus_hash,
-                       (SELECT COUNT(*) FROM interview_turns t
-                         WHERE t.profile_version = p.version) AS turns,
-                       (SELECT COUNT(*) FROM profile_documents d
-                         WHERE d.profile_version = p.version) AS documents
-                  FROM profiles p ORDER BY p.version DESC
-                """
-            )
-        ]
-    finally:
-        if owned:
-            db.close()
-
-
-def corpus_changed(documents: list[Document], db: Database | None = None) -> bool | None:
-    """Whether the corpus differs from what the active profile was built on.
-
-    None means there is no active profile to compare against.
-    """
-    from careerradar.profile.ingest import corpus_hash
-
-    owned = db is None
-    db = db or Database()
-    try:
-        row = db.conn.execute("SELECT corpus_hash FROM profiles WHERE is_active = 1").fetchone()
-        if row is None or row["corpus_hash"] is None:
+        row = connection.execute(
+            """
+            SELECT *
+              FROM generated_resumes
+             WHERE id = ?
+            """,
+            (resume_id,),
+        ).fetchone()
+        if not row:
             return None
-        return row["corpus_hash"] != corpus_hash(documents)
+        res = dict(row)
+        if res.get("resume_json"):
+            try:
+                res["resume"] = json.loads(res["resume_json"])
+            except json.JSONDecodeError:
+                res["resume"] = {}
+        return res
     finally:
-        if owned:
+        if owned and db:
             db.close()
+
+
+def list_tailored_resumes(
+    limit: int = 50, conn: sqlite3.Connection | None = None
+) -> list[dict[str, Any]]:
+    """List recent tailored resumes with target job details."""
+    connection, db, owned = _get_connection(conn)
+    try:
+        rows = connection.execute(
+            """
+            SELECT r.*, j.title as job_title, j.company as job_company, j.location as job_location
+              FROM generated_resumes r
+              LEFT JOIN jobs j ON r.job_id = j.id
+             ORDER BY r.id DESC
+             LIMIT ?
+            """,
+            (limit,),
+        ).fetchall()
+        results = []
+        for row in rows:
+            d = dict(row)
+            if d.get("resume_json"):
+                try:
+                    d["resume"] = json.loads(d["resume_json"])
+                except json.JSONDecodeError:
+                    d["resume"] = {}
+            results.append(d)
+        return results
+    finally:
+        if owned and db:
+            db.close()
+
+
+# Backward compatibility aliases
+load_master_profile = load_profile
+save_master_profile = save_profile
+save_generated_resume = save_tailored_resume
+get_latest_resume_for_job = get_latest_tailored_resume
+list_generated_resumes = list_tailored_resumes

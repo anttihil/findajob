@@ -353,8 +353,10 @@ profile:
   corpus:
     - path: achievements.md
       kind: achievements
+      optional: true
     - path: resumes/resume.txt
       kind: resume
+      optional: true
 
 scoring:
   # One call per posting, so this is where the volume is. The profile sits in a cached

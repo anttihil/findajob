@@ -58,7 +58,7 @@ def _cmd_resume(args: argparse.Namespace) -> int:
     sub = args.subcommand
     if sub == "generate":
         from careerradar.core.llm import DEFAULT_AGENT_MODEL
-        from careerradar.resumes.builder import build_resume_for_job
+        from careerradar.profile.builder import build_resume_for_job
 
         model = getattr(args, "model", None) or DEFAULT_AGENT_MODEL
         res = build_resume_for_job(args.job_id, model=model)
@@ -69,10 +69,10 @@ def _cmd_resume(args: argparse.Namespace) -> int:
             print(f"  ATS Match Score: {res.get('ats_score')}/10 ({res.get('ats_verdict')})")
         return 0
     if sub == "list":
-        from careerradar.resumes.repository import list_generated_resumes
+        from careerradar.profile.repository import list_tailored_resumes
 
         limit = getattr(args, "limit", 20) or 20
-        resumes = list_generated_resumes(limit=limit)
+        resumes = list_tailored_resumes(limit=limit)
         if not resumes:
             print("No generated resumes found.")
             return 0
@@ -87,7 +87,7 @@ def _cmd_resume(args: argparse.Namespace) -> int:
     if sub == "batch":
         from careerradar.core.database import Database
         from careerradar.core.llm import DEFAULT_AGENT_MODEL
-        from careerradar.resumes.builder import build_resume_for_job
+        from careerradar.profile.builder import build_resume_for_job
 
         status = getattr(args, "status", "saved")
         db = Database()

@@ -1,23 +1,19 @@
-"""The `careerradar profile` wizard.
-
-Terminal-first because the interview is a once-a-year task with a natural conversational
-shape, and because LangGraph's interrupt/resume maps directly onto "print a question, read
-a line, hand it back". The graph itself is headless -- a web adapter would drive the same
-`stream`/`Command(resume=...)` loop, and nothing in `graph.py` knows about a terminal.
-"""
+"""The `careerradar profile` command-line interface."""
 
 import argparse
+import os
 import sys
 import textwrap
 from typing import Any
 
 from careerradar.core.config import load_config
-from careerradar.core.llm import DEFAULT_AGENT_MODEL, MissingApiKey, StructuredOutputError
+from careerradar.core.llm import DEFAULT_AGENT_MODEL
 from careerradar.core.logger import get_logger
+from careerradar.profile.copilot import extract_profile_from_resume_text, parse_resume_file
+from careerradar.profile.render import render_profile
+from careerradar.profile.repository import list_versions, load_profile, save_profile
 
 logger = get_logger()
-
-THREAD_ID = "profile-build"
 
 BOLD = "\033[1m"
 DIM = "\033[2m"
@@ -29,7 +25,7 @@ def _supports_colour() -> bool:
 
 
 def _style(text: Any, code: str) -> str:
-    return f"{code}{text}{RESET}" if _supports_colour() else text
+    return f"{code}{text}{RESET}" if _supports_colour() else str(text)
 
 
 def _wrap(text: Any, indent: str = "  ") -> str:
@@ -41,332 +37,87 @@ def _wrap(text: Any, indent: str = "  ") -> str:
     )
 
 
-def _render_profile(profile: dict[str, Any]) -> str:
-    out: list[str] = []
-    out.append(_style("BIO", BOLD))
-    out.append(_wrap(profile.get("bio", "")))
-    facts: list[str] = []
-    if profile.get("years_experience") is not None:
-        facts.append(f"{profile['years_experience']:g} years")
-    if profile.get("seniority"):
-        facts.append(profile["seniority"])
-    if facts:
-        out.append(_wrap(" · ".join(facts)))
+def cmd_show(_args: argparse.Namespace) -> int:
+    profile = load_profile()
+    if not profile.name and not profile.summary_guidance:
+        print("No active profile configured. Set up your profile with:")
+        print("  careerradar profile build <path/to/resume.pdf>")
+        return 1
 
-    skills = sorted(profile.get("skills", []), key=lambda s: (-s["level"], s["key"]))
-    for level, heading in ((3, "STRONG"), (2, "WORKING"), (1, "FAMILIAR")):
-        group = [s["label"] for s in skills if s["level"] == level]
-        if group:
-            out.append("")
-            out.append(_style(f"{heading} ({len(group)})", BOLD))
-            out.append(_wrap(", ".join(group)))
-
-    for key, heading in (
-        ("strengths", "STRENGTHS"),
-        ("weaknesses", "HONEST GAPS"),
-        ("non_negotiables", "NON-NEGOTIABLE"),
-        ("red_flags", "RED FLAGS"),
-    ):
-        values = profile.get(key) or []
-        if values:
-            out.append("")
-            out.append(_style(heading, BOLD))
-            out.extend(_wrap(f"- {v}") for v in values)
-
-    constraints = profile.get("constraints") or {}
-    if any(constraints.values()):
-        out.append("")
-        out.append(_style("CONSTRAINTS", BOLD))
-        for field, value in constraints.items():
-            if value in (None, [], ""):
-                continue
-            if isinstance(value, list):
-                value = ", ".join(str(v) for v in value)
-            out.append(_wrap(f"- {field.replace('_', ' ')}: {value}"))
-
-    preferences = profile.get("preferences") or {}
-    if any(preferences.values()):
-        out.append("")
-        out.append(_style("PREFERENCES", BOLD))
-        for field, value in preferences.items():
-            if value in (None, [], ""):
-                continue
-            if isinstance(value, list):
-                value = ", ".join(str(v) for v in value)
-            out.append(_wrap(f"- {field.replace('_', ' ')}: {value}"))
-
-    return "\n".join(out)
-
-
-LEVEL_NAMES = {0: "absent", 1: "familiar", 2: "working", 3: "strong"}
-
-
-def _render_level_changes(changes: dict[str, Any]) -> str:
-    """Show what the interview moved -- and say so plainly when it moved nothing.
-
-    Without this the reviewer is comparing a 39-skill list against a memory of what they
-    typed. The levels are what the whole interview exists to correct, and an answer that
-    failed to land is invisible in a rendered profile: every line looks equally deliberate.
-    """
-    raised = changes.get("raised") or []
-    lowered = changes.get("lowered") or []
-    added = changes.get("added") or []
-    moved = len(raised) + len(lowered) + len(added)
-
-    out = [""]
-    if not moved:
-        out.append(_style("LEVEL CHANGES FROM THE INTERVIEW", BOLD))
-        out.append(
-            _wrap(
-                "None. Every skill kept the level the documents alone gave it. "
-                "If an answer should have changed one, say so below and it will "
-                "be re-synthesized."
-            )
-        )
-        return "\n".join(out)
-
-    out.append(
-        _style(
-            f"LEVEL CHANGES FROM THE INTERVIEW ({moved} of {changes.get('total', 0)} skills)",
-            BOLD,
-        )
-    )
-    width = max((len(c["label"]) for c in raised + lowered + added), default=0)
-    for change in sorted(raised, key=lambda c: (-c["to"], c["label"])):
-        out.append(
-            _wrap(
-                f"{change['label']:<{width}}  {LEVEL_NAMES[change['from']]} -> "
-                f"{LEVEL_NAMES[change['to']]}"
-            )
-        )
-    for change in sorted(lowered, key=lambda c: (-c["to"], c["label"])):
-        out.append(
-            _wrap(
-                f"{change['label']:<{width}}  {LEVEL_NAMES[change['from']]} -> "
-                f"{LEVEL_NAMES[change['to']]}  (lowered)"
-            )
-        )
-    for change in sorted(added, key=lambda c: (-c["to"], c["label"])):
-        out.append(_wrap(f"{change['label']:<{width}}  new, {LEVEL_NAMES[change['to']]}"))
-    return "\n".join(out)
-
-
-def _ask_multiline(prompt: str) -> str:
-    """Read one answer. A blank line submits; the user can type '?' to skip."""
-    print(prompt, end="", flush=True)
-    try:
-        return input()
-    except EOFError:
-        return ""
+    print(_style(f"Profile: {profile.name or 'Unnamed'}", BOLD))
+    if profile.email or profile.phone or profile.location:
+        print(f"  {profile.email} | {profile.phone} | {profile.location}")
+    print()
+    print(_style("SUMMARY / POSITIONING", BOLD))
+    print(_wrap(profile.summary_guidance or "None provided."))
+    print()
+    print(_style("SKILLS", BOLD))
+    for cat in profile.skills:
+        print(f"  {_style(cat.category, BOLD)}: {', '.join(cat.skills)}")
+    print()
+    print(_style("EXPERIENCE", BOLD))
+    for role in profile.experience:
+        print(f"  {_style(role.title, BOLD)} at {role.company} ({role.dates})")
+        for proj in role.projects:
+            if proj.heading:
+                print(f"    {proj.heading}")
+            for bullet in proj.bullets:
+                print(f"      • {bullet}")
+    print()
+    print(_style("PROMPT PREFIX", BOLD))
+    rendered = render_profile(profile)
+    print(_wrap(f"{len(rendered)} characters rendered for scoring prefix."))
+    return 0
 
 
 def cmd_build(args: argparse.Namespace) -> int:
-    from langchain_core.runnables import RunnableConfig
-    from langgraph.types import Command
-
-    from careerradar.profile.graph import build_graph, open_checkpointer
-    from careerradar.profile.ingest import CorpusError, collect_documents
-    from careerradar.profile.models import Profile
-    from careerradar.profile.repository import corpus_changed, save_profile
-
+    resume_file = getattr(args, "file", None)
     config = load_config()
-    profile_config = config.get("profile") or {}
-    model = profile_config.get("model", DEFAULT_AGENT_MODEL)
+    model = config.get("profile", {}).get("model", DEFAULT_AGENT_MODEL)
 
-    try:
-        documents = collect_documents()
-    except CorpusError as exc:
-        print(f"{exc}")
-        return 1
-    if not documents:
-        print("The corpus is empty. List your documents under `profile.corpus` in config.yaml.")
-        return 1
-
-    changed = corpus_changed(documents)
-    if changed is False and not (args.force or args.resume):
-        print("An active profile already exists and the corpus has not changed since it was built.")
-        print("Rebuild anyway with:  careerradar profile build --force")
-        return 0
-
-    checkpointer = open_checkpointer()
-    graph = build_graph(checkpointer=checkpointer)
-    thread: RunnableConfig = {"configurable": {"thread_id": THREAD_ID}}
-
-    if not args.resume:
-        # Start clean. Without this, a *finished* build leaves a checkpoint whose graph has
-        # already reached END, so the next `build` resumes a completed run, produces no
-        # work, and re-saves the previous draft -- looking like it rebuilt when it did not.
-        # `--resume` is the only way to continue an interrupted interview.
-        checkpointer.delete_thread(THREAD_ID)
-
-    print()
-    print(_style("Building your profile", BOLD))
-    # List the corpus, do not just count it. The corpus is "whatever is in resumes/", so a
-    # stale or unwanted document is otherwise invisible until it has already shaped the
-    # profile -- and every score downstream.
-    for document in documents:
-        print(_wrap(f"{document.kind:<16} {document.name}", indent="    "))
-    print(_wrap(f"{len(documents)} document(s) · model {model}", indent="  "))
-    print()
-
-    max_questions = (
-        0
-        if getattr(args, "no_interview", False)
-        else profile_config.get("max_interview_questions", 15)
-    )
-    if max_questions == 0:
-        print(
-            _wrap(
-                "Skipping the interview: building from the documents alone. "
-                "The documents cannot state compensation, work authorization, or what "
-                "you would refuse, so those constraints will be empty until you run "
-                "the interview.",
-                indent="  ",
-            )
-        )
-        print()
-
-    payload = {"model": model, "max_questions": max_questions}
-    if args.resume:
-        snapshot = graph.get_state(thread)
-        if not snapshot.next:
-            print(
-                _wrap("There is no interrupted build to resume. Start a new one with:", indent="  ")
-            )
-            print(_wrap("careerradar profile build --force", indent="    "))
-            return 1
-        # Resuming means continuing the task the graph is parked on, which LangGraph does
-        # for an input of `None`. Handing it the payload again would enter at START
-        # instead: a second extraction, a fresh set of questions, and every answer asked
-        # again -- with the new answers appended to the old ones, since `turns` reduces by
-        # concatenation.
-        payload = None
-        answered = len(snapshot.values.get("turns") or [])
-        print(
-            _wrap(f"Resuming at '{snapshot.next[0]}' with {answered} answer(s) kept.", indent="  ")
-        )
-        print()
-
-    resume_value = None
-    try:
-        while True:
-            stream_input = Command(resume=resume_value) if resume_value is not None else payload
-            interrupted = None
-            for chunk in graph.stream(stream_input, thread, stream_mode="updates"):
-                if "__interrupt__" in chunk:
-                    interrupted = chunk["__interrupt__"][0].value
-            payload = None
-            resume_value = None
-
-            if interrupted is None:
+    if resume_file and os.path.exists(resume_file):
+        with open(resume_file, "rb") as f:
+            content = f.read()
+        text = parse_resume_file(content, os.path.basename(resume_file))
+    else:
+        # Check standard default file paths
+        candidates = ["resume.pdf", "resume.docx", "resume.md", "resume.txt"]
+        text = ""
+        for c in candidates:
+            if os.path.exists(c):
+                with open(c, "rb") as f:
+                    content = f.read()
+                text = parse_resume_file(content, c)
+                print(f"Found and parsing default resume file: {c}")
                 break
 
-            if interrupted["kind"] == "question":
-                index = interrupted["index"] + 1
-                total = interrupted["total"]
-                print(_style(f"[{index}/{total}] {interrupted['topic']}", BOLD))
-                print(_wrap(interrupted["question"]))
-                print(_style(_wrap(f"why: {interrupted['why']}"), DIM))
-                answer = _ask_multiline("\n  > ")
-                print()
-                resume_value = answer
-
-            elif interrupted["kind"] == "review":
-                print()
-                print(_style("=" * 88, DIM))
-                print(_render_profile(interrupted["profile"]))
-                if interrupted.get("level_changes"):
-                    print(_render_level_changes(interrupted["level_changes"]))
-                print(_style("=" * 88, DIM))
-                print()
-                print(_wrap("Press enter to approve, or describe what to change.", indent="  "))
-                reply = _ask_multiline("\n  > ").strip()
-                print()
-                if not reply:
-                    resume_value = {"approve": True}
-                else:
-                    print(_wrap("Revising…", indent="  "))
-                    print()
-                    resume_value = {"approve": False, "revision": reply}
-    except KeyboardInterrupt:
-        print()
-        print(_wrap("Stopped. Your answers are checkpointed -- resume with:", indent="  "))
-        print(_wrap("careerradar profile build --resume", indent="    "))
-        return 130
-    except MissingApiKey as exc:
-        print(f"\n{exc}")
-        return 1
-    except StructuredOutputError as exc:
-        # The interview is the expensive part and it is already checkpointed, so this is a
-        # resume prompt rather than a failure: nothing the user typed is lost.
-        print()
-        print(_wrap(f"{exc}", indent="  "))
-        print()
-        print(_wrap("Your answers are safe. Try again with:", indent="  "))
-        print(_wrap("careerradar profile build --resume", indent="    "))
-        return 1
-    except Exception as exc:
-        logger.exception("Profile build failed")
-        print()
-        print(_wrap(f"Profile build failed: {exc}", indent="  "))
-        print()
-        print(_wrap("Your answers are checkpointed -- resume with:", indent="  "))
-        print(_wrap("careerradar profile build --resume", indent="    "))
+    if not text:
+        print("Error: No resume file provided or found.")
+        print("Usage: careerradar profile build <path/to/resume.pdf>")
         return 1
 
-    final = graph.get_state(thread).values
-    if not final.get("approved"):
-        print(_wrap("Profile was not approved; nothing saved.", indent="  "))
-        return 1
-
-    profile = Profile.model_validate(final["draft"])
-    version = save_profile(profile, model=model, documents=documents, turns=final.get("turns", []))
-    print(_style(f"Saved profile v{version} (active).", BOLD))
-    print(
-        _wrap(
-            f"{len(profile.skills)} skills · {len(final.get('turns', []))} interview answers",
-            indent="  ",
-        )
+    print(f"Extracting candidate profile using model {model}...")
+    existing = load_profile()
+    profile = extract_profile_from_resume_text(
+        text, model_name=model, existing_profile=existing if existing.name else None
     )
-    print()
-    print(_wrap("Next:  careerradar score run --dry-run", indent="  "))
+    save_profile(profile)
+    print(_style(f"Successfully extracted and saved profile for {profile.name}!", BOLD))
+    print(f"  Skills: {len(profile.skills)} categories")
+    print(f"  Roles: {len(profile.experience)} work history entries")
+    print("Run `careerradar profile show` to inspect.")
     return 0
 
 
-def cmd_show(args: argparse.Namespace) -> int:  # noqa: ARG001 - argparse handler signature
-    from careerradar.profile.repository import load_active_row
-
-    record = load_active_row()
-    if record is None:
-        print("No active profile. Build one with:  careerradar profile build")
-        return 1
-    print(
-        _style(f"Profile v{record['version']}  ({record['created_at']}, {record['model']})", BOLD)
-    )
-    print()
-    print(_render_profile(record["profile"]))
-    print()
-    print(_style("PROMPT PREFIX (cached on every scoring call)", BOLD))
-    print(_style(_wrap(f"{len(record['summary_text'])} chars", indent="  "), DIM))
-    return 0
-
-
-def cmd_history(args: argparse.Namespace) -> int:  # noqa: ARG001 - argparse handler signature
-    from careerradar.profile.repository import list_versions
-
+def cmd_history(_args: argparse.Namespace) -> int:
     versions = list_versions()
-    if not versions:
-        print("No profiles yet.")
-        return 1
-    print(f"{'ver':>4}  {'active':^6}  {'created':<26} {'model':<18} {'docs':>4} {'turns':>5}")
+    print(f"{'ver':>4}  {'active':^6}  {'name':<30}")
     for row in versions:
-        print(
-            f"{row['version']:>4}  {'  *   ' if row['is_active'] else '      '}  "
-            f"{row['created_at'][:25]:<26} {(row['model'] or '-'):<18} "
-            f"{row['documents']:>4} {row['turns']:>5}"
-        )
+        print(f"{row['version']:>4}  {'  *   ' if row['is_active'] else '      '}  {row['name']}")
     return 0
 
 
 def run_profile_command(args: argparse.Namespace) -> int:
-    return {"build": cmd_build, "show": cmd_show, "history": cmd_history}[args.subcommand](args)
+    handlers = {"show": cmd_show, "build": cmd_build, "history": cmd_history}
+    handler = handlers.get(getattr(args, "subcommand", "show") or "show", cmd_show)
+    return handler(args)

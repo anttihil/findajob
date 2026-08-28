@@ -5,14 +5,14 @@ from pathlib import Path
 
 import docx
 
-from careerradar.resumes.models import (
+from careerradar.profile.models import (
     ResumeEducation,
     ResumeRole,
     ResumeSkillCategory,
     ResumeSubsection,
     TailoredResumePayload,
 )
-from careerradar.resumes.renderer import convert_to_pdf, render_docx, verify_page_count
+from careerradar.profile.renderer import convert_to_pdf, render_docx, verify_page_count
 
 
 def test_render_docx_and_convert_pdf(tmp_path: Path):

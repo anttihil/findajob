@@ -2,7 +2,7 @@
 
 import math
 
-from careerradar.resumes.models import LayoutValidationResult, TailoredResumePayload
+from careerradar.profile.models import LayoutValidationResult, TailoredResumePayload
 
 # Usable vertical printable height for Letter (11in = 792pt) with 0.5in top/bottom margins:
 # 792 - 72 = 720pt printable height. Ceiling is 695pt to prevent page overflow.

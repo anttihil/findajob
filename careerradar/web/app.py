@@ -400,22 +400,25 @@ def skill_detail(
 
 
 @app.get("/api/profile")
-def get_profile():
-    """The active, LLM-built profile.
+@app.get("/api/resume-builder/profile")
+def get_profile_endpoint():
+    from careerradar.profile.repository import load_profile
 
-    A 404 rather than an empty profile: nothing downstream is meaningful without one, and
-    a blank profile rendered as a real one is how the previous design let a missing corpus
-    quietly shift every score.
-    """
-    from careerradar.profile.repository import load_active_row
+    return load_profile().model_dump()
 
-    record = load_active_row()
-    if record is None:
-        raise HTTPException(
-            status_code=404,
-            detail="No active profile. Build one with: careerradar profile build",
-        )
-    return record
+
+@app.put("/api/profile")
+@app.put("/api/resume-builder/profile")
+def update_profile_endpoint(profile_data: dict[str, Any]):
+    from careerradar.profile.models import Profile
+    from careerradar.profile.repository import save_profile
+
+    try:
+        profile = Profile.model_validate(profile_data)
+        save_profile(profile)
+        return {"status": "ok", "profile": profile.model_dump()}
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @app.get("/api/profile/versions")
@@ -434,26 +437,7 @@ class ProfileChatPayload(BaseModel):
     resume_text: str | None = None
 
 
-@app.get("/api/resume-builder/profile")
-def get_resume_builder_profile():
-    from careerradar.resumes.repository import load_master_profile
-
-    return load_master_profile().model_dump()
-
-
-@app.put("/api/resume-builder/profile")
-def update_resume_builder_profile(profile_data: dict[str, Any]):
-    from careerradar.resumes.models import ResumeMasterProfile
-    from careerradar.resumes.repository import save_master_profile
-
-    try:
-        profile = ResumeMasterProfile.model_validate(profile_data)
-        save_master_profile(profile, sync_scoring=True)
-        return {"status": "ok", "profile": profile.model_dump()}
-    except Exception as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-
+@app.post("/api/profile/upload")
 @app.post("/api/profile/upload-resume")
 async def upload_resume(request: Request):
     from fastapi import UploadFile
@@ -462,7 +446,7 @@ async def upload_resume(request: Request):
         extract_profile_from_resume_text,
         parse_resume_file,
     )
-    from careerradar.resumes.repository import load_master_profile
+    from careerradar.profile.repository import load_profile
 
     try:
         form = await request.form()
@@ -476,7 +460,7 @@ async def upload_resume(request: Request):
         if not text.strip():
             raise HTTPException(status_code=400, detail="Uploaded file contained no readable text.")
 
-        existing = load_master_profile()
+        existing = load_profile()
         extracted = extract_profile_from_resume_text(text, existing_profile=existing)
         return {
             "status": "ok",
@@ -495,10 +479,10 @@ async def upload_resume(request: Request):
 @app.post("/api/profile/chat")
 def profile_copilot_chat(payload: ProfileChatPayload):
     from careerradar.profile.copilot import chat_with_copilot
-    from careerradar.resumes.models import ResumeMasterProfile
+    from careerradar.profile.models import Profile
 
     try:
-        current_prof = ResumeMasterProfile.model_validate(payload.current_profile)
+        current_prof = Profile.model_validate(payload.current_profile)
         result = chat_with_copilot(
             messages=payload.messages,
             current_profile=current_prof,
@@ -517,7 +501,7 @@ def profile_copilot_chat(payload: ProfileChatPayload):
 
 @app.post("/api/jobs/{job_id}/resume/generate")
 def generate_job_resume(job_id: int):
-    from careerradar.resumes.builder import build_resume_for_job
+    from careerradar.profile.builder import build_resume_for_job
 
     try:
         record = build_resume_for_job(job_id)
@@ -529,11 +513,11 @@ def generate_job_resume(job_id: int):
 
 @app.get("/api/jobs/{job_id}/resume")
 def get_job_resume(job_id: int):
-    from careerradar.resumes.repository import get_latest_resume_for_job
+    from careerradar.profile.repository import get_latest_tailored_resume
 
     db = get_db()
     try:
-        record = get_latest_resume_for_job(job_id, db.conn)
+        record = get_latest_tailored_resume(job_id, db.conn)
         if not record:
             raise HTTPException(status_code=404, detail="No resume generated for this job yet")
         return record
@@ -543,18 +527,19 @@ def get_job_resume(job_id: int):
 
 @app.get("/api/resumes")
 def get_generated_resumes(limit: int = 50, offset: int = 0):
-    from careerradar.resumes.repository import list_generated_resumes
+    from careerradar.profile.repository import list_tailored_resumes
 
     db = get_db()
     try:
-        return list_generated_resumes(limit=limit, offset=offset, conn=db.conn)
+        _ = offset
+        return list_tailored_resumes(limit=limit, conn=db.conn)
     finally:
         db.close()
 
 
 @app.get("/api/resumes/{resume_id}/download")
 def download_resume(resume_id: int, format: str = Query("docx", pattern="^(docx|pdf)$")):
-    from careerradar.resumes.repository import get_resume_by_id
+    from careerradar.profile.repository import get_resume_by_id
 
     db = get_db()
     try:
@@ -768,12 +753,12 @@ def drawer_context(
     else:
         next_job_id = ids[position + 1] if position + 1 < len(ids) else None
 
-    from careerradar.resumes.repository import get_latest_resume_for_job
+    from careerradar.profile.repository import get_latest_tailored_resume
 
     return {
         "job": job,
         "dossier": dossier_for(db, job.get("company")),
-        "resume": get_latest_resume_for_job(job["id"], db.conn),
+        "resume": get_latest_tailored_resume(job["id"], db.conn),
         "requirement_rows": [],
         "next_job_id": next_job_id,
     }

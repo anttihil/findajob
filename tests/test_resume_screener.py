@@ -2,7 +2,7 @@
 
 from unittest.mock import MagicMock, patch
 
-from careerradar.resumes.models import (
+from careerradar.profile.models import (
     ATSScreeningVerdict,
     ResumeEducation,
     ResumeRole,
@@ -10,8 +10,8 @@ from careerradar.resumes.models import (
     ResumeSubsection,
     TailoredResumePayload,
 )
-from careerradar.resumes.prompts import render_job_context, render_resume_plaintext
-from careerradar.resumes.screener import screen_resume
+from careerradar.profile.prompts import render_job_context, render_resume_plaintext
+from careerradar.profile.screener import screen_resume
 
 
 def test_render_resume_plaintext_and_job_context():
@@ -60,8 +60,8 @@ def test_render_resume_plaintext_and_job_context():
     assert "State University, BS" in txt
 
 
-@patch("careerradar.resumes.screener.invoke_structured")
-@patch("careerradar.resumes.screener.structured_model")
+@patch("careerradar.profile.screener.invoke_structured")
+@patch("careerradar.profile.screener.structured_model")
 def test_screen_resume_mock(mock_model: MagicMock, mock_invoke: MagicMock):
     mock_invoke.return_value = ATSScreeningVerdict(
         passed=True,

@@ -1,397 +1,246 @@
-"""The profile-building graph: documents in, reviewed profile out.
+"""LangGraph Actor-Critic StateGraph for 1-Page Tailored Resume Generation."""
 
-    ingest -> extract -> gaps -> [ ask <-> record ] -> synthesize -> review -> persist
-                                      ^                                 |
-                                      +---------- revise ---------------+
+import os
+import re
+from typing import Any, TypedDict
 
-Why a graph rather than a script: the interview is a human-in-the-loop conversation that
-can span days. LangGraph's `interrupt()` plus a SQLite checkpointer means the wizard can be
-closed at question 4 and resumed at question 4 a week later, with the extracted claims and
-the answers so far intact -- no bespoke state file, no re-reading the corpus, no re-paying
-for the extraction call.
-
-One question per node invocation rather than a loop inside one node: `interrupt()` re-runs
-its node from the top on resume, so a multi-interrupt node would re-execute its own body
-once per answered question. A cursor in the state and a conditional edge keeps each resume
-to exactly one turn of work.
-"""
-
-from __future__ import annotations
-
-from typing import TYPE_CHECKING, Annotated, Any, TypedDict
+from langgraph.graph import END, START, StateGraph
+from langgraph.graph.state import CompiledStateGraph
 
 from careerradar.core.llm import (
     DEFAULT_AGENT_MODEL,
+    DEFAULT_SCORING_MODEL,
     invoke_structured,
     structured_model,
 )
 from careerradar.core.logger import get_logger
-from careerradar.core.paths import GRAPH_DB_PATH
-from careerradar.profile.ingest import collect_documents, render_corpus
-from careerradar.profile.models import ExtractedClaims, GapQuestions, Profile
-
-if TYPE_CHECKING:
-    from langgraph.checkpoint.base import BaseCheckpointSaver
-    from langgraph.graph.state import CompiledStateGraph
+from careerradar.core.paths import GENERATED_RESUMES_DIR
+from careerradar.profile.layout_validator import validate_resume_layout
+from careerradar.profile.models import (
+    ATSScreeningVerdict,
+    LayoutValidationResult,
+    Profile,
+    TailoredResumePayload,
+)
+from careerradar.profile.prompts import (
+    GENERATOR_SYSTEM_PROMPT,
+    render_job_context,
+    render_master_profile_context,
+)
+from careerradar.profile.renderer import convert_to_pdf, render_docx, verify_page_count
+from careerradar.profile.repository import load_profile, save_tailored_resume
+from careerradar.profile.screener import screen_resume
 
 logger = get_logger()
 
-EXTRACT_SYSTEM = """\
-You are building a factual profile of a job candidate from their own career documents.
-
-The documents are the candidate's own and are TRUSTED.
-
-Read all of them together. They are several tailored versions of one career plus an
-achievements log, so the same work appears more than once, described differently for
-different audiences. Reconcile them into one picture rather than summing them.
-
-Assign a skill level of 3 only where the documents show substantial shipped work -- an
-achievements entry with real volume, a named project with the technology at its centre. A
-skill that merely appears in a competencies list is 2. A skill mentioned once in passing is 1.
-Recording an honest 2 is far more useful than an optimistic 3: every downstream score
-depends on this being calibrated.
-
-Record contradictions rather than resolving them silently -- if one resume implies a
-seniority another does not support, say so. Those become interview questions."""
-
-GAPS_SYSTEM = """\
-You are preparing to interview a job candidate to finish their profile.
-
-You have their documents and the claims extracted from them. Your task is to identify what
-the documents genuinely CANNOT tell you, and turn that into questions worth a person's time.
-
-Career documents are a sales artifact. They systematically omit: honest weaknesses, why
-they left, compensation expectations, what they would refuse, which of the listed skills
-they actually enjoy, and where a title overstates or understates the real work.
-
-Ask about those. Do NOT ask anything the documents already answer -- a question whose
-answer is in the corpus wastes the interview and signals you did not read it.
-
-Ask about one skill or one topic per question. A question naming three skills gets one
-thin sentence covering all three, and a yes/no framing ("is that just curiosity, or is
-there work I'm missing?") gets a yes -- neither carries enough to correct a skill level.
-Where the documents list a skill without evidence, ask what they built with it, where,
-and how much of it was theirs.
-
-Order the questions by how much the answer would change how a job posting gets scored.
-Ask about hard constraints (work authorization, location, compensation floor) before
-preferences. Each question must be answerable in a sentence or two."""
-
-SYNTHESIZE_SYSTEM = """\
-You are writing the final profile for a job candidate.
-
-You have their documents, the claims extracted from those documents, and their own answers
-to an interview. The interview answers are the candidate speaking about themselves: where
-they contradict the documents, the answers win.
-
-Skill levels are re-derived here, not inherited. The claims were levelled from the
-documents alone, so their levels record what the candidate had room to write down -- not
-what they have done. Read every answer for skill evidence and re-level against it:
-
-  A skill they describe using on real work is at least 2, whatever the documents showed.
-  If they describe building or owning something substantial with it, it is 3.
-
-  Personal projects are real work. "I used it in several personal projects, including X"
-  is a 2, not a 1.
-
-  A level stays at 1 only when the candidate puts it there themselves -- studied it,
-  tried it, never shipped with it.
-
-An answer that names a skill and leaves its level unchanged is the specific failure this
-step exists to prevent. The interview is the only place a skill the resume had no room to
-justify can be corrected; if the levels come back matching the extracted claims, the
-interview was wasted. When an answer moves a level, replace that skill's evidence with
-what the candidate said, so the level and its justification agree.
-
-This profile is the sole basis on which thousands of job postings will be scored. Two
-failure modes to avoid, in order of cost:
-
-  Flattery. A profile listing only strengths produces a scorer that calls everything a
-  strong match, which is the same as having no scorer. Record the weaknesses the candidate
-  admitted, in their terms.
-
-  Vagueness. "Strong engineering skills" cannot discriminate between postings. "Ships
-  production Python services and owns their deployment" can. Be specific enough that the
-  difference between two similar postings is visible.
-
-Carry every hard constraint through exactly as stated -- work authorization, location,
-compensation floor. Those turn into hard blockers, and a softened constraint means the
-candidate reads postings they cannot accept."""
+MAX_ATTEMPTS = 3
 
 
-def _merge_turns(existing: list[dict[str, Any]], new: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    return (existing or []) + (new or [])
+class ResumeState(TypedDict, total=False):
+    job: dict[str, Any]
+    master_profile: Profile
+    model_name: str
+    attempts: int
+    max_attempts: int
+    feedback: str | None
+    resume_payload: TailoredResumePayload | None
+    layout_result: LayoutValidationResult | None
+    ats_verdict: ATSScreeningVerdict | None
+    docx_path: str | None
+    pdf_path: str | None
+    saved_id: int | None
+    error: str | None
 
 
-class ProfileState(TypedDict, total=False):
-    corpus: str
-    documents: list[dict[str, Any]]
-    claims: dict[str, Any] | None
-    questions: list[dict[str, Any]]
-    cursor: int
-    turns: Annotated[list[dict[str, Any]], _merge_turns]
-    draft: dict[str, Any] | None
-    revision: str | None
-    approved: bool
-    model: str
-    max_questions: int
-
-
-# --- nodes ---------------------------------------------------------------------------
-
-
-def node_ingest(state: ProfileState) -> dict[str, Any]:  # noqa: ARG001 - langgraph node signature
-    documents = collect_documents()
-    if not documents:
-        raise RuntimeError(
-            "No corpus documents found. Populate resumes/ (scripts/sync_corpus.sh) first."
-        )
-    logger.info("Profile: ingested %d documents", len(documents))
+def node_prepare_context(state: ResumeState) -> dict[str, Any]:
+    """Prepare candidate and job context for tailoring."""
+    profile = state.get("master_profile")
+    if not profile or not profile.name:
+        profile = load_profile()
     return {
-        "corpus": render_corpus(documents),
-        "documents": [
-            {"path": d.path, "kind": d.kind, "sha256": d.sha256, "chars": len(d.text)}
-            for d in documents
-        ],
+        "master_profile": profile,
+        "attempts": state.get("attempts", 0),
+        "max_attempts": state.get("max_attempts", MAX_ATTEMPTS),
+        "model_name": state.get("model_name", DEFAULT_AGENT_MODEL),
     }
 
 
-def node_extract(state: ProfileState) -> dict[str, Any]:
-    model = structured_model(state.get("model", DEFAULT_AGENT_MODEL))
-    claims = invoke_structured(
-        model,
-        ExtractedClaims,
-        [("system", EXTRACT_SYSTEM), ("user", state.get("corpus", ""))],
-        label="Profile extract",
+def node_generate(state: ResumeState) -> dict[str, Any]:
+    """Invoke Generator Agent to tailor the resume."""
+    profile = state.get("master_profile") or load_profile()
+    job = state.get("job") or {}
+    model_name = state.get("model_name", DEFAULT_AGENT_MODEL)
+    attempts = state.get("attempts", 0) + 1
+
+    candidate_ctx = render_master_profile_context(profile)
+    job_ctx = render_job_context(job)
+
+    user_parts = [
+        "=== TARGET JOB DETAILS ===",
+        job_ctx,
+        "\n=== CANDIDATE MASTER PROFILE ===",
+        candidate_ctx,
+        "\nGenerate the tailored 1-page resume for this target job.",
+    ]
+
+    feedback = state.get("feedback")
+    if feedback:
+        user_parts.append(f"\n=== FEEDBACK FROM PREVIOUS ATTEMPT (PLEASE RESOLVE) ===\n{feedback}")
+
+    messages = [
+        ("system", GENERATOR_SYSTEM_PROMPT),
+        ("user", "\n".join(user_parts)),
+    ]
+
+    model = structured_model(model=model_name)
+    payload: TailoredResumePayload = invoke_structured(
+        model=model,
+        schema=TailoredResumePayload,
+        messages=messages,
+        label="resume_generator",
     )
-    logger.info(
-        "Profile: extracted %d skills, %d contradictions",
-        len(claims.skills),
-        len(claims.contradictions),
+    logger.info("Generated resume payload for job id=%s (attempt %d)", job.get("id"), attempts)
+    return {"resume_payload": payload, "attempts": attempts}
+
+
+def node_validate_layout(state: ResumeState) -> dict[str, Any]:
+    """Validate that the tailored resume fits the 1-page vertical budget."""
+    payload = state.get("resume_payload")
+    if payload is None:
+        return {"layout_result": None, "feedback": "No resume payload produced."}
+
+    layout_res = validate_resume_layout(payload)
+    if not layout_res.is_valid:
+        violations_str = "\n- ".join(layout_res.violations)
+        feedback = (
+            f"LAYOUT OVERFLOW: The resume is {layout_res.estimated_points:.1f} pt "
+            f"(ceiling is {layout_res.max_points:.1f} pt).\nViolations:\n- {violations_str}\n"
+            f"Please shorten or condense bullets and summary so it fits strictly on 1 page."
+        )
+        logger.warning("Resume layout validation failed: %s", feedback)
+        return {"layout_result": layout_res, "feedback": feedback}
+
+    logger.info("Resume layout validation passed (estimated %s pt)", layout_res.estimated_points)
+    return {"layout_result": layout_res, "feedback": None}
+
+
+def node_screen_resume(state: ResumeState) -> dict[str, Any]:
+    """Simulate external ATS screening on the rendered resume text."""
+    job = state.get("job") or {}
+    payload = state.get("resume_payload")
+    if payload is None:
+        return {"ats_verdict": None}
+
+    ats_verdict = screen_resume(job, payload, model_name=DEFAULT_SCORING_MODEL)
+    if not ats_verdict.passed and ats_verdict.score < 9:
+        missing = ", ".join(ats_verdict.missing_signals)
+        feedback = (
+            f"ATS SCREENER FEEDBACK (Score: {ats_verdict.score}/10):\n"
+            f"Actionable advice: {ats_verdict.actionable_feedback}\n"
+            f"Missing or under-emphasized signals from JD: {missing}\n"
+            f"If the candidate has relevant experience in the master profile, emphasize it."
+        )
+        return {"ats_verdict": ats_verdict, "feedback": feedback}
+
+    return {"ats_verdict": ats_verdict, "feedback": None}
+
+
+def node_render_artifacts(state: ResumeState) -> dict[str, Any]:
+    """Render output DOCX and PDF files and verify 1-page PDF count."""
+    payload = state.get("resume_payload")
+    job = state.get("job") or {}
+    if payload is None:
+        return {"docx_path": None, "pdf_path": None}
+
+    job_id = job.get("id", 0)
+    company = re.sub(r"[^a-zA-Z0-9_-]", "_", str(job.get("company", "company")).lower())[:20]
+    title = re.sub(r"[^a-zA-Z0-9_-]", "_", str(job.get("title", "role")).lower())[:20]
+    filename = f"resume_job_{job_id}_{company}_{title}.docx"
+    docx_path = os.path.join(GENERATED_RESUMES_DIR, filename)
+
+    render_docx(payload, docx_path)
+    pdf_path = convert_to_pdf(docx_path, GENERATED_RESUMES_DIR)
+    if pdf_path:
+        pages = verify_page_count(pdf_path)
+        logger.info("Rendered PDF page count: %d", pages)
+
+    return {"docx_path": docx_path, "pdf_path": pdf_path}
+
+
+def node_save_resume(state: ResumeState) -> dict[str, Any]:
+    """Persist generated resume record in database."""
+    payload = state.get("resume_payload")
+    job = state.get("job") or {}
+    docx_path = state.get("docx_path")
+    if payload is None or not docx_path:
+        return {"saved_id": None}
+
+    ats_v = state.get("ats_verdict")
+    resume_id = save_tailored_resume(
+        job_id=int(job.get("id") or 0),
+        model=str(state.get("model_name") or DEFAULT_AGENT_MODEL),
+        docx_path=docx_path,
+        pdf_path=state.get("pdf_path"),
+        resume=payload,
+        summary=payload.summary,
+        ats_score=ats_v.score if ats_v else None,
+        ats_verdict="passed" if (ats_v and ats_v.passed) else "flagged",
+        ats_feedback=ats_v.actionable_feedback if ats_v else None,
     )
-    return {"claims": claims.model_dump()}
+    logger.info("Saved generated resume record id=%d for job id=%s", resume_id, job.get("id"))
+    return {"saved_id": resume_id}
 
 
-def node_gaps(state: ProfileState) -> dict[str, Any]:
-    model = structured_model(state.get("model", DEFAULT_AGENT_MODEL))
-    claims = ExtractedClaims.model_validate(state.get("claims"))
-    limit = state.get("max_questions", 15)
-    result = invoke_structured(
-        model,
-        GapQuestions,
-        [
-            ("system", GAPS_SYSTEM),
-            (
-                "user",
-                (
-                    f"{state.get('corpus', '')}\n\n"
-                    f"<extracted_claims>\n{claims.model_dump_json(indent=2)}\n</extracted_claims>\n\n"
-                    f"Produce at most {limit} questions."
-                ),
-            ),
-        ],
-        label="Profile gaps",
-    )
-    questions = [q.model_dump() for q in result.questions][:limit]
-    logger.info("Profile: %d interview questions", len(questions))
-    return {"questions": questions, "cursor": 0}
+def _route_after_layout(state: ResumeState) -> str:
+    layout_res = state.get("layout_result")
+    if layout_res and not layout_res.is_valid:
+        if state.get("attempts", 0) < state.get("max_attempts", MAX_ATTEMPTS):
+            return "generate"
+        return "render_artifacts"
+    return "screen_resume"
 
 
-def node_ask(state: ProfileState) -> dict[str, Any]:
-    """Surface one question to the human and suspend until it is answered."""
-    cursor = state.get("cursor", 0)
-    questions = state.get("questions", [])
-    question = questions[cursor]
+def _route_after_screener(state: ResumeState) -> str:
+    ats_v = state.get("ats_verdict")
+    failed_screen = bool(ats_v and not ats_v.passed and ats_v.score < 9)
+    can_retry = state.get("attempts", 0) < state.get("max_attempts", MAX_ATTEMPTS)
+    if failed_screen and can_retry:
+        return "generate"
+    return "render_artifacts"
 
-    answer = interrupt(
+
+def build_resume_graph() -> CompiledStateGraph[Any, Any, Any, Any]:
+    """Construct and compile the Resume Builder Actor-Critic LangGraph."""
+    builder = StateGraph(ResumeState)
+
+    builder.add_node("prepare_context", node_prepare_context)
+    builder.add_node("generate", node_generate)
+    builder.add_node("validate_layout", node_validate_layout)
+    builder.add_node("screen_resume", node_screen_resume)
+    builder.add_node("render_artifacts", node_render_artifacts)
+    builder.add_node("save_resume", node_save_resume)
+
+    builder.add_edge(START, "prepare_context")
+    builder.add_edge("prepare_context", "generate")
+    builder.add_edge("generate", "validate_layout")
+
+    builder.add_conditional_edges(
+        "validate_layout",
+        _route_after_layout,
         {
-            "kind": "question",
-            "index": cursor,
-            "total": len(questions),
-            "topic": question["topic"],
-            "question": question["question"],
-            "why": question["why"],
-        }
+            "generate": "generate",
+            "screen_resume": "screen_resume",
+            "render_artifacts": "render_artifacts",
+        },
     )
 
-    return {
-        "cursor": cursor + 1,
-        "turns": [
-            {
-                "topic": question["topic"],
-                "question": question["question"],
-                "answer": (answer or "").strip(),
-            }
-        ],
-    }
-
-
-def node_synthesize(state: ProfileState) -> dict[str, Any]:
-    model = structured_model(state.get("model", DEFAULT_AGENT_MODEL))
-
-    transcript = (
-        "\n\n".join(
-            f"Q ({t['topic']}): {t['question']}\nA: {t['answer']}"
-            for t in state.get("turns", [])
-            if t.get("answer")
-        )
-        or "(no interview answers)"
-    )
-
-    claims = ExtractedClaims.model_validate(state.get("claims"))
-    instruction = ""
-    revision = state.get("revision")
-    if revision:
-        # A revision re-runs synthesis with the human's correction appended, rather than
-        # patching the draft. Patching a structured object from free text is a second
-        # extraction problem; regenerating with the correction in context is one.
-        instruction = (
-            f"\n\n<requested_changes>\n{revision}\n</requested_changes>\n"
-            "Apply these changes. Keep everything else as it was."
-        )
-
-    profile = invoke_structured(
-        model,
-        Profile,
-        [
-            ("system", SYNTHESIZE_SYSTEM),
-            (
-                "user",
-                (
-                    f"{state.get('corpus', '')}\n\n"
-                    f"<extracted_claims>\n{claims.model_dump_json(indent=2)}\n</extracted_claims>\n\n"
-                    f"<interview>\n{transcript}\n</interview>{instruction}"
-                ),
-            ),
-        ],
-        label="Profile synthesize",
-    )
-    logger.info("Profile: synthesized draft with %d skills", len(profile.skills))
-    return {"draft": profile.model_dump(), "revision": None}
-
-
-def level_changes(claims: dict[str, Any] | None, draft: dict[str, Any]) -> dict[str, Any]:
-    """What the interview did to the skill levels the documents alone produced.
-
-    Computed here rather than in the terminal wizard because it is the reviewer's main
-    question -- did answering fifteen questions change anything? -- and every adapter has
-    to answer it. A silent no is the failure mode worth surfacing: a synthesis that echoes
-    the extracted levels back looks like a finished profile, and the reviewer approves an
-    interview that was never applied.
-    """
-    before = {s["key"]: s for s in ((claims or {}).get("skills") or [])}
-    raised: list[dict[str, Any]] = []
-    lowered: list[dict[str, Any]] = []
-    added: list[dict[str, Any]] = []
-    for skill in draft.get("skills") or []:
-        previous = before.get(skill["key"])
-        if previous is None:
-            added.append({"key": skill["key"], "label": skill["label"], "to": skill["level"]})
-        elif skill["level"] > previous["level"]:
-            raised.append(
-                {
-                    "key": skill["key"],
-                    "label": skill["label"],
-                    "from": previous["level"],
-                    "to": skill["level"],
-                }
-            )
-        elif skill["level"] < previous["level"]:
-            lowered.append(
-                {
-                    "key": skill["key"],
-                    "label": skill["label"],
-                    "from": previous["level"],
-                    "to": skill["level"],
-                }
-            )
-    return {
-        "raised": raised,
-        "lowered": lowered,
-        "added": added,
-        "total": len(draft.get("skills") or []),
-    }
-
-
-def node_review(state: ProfileState) -> dict[str, Any]:
-    """Show the draft and wait. Only a human decision leaves this node."""
-    draft = state.get("draft") or {}
-    decision = interrupt(
-        {
-            "kind": "review",
-            "profile": draft,
-            "level_changes": level_changes(state.get("claims"), draft),
-        }
-    )
-    if isinstance(decision, dict):
-        if decision.get("approve"):
-            return {"approved": True}
-        return {"approved": False, "revision": decision.get("revision")}
-    if isinstance(decision, str) and decision.strip().lower() in ("approve", "y", "yes"):
-        return {"approved": True}
-    return {"approved": False, "revision": decision}
-
-
-# --- edges ---------------------------------------------------------------------------
-
-
-def route_after_ask(state: ProfileState) -> str:
-    if state.get("cursor", 0) >= len(state.get("questions", [])):
-        return "synthesize"
-    return "ask"
-
-
-def route_after_gaps(state: ProfileState) -> str:
-    return "synthesize" if not state.get("questions") else "ask"
-
-
-def route_after_review(state: ProfileState) -> str:
-    return "__end__" if state.get("approved") else "synthesize"
-
-
-def build_graph(
-    checkpointer: BaseCheckpointSaver[Any] | None = None,
-) -> CompiledStateGraph[Any, Any, Any, Any]:
-    from langgraph.graph import END, START, StateGraph
-
-    builder = StateGraph(ProfileState)
-    builder.add_node("ingest", node_ingest)
-    builder.add_node("extract", node_extract)
-    builder.add_node("gaps", node_gaps)
-    builder.add_node("ask", node_ask)
-    builder.add_node("synthesize", node_synthesize)
-    builder.add_node("review", node_review)
-
-    builder.add_edge(START, "ingest")
-    builder.add_edge("ingest", "extract")
-    builder.add_edge("extract", "gaps")
     builder.add_conditional_edges(
-        "gaps", route_after_gaps, {"ask": "ask", "synthesize": "synthesize"}
+        "screen_resume",
+        _route_after_screener,
+        {"generate": "generate", "render_artifacts": "render_artifacts"},
     )
-    builder.add_conditional_edges(
-        "ask", route_after_ask, {"ask": "ask", "synthesize": "synthesize"}
-    )
-    builder.add_edge("synthesize", "review")
-    builder.add_conditional_edges(
-        "review", route_after_review, {"synthesize": "synthesize", "__end__": END}
-    )
-    return builder.compile(checkpointer=checkpointer)
 
+    builder.add_edge("render_artifacts", "save_resume")
+    builder.add_edge("save_resume", END)
 
-def open_checkpointer():
-    """A SqliteSaver on its own database file.
-
-    Separate from jobs.db on purpose: the interview writes a checkpoint per turn, and that
-    write pattern has no business sharing a WAL with a 20-minute scrape.
-    """
-    import sqlite3
-
-    from langgraph.checkpoint.sqlite import SqliteSaver
-
-    conn = sqlite3.connect(GRAPH_DB_PATH, check_same_thread=False)
-    return SqliteSaver(conn)
-
-
-# Imported late so `interrupt` resolves against the installed langgraph without making this
-# module unimportable when it is absent (the test suite imports the models beside it).
-from langgraph.types import interrupt  # noqa: E402
+    return builder.compile()

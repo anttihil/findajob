@@ -1,6 +1,6 @@
 [Unit]
 Description=CareerRadar Dashboard and Background Scheduler
-Documentation=file:///opt/careerradar/README.md
+Documentation=https://github.com/example/careerradar
 After=network-online.target
 Wants=network-online.target
 

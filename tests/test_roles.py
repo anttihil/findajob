@@ -490,8 +490,8 @@ if __name__ == "__main__":
 
 
 class CommutableAreaTests(unittest.TestCase):
-    """candidates have local or remote preferences, so this is the distinction that decides whether a
-    posting is worth reading: commutable, remote, or requires relocating."""
+    """Candidates have local or remote preferences, so this is the distinction that decides
+    whether a posting is worth reading: commutable, remote, or requires relocating."""
 
     def setUp(self) -> None:
         self.roles = load_roles()

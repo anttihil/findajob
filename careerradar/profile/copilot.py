@@ -1,9 +1,9 @@
-"""AI Copilot and resume parsing engine for the unified Master Profile.
+"""AI Copilot and resume parsing engine for the unified Profile.
 
 Supports:
 1. Parsing uploaded resume files (.pdf, .docx, .txt, .md).
-2. LLM-based extraction into structured ResumeMasterProfile.
-3. Interactive Copilot chat to refine, question, rewrite, and update the Master Profile.
+2. LLM-based extraction into structured Profile.
+3. Interactive Copilot chat to refine, question, rewrite, and update the Profile.
 """
 
 import io
@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field
 
 from careerradar.core.llm import DEFAULT_AGENT_MODEL, invoke_structured, structured_model
 from careerradar.core.logger import get_logger
-from careerradar.resumes.models import ResumeMasterProfile
+from careerradar.profile.models import Profile
 
 logger = get_logger()
 
@@ -48,25 +48,25 @@ def parse_resume_file(content: bytes, filename: str) -> str:
 
 RESUME_EXTRACTION_SYSTEM = """\
 You are an expert technical resume parser and career architect.
-Your task is to extract a candidate's complete career history into a structured Master Profile.
+Your task is to extract a candidate's complete career history into a structured Profile.
 
 Guidelines:
 1. Extract personal and contact details (name, email, phone, location, links).
 2. Write a clear 2-3 sentence executive positioning summary in summary_guidance.
-3. Extract education history (institution, degree, graduation/details).
+3. Extract education history (institution, degree, details).
 4. Categorize skills into logical groups (e.g. Infrastructure, AI Systems, Frontend, Languages).
 5. In Experience, capture all work roles, dates, locations, project scopes, and impact bullets.
-6. Identify work authorization/citizenship and location preferences if indicated in the text.
-7. Extract core technical strengths and honest gaps/limitations for calibrated job matching.
+6. Identify work authorization/citizenship and location preferences in eligibility.
+7. Identify target roles, work modes, and explicit dealbreakers in targeting.
 """
 
 
 def extract_profile_from_resume_text(
     resume_text: str,
     model_name: str = DEFAULT_AGENT_MODEL,
-    existing_profile: ResumeMasterProfile | None = None,
-) -> ResumeMasterProfile:
-    """Extract a ResumeMasterProfile from raw resume text."""
+    existing_profile: Profile | None = None,
+) -> Profile:
+    """Extract a Profile from raw resume text."""
     model = structured_model(model=model_name)
 
     user_parts = [
@@ -80,7 +80,7 @@ def extract_profile_from_resume_text(
         )
 
     user_parts.append(
-        "\nExtract and construct the comprehensive Master Profile from this resume text."
+        "\nExtract and construct the comprehensive candidate Profile from this resume text."
     )
 
     messages = [
@@ -88,9 +88,9 @@ def extract_profile_from_resume_text(
         ("user", "\n".join(user_parts)),
     ]
 
-    extracted: ResumeMasterProfile = invoke_structured(
+    extracted: Profile = invoke_structured(
         model=model,
-        schema=ResumeMasterProfile,
+        schema=Profile,
         messages=messages,
         label="resume_extractor",
     )
@@ -101,8 +101,8 @@ class CopilotChatResult(BaseModel):
     reply: str = Field(
         description="Conversational response in markdown (guidance, explanations, questions)."
     )
-    updated_profile: ResumeMasterProfile = Field(
-        description="The updated ResumeMasterProfile incorporating requested modifications."
+    updated_profile: Profile = Field(
+        description="The updated Profile incorporating requested modifications."
     )
     changes_made: list[str] = Field(
         default_factory=list,
@@ -111,12 +111,12 @@ class CopilotChatResult(BaseModel):
 
 
 COPILOT_CHAT_SYSTEM = """\
-You are CareerRadar's Master Profile Copilot — a technical career advisor and profile strategist.
-You collaborate with the user to perfect their Master Profile for scoring and resume generation.
+You are CareerRadar's Profile Copilot — a technical career advisor and profile strategist.
+You collaborate with the user to perfect their Profile for scoring and resume generation.
 
-The Master Profile is the single source of truth for:
+The Profile is the single source of truth for:
 - 1-page tailored resume generation (contact info, work history, projects, skills).
-- Job fit scoring (experience, skills, work eligibility, target roles, dealbreakers, gaps).
+- Job fit scoring (experience, skills, work eligibility, target roles, dealbreakers).
 
 Your responsibilities:
 1. Answer questions about the candidate's profile, positioning, and market readiness.
@@ -129,7 +129,7 @@ Your responsibilities:
 
 def chat_with_copilot(
     messages: list[dict[str, str]],
-    current_profile: ResumeMasterProfile,
+    current_profile: Profile,
     resume_text: str | None = None,
     model_name: str = DEFAULT_AGENT_MODEL,
 ) -> CopilotChatResult:
@@ -137,7 +137,7 @@ def chat_with_copilot(
     model = structured_model(model=model_name)
 
     context_blocks = [
-        "=== CURRENT MASTER PROFILE ===",
+        "=== CURRENT CANDIDATE PROFILE ===",
         current_profile.model_dump_json(indent=2),
     ]
     if resume_text:

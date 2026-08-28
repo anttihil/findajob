@@ -1,16 +1,16 @@
-"""Unit tests for Resume Master Profile persistence and models."""
+"""Unit tests for unified Profile persistence and models."""
 
 import sqlite3
 
 from careerradar.core.migrations import migrate
-from careerradar.resumes.models import (
+from careerradar.profile.models import (
     MasterEducation,
     MasterProject,
     MasterRole,
     MasterSkillCategory,
-    ResumeMasterProfile,
+    Profile,
 )
-from careerradar.resumes.repository import load_master_profile, save_master_profile
+from careerradar.profile.repository import load_profile, save_profile
 
 
 def test_master_profile_crud():
@@ -18,12 +18,12 @@ def test_master_profile_crud():
     conn.row_factory = sqlite3.Row
     migrate(conn)
 
-    # Initial profile seeded by migration v17
-    p0 = load_master_profile(conn)
+    # Initial profile seeded by migration
+    p0 = load_profile(conn)
     assert p0 is not None
 
     # Update profile
-    p1 = ResumeMasterProfile(
+    p1 = Profile(
         name="Jane Doe",
         email="jane@example.com",
         phone="555-0199",
@@ -50,8 +50,8 @@ def test_master_profile_crud():
         ],
     )
 
-    save_master_profile(p1, conn)
-    loaded = load_master_profile(conn)
+    save_profile(p1, conn)
+    loaded = load_profile(conn)
 
     assert loaded.name == "Jane Doe"
     assert loaded.email == "jane@example.com"

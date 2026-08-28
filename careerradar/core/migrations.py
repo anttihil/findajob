@@ -13,7 +13,7 @@ from careerradar.core.logger import get_logger
 
 logger = get_logger()
 
-SCHEMA_VERSION = 18
+SCHEMA_VERSION = 19
 
 
 def _v1_baseline(cursor: sqlite3.Cursor) -> None:
@@ -1436,6 +1436,144 @@ def _v18_unified_master_profile(cursor: sqlite3.Cursor) -> None:
         logger.warning("Failed to backfill master profile from active profile: %s", exc)
 
 
+def _v19_single_profile_table(cursor: sqlite3.Cursor) -> None:
+    """Create the unified singleton `profile` table as the sole source of truth."""
+    import json
+
+    default_eligibility = json.dumps(
+        {
+            "citizenship": ["Authorized to work in US"],
+            "locations": ["Remote"],
+            "willing_to_relocate": False,
+            "comp_floor_usd": 90000,
+        }
+    )
+    default_targeting = json.dumps(
+        {
+            "target_roles": ["Software Engineer", "Platform Engineer"],
+            "work_modes": ["remote", "hybrid", "onsite"],
+            "target_industries": ["Cloud Infrastructure", "Developer Tools"],
+            "dealbreakers": ["24-hour on-call site reliability rotations"],
+        }
+    )
+
+    cursor.execute(
+        f"""
+        CREATE TABLE IF NOT EXISTS profile (
+            id INTEGER PRIMARY KEY CHECK (id = 1),
+            updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+            name TEXT NOT NULL DEFAULT '',
+            email TEXT NOT NULL DEFAULT '',
+            phone TEXT NOT NULL DEFAULT '',
+            location TEXT NOT NULL DEFAULT '',
+            github TEXT NOT NULL DEFAULT '',
+            linkedin TEXT NOT NULL DEFAULT '',
+            website TEXT NOT NULL DEFAULT '',
+            summary_guidance TEXT NOT NULL DEFAULT '',
+            seniority TEXT NOT NULL DEFAULT 'Mid / Senior',
+            years_experience REAL NOT NULL DEFAULT 4.0,
+            eligibility_json TEXT NOT NULL DEFAULT '{default_eligibility}',
+            targeting_json TEXT NOT NULL DEFAULT '{default_targeting}',
+            education_json TEXT NOT NULL DEFAULT '[]',
+            skills_json TEXT NOT NULL DEFAULT '[]',
+            experience_json TEXT NOT NULL DEFAULT '[]',
+            summary_text TEXT NOT NULL DEFAULT ''
+        )
+        """
+    )
+
+    # Migrate existing data from resume_master_profile if present
+    tables = {
+        r[0] for r in cursor.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
+    }
+    if "resume_master_profile" in tables:
+        try:
+            rmp = cursor.execute(
+                "SELECT * FROM resume_master_profile ORDER BY id DESC LIMIT 1"
+            ).fetchone()
+            if rmp:
+                col_names = [d[0] for d in cursor.description]
+                r_dict = dict(zip(col_names, rmp, strict=False))
+
+                citizenship = json.loads(
+                    r_dict.get("citizenship_json") or '["Authorized to work in US"]'
+                )
+                locations = json.loads(r_dict.get("locations_json") or '["Remote"]')
+                willing = bool(r_dict.get("willing_to_relocate", 0))
+                comp = r_dict.get("comp_floor_usd") or 90000
+                eligibility = json.dumps(
+                    {
+                        "citizenship": citizenship,
+                        "locations": locations,
+                        "willing_to_relocate": willing,
+                        "comp_floor_usd": comp,
+                    }
+                )
+
+                target_roles = json.loads(r_dict.get("target_roles_json") or "[]")
+                work_modes = json.loads(
+                    r_dict.get("work_modes_json") or '["remote", "hybrid", "onsite"]'
+                )
+                target_industries = json.loads(r_dict.get("target_industries_json") or "[]")
+                dealbreakers = json.loads(r_dict.get("dealbreakers_json") or "[]")
+                targeting = json.dumps(
+                    {
+                        "target_roles": target_roles,
+                        "work_modes": work_modes,
+                        "target_industries": target_industries,
+                        "dealbreakers": dealbreakers,
+                    }
+                )
+
+                cursor.execute(
+                    """
+                    INSERT OR REPLACE INTO profile (
+                        id, updated_at, name, email, phone, location, github, linkedin, website,
+                        summary_guidance, seniority, years_experience, eligibility_json,
+                        targeting_json, education_json, skills_json, experience_json, summary_text
+                    ) VALUES (
+                        1, strftime('%Y-%m-%dT%H:%M:%SZ', 'now'), ?, ?, ?, ?, ?, ?, ?,
+                        ?, ?, ?, ?,
+                        ?, ?, ?, ?, ''
+                    )
+                    """,
+                    (
+                        r_dict.get("name") or "",
+                        r_dict.get("email") or "",
+                        r_dict.get("phone") or "",
+                        r_dict.get("location") or "",
+                        r_dict.get("github") or "",
+                        r_dict.get("linkedin") or "",
+                        r_dict.get("website") or "",
+                        r_dict.get("summary_guidance") or "",
+                        r_dict.get("seniority") or "Mid / Senior",
+                        r_dict.get("years_experience") or 4.0,
+                        eligibility,
+                        targeting,
+                        r_dict.get("education_json") or "[]",
+                        r_dict.get("skills_json") or "[]",
+                        r_dict.get("experience_json") or "[]",
+                    ),
+                )
+        except (sqlite3.Error, ValueError, KeyError) as exc:
+            logger.warning("Failed to migrate resume_master_profile to profile: %s", exc)
+
+    # Ensure default row 1 exists
+    cursor.execute(
+        f"""
+        INSERT OR IGNORE INTO profile (
+            id, updated_at, name, email, phone, location, github, linkedin, website,
+            summary_guidance, seniority, years_experience, eligibility_json,
+            targeting_json, education_json, skills_json, experience_json, summary_text
+        ) VALUES (
+            1, strftime('%Y-%m-%dT%H:%M:%SZ', 'now'), '', '', '', '', '', '', '',
+            '', 'Mid / Senior', 4.0, '{default_eligibility}',
+            '{default_targeting}', '[]', '[]', '[]', ''
+        )
+        """
+    )
+
+
 MIGRATIONS: list[tuple[int, str, Callable[[sqlite3.Cursor], None]]] = [
     (1, "baseline jobs table", _v1_baseline),
     (2, "market analytics: cells, observations, skills, stats", _v2_analytics),
@@ -1474,6 +1612,11 @@ MIGRATIONS: list[tuple[int, str, Callable[[sqlite3.Cursor], None]]] = [
         18,
         "unified master profile: consolidated 5 sections for resumes and scoring",
         _v18_unified_master_profile,
+    ),
+    (
+        19,
+        "single profile table: canonical singleton profile for scoring and resumes",
+        _v19_single_profile_table,
     ),
 ]
 

@@ -1,19 +1,9 @@
-"""Expose an LLM-built Profile through the interface the keyword layer already speaks.
+"""Expose a Profile through the interface the keyword and gap analysis layer speaks."""
 
-`keyword_score.py` and `gap_analysis.py` take a profile object and call
-`has()`, `level()`, `keys()`, and `evidence()` on it. Those modules are not being replaced:
-the keyword score still feeds `match_score`, and `gap_analysis` still measures its blocking
-gap against postings the user matches at GOOD_FIT_THRESHOLD or better.
-
-So the new profile grows the old query surface rather than every caller growing a new one.
-This is not a compatibility shim kept out of caution -- it is the boundary that lets one
-well-tested subsystem (skill demand and gap analytics, ~900 lines with careful censoring)
-survive a change of what a "profile" is.
-"""
-
+import re
 from typing import TYPE_CHECKING, Any
 
-from careerradar.profile.models import LEVEL_MENTIONED, Profile
+from careerradar.profile.models import LEVEL_CLAIMED, LEVEL_MENTIONED, LEVEL_STRONG, Profile
 
 if TYPE_CHECKING:
     from careerradar.core.database import Database
@@ -21,26 +11,50 @@ if TYPE_CHECKING:
 
 
 class ProfileAdapter:
-    """A Profile wearing the old UserProfile interface."""
+    """A Profile wearing the UserProfile query interface."""
 
     def __init__(
         self,
         profile: Profile,
-        version: int | None = None,
+        version: int | None = 1,
         taxonomy: "Taxonomy | None" = None,
     ) -> None:
         self.profile = profile
         self.version = version
         self.taxonomy = taxonomy
-        self.skills: dict[str, dict[str, Any]] = {
-            skill.key: {
-                "level": skill.level,
-                "label": skill.label,
-                "evidence": [skill.evidence] if skill.evidence else [],
-                "recency": skill.recency,
-            }
-            for skill in profile.skills
-        }
+
+        # Build skills map from categorized skills
+        skills_map: dict[str, dict[str, Any]] = {}
+        for cat in profile.skills:
+            for s_name in cat.skills:
+                clean = s_name.strip()
+                if not clean:
+                    continue
+                key = re.sub(r"[^a-z0-9_]+", "_", clean.lower()).strip("_")
+                skills_map[key] = {
+                    "level": LEVEL_CLAIMED,
+                    "label": clean,
+                    "evidence": [f"{cat.category}: {clean}"],
+                    "recency": None,
+                }
+
+        # Check experience bullets for strong evidence (ground truth)
+        exp_text = ""
+        for role in profile.experience:
+            for proj in role.projects:
+                exp_text += " " + proj.name + " " + proj.heading + " " + " ".join(proj.bullets)
+        exp_lower = exp_text.lower()
+
+        for key, rec in skills_map.items():
+            if (
+                key in exp_lower
+                or rec["label"].lower() in exp_lower
+                or re.search(rf"\b{re.escape(key)}\b", exp_lower)
+            ):
+                rec["level"] = LEVEL_STRONG
+                rec["evidence"].append(f"Demonstrated in work experience: {rec['label']}")
+
+        self.skills = skills_map
         self.sources = [f"profile v{version}"] if version else ["profile"]
 
     def has(self, key: str, min_level: int = LEVEL_MENTIONED) -> bool:
@@ -58,17 +72,9 @@ class ProfileAdapter:
         return record["evidence"] if record else []
 
     def by_category(self) -> dict[str, list[dict[str, Any]]]:
-        """Group skills by taxonomy category, for the dashboard.
-
-        Falls back to a single bucket when no taxonomy is attached, rather than failing --
-        callers use this for display only.
-        """
+        """Group skills by taxonomy category for dashboard display."""
         grouped: dict[str, list[dict[str, Any]]] = {}
         for key, record in self.skills.items():
-            # `taxonomy.skills[key]` is a Skill object with __slots__, not a mapping, so
-            # the .get() this used to do raised AttributeError for every known key -- the
-            # method only ever "worked" on the no-taxonomy path that buckets everything
-            # under "other". `category()` is the accessor that exists for this.
             category = "other"
             if self.taxonomy is not None:
                 category = self.taxonomy.category(key) or "other"
@@ -82,19 +88,17 @@ class ProfileAdapter:
     def to_dict(self) -> dict[str, Any]:
         return {
             "version": self.version,
-            "bio": self.profile.bio,
+            "name": self.profile.name,
+            "email": self.profile.email,
+            "bio": self.profile.summary_guidance,
             "years_experience": self.profile.years_experience,
             "seniority": self.profile.seniority,
             "skills": {
                 key: {"level": r["level"], "label": r["label"], "evidence": r["evidence"]}
                 for key, r in self.skills.items()
             },
-            "strengths": self.profile.strengths,
-            "weaknesses": self.profile.weaknesses,
-            "constraints": self.profile.constraints.model_dump(),
-            "preferences": self.profile.preferences.model_dump(),
-            "non_negotiables": self.profile.non_negotiables,
-            "red_flags": self.profile.red_flags,
+            "eligibility": self.profile.eligibility.model_dump(),
+            "targeting": self.profile.targeting.model_dump(),
             "by_category": self.by_category(),
         }
 
@@ -106,12 +110,7 @@ class ProfileAdapter:
 
 
 class NoActiveProfile(RuntimeError):
-    """Raised instead of silently scoring against nothing.
-
-    The retired regex profile degraded quietly: a missing corpus produced a thin profile
-    and every match score shifted, with only a log line to say so. An absent profile is now
-    a hard stop, because the alternative is a full corpus scored against an empty candidate.
-    """
+    """Raised when profile is not configured."""
 
 
 def load_profile(
@@ -119,13 +118,12 @@ def load_profile(
     taxonomy: "Taxonomy | None" = None,
     required: bool = True,
 ) -> ProfileAdapter | None:
-    """Load the active profile as a ProfileAdapter."""
-    from careerradar.profile.repository import load_active
+    """Load the singleton Profile as a ProfileAdapter."""
+    from careerradar.profile.repository import load_profile as repo_load_profile
 
-    loaded = load_active(db=db)
-    if loaded is None:
-        if required:
-            raise NoActiveProfile("No active profile. Build one first:  careerradar profile build")
+    profile = repo_load_profile(conn=db.conn if db else None)
+    if profile is None and required:
+        raise NoActiveProfile("No active profile configured.")
+    if profile is None:
         return None
-    version, profile, _summary = loaded
-    return ProfileAdapter(profile, version=version, taxonomy=taxonomy)
+    return ProfileAdapter(profile, version=1, taxonomy=taxonomy)

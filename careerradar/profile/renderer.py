@@ -14,20 +14,20 @@ from pypdf.errors import PdfReadError
 
 from careerradar.core.logger import get_logger
 from careerradar.core.paths import GENERATED_RESUMES_DIR, TEMPLATES_DIR
-from careerradar.resumes.models import TailoredResumePayload
+from careerradar.profile.models import TailoredResumePayload
 
 logger = get_logger()
 
 DEFAULT_TEMPLATE_PATH = os.path.join(TEMPLATES_DIR, "resume_template.docx")
-FALLBACK_TEMPLATE_PATH = "/opt/Downloads/resume.docx"
 
 
-def _get_template_path() -> str:
+def _get_template_path() -> str | None:
     if os.path.exists(DEFAULT_TEMPLATE_PATH):
         return DEFAULT_TEMPLATE_PATH
-    if os.path.exists(FALLBACK_TEMPLATE_PATH):
-        return FALLBACK_TEMPLATE_PATH
-    raise FileNotFoundError("No resume docx template found in templates/ or downloads.")
+    fallback = os.path.expanduser("~/Downloads/resume.docx")
+    if os.path.exists(fallback):
+        return fallback
+    return None
 
 
 def _add_right_tab(paragraph: Any) -> None:
@@ -48,7 +48,7 @@ def render_docx(
 ) -> str:
     """Render the tailored resume into a high-fidelity 1-page DOCX file."""
     tpl = template_path or _get_template_path()
-    doc = docx.Document(tpl)
+    doc = docx.Document(tpl) if (tpl and os.path.exists(tpl)) else docx.Document()
 
     # Ensure section margins: 0.5 in top/bottom, 1.0 in left/right
     for section in doc.sections:

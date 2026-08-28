@@ -4,17 +4,17 @@ import sqlite3
 from unittest.mock import MagicMock, patch
 
 from careerradar.core.migrations import migrate
-from careerradar.resumes.graph import (
+from careerradar.profile.graph import (
     ResumeState,
     _route_after_layout,
     _route_after_screener,
     build_resume_graph,
 )
-from careerradar.resumes.models import (
+from careerradar.profile.models import (
     ATSScreeningVerdict,
     LayoutValidationResult,
+    Profile,
     ResumeEducation,
-    ResumeMasterProfile,
     ResumeRole,
     ResumeSkillCategory,
     ResumeSubsection,
@@ -68,12 +68,12 @@ def test_graph_routing_helpers():
     assert _route_after_screener(state_ats_failed) == "generate"
 
 
-@patch("careerradar.resumes.graph.structured_model")
-@patch("careerradar.resumes.graph.render_docx")
-@patch("careerradar.resumes.graph.convert_to_pdf")
-@patch("careerradar.resumes.graph.screen_resume")
-@patch("careerradar.resumes.graph.invoke_structured")
-@patch("careerradar.resumes.graph.save_generated_resume")
+@patch("careerradar.profile.graph.structured_model")
+@patch("careerradar.profile.graph.render_docx")
+@patch("careerradar.profile.graph.convert_to_pdf")
+@patch("careerradar.profile.graph.screen_resume")
+@patch("careerradar.profile.graph.invoke_structured")
+@patch("careerradar.profile.graph.save_tailored_resume")
 def test_full_graph_execution(
     mock_save: MagicMock,
     mock_invoke: MagicMock,
@@ -132,7 +132,7 @@ def test_full_graph_execution(
             "company": "Anthropic",
             "description": "Build LLM applications.",
         },
-        "master_profile": ResumeMasterProfile(name="Jane Doe"),
+        "master_profile": Profile(name="Jane Doe"),
     }
 
     final_state = graph.invoke(initial_state)

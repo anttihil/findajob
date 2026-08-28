@@ -4,8 +4,8 @@ from typing import Any
 
 from careerradar.core.llm import DEFAULT_SCORING_MODEL, invoke_structured, structured_model
 from careerradar.core.logger import get_logger
-from careerradar.resumes.models import ATSScreeningVerdict, TailoredResumePayload
-from careerradar.resumes.prompts import (
+from careerradar.profile.models import ATSScreeningVerdict, TailoredResumePayload
+from careerradar.profile.prompts import (
     SCREENER_SYSTEM_PROMPT,
     render_job_context,
     render_resume_plaintext,

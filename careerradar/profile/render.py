@@ -1,29 +1,10 @@
 """Render a Profile into the prompt prefix the scoring agent sends on every call.
 
-This text is computed **once**, at profile-approval time, and stored in
-`profiles.summary_text`. It is never rebuilt per request.
-
-That is a cost decision, not a style one. DeepSeek caches prompt prefixes automatically at
-1/50th the input rate, matched byte-for-byte. Rendering per request would expose the prefix
-to dict iteration order, float formatting, and any future "as of <date>" line -- each of
-which silently drops the cache hit rate to zero and multiplies scoring cost by ~50 with no
-error to notice. Freezing it removes the whole class of bug.
-
-Everything below is therefore sorted deterministically and carries no clock.
+This text is computed **once**, at profile-save time, and stored in `profile.summary_text`.
+It is never rebuilt per request. DeepSeek caches prompt prefixes automatically.
 """
 
-from careerradar.profile.models import (
-    LEVEL_CLAIMED,
-    LEVEL_MENTIONED,
-    LEVEL_STRONG,
-    Profile,
-)
-
-_LEVEL_HEADINGS = [
-    (LEVEL_STRONG, "STRONG -- built and shipped substantial work with these"),
-    (LEVEL_CLAIMED, "WORKING -- used in real work"),
-    (LEVEL_MENTIONED, "FAMILIAR -- touched or studied, not yet proven"),
-]
+from careerradar.profile.models import Profile
 
 
 def _bullets(items: list[str]) -> str:
@@ -31,8 +12,9 @@ def _bullets(items: list[str]) -> str:
 
 
 def render_profile(profile: Profile) -> str:
-    """Produce the stable prompt prefix for one profile."""
-    lines = ["CANDIDATE PROFILE", "", profile.bio.strip(), ""]
+    """Produce the deterministic stable prompt prefix for one profile."""
+    bio_text = profile.summary_guidance.strip() or "Software engineer and platform builder."
+    lines = ["CANDIDATE PROFILE", "", bio_text, ""]
 
     facts = []
     if profile.years_experience is not None:
@@ -42,79 +24,79 @@ def render_profile(profile: Profile) -> str:
     if facts:
         lines.extend([*facts, ""])
 
-    for level, heading in _LEVEL_HEADINGS:
-        skills = sorted(
-            (s for s in profile.skills if s.level == level),
-            key=lambda s: s.key,
-        )
-        if not skills:
-            continue
-        lines.append(f"{heading}:")
-        lines.append("  " + ", ".join(s.label for s in skills))
+    # Categorized skills
+    if profile.skills:
+        lines.append("CORE SKILLS & TECHNOLOGIES:")
+        for cat in sorted(profile.skills, key=lambda c: c.category.lower()):
+            clean_skills = [s.strip() for s in cat.skills if s.strip()]
+            if clean_skills:
+                lines.append(f"  - {cat.category}: {', '.join(clean_skills)}")
         lines.append("")
 
-    if profile.projects:
-        lines += ["KEY PROJECTS / ACHIEVEMENTS:", _bullets(profile.projects), ""]
-    elif profile.strengths:
-        lines += ["KEY PROJECTS / ACHIEVEMENTS:", _bullets(profile.strengths), ""]
+    # Experience & Project evidence
+    extracted_projects = []
+    for role in profile.experience:
+        for proj in role.projects:
+            bullets_text = " ".join(proj.bullets[:2])
+            desc = f"{role.title} at {role.company}: {proj.name}"
+            if proj.heading:
+                desc += f" - {proj.heading}"
+            if bullets_text:
+                desc += f" ({bullets_text})"
+            extracted_projects.append(desc[:200])
 
-    if profile.weaknesses:
-        lines += [
-            "HONEST GAPS / LIMITATIONS:",
-            _bullets(profile.weaknesses),
-            "",
+    if extracted_projects:
+        lines += ["KEY PROJECTS / ACHIEVEMENTS (GROUND TRUTH):", _bullets(extracted_projects), ""]
+
+    # Education
+    if profile.education:
+        edu_lines = [
+            f"{e.degree} - {e.institution}" + (f" ({e.details})" if e.details else "")
+            for e in profile.education
         ]
+        lines += ["EDUCATION:", _bullets(edu_lines), ""]
 
-    constraints = profile.constraints
-    constraint_lines = []
-    if constraints.work_authorization:
-        constraint_lines.append(
-            f"Authorized to work in: {', '.join(sorted(constraints.work_authorization))}"
+    # Work Eligibility & Constraints
+    eligibility = profile.eligibility
+    eligibility_lines = []
+    if eligibility.citizenship:
+        eligibility_lines.append(
+            f"Authorized to work in: {', '.join(sorted(eligibility.citizenship))}"
         )
-    if constraints.locations:
-        constraint_lines.append(f"Will work from: {', '.join(sorted(constraints.locations))}")
-    if constraints.willing_to_relocate is not None:
-        constraint_lines.append(
-            f"Willing to relocate: {'yes' if constraints.willing_to_relocate else 'no'}"
+    if eligibility.locations:
+        eligibility_lines.append(f"Will work from: {', '.join(sorted(eligibility.locations))}")
+    if eligibility.willing_to_relocate is not None:
+        eligibility_lines.append(
+            f"Willing to relocate: {'yes' if eligibility.willing_to_relocate else 'no'}"
         )
-    if constraints.comp_floor_usd:
-        constraint_lines.append(f"Will not accept below: ${constraints.comp_floor_usd:,} base")
-    if constraints.languages:
-        constraint_lines.append(f"Languages: {', '.join(sorted(constraints.languages))}")
-    if constraints.notes:
-        constraint_lines.append(constraints.notes)
-    if constraint_lines:
-        lines += ["HARD CONSTRAINTS:", _bullets(constraint_lines), ""]
+    if eligibility.comp_floor_usd:
+        eligibility_lines.append(f"Comp floor: ${eligibility.comp_floor_usd:,} base")
+    if eligibility_lines:
+        lines += ["HARD ELIGIBILITY & CONSTRAINTS:", _bullets(eligibility_lines), ""]
 
-    preferences = profile.preferences
-    preference_lines = []
-    if preferences.role_families:
-        preference_lines.append(f"Roles: {', '.join(sorted(preferences.role_families))}")
-    if preferences.work_mode:
-        preference_lines.append(f"Work mode: {preferences.work_mode}")
-    if preferences.company_sizes:
-        preference_lines.append(f"Company size: {', '.join(sorted(preferences.company_sizes))}")
-    if preferences.industries:
-        preference_lines.append(f"Industries: {', '.join(sorted(preferences.industries))}")
-    if preferences.notes:
-        preference_lines.append(preferences.notes)
-    if preference_lines:
+    # Targeting & Preferences
+    targeting = profile.targeting
+    targeting_lines = []
+    if targeting.target_roles:
+        targeting_lines.append(f"Target roles: {', '.join(sorted(targeting.target_roles))}")
+    if targeting.work_modes:
+        targeting_lines.append(f"Work modes: {', '.join(sorted(targeting.work_modes))}")
+    if targeting.target_industries:
+        targeting_lines.append(
+            f"Target industries: {', '.join(sorted(targeting.target_industries))}"
+        )
+    if targeting_lines:
         lines += [
-            "PREFERENCES (these shade a score; they do not veto):",
-            _bullets(preference_lines),
+            "TARGET PREFERENCES (these shade a score; they do not veto):",
+            _bullets(targeting_lines),
             "",
         ]
 
-    if profile.non_negotiables:
+    # Dealbreakers
+    if targeting.dealbreakers:
         lines += [
-            "NON-NEGOTIABLE -- a posting matching any of these is a mismatch:",
-            _bullets(profile.non_negotiables),
-            "",
-        ]
-    if profile.red_flags:
-        lines += [
-            "RED FLAGS -- treat as warning signs, not automatic disqualifiers:",
-            _bullets(profile.red_flags),
+            "NON-NEGOTIABLE DEALBREAKERS (a posting matching any of these is a hard veto):",
+            _bullets(targeting.dealbreakers),
             "",
         ]
 

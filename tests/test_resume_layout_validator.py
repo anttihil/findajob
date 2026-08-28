@@ -1,11 +1,11 @@
 """Unit tests for the 1-page layout and point budget validator."""
 
-from careerradar.resumes.layout_validator import (
+from careerradar.profile.layout_validator import (
     calculate_resume_points,
     estimate_visual_lines,
     validate_resume_layout,
 )
-from careerradar.resumes.models import (
+from careerradar.profile.models import (
     ResumeEducation,
     ResumeRole,
     ResumeSkillCategory,

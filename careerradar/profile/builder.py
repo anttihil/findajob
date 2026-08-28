@@ -5,17 +5,20 @@ from typing import Any
 from careerradar.core.database import Database
 from careerradar.core.llm import DEFAULT_AGENT_MODEL
 from careerradar.core.logger import get_logger
-from careerradar.resumes.graph import ResumeState, build_resume_graph
-from careerradar.resumes.models import ResumeMasterProfile
-from careerradar.resumes.repository import get_resume_by_id, load_master_profile
+from careerradar.profile.graph import ResumeState, build_resume_graph
+from careerradar.profile.models import Profile
+from careerradar.profile.prompts import render_resume_plaintext
+from careerradar.profile.repository import get_resume_by_id, load_profile
 
 logger = get_logger()
+
+__all__ = ["build_resume_for_job", "render_resume_plaintext"]
 
 
 def build_resume_for_job(
     job_id: int,
     model: str = DEFAULT_AGENT_MODEL,
-    master_profile: ResumeMasterProfile | None = None,
+    master_profile: Profile | None = None,
     db: Database | None = None,
 ) -> dict[str, Any]:
     """Run the Actor-Critic Resume Builder graph for a single job."""
@@ -28,7 +31,7 @@ def build_resume_for_job(
             raise ValueError(f"Job with id {job_id} not found.")
         job = jobs[0]
 
-        profile = master_profile or load_master_profile(database.conn)
+        profile = master_profile or load_profile(database.conn)
         graph = build_resume_graph()
 
         initial_state: ResumeState = {

@@ -3,7 +3,7 @@
 import json
 from typing import Any
 
-from careerradar.resumes.models import ResumeMasterProfile, TailoredResumePayload
+from careerradar.profile.models import Profile, TailoredResumePayload
 
 GENERATOR_SYSTEM_PROMPT = """You are an expert technical resume strategist.
 Generate a concise, tailored 1-page resume for the target job posting based strictly on the
@@ -40,7 +40,7 @@ Be rigorous:
 """
 
 
-def render_master_profile_context(profile: ResumeMasterProfile) -> str:
+def render_master_profile_context(profile: Profile) -> str:
     """Render the master profile into prompt context."""
     parts: list[str] = [
         f"CANDIDATE NAME: {profile.name}",

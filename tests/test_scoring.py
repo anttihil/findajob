@@ -23,8 +23,8 @@ from careerradar.profile.models import (
     LEVEL_CLAIMED,
     LEVEL_MENTIONED,
     LEVEL_STRONG,
+    MasterSkillCategory,
     Profile,
-    Skill,
 )
 from careerradar.search.keyword_score import (
     JobScorer,
@@ -39,12 +39,26 @@ from careerradar.taxonomy.skills import Taxonomy, load_taxonomy
 def make_profile(levels: dict[str, int], taxonomy: Taxonomy) -> ProfileAdapter:
     """A profile with explicit levels, so tests do not depend on the real resumes."""
     profile = Profile(
-        bio="test candidate",
+        summary_guidance="test candidate",
         skills=[
-            Skill(key=key, label=key, level=level, evidence="test") for key, level in levels.items()
+            MasterSkillCategory(
+                category="Technical",
+                skills=list(levels.keys()),
+            )
         ],
     )
-    return ProfileAdapter(profile, version=0, taxonomy=taxonomy)
+    adapter = ProfileAdapter(profile, version=0, taxonomy=taxonomy)
+    for key, lvl in levels.items():
+        if key in adapter.skills:
+            adapter.skills[key]["level"] = lvl
+        else:
+            adapter.skills[key] = {
+                "level": lvl,
+                "label": key,
+                "evidence": ["test"],
+                "recency": None,
+            }
+    return adapter
 
 
 class CoverageTests(unittest.TestCase):
