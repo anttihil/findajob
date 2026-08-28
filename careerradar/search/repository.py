@@ -48,7 +48,7 @@ def seed_cells(conn: sqlite3.Connection, specs: list[dict[str, Any]]) -> tuple[i
                 spec["role_family"],
                 spec["location_id"],
                 spec["query"],
-                spec["tier"],
+                spec.get("tier", 1),
                 now,
             ),
         )

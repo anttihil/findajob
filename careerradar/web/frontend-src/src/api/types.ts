@@ -477,3 +477,54 @@ export interface ObservabilityPromptResponse {
   updated_at?: string | null;
 }
 
+export interface TargetRole {
+  id: number;
+  key: string;
+  label: string;
+  resume?: string | null;
+  aliases?: string[];
+  enabled: number | boolean;
+  created_at?: string;
+}
+
+export interface TargetQuery {
+  id: number;
+  role_key: string;
+  query: string;
+  enabled: number | boolean;
+}
+
+export interface TargetLocation {
+  id: string;
+  label: string;
+  search_label: string;
+  country: string;
+  indeed_country: string;
+  is_remote: number | boolean;
+  access: "commutable" | "remote" | "relocation" | string;
+  weight: number;
+  distance: number;
+  enabled: number | boolean;
+}
+
+export interface TargetCapacity {
+  active_queries: number;
+  active_locations: number;
+  search_pairs: number;
+  total_cells: number;
+  runs_per_day: number;
+  daily_capacity_pairs: number;
+  cycle_days: number;
+  cycle_hours: number;
+  zone: "optimal" | "balanced" | "overloaded" | "empty" | string;
+  message: string;
+  optimal_threshold: number;
+  balanced_threshold: number;
+}
+
+export interface TargetsResponse {
+  roles: TargetRole[];
+  queries: TargetQuery[];
+  locations: TargetLocation[];
+}
+

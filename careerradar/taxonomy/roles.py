@@ -273,7 +273,9 @@ class RoleTaxonomy:
                         key = r["key"]
                         queries = [
                             q["query"]
-                            for q in taxonomy_repo.get_target_queries(target_conn, role_key=key)
+                            for q in taxonomy_repo.get_target_queries(
+                                target_conn, role_key=key, enabled_only=True
+                            )
                         ]
                         spec = {
                             "label": r["label"],
@@ -525,6 +527,7 @@ class RoleTaxonomy:
                                 "role_family": family.key,
                                 "location_id": location.id,
                                 "query": query,
+                                "tier": 1,
                                 "active": True,
                             }
                         )

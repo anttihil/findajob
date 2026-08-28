@@ -5,12 +5,12 @@ import type { Access } from "../../api/types";
 const ACCESS_BADGES: Record<Access, [icon: string, label: string, cls: string, tooltip: string]> = {
   commutable: [
     "fa-house",
-    "LA area",
+    "Local",
     "is-commutable",
-    "Within commuting distance — no relocation or remote arrangement needed",
+    "Local to search location / within commuting distance",
   ],
-  remote: ["fa-wifi", "Remote", "is-remote", "Remote, so location is not a constraint"],
-  relocation: ["fa-plane", "Relocate", "is-relocation", "Onsite somewhere you would have to move to"],
+  remote: ["fa-wifi", "Remote", "is-remote", "Remote work arrangement — not bound to a physical office"],
+  relocation: ["fa-building", "Onsite", "is-relocation", "Onsite at target search location"],
 };
 
 export function AccessBadge({ access }: { access: Access | null | undefined }) {

@@ -16,6 +16,7 @@ import { stats } from "../../state/stats";
 import { FilterSidebar } from "./FilterSidebar";
 import { JobDrawer } from "./JobDrawer";
 import { newJobsPendingCount } from "../../state/liveEvents";
+import { SearchTargetsWidget } from "../../components/SearchTargetsWidget";
 
 const SYNC_ERROR_ICONS: Record<string, string> = {
   error: "fa-circle-exclamation",
@@ -292,6 +293,9 @@ export function DashboardPage() {
           </ul>
         </div>
       )}
+
+      {/* Search Matrix & Target Queries / Locations Widget */}
+      <SearchTargetsWidget onTargetsChanged={() => setRefreshKey((k) => k + 1)} />
 
       {/* Main Content Grid: Recent Posts (Left) & Connections/Filters (Right) */}
       <div class="feed-layout mt-4">

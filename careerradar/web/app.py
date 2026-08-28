@@ -192,6 +192,55 @@ class ConfigUpdate(BaseModel):
     model_config = ConfigDict(extra="allow")
 
 
+class TargetQueryCreate(BaseModel):
+    role_key: str
+    query: str
+    enabled: bool = True
+
+
+class TargetQueryUpdate(BaseModel):
+    query: str | None = None
+    role_key: str | None = None
+    enabled: bool | None = None
+
+
+class TargetToggle(BaseModel):
+    enabled: bool
+
+
+class TargetLocationPayload(BaseModel):
+    id: str
+    label: str
+    search_label: str | None = None
+    country: str = "US"
+    indeed_country: str = "usa"
+    is_remote: bool = False
+    access: str = "relocation"
+    weight: float = 1.0
+    distance: int = 50
+    enabled: bool = True
+
+
+class TargetLocationUpdate(BaseModel):
+    label: str | None = None
+    search_label: str | None = None
+    country: str | None = None
+    indeed_country: str | None = None
+    is_remote: bool | None = None
+    access: str | None = None
+    weight: float | None = None
+    distance: int | None = None
+    enabled: bool | None = None
+
+
+class TargetRolePayload(BaseModel):
+    key: str
+    label: str
+    aliases: list[str] | None = None
+    resume: str | None = None
+    enabled: bool = True
+
+
 # --- Jobs ------------------------------------------------------------------------------
 
 
@@ -386,6 +435,18 @@ def get_target_capacity():
         db.close()
 
 
+def _sync_taxonomy_cells() -> None:
+    from careerradar.taxonomy import roles as roles_mod
+
+    roles_mod._CACHE.clear()
+    from careerradar.search.seed import seed_cells
+
+    try:
+        seed_cells(prune=True)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("Cell re-seeding failed after taxonomy update: %s", e)
+
+
 @app.get("/api/targets")
 def list_targets():
     from careerradar.taxonomy import repository as target_repo
@@ -399,6 +460,259 @@ def list_targets():
             "roles": roles,
             "queries": queries,
             "locations": locs,
+        }
+    finally:
+        db.close()
+
+
+@app.post("/api/targets/queries")
+def create_target_query(payload: TargetQueryCreate):
+    from careerradar.taxonomy import repository as target_repo
+
+    term = payload.query.strip()
+    if not term:
+        raise HTTPException(status_code=400, detail="Query term cannot be empty")
+    role_key = payload.role_key.strip().lower()
+    if not role_key:
+        raise HTTPException(status_code=400, detail="Role key cannot be empty")
+
+    db = get_db()
+    try:
+        # Ensure role exists in target_roles if missing
+        roles = {r["key"] for r in target_repo.get_target_roles(db.conn)}
+        if role_key not in roles:
+            target_repo.save_target_role(
+                db.conn,
+                key=role_key,
+                label=role_key.replace("_", " ").title(),
+                enabled=True,
+            )
+
+        query_id = target_repo.add_target_query(
+            db.conn,
+            role_key=role_key,
+            query_term=term,
+            enabled=payload.enabled,
+        )
+        _sync_taxonomy_cells()
+        return {"success": True, "id": query_id}
+    finally:
+        db.close()
+
+
+@app.put("/api/targets/queries/{query_id}")
+def update_target_query_endpoint(query_id: int, payload: TargetQueryUpdate):
+    from careerradar.taxonomy import repository as target_repo
+
+    db = get_db()
+    try:
+        target_repo.update_target_query(
+            db.conn,
+            query_id=query_id,
+            query_term=payload.query.strip() if payload.query is not None else None,
+            role_key=payload.role_key.strip().lower() if payload.role_key is not None else None,
+            enabled=payload.enabled,
+        )
+        _sync_taxonomy_cells()
+        return {"success": True}
+    finally:
+        db.close()
+
+
+@app.put("/api/targets/queries/{query_id}/toggle")
+def toggle_target_query_endpoint(query_id: int, payload: TargetToggle):
+    from careerradar.taxonomy import repository as target_repo
+
+    db = get_db()
+    try:
+        target_repo.toggle_target_query(db.conn, query_id=query_id, enabled=payload.enabled)
+        _sync_taxonomy_cells()
+        return {"success": True, "enabled": payload.enabled}
+    finally:
+        db.close()
+
+
+@app.delete("/api/targets/queries/{query_id}")
+def delete_target_query_endpoint(query_id: int):
+    from careerradar.taxonomy import repository as target_repo
+
+    db = get_db()
+    try:
+        target_repo.delete_target_query(db.conn, query_id=query_id)
+        _sync_taxonomy_cells()
+        return {"success": True}
+    finally:
+        db.close()
+
+
+@app.post("/api/targets/locations")
+def create_target_location(payload: TargetLocationPayload):
+    from careerradar.taxonomy import repository as target_repo
+
+    loc_id = payload.id.strip().lower().replace(" ", "_")
+    if not loc_id:
+        raise HTTPException(status_code=400, detail="Location ID cannot be empty")
+    label = payload.label.strip()
+    if not label:
+        raise HTTPException(status_code=400, detail="Location label cannot be empty")
+    search_label = payload.search_label.strip() if payload.search_label else label
+
+    db = get_db()
+    try:
+        target_repo.save_target_location(
+            db.conn,
+            loc_id=loc_id,
+            label=label,
+            search_label=search_label,
+            country=payload.country.strip().upper(),
+            indeed_country=payload.indeed_country.strip().lower(),
+            is_remote=payload.is_remote,
+            access=payload.access,
+            weight=payload.weight,
+            distance=payload.distance,
+            enabled=payload.enabled,
+        )
+        _sync_taxonomy_cells()
+        return {"success": True, "id": loc_id}
+    finally:
+        db.close()
+
+
+@app.put("/api/targets/locations/{loc_id}")
+def update_target_location_endpoint(loc_id: str, payload: TargetLocationUpdate):
+    from careerradar.taxonomy import repository as target_repo
+
+    db = get_db()
+    try:
+        existing = [loc for loc in target_repo.get_target_locations(db.conn) if loc["id"] == loc_id]
+        if not existing:
+            raise HTTPException(status_code=404, detail="Location not found")
+        loc = existing[0]
+
+        target_repo.save_target_location(
+            db.conn,
+            loc_id=loc_id,
+            label=payload.label.strip() if payload.label is not None else loc["label"],
+            search_label=(
+                payload.search_label.strip()
+                if payload.search_label is not None
+                else loc.get("search_label", loc["label"])
+            ),
+            country=(
+                payload.country.strip().upper() if payload.country is not None else loc["country"]
+            ),
+            indeed_country=(
+                payload.indeed_country.strip().lower()
+                if payload.indeed_country is not None
+                else loc.get("indeed_country", "usa")
+            ),
+            is_remote=(
+                payload.is_remote if payload.is_remote is not None else bool(loc["is_remote"])
+            ),
+            access=payload.access if payload.access is not None else loc["access"],
+            weight=payload.weight if payload.weight is not None else loc["weight"],
+            distance=payload.distance if payload.distance is not None else loc["distance"],
+            enabled=payload.enabled if payload.enabled is not None else bool(loc["enabled"]),
+        )
+        _sync_taxonomy_cells()
+        return {"success": True}
+    finally:
+        db.close()
+
+
+@app.put("/api/targets/locations/{loc_id}/toggle")
+def toggle_target_location_endpoint(loc_id: str, payload: TargetToggle):
+    from careerradar.taxonomy import repository as target_repo
+
+    db = get_db()
+    try:
+        target_repo.toggle_target_location(db.conn, loc_id=loc_id, enabled=payload.enabled)
+        _sync_taxonomy_cells()
+        return {"success": True, "enabled": payload.enabled}
+    finally:
+        db.close()
+
+
+@app.delete("/api/targets/locations/{loc_id}")
+def delete_target_location_endpoint(loc_id: str):
+    from careerradar.taxonomy import repository as target_repo
+
+    db = get_db()
+    try:
+        target_repo.delete_target_location(db.conn, loc_id=loc_id)
+        _sync_taxonomy_cells()
+        return {"success": True}
+    finally:
+        db.close()
+
+
+@app.post("/api/targets/roles")
+def create_target_role_endpoint(payload: TargetRolePayload):
+    from careerradar.taxonomy import repository as target_repo
+
+    role_key = payload.key.strip().lower().replace(" ", "_")
+    if not role_key:
+        raise HTTPException(status_code=400, detail="Role key cannot be empty")
+    label = payload.label.strip() or role_key.replace("_", " ").title()
+
+    db = get_db()
+    try:
+        target_repo.save_target_role(
+            db.conn,
+            key=role_key,
+            label=label,
+            aliases=payload.aliases,
+            resume=payload.resume,
+            enabled=payload.enabled,
+        )
+        _sync_taxonomy_cells()
+        return {"success": True, "key": role_key}
+    finally:
+        db.close()
+
+
+@app.put("/api/targets/roles/{role_key}/toggle")
+def toggle_target_role_endpoint(role_key: str, payload: TargetToggle):
+    from careerradar.taxonomy import repository as target_repo
+
+    db = get_db()
+    try:
+        target_repo.toggle_target_role(db.conn, key=role_key, enabled=payload.enabled)
+        _sync_taxonomy_cells()
+        return {"success": True, "enabled": payload.enabled}
+    finally:
+        db.close()
+
+
+@app.delete("/api/targets/roles/{role_key}")
+def delete_target_role_endpoint(role_key: str):
+    from careerradar.taxonomy import repository as target_repo
+
+    db = get_db()
+    try:
+        target_repo.delete_target_role(db.conn, key=role_key)
+        _sync_taxonomy_cells()
+        return {"success": True}
+    finally:
+        db.close()
+
+
+@app.post("/api/targets/sync-cells")
+def sync_targets_cells_endpoint():
+    from careerradar.search.capacity import calculate_capacity
+    from careerradar.taxonomy import repository as target_repo
+
+    _sync_taxonomy_cells()
+    db = get_db()
+    try:
+        config, _, _, _ = analytics_context(db)
+        queries = target_repo.get_target_queries(db.conn, enabled_only=True)
+        locs = target_repo.get_target_locations(db.conn, enabled_only=True)
+        capacity = calculate_capacity(len(queries), len(locs), config)
+        return {
+            "success": True,
+            "capacity": capacity,
+            "total_cells": len(db.get_cells()),
         }
     finally:
         db.close()

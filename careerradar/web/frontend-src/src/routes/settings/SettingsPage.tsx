@@ -3,6 +3,7 @@ import { getJSON, guard, postJSON, reportError } from "../../api/client";
 import type { Config, Meta } from "../../api/types";
 import { PipelineStatus } from "./PipelineStatus";
 import { SyncTrigger } from "./SyncTrigger";
+import { SearchTargetsWidget } from "../../components/SearchTargetsWidget";
 
 const SOURCE_LABELS: Record<string, string> = {
   indeed: "Indeed (volume source — full descriptions)",
@@ -74,6 +75,10 @@ export function SettingsPage() {
       <div class="settings-container">
         <SyncTrigger />
         <PipelineStatus />
+
+        <div class="mt-6">
+          <SearchTargetsWidget initialExpanded={true} />
+        </div>
 
         <div class="glass-card settings-card mt-6">
           <h3>

@@ -52,6 +52,14 @@ export async function putJSON<T>(url: string, payload: unknown): Promise<T> {
   return res.json() as Promise<T>;
 }
 
+export async function deleteJSON<T = { success: boolean }>(url: string): Promise<T> {
+  const res = await fetch(url, {
+    method: "DELETE",
+  });
+  if (!res.ok) throw new ApiError(url, res.status, await bodyText(res));
+  return res.json() as Promise<T>;
+}
+
 // A 404 that is a legitimate answer rather than a fault -- "this company has no dossier".
 // Callers that use this are saying the absence is expected; anything else still surfaces.
 export async function getJSONOrNull<T>(url: string): Promise<T | null> {

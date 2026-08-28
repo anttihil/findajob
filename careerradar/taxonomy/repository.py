@@ -141,6 +141,32 @@ def toggle_target_query(conn: sqlite3.Connection, query_id: int, enabled: bool) 
     conn.commit()
 
 
+def update_target_query(
+    conn: sqlite3.Connection,
+    query_id: int,
+    query_term: str | None = None,
+    role_key: str | None = None,
+    enabled: bool | None = None,
+) -> None:
+    """Update query text, role family, and/or enabled state of a search query."""
+    updates: list[str] = []
+    params: list[Any] = []
+    if query_term is not None:
+        updates.append("query = ?")
+        params.append(query_term)
+    if role_key is not None:
+        updates.append("role_key = ?")
+        params.append(role_key)
+    if enabled is not None:
+        updates.append("enabled = ?")
+        params.append(1 if enabled else 0)
+    if not updates:
+        return
+    params.append(query_id)
+    conn.execute(f"UPDATE target_queries SET {', '.join(updates)} WHERE id = ?", params)
+    conn.commit()
+
+
 # ---------------------------------------------------------------------------------------
 # Target Locations
 # ---------------------------------------------------------------------------------------

@@ -11,9 +11,9 @@ const STATUS_OPTIONS: [string, string][] = [
 
 const ACCESS_OPTIONS: [string, string, string][] = [
   ["", "All", "Every posting"],
-  ["commutable", "LA area", "Within commuting distance of Los Angeles — no relocation, no remote arrangement needed"],
-  ["remote", "Remote", "Remote, so location is not a constraint"],
-  ["relocation", "Relocate", "Onsite somewhere you would have to move to"],
+  ["commutable", "Local", "Within commuting distance of configured local search areas"],
+  ["remote", "Remote", "Remote work arrangement — not bound to a physical office"],
+  ["relocation", "Onsite", "Onsite at target search locations"],
 ];
 
 const LIVENESS_OPTIONS: [string, string][] = [
