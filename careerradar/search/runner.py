@@ -68,7 +68,7 @@ def plan_hash(roles: "RoleTaxonomy", config: dict[str, Any]) -> str:
         [
             roles.hash,
             ",".join(sorted(k for k, v in (scraper.get("sources") or {}).items() if v)),
-            str(sorted((scraper.get("cadence_hours") or {}).items())),
+            str(scraper.get("cadence_hours", 24)),
             str(sorted((scraper.get("budgets") or {}).keys())),
         ]
     )

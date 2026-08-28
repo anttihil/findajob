@@ -51,12 +51,12 @@ def load_config() -> dict[str, Any]:
             "sources": {"indeed": True, "linkedin": True},
             "page_size": {"indeed": 100, "linkedin": 10},
             "requests_per_description": {"indeed": 0, "linkedin": 1},
-            "cadence_hours": {"core": 24, "adjacent": 72, "breadth": 168},
-            "hours_old_floor": {"core": 72, "adjacent": 168, "breadth": 336},
-            "max_hours_old": 336,
-            "backfill_hours_old": 336,
+            "cadence_hours": 24,
+            "hours_old_floor": 72,
+            "max_hours_old": 168,
+            "backfill_hours_old": 168,
             "max_staleness_hours": 72,
-            "starvation_multiple": 4,
+            "starvation_multiple": 3,
             "budgets": {
                 "indeed": {
                     "searches_per_run": 20,
