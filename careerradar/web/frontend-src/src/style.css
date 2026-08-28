@@ -1947,6 +1947,26 @@ html, body {
   margin-bottom: 0.35rem;
 }
 
+.profile-textarea {
+  width: 100%;
+  font-family: inherit;
+  font-size: 0.92rem;
+  line-height: 1.55;
+  padding: 0.75rem 0.9rem;
+  border: 1px solid var(--ink-primary);
+  background-color: var(--bg-screen-panel);
+  color: var(--ink-primary);
+  resize: vertical;
+  box-sizing: border-box;
+  transition: border-color 0.15s ease, background-color 0.15s ease;
+}
+
+.profile-textarea:focus {
+  outline: none;
+  border-color: var(--accent, #3b82f6);
+  background-color: var(--bg-screen-alt);
+}
+
 /* Experience Role Cards */
 .experience-role-card {
   border: 1px solid var(--ink-primary);

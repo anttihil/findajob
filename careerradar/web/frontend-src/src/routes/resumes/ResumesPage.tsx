@@ -2,42 +2,126 @@ import { useEffect, useState } from "preact/hooks";
 import { getJSONOrNull, guard } from "../../api/client";
 import type {
   GeneratedResumeRecord,
+  MasterEducation,
+  MasterProject,
+  MasterRole,
   Profile,
   ResumeUploadResponse,
 } from "../../api/types";
 import { ResumeDropzone } from "./ResumeDropzone";
 import { ProfileChatPanel } from "./ProfileChatPanel";
 
-const DEFAULT_PROFILE: Profile = {
-  name: "",
-  email: "",
-  phone: "",
-  location: "",
-  github: "",
-  linkedin: "",
-  website: "",
+interface SkillCategoryForm {
+  category: string;
+  skillsText: string;
+}
+
+interface ProfileFormState {
+  name: string;
+  email: string;
+  phone: string;
+  location: string;
+  github: string;
+  linkedin: string;
+  website: string;
   eligibility: {
-    citizenship: ["Authorized to work in US"],
-    locations: ["Remote"],
-    willing_to_relocate: false,
-    comp_floor_usd: 90000,
-  },
-  seniority: "Mid / Senior",
-  years_experience: 4.0,
-  executive_summary: "",
-  model_guidance: "",
-  dealbreakers: ["24-hour on-call site reliability rotations"],
-  experience: [],
-  projects: [],
-  skills: [],
-  education: [],
-};
+    citizenshipText: string;
+    locationsText: string;
+    willing_to_relocate: boolean;
+    comp_floor_usd: number | null;
+  };
+  seniority: string;
+  years_experience: number;
+  executive_summary: string;
+  model_guidance: string;
+  dealbreakersText: string;
+  experience: MasterRole[];
+  projects: MasterProject[];
+  skills: SkillCategoryForm[];
+  education: MasterEducation[];
+}
+
+function toFormState(p?: Partial<Profile> | null): ProfileFormState {
+  return {
+    name: p?.name || "",
+    email: p?.email || "",
+    phone: p?.phone || "",
+    location: p?.location || "",
+    github: p?.github || "",
+    linkedin: p?.linkedin || "",
+    website: p?.website || "",
+    eligibility: {
+      citizenshipText: (p?.eligibility?.citizenship || ["Authorized to work in US"]).join(", "),
+      locationsText: (p?.eligibility?.locations || ["Remote"]).join(", "),
+      willing_to_relocate: p?.eligibility?.willing_to_relocate ?? false,
+      comp_floor_usd: p?.eligibility?.comp_floor_usd ?? 90000,
+    },
+    seniority: p?.seniority || "Mid / Senior",
+    years_experience: p?.years_experience ?? 4.0,
+    executive_summary: p?.executive_summary || p?.summary_guidance || "",
+    model_guidance: p?.model_guidance || "",
+    dealbreakersText: (
+      p?.dealbreakers ||
+      p?.targeting?.dealbreakers ||
+      ["24-hour on-call site reliability rotations"]
+    ).join("\n"),
+    experience: p?.experience || [],
+    projects: p?.projects || [],
+    skills: (p?.skills || []).map((s) => ({
+      category: s.category,
+      skillsText: s.skills.join(", "),
+    })),
+    education: p?.education || [],
+  };
+}
+
+function toProfilePayload(f: ProfileFormState): Profile {
+  return {
+    name: f.name,
+    email: f.email,
+    phone: f.phone,
+    location: f.location,
+    github: f.github,
+    linkedin: f.linkedin,
+    website: f.website,
+    eligibility: {
+      citizenship: f.eligibility.citizenshipText
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean),
+      locations: f.eligibility.locationsText
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean),
+      willing_to_relocate: f.eligibility.willing_to_relocate,
+      comp_floor_usd: f.eligibility.comp_floor_usd,
+    },
+    seniority: f.seniority,
+    years_experience: f.years_experience,
+    executive_summary: f.executive_summary,
+    model_guidance: f.model_guidance,
+    dealbreakers: f.dealbreakersText
+      .split(/[\n,]/)
+      .map((s) => s.trim())
+      .filter(Boolean),
+    experience: f.experience,
+    projects: f.projects,
+    skills: f.skills.map((s) => ({
+      category: s.category,
+      skills: s.skillsText
+        .split(",")
+        .map((x) => x.trim())
+        .filter(Boolean),
+    })),
+    education: f.education,
+  };
+}
 
 export function ResumesPage() {
   const [activeSubTab, setActiveSubTab] = useState<"master" | "tailored">("master");
 
-  // Master profile state
-  const [masterProfile, setMasterProfile] = useState<Profile | null>(null);
+  // Master profile form state
+  const [masterProfile, setMasterProfile] = useState<ProfileFormState | null>(null);
   const [masterLoading, setMasterLoading] = useState(true);
   const [saveStatus, setSaveStatus] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -55,29 +139,7 @@ export function ResumesPage() {
     guard("Loading master resume profile", () =>
       getJSONOrNull<Profile>("/api/resume-builder/profile")
     ).then((data) => {
-      if (data) {
-        setMasterProfile({
-          ...DEFAULT_PROFILE,
-          ...data,
-          executive_summary:
-            data.executive_summary || data.summary_guidance || "",
-          model_guidance: data.model_guidance || "",
-          dealbreakers:
-            data.dealbreakers ||
-            data.targeting?.dealbreakers ||
-            DEFAULT_PROFILE.dealbreakers,
-          eligibility: {
-            ...DEFAULT_PROFILE.eligibility,
-            ...(data.eligibility || {}),
-          },
-          experience: data.experience || [],
-          projects: data.projects || [],
-          skills: data.skills || [],
-          education: data.education || [],
-        });
-      } else {
-        setMasterProfile(DEFAULT_PROFILE);
-      }
+      setMasterProfile(toFormState(data));
       setMasterLoading(false);
     });
   }, []);
@@ -95,16 +157,17 @@ export function ResumesPage() {
     }
   }, [activeSubTab]);
 
-  const handleSaveMasterProfile = async (profileToSave?: Profile) => {
-    const prof = profileToSave || masterProfile;
-    if (!prof) return;
+  const handleSaveMasterProfile = async (formToSave?: ProfileFormState) => {
+    const form = formToSave || masterProfile;
+    if (!form) return;
+    const payload = toProfilePayload(form);
     setSaving(true);
     setSaveStatus(null);
     try {
       const resp = await fetch("/api/resume-builder/profile", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(prof),
+        body: JSON.stringify(payload),
       });
       if (resp.ok) {
         setSaveStatus("Saved and synced for scoring & resumes!");
@@ -123,7 +186,7 @@ export function ResumesPage() {
 
   const handleResumeUploadSuccess = (data: ResumeUploadResponse) => {
     if (data.profile) {
-      setMasterProfile(data.profile);
+      setMasterProfile(toFormState(data.profile));
       setUploadedResumeText(data.raw_text);
       setShowCopilot(true); // Open copilot automatically so user can review & chat!
     }
@@ -316,20 +379,16 @@ export function ResumesPage() {
                         type="text"
                         class="filter-input"
                         placeholder="e.g. US Citizen, Permanent Resident, EU Citizen"
-                        value={(masterProfile.eligibility?.citizenship || []).join(", ")}
-                        onInput={(e) => {
-                          const parsed = (e.target as HTMLInputElement).value
-                            .split(",")
-                            .map((s) => s.trim())
-                            .filter(Boolean);
+                        value={masterProfile.eligibility.citizenshipText}
+                        onInput={(e) =>
                           setMasterProfile({
                             ...masterProfile,
                             eligibility: {
                               ...masterProfile.eligibility,
-                              citizenship: parsed,
+                              citizenshipText: (e.target as HTMLInputElement).value,
                             },
-                          });
-                        }}
+                          })
+                        }
                       />
                       <small style={{ color: "var(--ink-muted)", fontSize: "0.75rem" }}>
                         e.g. US Citizen, Permanent Resident, EU Citizen (no sponsorship needed)
@@ -342,20 +401,16 @@ export function ResumesPage() {
                         type="text"
                         class="filter-input"
                         placeholder="e.g. Los Angeles, CA, Remote"
-                        value={(masterProfile.eligibility?.locations || []).join(", ")}
-                        onInput={(e) => {
-                          const parsed = (e.target as HTMLInputElement).value
-                            .split(",")
-                            .map((s) => s.trim())
-                            .filter(Boolean);
+                        value={masterProfile.eligibility.locationsText}
+                        onInput={(e) =>
                           setMasterProfile({
                             ...masterProfile,
                             eligibility: {
                               ...masterProfile.eligibility,
-                              locations: parsed,
+                              locationsText: (e.target as HTMLInputElement).value,
                             },
-                          });
-                        }}
+                          })
+                        }
                       />
                     </div>
 
@@ -437,7 +492,7 @@ export function ResumesPage() {
                     </div>
                   </div>
 
-                  <div style={{ marginBottom: "1rem" }}>
+                  <div style={{ marginBottom: "1.25rem" }}>
                     <label class="form-label">
                       Executive Summary / Elevator Pitch{" "}
                       <span style={{ color: "var(--ink-muted)", fontSize: "0.75rem" }}>
@@ -445,9 +500,10 @@ export function ResumesPage() {
                       </span>
                     </label>
                     <textarea
-                      class="filter-input"
-                      rows={3}
-                      placeholder="e.g. Staff Infrastructure Engineer with 8+ years architecting high-throughput distributed systems..."
+                      class="profile-textarea"
+                      rows={5}
+                      style={{ minHeight: "115px" }}
+                      placeholder="e.g. Staff Infrastructure Engineer with 8+ years architecting high-throughput distributed systems and cloud platforms. Proven track record reducing infrastructure costs by 35% while scaling Kafka and Kubernetes clusters."
                       value={masterProfile.executive_summary}
                       onInput={(e) =>
                         setMasterProfile({
@@ -458,7 +514,7 @@ export function ResumesPage() {
                     />
                   </div>
 
-                  <div style={{ marginBottom: "1rem" }}>
+                  <div style={{ marginBottom: "1.25rem" }}>
                     <label class="form-label">
                       AI Strategic Directives & Guidance{" "}
                       <span style={{ color: "var(--ink-muted)", fontSize: "0.75rem" }}>
@@ -466,9 +522,10 @@ export function ResumesPage() {
                       </span>
                     </label>
                     <textarea
-                      class="filter-input"
-                      rows={3}
-                      placeholder="e.g. Focus on distributed systems and platform roles. Open to fintech, robotics, and B2B SaaS; avoid pure frontend..."
+                      class="profile-textarea"
+                      rows={6}
+                      style={{ minHeight: "135px" }}
+                      placeholder="e.g. Focus on distributed systems and platform roles. Open to fintech, robotics, and developer tooling; avoid pure frontend roles. Count Go and Python experience as equivalent to Java backend requirements."
                       value={masterProfile.model_guidance}
                       onInput={(e) =>
                         setMasterProfile({
@@ -481,26 +538,23 @@ export function ResumesPage() {
 
                   <div>
                     <label class="form-label">
-                      Non-Negotiable Dealbreakers (comma-separated){" "}
+                      Non-Negotiable Dealbreakers (one per line or comma-separated){" "}
                       <span style={{ color: "var(--ink-muted)", fontSize: "0.75rem" }}>
                         (Hard disqualifiers that trigger an immediate fit: false verdict)
                       </span>
                     </label>
-                    <input
-                      type="text"
-                      class="filter-input"
-                      placeholder="e.g. 24-hour on-call site reliability rotations, DoD security clearance required"
-                      value={(masterProfile.dealbreakers || []).join(", ")}
-                      onInput={(e) => {
-                        const parsed = (e.target as HTMLInputElement).value
-                          .split(",")
-                          .map((s) => s.trim())
-                          .filter(Boolean);
+                    <textarea
+                      class="profile-textarea"
+                      rows={4}
+                      style={{ minHeight: "95px" }}
+                      placeholder={"e.g.\n24-hour on-call site reliability rotations\nDoD security clearance required\nUnpaid overtime / 60+ hour work weeks"}
+                      value={masterProfile.dealbreakersText}
+                      onInput={(e) =>
                         setMasterProfile({
                           ...masterProfile,
-                          dealbreakers: parsed,
-                        });
-                      }}
+                          dealbreakersText: (e.target as HTMLTextAreaElement).value,
+                        })
+                      }
                     />
                   </div>
                 </div>
@@ -838,7 +892,7 @@ export function ResumesPage() {
                       onClick={() => {
                         setMasterProfile({
                           ...masterProfile,
-                          skills: [...masterProfile.skills, { category: "New Category", skills: [] }],
+                          skills: [...masterProfile.skills, { category: "New Category", skillsText: "" }],
                         });
                       }}
                     >
@@ -864,15 +918,10 @@ export function ResumesPage() {
                         placeholder="Skills comma-separated (e.g. AWS, Terraform, Docker)"
                         class="filter-input"
                         style={{ flex: 3 }}
-                        value={cat.skills.join(", ")}
+                        value={cat.skillsText}
                         onInput={(e) => {
-                          const raw = (e.target as HTMLInputElement).value;
-                          const parsed = raw
-                            .split(",")
-                            .map((s) => s.trim())
-                            .filter(Boolean);
                           const next = [...masterProfile.skills];
-                          next[idx].skills = parsed;
+                          next[idx].skillsText = (e.target as HTMLInputElement).value;
                           setMasterProfile({ ...masterProfile, skills: next });
                         }}
                       />
@@ -974,9 +1023,9 @@ export function ResumesPage() {
               {showCopilot && (
                 <div class="profile-copilot-column">
                   <ProfileChatPanel
-                    currentProfile={masterProfile}
+                    currentProfile={toProfilePayload(masterProfile)}
                     resumeText={uploadedResumeText}
-                    onUpdateProfile={(updated) => setMasterProfile(updated)}
+                    onUpdateProfile={(updated) => setMasterProfile(toFormState(updated))}
                     onClose={() => setShowCopilot(false)}
                   />
                 </div>
