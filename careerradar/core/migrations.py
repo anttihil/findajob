@@ -1603,7 +1603,8 @@ def _v20_target_roles_and_queries(cursor: sqlite3.Cursor) -> None:
             id       INTEGER PRIMARY KEY AUTOINCREMENT,
             role_key TEXT NOT NULL REFERENCES target_roles(key) ON DELETE CASCADE,
             query    TEXT NOT NULL,
-            enabled  INTEGER NOT NULL DEFAULT 1
+            enabled  INTEGER NOT NULL DEFAULT 1,
+            UNIQUE(role_key, query)
         );
         """
     )
@@ -1646,7 +1647,7 @@ def _v20_target_roles_and_queries(cursor: sqlite3.Cursor) -> None:
                 for q in spec.get("query_terms") or []:
                     cursor.execute(
                         """
-                        INSERT INTO target_queries (role_key, query, enabled)
+                        INSERT OR IGNORE INTO target_queries (role_key, query, enabled)
                         VALUES (?, ?, 1)
                         """,
                         (key, q),

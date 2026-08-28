@@ -114,7 +114,19 @@ def add_target_query(
     query_term: str,
     enabled: bool = True,
 ) -> int:
-    """Add a search query term for a target role."""
+    """Add or enable a search query term for a target role."""
+    row = conn.execute(
+        "SELECT id FROM target_queries WHERE role_key = ? AND query = ?",
+        (role_key, query_term),
+    ).fetchone()
+    if row:
+        conn.execute(
+            "UPDATE target_queries SET enabled = ? WHERE id = ?",
+            (1 if enabled else 0, row[0]),
+        )
+        conn.commit()
+        return row[0]
+
     cursor = conn.execute(
         """
         INSERT INTO target_queries (role_key, query, enabled)

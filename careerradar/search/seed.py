@@ -29,9 +29,10 @@ def seed_cells(prune: bool = False) -> int:
     roles = load_roles()
     problems = roles.validate()
     if problems:
-        print("roles.yaml has problems; fix these first:")
+        print("Search targets / role taxonomy has problems; fix these first:")
         for problem in problems:
             print(f"  - {problem}")
+        print("  (Tip: Configure target roles and query terms via Dashboard or data/roles.yaml)")
         return 1
 
     specs = roles.cell_specs(sources=enabled_sources)
