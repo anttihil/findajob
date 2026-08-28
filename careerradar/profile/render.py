@@ -13,7 +13,11 @@ def _bullets(items: list[str]) -> str:
 
 def render_profile(profile: Profile) -> str:
     """Produce the deterministic stable prompt prefix for one profile."""
-    bio_text = profile.summary_guidance.strip() or "Software engineer and platform builder."
+    bio_text = (
+        profile.executive_summary.strip()
+        or profile.summary_guidance.strip()
+        or "Software engineer and platform builder."
+    )
     lines = ["CANDIDATE PROFILE", "", bio_text, ""]
 
     facts = []
@@ -33,7 +37,7 @@ def render_profile(profile: Profile) -> str:
                 lines.append(f"  - {cat.category}: {', '.join(clean_skills)}")
         lines.append("")
 
-    # Experience & Project evidence
+    # Experience & Project evidence (Ground-truth evidence)
     extracted_projects = []
     for role in profile.experience:
         for proj in role.projects:
@@ -44,6 +48,15 @@ def render_profile(profile: Profile) -> str:
             if bullets_text:
                 desc += f" ({bullets_text})"
             extracted_projects.append(desc[:200])
+
+    for proj in profile.projects:
+        bullets_text = " ".join(proj.bullets[:2])
+        desc = f"Project: {proj.name}"
+        if proj.heading:
+            desc += f" - {proj.heading}"
+        if bullets_text:
+            desc += f" ({bullets_text})"
+        extracted_projects.append(desc[:200])
 
     if extracted_projects:
         lines += ["KEY PROJECTS / ACHIEVEMENTS (GROUND TRUTH):", _bullets(extracted_projects), ""]
@@ -74,29 +87,20 @@ def render_profile(profile: Profile) -> str:
     if eligibility_lines:
         lines += ["HARD ELIGIBILITY & CONSTRAINTS:", _bullets(eligibility_lines), ""]
 
-    # Targeting & Preferences
-    targeting = profile.targeting
-    targeting_lines = []
-    if targeting.target_roles:
-        targeting_lines.append(f"Target roles: {', '.join(sorted(targeting.target_roles))}")
-    if targeting.work_modes:
-        targeting_lines.append(f"Work modes: {', '.join(sorted(targeting.work_modes))}")
-    if targeting.target_industries:
-        targeting_lines.append(
-            f"Target industries: {', '.join(sorted(targeting.target_industries))}"
-        )
-    if targeting_lines:
+    # Positioning & AI Strategic Guidance
+    if profile.model_guidance and profile.model_guidance.strip():
         lines += [
-            "TARGET PREFERENCES (these shade a score; they do not veto):",
-            _bullets(targeting_lines),
+            "POSITIONING & STRATEGIC DIRECTIVES (internal guidance for scoring):",
+            f"  {profile.model_guidance.strip()}",
             "",
         ]
 
-    # Dealbreakers
-    if targeting.dealbreakers:
+    # Non-negotiable Dealbreakers
+    dealbreakers = profile.dealbreakers or profile.targeting.dealbreakers
+    if dealbreakers:
         lines += [
             "NON-NEGOTIABLE DEALBREAKERS (a posting matching any of these is a hard veto):",
-            _bullets(targeting.dealbreakers),
+            _bullets(dealbreakers),
             "",
         ]
 

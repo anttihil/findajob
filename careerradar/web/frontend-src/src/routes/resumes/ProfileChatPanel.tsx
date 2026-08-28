@@ -13,9 +13,9 @@ interface ProfileChatPanelProps {
 }
 
 const QUICK_PROMPTS = [
-  "Review my skills and suggest what to highlight for Platform roles",
-  "Rewrite my recent project bullets to be more quantified",
-  "Set my target roles to Platform Engineer & Backend Engineer",
+  "Polish my executive summary for resume header",
+  "Suggest strategic model guidance directives for scoring",
+  "Rewrite my project bullets to be more quantified",
   "Ensure my work eligibility reflects authorized US employment with no sponsorship",
 ];
 

@@ -7,6 +7,7 @@ from typing import Any
 from careerradar.core.logger import get_logger
 from careerradar.profile.models import (
     MasterEducation,
+    MasterProject,
     MasterRole,
     MasterSkillCategory,
     Profile,
@@ -54,14 +55,28 @@ def load_profile(conn: sqlite3.Connection | None = None) -> Profile:
             WorkEligibility.model_validate_json(elig_raw) if elig_raw else WorkEligibility()
         )
 
-        # Parse targeting
+        # Parse targeting (backward compatibility)
         targ_raw = r_dict.get("targeting_json")
         targeting = RoleTargeting.model_validate_json(targ_raw) if targ_raw else RoleTargeting()
+
+        # Parse dealbreakers
+        d_raw = r_dict.get("dealbreakers_json")
+        if d_raw:
+            try:
+                dealbreakers = json.loads(d_raw)
+            except (json.JSONDecodeError, ValueError, TypeError):
+                dealbreakers = targeting.dealbreakers
+        else:
+            dealbreakers = targeting.dealbreakers
 
         # Parse lists
         edu_raw = json.loads(r_dict.get("education_json") or "[]")
         skills_raw = json.loads(r_dict.get("skills_json") or "[]")
         exp_raw = json.loads(r_dict.get("experience_json") or "[]")
+        proj_raw = json.loads(r_dict.get("projects_json") or "[]")
+
+        exec_summary = r_dict.get("executive_summary") or r_dict.get("summary_guidance") or ""
+        model_guidance = r_dict.get("model_guidance") or ""
 
         return Profile(
             name=r_dict.get("name") or "",
@@ -71,14 +86,18 @@ def load_profile(conn: sqlite3.Connection | None = None) -> Profile:
             github=r_dict.get("github") or "",
             linkedin=r_dict.get("linkedin") or "",
             website=r_dict.get("website") or "",
-            summary_guidance=r_dict.get("summary_guidance") or "",
+            executive_summary=exec_summary,
+            model_guidance=model_guidance,
+            dealbreakers=dealbreakers,
+            summary_guidance=exec_summary,
             seniority=r_dict.get("seniority") or "Mid / Senior",
             years_experience=r_dict.get("years_experience") or 4.0,
             eligibility=eligibility,
             targeting=targeting,
-            education=[MasterEducation(**e) for e in edu_raw],
-            skills=[MasterSkillCategory(**s) for s in skills_raw],
             experience=[MasterRole(**r) for r in exp_raw],
+            projects=[MasterProject(**p) for p in proj_raw],
+            skills=[MasterSkillCategory(**s) for s in skills_raw],
+            education=[MasterEducation(**e) for e in edu_raw],
         )
     finally:
         if owned and db:
@@ -98,20 +117,27 @@ def save_profile(
         summary_text = render_profile(profile) if render_prompt else ""
         eligibility_json = profile.eligibility.model_dump_json()
         targeting_json = profile.targeting.model_dump_json()
+        dealbreakers_json = json.dumps(profile.dealbreakers)
         education_json = json.dumps([e.model_dump() for e in profile.education])
         skills_json = json.dumps([s.model_dump() for s in profile.skills])
         experience_json = json.dumps([r.model_dump() for r in profile.experience])
+        projects_json = json.dumps([p.model_dump() for p in profile.projects])
+
+        exec_summary = profile.executive_summary or profile.summary_guidance
+        model_guidance = profile.model_guidance
 
         connection.execute(
             """
             INSERT OR REPLACE INTO profile (
                 id, updated_at, name, email, phone, location, github, linkedin, website,
                 summary_guidance, seniority, years_experience, eligibility_json,
-                targeting_json, education_json, skills_json, experience_json, summary_text
+                targeting_json, education_json, skills_json, experience_json, summary_text,
+                executive_summary, model_guidance, dealbreakers_json, projects_json
             ) VALUES (
                 1, strftime('%Y-%m-%dT%H:%M:%SZ', 'now'), ?, ?, ?, ?, ?, ?, ?,
                 ?, ?, ?, ?,
-                ?, ?, ?, ?, ?
+                ?, ?, ?, ?, ?,
+                ?, ?, ?, ?
             )
             """,
             (
@@ -122,7 +148,7 @@ def save_profile(
                 profile.github,
                 profile.linkedin,
                 profile.website,
-                profile.summary_guidance,
+                exec_summary,
                 profile.seniority,
                 profile.years_experience,
                 eligibility_json,
@@ -131,6 +157,10 @@ def save_profile(
                 skills_json,
                 experience_json,
                 summary_text,
+                exec_summary,
+                model_guidance,
+                dealbreakers_json,
+                projects_json,
             ),
         )
         if owned:

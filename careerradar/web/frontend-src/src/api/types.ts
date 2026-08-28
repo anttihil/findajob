@@ -86,7 +86,7 @@ export interface JobContext {
 export interface MasterEducation {
   institution: string;
   degree: string;
-  details?: string;
+  details?: string | null;
 }
 
 export interface MasterSkillCategory {
@@ -97,6 +97,7 @@ export interface MasterSkillCategory {
 export interface MasterProject {
   name: string;
   heading?: string;
+  url?: string | null;
   bullets: string[];
 }
 
@@ -104,11 +105,25 @@ export interface MasterRole {
   title: string;
   company: string;
   dates: string;
-  location?: string;
+  location?: string | null;
   projects: MasterProject[];
 }
 
-export interface ResumeMasterProfile {
+export interface WorkEligibility {
+  citizenship: string[];
+  locations: string[];
+  willing_to_relocate: boolean;
+  comp_floor_usd?: number | null;
+}
+
+export interface RoleTargeting {
+  target_roles: string[];
+  work_modes: string[];
+  target_industries: string[];
+  dealbreakers: string[];
+}
+
+export interface Profile {
   name: string;
   email: string;
   phone: string;
@@ -116,25 +131,26 @@ export interface ResumeMasterProfile {
   github: string;
   linkedin: string;
   website: string;
-  summary_guidance: string;
+
+  eligibility: WorkEligibility;
+
   seniority?: string | null;
   years_experience?: number | null;
-  citizenship?: string[];
-  locations?: string[];
-  willing_to_relocate?: boolean;
-  comp_floor_usd?: number | null;
-  target_roles?: string[];
-  work_modes?: string[];
-  target_industries?: string[];
-  dealbreakers?: string[];
-  strengths?: string[];
-  weaknesses?: string[];
-  education: MasterEducation[];
-  skills: MasterSkillCategory[];
-  skill_ratings?: { key: string; label?: string; level: number; evidence?: string }[];
+  executive_summary: string;
+  model_guidance: string;
+  dealbreakers: string[];
+
   experience: MasterRole[];
-  raw_achievements_md?: string | null;
+  projects: MasterProject[];
+  skills: MasterSkillCategory[];
+  education: MasterEducation[];
+
+  // Backward compatibility shims
+  summary_guidance?: string;
+  targeting?: RoleTargeting;
 }
+
+export type ResumeMasterProfile = Profile;
 
 export interface ProfileChatMessage {
   role: "system" | "user" | "assistant";

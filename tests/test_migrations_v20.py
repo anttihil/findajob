@@ -24,7 +24,7 @@ def test_migration_v20_creates_tables():
     conn.row_factory = sqlite3.Row
     migrate(conn)
 
-    assert current_version(conn) == 20
+    assert current_version(conn) >= 20
 
     # Verify target_roles table
     roles_cols = {row["name"] for row in conn.execute("PRAGMA table_info(target_roles)")}

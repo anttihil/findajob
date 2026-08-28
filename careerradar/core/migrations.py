@@ -13,7 +13,7 @@ from careerradar.core.logger import get_logger
 
 logger = get_logger()
 
-SCHEMA_VERSION = 20
+SCHEMA_VERSION = 21
 
 
 def _v1_baseline(cursor: sqlite3.Cursor) -> None:
@@ -1676,6 +1676,50 @@ def _v20_target_roles_and_queries(cursor: sqlite3.Cursor) -> None:
             logger.warning("Failed to populate target tables from roles.yaml: %s", exc)
 
 
+def _v21_profile_executive_summary_and_projects(cursor: sqlite3.Cursor) -> None:
+    """Add executive_summary, model_guidance, dealbreakers_json, projects_json to profile table."""
+    import json
+
+    cols = {row[1] for row in cursor.execute("PRAGMA table_info(profile)").fetchall()}
+    if "executive_summary" not in cols:
+        cursor.execute("ALTER TABLE profile ADD COLUMN executive_summary TEXT NOT NULL DEFAULT ''")
+    if "model_guidance" not in cols:
+        cursor.execute("ALTER TABLE profile ADD COLUMN model_guidance TEXT NOT NULL DEFAULT ''")
+    if "dealbreakers_json" not in cols:
+        cursor.execute(
+            "ALTER TABLE profile ADD COLUMN dealbreakers_json TEXT NOT NULL DEFAULT '[]'"
+        )
+    if "projects_json" not in cols:
+        cursor.execute("ALTER TABLE profile ADD COLUMN projects_json TEXT NOT NULL DEFAULT '[]'")
+
+    # Backfill executive_summary from summary_guidance if empty
+    cursor.execute(
+        """
+        UPDATE profile
+           SET executive_summary = summary_guidance
+         WHERE (executive_summary IS NULL OR executive_summary = '')
+           AND summary_guidance IS NOT NULL AND summary_guidance != ''
+        """
+    )
+    # Backfill dealbreakers_json from targeting_json if empty
+    row = cursor.execute(
+        "SELECT id, targeting_json, dealbreakers_json FROM profile WHERE id = 1"
+    ).fetchone()
+    if row:
+        pid, targ_raw, d_raw = row
+        if (not d_raw or d_raw == "[]") and targ_raw:
+            try:
+                targ = json.loads(targ_raw)
+                dealbreakers = targ.get("dealbreakers") or []
+                if dealbreakers:
+                    cursor.execute(
+                        "UPDATE profile SET dealbreakers_json = ? WHERE id = ?",
+                        (json.dumps(dealbreakers), pid),
+                    )
+            except (json.JSONDecodeError, ValueError, TypeError):
+                pass
+
+
 MIGRATIONS: list[tuple[int, str, Callable[[sqlite3.Cursor], None]]] = [
     (1, "baseline jobs table", _v1_baseline),
     (2, "market analytics: cells, observations, skills, stats", _v2_analytics),
@@ -1724,6 +1768,11 @@ MIGRATIONS: list[tuple[int, str, Callable[[sqlite3.Cursor], None]]] = [
         20,
         "database-driven target roles, queries, and locations",
         _v20_target_roles_and_queries,
+    ),
+    (
+        21,
+        "profile executive summary, model guidance, dealbreakers, and standalone projects",
+        _v21_profile_executive_summary_and_projects,
     ),
 ]
 

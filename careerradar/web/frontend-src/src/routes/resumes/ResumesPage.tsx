@@ -2,17 +2,42 @@ import { useEffect, useState } from "preact/hooks";
 import { getJSONOrNull, guard } from "../../api/client";
 import type {
   GeneratedResumeRecord,
-  ResumeMasterProfile,
+  Profile,
   ResumeUploadResponse,
 } from "../../api/types";
 import { ResumeDropzone } from "./ResumeDropzone";
 import { ProfileChatPanel } from "./ProfileChatPanel";
 
+const DEFAULT_PROFILE: Profile = {
+  name: "",
+  email: "",
+  phone: "",
+  location: "",
+  github: "",
+  linkedin: "",
+  website: "",
+  eligibility: {
+    citizenship: ["Authorized to work in US"],
+    locations: ["Remote"],
+    willing_to_relocate: false,
+    comp_floor_usd: 90000,
+  },
+  seniority: "Mid / Senior",
+  years_experience: 4.0,
+  executive_summary: "",
+  model_guidance: "",
+  dealbreakers: ["24-hour on-call site reliability rotations"],
+  experience: [],
+  projects: [],
+  skills: [],
+  education: [],
+};
+
 export function ResumesPage() {
   const [activeSubTab, setActiveSubTab] = useState<"master" | "tailored">("master");
 
   // Master profile state
-  const [masterProfile, setMasterProfile] = useState<ResumeMasterProfile | null>(null);
+  const [masterProfile, setMasterProfile] = useState<Profile | null>(null);
   const [masterLoading, setMasterLoading] = useState(true);
   const [saveStatus, setSaveStatus] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -28,35 +53,31 @@ export function ResumesPage() {
   // Load master profile on mount
   useEffect(() => {
     guard("Loading master resume profile", () =>
-      getJSONOrNull<ResumeMasterProfile>("/api/resume-builder/profile")
+      getJSONOrNull<Profile>("/api/resume-builder/profile")
     ).then((data) => {
-      setMasterProfile(
-        data || {
-          name: "",
-          email: "",
-          phone: "",
-          location: "",
-          github: "",
-          linkedin: "",
-          website: "",
-          summary_guidance: "",
-          seniority: "Mid / Senior",
-          years_experience: 4.0,
-          citizenship: ["Authorized to work in US"],
-          locations: ["Remote"],
-          willing_to_relocate: false,
-          comp_floor_usd: 90000,
-          target_roles: ["Software Engineer", "Platform Engineer", "Full-Stack Engineer"],
-          work_modes: ["remote", "hybrid", "onsite"],
-          target_industries: ["Cloud Infrastructure", "Developer Tools", "AI / ML Applications"],
-          dealbreakers: ["24-hour on-call site reliability rotations", "No remote flexibility"],
-          strengths: [],
-          weaknesses: [],
-          education: [],
-          skills: [],
-          experience: [],
-        }
-      );
+      if (data) {
+        setMasterProfile({
+          ...DEFAULT_PROFILE,
+          ...data,
+          executive_summary:
+            data.executive_summary || data.summary_guidance || "",
+          model_guidance: data.model_guidance || "",
+          dealbreakers:
+            data.dealbreakers ||
+            data.targeting?.dealbreakers ||
+            DEFAULT_PROFILE.dealbreakers,
+          eligibility: {
+            ...DEFAULT_PROFILE.eligibility,
+            ...(data.eligibility || {}),
+          },
+          experience: data.experience || [],
+          projects: data.projects || [],
+          skills: data.skills || [],
+          education: data.education || [],
+        });
+      } else {
+        setMasterProfile(DEFAULT_PROFILE);
+      }
       setMasterLoading(false);
     });
   }, []);
@@ -74,7 +95,7 @@ export function ResumesPage() {
     }
   }, [activeSubTab]);
 
-  const handleSaveMasterProfile = async (profileToSave?: ResumeMasterProfile) => {
+  const handleSaveMasterProfile = async (profileToSave?: Profile) => {
     const prof = profileToSave || masterProfile;
     if (!prof) return;
     setSaving(true);
@@ -295,13 +316,19 @@ export function ResumesPage() {
                         type="text"
                         class="filter-input"
                         placeholder="e.g. US Citizen, Permanent Resident, EU Citizen"
-                        value={(masterProfile.citizenship || []).join(", ")}
+                        value={(masterProfile.eligibility?.citizenship || []).join(", ")}
                         onInput={(e) => {
                           const parsed = (e.target as HTMLInputElement).value
                             .split(",")
                             .map((s) => s.trim())
                             .filter(Boolean);
-                          setMasterProfile({ ...masterProfile, citizenship: parsed });
+                          setMasterProfile({
+                            ...masterProfile,
+                            eligibility: {
+                              ...masterProfile.eligibility,
+                              citizenship: parsed,
+                            },
+                          });
                         }}
                       />
                       <small style={{ color: "var(--ink-muted)", fontSize: "0.75rem" }}>
@@ -315,13 +342,19 @@ export function ResumesPage() {
                         type="text"
                         class="filter-input"
                         placeholder="e.g. Los Angeles, CA, Remote"
-                        value={(masterProfile.locations || []).join(", ")}
+                        value={(masterProfile.eligibility?.locations || []).join(", ")}
                         onInput={(e) => {
                           const parsed = (e.target as HTMLInputElement).value
                             .split(",")
                             .map((s) => s.trim())
                             .filter(Boolean);
-                          setMasterProfile({ ...masterProfile, locations: parsed });
+                          setMasterProfile({
+                            ...masterProfile,
+                            eligibility: {
+                              ...masterProfile.eligibility,
+                              locations: parsed,
+                            },
+                          });
                         }}
                       />
                     </div>
@@ -332,12 +365,15 @@ export function ResumesPage() {
                         type="number"
                         class="filter-input"
                         placeholder="e.g. 90000"
-                        value={masterProfile.comp_floor_usd ?? ""}
+                        value={masterProfile.eligibility?.comp_floor_usd ?? ""}
                         onInput={(e) => {
                           const val = (e.target as HTMLInputElement).value;
                           setMasterProfile({
                             ...masterProfile,
-                            comp_floor_usd: val ? Number(val) : null,
+                            eligibility: {
+                              ...masterProfile.eligibility,
+                              comp_floor_usd: val ? Number(val) : null,
+                            },
                           });
                         }}
                       />
@@ -347,11 +383,14 @@ export function ResumesPage() {
                       <input
                         type="checkbox"
                         id="relocateCheck"
-                        checked={masterProfile.willing_to_relocate ?? true}
+                        checked={masterProfile.eligibility?.willing_to_relocate ?? false}
                         onChange={(e) =>
                           setMasterProfile({
                             ...masterProfile,
-                            willing_to_relocate: (e.target as HTMLInputElement).checked,
+                            eligibility: {
+                              ...masterProfile.eligibility,
+                              willing_to_relocate: (e.target as HTMLInputElement).checked,
+                            },
                           })
                         }
                       />
@@ -362,17 +401,17 @@ export function ResumesPage() {
                   </div>
                 </div>
 
-                {/* Section 3: Experience & Positioning */}
+                {/* Section 3: Positioning, Executive Summary & AI Directives */}
                 <div class="resume-card" style={{ marginBottom: "1.5rem" }}>
-                  <h4>3. Experience & Positioning</h4>
-                  <div class="profile-form-grid" style={{ marginBottom: "0.75rem" }}>
+                  <h4>3. Positioning, Executive Summary & AI Directives</h4>
+                  <div class="profile-form-grid" style={{ marginBottom: "1rem" }}>
                     <div>
                       <label class="form-label">Years of Professional Experience</label>
                       <input
                         type="number"
                         step="0.5"
                         class="filter-input"
-                        value={masterProfile.years_experience ?? 4.5}
+                        value={masterProfile.years_experience ?? 4.0}
                         onInput={(e) =>
                           setMasterProfile({
                             ...masterProfile,
@@ -398,26 +437,78 @@ export function ResumesPage() {
                     </div>
                   </div>
 
-                  <div>
-                    <label class="form-label">Summary Guidance & Positioning</label>
+                  <div style={{ marginBottom: "1rem" }}>
+                    <label class="form-label">
+                      Executive Summary / Elevator Pitch{" "}
+                      <span style={{ color: "var(--ink-muted)", fontSize: "0.75rem" }}>
+                        (Recruiter-facing sales pitch tailored into the top of generated resumes)
+                      </span>
+                    </label>
                     <textarea
                       class="filter-input"
                       rows={3}
-                      value={masterProfile.summary_guidance}
+                      placeholder="e.g. Staff Infrastructure Engineer with 8+ years architecting high-throughput distributed systems..."
+                      value={masterProfile.executive_summary}
                       onInput={(e) =>
                         setMasterProfile({
                           ...masterProfile,
-                          summary_guidance: (e.target as HTMLTextAreaElement).value,
+                          executive_summary: (e.target as HTMLTextAreaElement).value,
                         })
                       }
                     />
                   </div>
+
+                  <div style={{ marginBottom: "1rem" }}>
+                    <label class="form-label">
+                      AI Strategic Directives & Guidance{" "}
+                      <span style={{ color: "var(--ink-muted)", fontSize: "0.75rem" }}>
+                        (Internal instructions for scoring & tailoring; not printed on resume)
+                      </span>
+                    </label>
+                    <textarea
+                      class="filter-input"
+                      rows={3}
+                      placeholder="e.g. Focus on distributed systems and platform roles. Open to fintech, robotics, and B2B SaaS; avoid pure frontend..."
+                      value={masterProfile.model_guidance}
+                      onInput={(e) =>
+                        setMasterProfile({
+                          ...masterProfile,
+                          model_guidance: (e.target as HTMLTextAreaElement).value,
+                        })
+                      }
+                    />
+                  </div>
+
+                  <div>
+                    <label class="form-label">
+                      Non-Negotiable Dealbreakers (comma-separated){" "}
+                      <span style={{ color: "var(--ink-muted)", fontSize: "0.75rem" }}>
+                        (Hard disqualifiers that trigger an immediate fit: false verdict)
+                      </span>
+                    </label>
+                    <input
+                      type="text"
+                      class="filter-input"
+                      placeholder="e.g. 24-hour on-call site reliability rotations, DoD security clearance required"
+                      value={(masterProfile.dealbreakers || []).join(", ")}
+                      onInput={(e) => {
+                        const parsed = (e.target as HTMLInputElement).value
+                          .split(",")
+                          .map((s) => s.trim())
+                          .filter(Boolean);
+                        setMasterProfile({
+                          ...masterProfile,
+                          dealbreakers: parsed,
+                        });
+                      }}
+                    />
+                  </div>
                 </div>
 
-                {/* Section 4: Work Experience & Projects */}
+                {/* Section 4: Work Experience */}
                 <div class="resume-card" style={{ marginBottom: "1.5rem" }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <h4>4. Work Experience & Projects</h4>
+                    <h4>4. Work Experience (Employment)</h4>
                     <button
                       class="action-pill"
                       onClick={() => {
@@ -479,6 +570,18 @@ export function ResumesPage() {
                             setMasterProfile({ ...masterProfile, experience: next });
                           }}
                         />
+                        <input
+                          type="text"
+                          placeholder="Location (e.g. Remote / SF, CA)"
+                          class="filter-input"
+                          style={{ flex: 1.5 }}
+                          value={role.location || ""}
+                          onInput={(e) => {
+                            const next = [...masterProfile.experience];
+                            next[rIdx].location = (e.target as HTMLInputElement).value;
+                            setMasterProfile({ ...masterProfile, experience: next });
+                          }}
+                        />
                         <button
                           class="action-pill text-red"
                           onClick={() => {
@@ -497,10 +600,24 @@ export function ResumesPage() {
                             <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
                               <input
                                 type="text"
-                                placeholder="Project Scope / Heading (e.g. Designed replacement for 20 sites:)"
+                                placeholder="Project / System Name (e.g. Streaming Engine)"
                                 class="filter-input"
-                                style={{ flex: 1, fontSize: "0.85rem" }}
-                                value={proj.heading}
+                                style={{ flex: 1.5, fontSize: "0.85rem" }}
+                                value={proj.name}
+                                onInput={(e) => {
+                                  const next = [...masterProfile.experience];
+                                  next[rIdx].projects[pIdx].name = (
+                                    e.target as HTMLInputElement
+                                  ).value;
+                                  setMasterProfile({ ...masterProfile, experience: next });
+                                }}
+                              />
+                              <input
+                                type="text"
+                                placeholder="Scope / Heading (e.g. Designed replacement for 20 sites:)"
+                                class="filter-input"
+                                style={{ flex: 2, fontSize: "0.85rem" }}
+                                value={proj.heading || ""}
                                 onInput={(e) => {
                                   const next = [...masterProfile.experience];
                                   next[rIdx].projects[pIdx].heading = (
@@ -591,10 +708,131 @@ export function ResumesPage() {
                   ))}
                 </div>
 
-                {/* Section 5: Skills & Competencies */}
+                {/* Section 5: Standalone Personal & Open Source Projects */}
                 <div class="resume-card" style={{ marginBottom: "1.5rem" }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <h4>5. Skills & Competencies</h4>
+                    <h4>5. Personal & Open Source Projects</h4>
+                    <button
+                      class="action-pill"
+                      onClick={() => {
+                        setMasterProfile({
+                          ...masterProfile,
+                          projects: [
+                            ...(masterProfile.projects || []),
+                            {
+                              name: "New Project",
+                              heading: "Autonomous tool or system",
+                              url: "https://github.com/...",
+                              bullets: ["Engineered..."],
+                            },
+                          ],
+                        });
+                      }}
+                    >
+                      <i class="fa-solid fa-plus"></i> Add Project
+                    </button>
+                  </div>
+
+                  {(masterProfile.projects || []).map((proj, pIdx) => (
+                    <div key={pIdx} class="experience-role-card" style={{ marginTop: "0.75rem" }}>
+                      <div class="role-header-row">
+                        <input
+                          type="text"
+                          placeholder="Project Name (e.g. CareerRadar / ZMK Firmware)"
+                          class="filter-input"
+                          style={{ flex: 2 }}
+                          value={proj.name}
+                          onInput={(e) => {
+                            const next = [...masterProfile.projects];
+                            next[pIdx].name = (e.target as HTMLInputElement).value;
+                            setMasterProfile({ ...masterProfile, projects: next });
+                          }}
+                        />
+                        <input
+                          type="text"
+                          placeholder="Tagline / Scope (e.g. AI-driven resume engine)"
+                          class="filter-input"
+                          style={{ flex: 2 }}
+                          value={proj.heading || ""}
+                          onInput={(e) => {
+                            const next = [...masterProfile.projects];
+                            next[pIdx].heading = (e.target as HTMLInputElement).value;
+                            setMasterProfile({ ...masterProfile, projects: next });
+                          }}
+                        />
+                        <input
+                          type="text"
+                          placeholder="GitHub / Live Demo URL"
+                          class="filter-input"
+                          style={{ flex: 2 }}
+                          value={proj.url || ""}
+                          onInput={(e) => {
+                            const next = [...masterProfile.projects];
+                            next[pIdx].url = (e.target as HTMLInputElement).value;
+                            setMasterProfile({ ...masterProfile, projects: next });
+                          }}
+                        />
+                        <button
+                          class="action-pill text-red"
+                          onClick={() => {
+                            const next = masterProfile.projects.filter((_, i) => i !== pIdx);
+                            setMasterProfile({ ...masterProfile, projects: next });
+                          }}
+                        >
+                          <i class="fa-solid fa-trash"></i>
+                        </button>
+                      </div>
+
+                      {/* Bullets */}
+                      <div style={{ marginTop: "0.5rem", paddingLeft: "0.5rem" }}>
+                        {proj.bullets.map((b, bIdx) => (
+                          <div key={bIdx} style={{ display: "flex", gap: "0.4rem", alignItems: "center", marginTop: "0.25rem" }}>
+                            <span style={{ color: "var(--ink-muted)" }}>•</span>
+                            <input
+                              type="text"
+                              placeholder="Quantified impact bullet (action + tech + result)"
+                              class="filter-input"
+                              style={{ flex: 1, fontSize: "0.85rem" }}
+                              value={b}
+                              onInput={(e) => {
+                                const next = [...masterProfile.projects];
+                                next[pIdx].bullets[bIdx] = (e.target as HTMLInputElement).value;
+                                setMasterProfile({ ...masterProfile, projects: next });
+                              }}
+                            />
+                            <button
+                              class="action-pill text-red"
+                              style={{ padding: "0.15rem 0.4rem" }}
+                              onClick={() => {
+                                const next = [...masterProfile.projects];
+                                next[pIdx].bullets = next[pIdx].bullets.filter((_, i) => i !== bIdx);
+                                setMasterProfile({ ...masterProfile, projects: next });
+                              }}
+                            >
+                              <i class="fa-solid fa-minus"></i>
+                            </button>
+                          </div>
+                        ))}
+                        <button
+                          class="action-pill"
+                          style={{ fontSize: "0.75rem", marginTop: "0.35rem", padding: "0.2rem 0.5rem" }}
+                          onClick={() => {
+                            const next = [...masterProfile.projects];
+                            next[pIdx].bullets.push("Engineered...");
+                            setMasterProfile({ ...masterProfile, projects: next });
+                          }}
+                        >
+                          <i class="fa-solid fa-plus"></i> Add Bullet
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Section 6: Skills & Competencies */}
+                <div class="resume-card" style={{ marginBottom: "1.5rem" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <h4>6. Skills & Competencies</h4>
                     <button
                       class="action-pill"
                       onClick={() => {
@@ -651,10 +889,10 @@ export function ResumesPage() {
                   ))}
                 </div>
 
-                {/* Section 6: Education History */}
-                <div class="resume-card" style={{ marginBottom: "1.5rem" }}>
+                {/* Section 7: Education History */}
+                <div class="resume-card" style={{ marginBottom: "2rem" }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <h4>6. Education History</h4>
+                    <h4>7. Education History</h4>
                     <button
                       class="action-pill"
                       onClick={() => {
@@ -673,7 +911,7 @@ export function ResumesPage() {
                         type="text"
                         placeholder="Institution (e.g. UCLA)"
                         class="filter-input"
-                        style={{ flex: 1 }}
+                        style={{ flex: 1.5 }}
                         value={edu.institution}
                         onInput={(e) => {
                           const next = [...masterProfile.education];
@@ -685,11 +923,23 @@ export function ResumesPage() {
                         type="text"
                         placeholder="Degree (e.g. PhD in Philosophy (2019); MA)"
                         class="filter-input"
-                        style={{ flex: 2 }}
+                        style={{ flex: 1.5 }}
                         value={edu.degree}
                         onInput={(e) => {
                           const next = [...masterProfile.education];
                           next[idx].degree = (e.target as HTMLInputElement).value;
+                          setMasterProfile({ ...masterProfile, education: next });
+                        }}
+                      />
+                      <input
+                        type="text"
+                        placeholder="Details (e.g. Honors, GPA, thesis)"
+                        class="filter-input"
+                        style={{ flex: 1.5 }}
+                        value={edu.details || ""}
+                        onInput={(e) => {
+                          const next = [...masterProfile.education];
+                          next[idx].details = (e.target as HTMLInputElement).value;
                           setMasterProfile({ ...masterProfile, education: next });
                         }}
                       />
@@ -704,80 +954,6 @@ export function ResumesPage() {
                       </button>
                     </div>
                   ))}
-                </div>
-
-                {/* Section 7: Role Targeting & Boundaries */}
-                <div class="resume-card" style={{ marginBottom: "2rem" }}>
-                  <h4>7. Role Targeting & Boundaries</h4>
-                  <div class="profile-form-grid" style={{ marginTop: "0.5rem" }}>
-                    <div>
-                      <label class="form-label">Target Role Families (comma-separated)</label>
-                      <input
-                        type="text"
-                        class="filter-input"
-                        placeholder="e.g. applied AI, platform engineering"
-                        value={(masterProfile.target_roles || []).join(", ")}
-                        onInput={(e) => {
-                          const parsed = (e.target as HTMLInputElement).value
-                            .split(",")
-                            .map((s) => s.trim())
-                            .filter(Boolean);
-                          setMasterProfile({ ...masterProfile, target_roles: parsed });
-                        }}
-                      />
-                    </div>
-
-                    <div>
-                      <label class="form-label">Target Industries (comma-separated)</label>
-                      <input
-                        type="text"
-                        class="filter-input"
-                        placeholder="e.g. AI infrastructure, robotics"
-                        value={(masterProfile.target_industries || []).join(", ")}
-                        onInput={(e) => {
-                          const parsed = (e.target as HTMLInputElement).value
-                            .split(",")
-                            .map((s) => s.trim())
-                            .filter(Boolean);
-                          setMasterProfile({ ...masterProfile, target_industries: parsed });
-                        }}
-                      />
-                    </div>
-
-                    <div>
-                      <label class="form-label">Dealbreakers & Excluded Tech (comma-separated)</label>
-                      <input
-                        type="text"
-                        class="filter-input"
-                        placeholder="e.g. Defense contractors, WordPress-centric"
-                        value={(masterProfile.dealbreakers || []).join(", ")}
-                        onInput={(e) => {
-                          const parsed = (e.target as HTMLInputElement).value
-                            .split(",")
-                            .map((s) => s.trim())
-                            .filter(Boolean);
-                          setMasterProfile({ ...masterProfile, dealbreakers: parsed });
-                        }}
-                      />
-                    </div>
-
-                    <div>
-                      <label class="form-label">Skill & Experience Gaps (comma-separated)</label>
-                      <input
-                        type="text"
-                        class="filter-input"
-                        placeholder="e.g. No large scale 1M QPS production"
-                        value={(masterProfile.weaknesses || []).join(", ")}
-                        onInput={(e) => {
-                          const parsed = (e.target as HTMLInputElement).value
-                            .split(",")
-                            .map((s) => s.trim())
-                            .filter(Boolean);
-                          setMasterProfile({ ...masterProfile, weaknesses: parsed });
-                        }}
-                      />
-                    </div>
-                  </div>
                 </div>
 
                 {/* Bottom Save Bar */}

@@ -51,17 +51,35 @@ def render_master_profile_context(profile: Profile) -> str:
     if profile.website:
         parts.append(f"WEBSITE: {profile.website}")
 
-    if profile.summary_guidance:
-        parts.append(f"\nSUMMARY GUIDANCE / POSITIONING:\n{profile.summary_guidance}")
+    exec_summary = profile.executive_summary or profile.summary_guidance
+    if exec_summary:
+        parts.append(f"\nBASE EXECUTIVE SUMMARY (SALES PITCH TEMPLATE):\n{exec_summary}")
 
-    parts.append("\n--- MASTER EXPERIENCE & PROJECTS POOL ---")
+    if profile.model_guidance:
+        parts.append(f"\nAI GUIDANCE / TAILORING DIRECTIVES:\n{profile.model_guidance}")
+
+    parts.append("\n--- MASTER EXPERIENCE (ROLES & EMPLOYMENT) ---")
     for role in profile.experience:
-        parts.append(f"\nROLE: {role.title} at {role.company} ({role.dates})")
+        loc_str = f" ({role.location})" if role.location else ""
+        parts.append(f"\nROLE: {role.title} at {role.company}{loc_str} [{role.dates}]")
         for proj in role.projects:
+            proj_title = f"Project: {proj.name}" if proj.name else "Project"
             if proj.heading:
-                parts.append(f"  Project / Scope: {proj.heading}")
+                proj_title += f" - {proj.heading}"
+            parts.append(f"  {proj_title}")
             for b in proj.bullets:
                 parts.append(f"    * {b}")
+
+    if profile.projects:
+        parts.append("\n--- STANDALONE / PERSONAL / OPEN SOURCE PROJECTS ---")
+        for proj in profile.projects:
+            url_str = f" ({proj.url})" if proj.url else ""
+            proj_title = f"PROJECT: {proj.name}{url_str}"
+            if proj.heading:
+                proj_title += f" - {proj.heading}"
+            parts.append(f"\n{proj_title}")
+            for b in proj.bullets:
+                parts.append(f"  * {b}")
 
     parts.append("\n--- MASTER SKILLS ---")
     for cat in profile.skills:
@@ -70,7 +88,8 @@ def render_master_profile_context(profile: Profile) -> str:
 
     parts.append("\n--- MASTER EDUCATION ---")
     for edu in profile.education:
-        parts.append(f"{edu.institution}, {edu.degree}")
+        detail_str = f" ({edu.details})" if edu.details else ""
+        parts.append(f"{edu.institution}, {edu.degree}{detail_str}")
 
     return "\n".join(parts)
 

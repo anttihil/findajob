@@ -3,7 +3,7 @@
 import re
 from typing import Any
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 # --- Core Profile Shapes (The Single Source of Truth) -----------------------------------
 
@@ -20,8 +20,12 @@ class MasterSkillCategory(BaseModel):
 
 
 class MasterProject(BaseModel):
-    name: str = Field(description="Project or system name")
-    heading: str = Field(default="", description="Scope description or role summary")
+    name: str = Field(description="Project or system name, e.g. 'Realtime Stream Engine'")
+    heading: str = Field(
+        default="",
+        description="Scope description or role summary, e.g. 'Designed replacement for 20 sites:'",
+    )
+    url: str | None = Field(default="", description="Project repository or live URL")
     bullets: list[str] = Field(
         default_factory=list,
         description="Quantified impact bullet points demonstrating skills",
@@ -91,22 +95,66 @@ class Profile(BaseModel):
     # 2. Work Eligibility & Availability
     eligibility: WorkEligibility = Field(default_factory=WorkEligibility)
 
-    # 3. Positioning & Level
-    summary_guidance: str = ""
+    # 3. Positioning & AI Guidance
     seniority: str | None = "Mid / Senior"
     years_experience: float | None = 4.0
 
-    # 4. Experience Pool & Projects (Ground-Truth Evidence)
+    # Recruiter-facing sales pitch (source template for resume summary)
+    executive_summary: str = Field(
+        default="",
+        description="2-3 sentence elevator pitch / sales summary for the resume header.",
+    )
+
+    # Internal AI instructions (used by Scoring Agent and Generator Agent)
+    model_guidance: str = Field(
+        default="",
+        description=(
+            "Freeform strategic directives for LLM scoring and tailoring (not printed on resume)."
+        ),
+    )
+
+    # Hard vetoes for scoring
+    dealbreakers: list[str] = Field(
+        default_factory=lambda: ["24-hour on-call site reliability rotations"],
+        description="Hard disqualifiers that trigger an immediate fit: false verdict.",
+    )
+
+    # 4. Experience Pool (Work roles at organizations)
     experience: list[MasterRole] = Field(default_factory=list)
 
-    # 5. Skills & Categorized Tools
+    # 5. Standalone Personal / Open Source Projects
+    projects: list[MasterProject] = Field(default_factory=list)
+
+    # 6. Skills & Categorized Tools
     skills: list[MasterSkillCategory] = Field(default_factory=list)
 
-    # 6. Role Targeting & Boundaries
+    # 7. Education History
+    education: list[MasterEducation] = Field(default_factory=list)
+
+    # Backward compatibility shims for transitions
+    summary_guidance: str = ""
     targeting: RoleTargeting = Field(default_factory=RoleTargeting)
 
-    # Education History
-    education: list[MasterEducation] = Field(default_factory=list)
+    @model_validator(mode="before")
+    @classmethod
+    def _migrate_legacy_fields(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            # Fallback for summary_guidance -> executive_summary
+            if not data.get("executive_summary") and data.get("summary_guidance"):
+                data["executive_summary"] = data["summary_guidance"]
+            # Fallback for targeting.dealbreakers -> dealbreakers
+            if "dealbreakers" not in data and "targeting" in data:
+                targ = data["targeting"]
+                if isinstance(targ, RoleTargeting):
+                    data["dealbreakers"] = targ.dealbreakers
+                elif isinstance(targ, dict) and "dealbreakers" in targ:
+                    data["dealbreakers"] = targ["dealbreakers"]
+        return data
+
+    @field_validator("executive_summary", mode="before")
+    @classmethod
+    def _fallback_exec_summary(cls, v: Any) -> Any:
+        return v or ""
 
 
 # Aliases for backward compatibility during transition
