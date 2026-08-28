@@ -13,7 +13,7 @@ from careerradar.core.logger import get_logger
 
 logger = get_logger()
 
-SCHEMA_VERSION = 17
+SCHEMA_VERSION = 18
 
 
 def _v1_baseline(cursor: sqlite3.Cursor) -> None:
@@ -1289,177 +1289,9 @@ def _v17_resume_builder(cursor: sqlite3.Cursor) -> None:
     # Seed master profile if empty
     existing = cursor.execute("SELECT COUNT(*) FROM resume_master_profile").fetchone()[0]
     if existing == 0:
-        import json
         from datetime import datetime, timezone
-        from pathlib import Path
 
         now = datetime.now(timezone.utc).isoformat()
-        ach_file = Path("achievements.md")
-        raw_ach = ach_file.read_text("utf-8") if ach_file.exists() else ""
-
-        default_education = [
-            {
-                "institution": "UCLA",
-                "degree": "PhD in Philosophy (2019); MA in Philosophy",
-                "details": "",
-            },
-            {
-                "institution": "State University",
-                "degree": "BSocSc in Philosophy, Mathematics, Linguistics",
-                "details": "",
-            },
-        ]
-        default_skills = [
-            {
-                "category": "Infrastructure",
-                "skills": [
-                    "AWS",
-                    "Terraform",
-                    "Ansible",
-                    "GitHub Actions",
-                    "Docker",
-                    "Linux",
-                    "nginx",
-                    "PostgreSQL",
-                ],
-            },
-            {
-                "category": "AI systems",
-                "skills": [
-                    "Python",
-                    "FastAPI",
-                    "LLM applications",
-                    "AWS Bedrock",
-                    "Claude API",
-                    "vLLM",
-                    "OCR",
-                ],
-            },
-            {
-                "category": "Frontend",
-                "skills": [
-                    "TypeScript",
-                    "React",
-                    "DeckGL",
-                    "HTML5 Canvas",
-                    "Jest",
-                    "Vitest",
-                    "SolidJS",
-                ],
-            },
-            {
-                "category": "Languages & Other",
-                "skills": ["Go", "PHP", "Bash", "Selenium", "Figma"],
-            },
-        ]
-        default_experience = [
-            {
-                "title": "Software Engineer",
-                "company": "University of California Los Angeles",
-                "dates": "Jan 2025 - present",
-                "location": "Los Angeles, CA",
-                "projects": [
-                    {
-                        "name": "AI Content Migration Pipeline",
-                        "heading": (
-                            "Designed and delivered the replacement end-to-end for 20 legacy sites:"
-                        ),
-                        "bullets": [
-                            (
-                                "Cut ~1,000 hours of manual migration by having coding agents "
-                                "mine millions of lines of site data into deterministic XML "
-                                "transformation rules"
-                            ),
-                            (
-                                "Consolidated independently maintained sites into a "
-                                "multi-tenant platform with centralized CI/CD and IaC, "
-                                "onboarding first 15 clients"
-                            ),
-                            (
-                                "Enabled decommissioning decisions with a content inventory "
-                                "tool surfacing media volume, page age, and content issues "
-                                "invisible to admin users"
-                            ),
-                        ],
-                    },
-                    {
-                        "name": "Luna AI Portal & Platform",
-                        "heading": (
-                            "Architected an on-premise platform for faculty data that can't "
-                            "leave university hardware:"
-                        ),
-                        "bullets": [
-                            (
-                                "Shipped a self-service WCAG compliance system targeting an "
-                                "ADA exposure of ~60,000 public PDFs; adopted by a five-person "
-                                "remediation team"
-                            ),
-                            (
-                                "Built the full stack alone, from GPU provisioning and job "
-                                "scheduling through multi-tenant auth, admin, and "
-                                "application UI"
-                            ),
-                            (
-                                "Piloted self-hosted models for a classroom collaborative "
-                                "chat, tuned with vLLM to serve concurrent users"
-                            ),
-                        ],
-                    },
-                ],
-            },
-            {
-                "title": "Software Engineer (Robotics)",
-                "company": "Acme Robotics",
-                "dates": "May 2022 - Dec 2024",
-                "location": "San Diego, CA",
-                "projects": [
-                    {
-                        "name": "Autonomous Robot UI Platform",
-                        "heading": (
-                            "Owned UI development for two commercial robot models across "
-                            "~20 releases:"
-                        ),
-                        "bullets": [
-                            (
-                                "Reduced dev cycles from days to minutes by embedding a "
-                                "protocol-level robot simulator in the frontend, eliminating "
-                                "all hardware and backend dependencies"
-                            ),
-                            (
-                                "Repurposed the simulator for portable sales demos by creating "
-                                "a CI/CD flow from the robot monorepo to a company website"
-                            ),
-                            (
-                                "Delivered the robot UI for on-demand A-to-B cleaning, a "
-                                "flagship feature replacing pre-taught fixed routes, using "
-                                "DeckGL for autonomy map with point-of-interest clusters"
-                            ),
-                            (
-                                "Cut the robot UI field troubleshooting time by 50% for QA "
-                                "by shipping an embedded observability dashboard"
-                            ),
-                            (
-                                "Expanded market reach to 15 countries by internationalizing "
-                                "the UI from a single hard-coded language"
-                            ),
-                        ],
-                    }
-                ],
-            },
-            {
-                "title": "Lecturer",
-                "company": "UCLA",
-                "dates": "Jul 2019 - Jan 2022",
-                "location": "Los Angeles, CA",
-                "projects": [
-                    {
-                        "name": "Logic Instruction",
-                        "heading": "",
-                        "bullets": ["Taught formal logic and critical thinking to ~500 students"],
-                    }
-                ],
-            },
-        ]
 
         cursor.execute(
             """
@@ -1471,20 +1303,137 @@ def _v17_resume_builder(cursor: sqlite3.Cursor) -> None:
             """,
             (
                 now,
-                "Jane Doe",
-                "jane.doe@example.com",
-                "(555) 019-2834",
-                "Los Angeles, CA",
-                "github.com/janedoe",
-                "linkedin.com/in/janedoe",
                 "",
                 "",
-                json.dumps(default_education),
-                json.dumps(default_skills),
-                json.dumps(default_experience),
-                raw_ach,
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "[]",
+                "[]",
+                "[]",
+                "",
             ),
         )
+
+
+def _v18_unified_master_profile(cursor: sqlite3.Cursor) -> None:
+    """Consolidate the candidate Master Profile for resume generation and scoring."""
+    import json
+
+    existing = {row[1] for row in cursor.execute("PRAGMA table_info(resume_master_profile)")}
+
+    default_roles = json.dumps(
+        [
+            "Software Engineer",
+            "Platform Engineer",
+            "Full-Stack Engineer",
+        ]
+    )
+    default_industries = json.dumps(
+        [
+            "Cloud Infrastructure",
+            "Developer Tools",
+            "AI / ML Applications",
+        ]
+    )
+    default_dealbreakers = json.dumps(
+        [
+            "24-hour on-call site reliability rotations",
+            "No remote flexibility",
+        ]
+    )
+
+    columns_to_add = [
+        ("seniority", "TEXT DEFAULT 'Mid / Senior'"),
+        ("years_experience", "REAL DEFAULT 4.0"),
+        ("citizenship_json", "TEXT DEFAULT '[\"Authorized to work in US\"]'"),
+        ("locations_json", "TEXT DEFAULT '[\"Remote\"]'"),
+        ("willing_to_relocate", "INTEGER DEFAULT 0"),
+        ("comp_floor_usd", "INTEGER DEFAULT 90000"),
+        ("target_roles_json", f"TEXT DEFAULT '{default_roles}'"),
+        ("work_modes_json", 'TEXT DEFAULT \'["remote", "hybrid", "onsite"]\''),
+        ("target_industries_json", f"TEXT DEFAULT '{default_industries}'"),
+        ("dealbreakers_json", f"TEXT DEFAULT '{default_dealbreakers}'"),
+        ("strengths_json", "TEXT DEFAULT '[]'"),
+        ("weaknesses_json", "TEXT DEFAULT '[]'"),
+        ("skill_ratings_json", "TEXT DEFAULT '[]'"),
+    ]
+
+    for col_name, ddl in columns_to_add:
+        if col_name not in existing:
+            cursor.execute(f"ALTER TABLE resume_master_profile ADD COLUMN {col_name} {ddl}")
+
+    # If there is an active profile row, backfill existing values
+    try:
+        prof_row = cursor.execute(
+            "SELECT profile_json FROM profiles WHERE is_active = 1 ORDER BY version DESC LIMIT 1"
+        ).fetchone()
+        if prof_row and prof_row[0]:
+            p_data = json.loads(prof_row[0])
+            strengths = json.dumps(p_data.get("strengths") or [])
+            weaknesses = json.dumps(p_data.get("weaknesses") or [])
+            dealbreakers = json.dumps(
+                (p_data.get("non_negotiables") or []) + (p_data.get("red_flags") or [])
+            )
+            constraints = p_data.get("constraints") or {}
+            auth = constraints.get("work_authorization") or ["Authorized to work in US"]
+            citizenship = json.dumps(auth)
+            locs = constraints.get("locations") or ["Remote"]
+            locations = json.dumps(locs)
+            comp_floor = constraints.get("comp_floor_usd") or 90000
+            willing_relocate = 1 if constraints.get("willing_to_relocate", False) else 0
+
+            prefs = p_data.get("preferences") or {}
+            target_roles = json.dumps(prefs.get("role_families") or [])
+            target_industries = json.dumps(prefs.get("industries") or [])
+            modes = (
+                [prefs.get("work_mode")]
+                if prefs.get("work_mode")
+                else ["remote", "hybrid", "onsite"]
+            )
+            work_modes = json.dumps(modes)
+            seniority = p_data.get("seniority") or "Mid / Senior"
+            years_exp = p_data.get("years_experience") or 4.0
+            skill_ratings = json.dumps(p_data.get("skills") or [])
+
+            cursor.execute(
+                """
+                UPDATE resume_master_profile
+                   SET seniority = ?,
+                       years_experience = ?,
+                       citizenship_json = ?,
+                       locations_json = ?,
+                       willing_to_relocate = ?,
+                       comp_floor_usd = ?,
+                       target_roles_json = ?,
+                       work_modes_json = ?,
+                       target_industries_json = ?,
+                       dealbreakers_json = ?,
+                       strengths_json = ?,
+                       weaknesses_json = ?,
+                       skill_ratings_json = ?
+                """,
+                (
+                    seniority,
+                    years_exp,
+                    citizenship,
+                    locations,
+                    willing_relocate,
+                    comp_floor,
+                    target_roles,
+                    work_modes,
+                    target_industries,
+                    dealbreakers,
+                    strengths,
+                    weaknesses,
+                    skill_ratings,
+                ),
+            )
+    except (sqlite3.Error, ValueError, KeyError) as exc:
+        logger.warning("Failed to backfill master profile from active profile: %s", exc)
 
 
 MIGRATIONS: list[tuple[int, str, Callable[[sqlite3.Cursor], None]]] = [
@@ -1520,6 +1469,11 @@ MIGRATIONS: list[tuple[int, str, Callable[[sqlite3.Cursor], None]]] = [
         17,
         "resume builder: master profile and generated tailored resumes",
         _v17_resume_builder,
+    ),
+    (
+        18,
+        "unified master profile: consolidated 5 sections for resumes and scoring",
+        _v18_unified_master_profile,
     ),
 ]
 

@@ -1,4 +1,4 @@
-"""Data models for the Resume Builder module."""
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -37,9 +37,40 @@ class ResumeMasterProfile(BaseModel):
     linkedin: str = ""
     website: str = ""
     summary_guidance: str = ""
+    seniority: str | None = "Mid / Senior"
+    years_experience: float | None = 4.0
+    citizenship: list[str] = Field(default_factory=lambda: ["Authorized to work in US"])
+    locations: list[str] = Field(default_factory=lambda: ["Remote"])
+    willing_to_relocate: bool = False
+    comp_floor_usd: int | None = 90000
+    target_roles: list[str] = Field(
+        default_factory=lambda: [
+            "Software Engineer",
+            "Platform Engineer",
+            "Full-Stack Engineer",
+        ]
+    )
+    work_modes: list[str] = Field(default_factory=lambda: ["remote", "hybrid", "onsite"])
+    target_industries: list[str] = Field(
+        default_factory=lambda: [
+            "Cloud Infrastructure",
+            "Developer Tools",
+            "AI / ML Applications",
+        ]
+    )
+    dealbreakers: list[str] = Field(
+        default_factory=lambda: [
+            "24-hour on-call site reliability rotations",
+            "No remote flexibility",
+        ]
+    )
+    strengths: list[str] = Field(default_factory=list)
+    weaknesses: list[str] = Field(default_factory=list)
     education: list[MasterEducation] = Field(default_factory=list)
     skills: list[MasterSkillCategory] = Field(default_factory=list)
+    skill_ratings: list[dict[str, Any]] = Field(default_factory=list)
     experience: list[MasterRole] = Field(default_factory=list)
+    raw_achievements_md: str | None = None
 
 
 class ResumeSubsection(BaseModel):

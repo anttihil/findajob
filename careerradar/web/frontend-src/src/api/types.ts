@@ -117,9 +117,43 @@ export interface ResumeMasterProfile {
   linkedin: string;
   website: string;
   summary_guidance: string;
+  seniority?: string | null;
+  years_experience?: number | null;
+  citizenship?: string[];
+  locations?: string[];
+  willing_to_relocate?: boolean;
+  comp_floor_usd?: number | null;
+  target_roles?: string[];
+  work_modes?: string[];
+  target_industries?: string[];
+  dealbreakers?: string[];
+  strengths?: string[];
+  weaknesses?: string[];
   education: MasterEducation[];
   skills: MasterSkillCategory[];
+  skill_ratings?: { key: string; label?: string; level: number; evidence?: string }[];
   experience: MasterRole[];
+  raw_achievements_md?: string | null;
+}
+
+export interface ProfileChatMessage {
+  role: "system" | "user" | "assistant";
+  content: string;
+}
+
+export interface ProfileChatResponse {
+  status: string;
+  reply: string;
+  updated_profile: ResumeMasterProfile;
+  changes_made: string[];
+}
+
+export interface ResumeUploadResponse {
+  status: string;
+  filename: string;
+  text_snippet: string;
+  raw_text: string;
+  profile: ResumeMasterProfile;
 }
 
 export interface GeneratedResumeRecord {

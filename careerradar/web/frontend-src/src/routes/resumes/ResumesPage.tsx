@@ -5,9 +5,12 @@ import type {
   ProfileRecord,
   ProfileSkill,
   ResumeMasterProfile,
+  ResumeUploadResponse,
 } from "../../api/types";
+import { ResumeDropzone } from "./ResumeDropzone";
+import { ProfileChatPanel } from "./ProfileChatPanel";
 
-const LEVEL_LABELS = ["none", "aware", "working", "strong", "expert"];
+const LEVEL_LABELS = ["none", "familiar", "working", "strong", "expert"];
 
 function levelLabel(level: number): string {
   return LEVEL_LABELS[level] ?? String(level);
@@ -40,6 +43,10 @@ export function ResumesPage() {
   const [saveStatus, setSaveStatus] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
+  // Copilot Chat State
+  const [showCopilot, setShowCopilot] = useState(false);
+  const [uploadedResumeText, setUploadedResumeText] = useState<string | null>(null);
+
   // Tailored resumes list
   const [resumesList, setResumesList] = useState<GeneratedResumeRecord[]>([]);
   const [resumesLoading, setResumesLoading] = useState(false);
@@ -62,6 +69,18 @@ export function ResumesPage() {
           linkedin: "",
           website: "",
           summary_guidance: "",
+          seniority: "Mid / Senior",
+          years_experience: 4.0,
+          citizenship: ["Authorized to work in US"],
+          locations: ["Remote"],
+          willing_to_relocate: false,
+          comp_floor_usd: 90000,
+          target_roles: ["Software Engineer", "Platform Engineer", "Full-Stack Engineer"],
+          work_modes: ["remote", "hybrid", "onsite"],
+          target_industries: ["Cloud Infrastructure", "Developer Tools", "AI / ML Applications"],
+          dealbreakers: ["24-hour on-call site reliability rotations", "No remote flexibility"],
+          strengths: [],
+          weaknesses: [],
           education: [],
           skills: [],
           experience: [],
@@ -71,7 +90,7 @@ export function ResumesPage() {
     });
   }, []);
 
-  // Load tailored resumes when subtab switches
+  // Load tailored resumes or vector profile when switching subtabs
   useEffect(() => {
     if (activeSubTab === "tailored") {
       setResumesLoading(true);
@@ -90,18 +109,21 @@ export function ResumesPage() {
     }
   }, [activeSubTab, vectorRecord]);
 
-  const handleSaveMasterProfile = async () => {
-    if (!masterProfile) return;
+  const handleSaveMasterProfile = async (profileToSave?: ResumeMasterProfile) => {
+    const prof = profileToSave || masterProfile;
+    if (!prof) return;
     setSaving(true);
     setSaveStatus(null);
     try {
       const resp = await fetch("/api/resume-builder/profile", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(masterProfile),
+        body: JSON.stringify(prof),
       });
       if (resp.ok) {
-        setSaveStatus("Saved successfully!");
+        setSaveStatus("Saved and synced for scoring & resumes!");
+        // Refresh vector record on next visit
+        setVectorRecord(undefined);
         setTimeout(() => setSaveStatus(null), 4000);
       } else {
         const err = await resp.json();
@@ -115,576 +137,717 @@ export function ResumesPage() {
     }
   };
 
+  const handleResumeUploadSuccess = (data: ResumeUploadResponse) => {
+    if (data.profile) {
+      setMasterProfile(data.profile);
+      setUploadedResumeText(data.raw_text);
+      setShowCopilot(true); // Open copilot automatically so user can review & chat!
+    }
+  };
+
   return (
     <section class="tab-pane active" style={{ padding: "1.5rem" }}>
       {/* Sub-tab navigation */}
-      <div
-        class="subtab-bar"
-        style={{
-          display: "flex",
-          gap: "1rem",
-          borderBottom: "1px solid var(--border-color, #333)",
-          marginBottom: "1.5rem",
-          paddingBottom: "0.5rem",
-        }}
-      >
-        <button
-          class={`action-pill ${activeSubTab === "master" ? "active" : ""}`}
-          onClick={() => setActiveSubTab("master")}
-          style={{ fontSize: "0.95rem", fontWeight: 600 }}
-        >
-          <i class="fa-solid fa-user-pen"></i> Master Resume Profile
-        </button>
-        <button
-          class={`action-pill ${activeSubTab === "tailored" ? "active" : ""}`}
-          onClick={() => setActiveSubTab("tailored")}
-          style={{ fontSize: "0.95rem", fontWeight: 600 }}
-        >
-          <i class="fa-solid fa-file-lines"></i> Tailored Resumes Library
-        </button>
-        <button
-          class={`action-pill ${activeSubTab === "vector" ? "active" : ""}`}
-          onClick={() => setActiveSubTab("vector")}
-          style={{ fontSize: "0.95rem", fontWeight: 600 }}
-        >
-          <i class="fa-solid fa-brain"></i> Active Scoring Profile
-        </button>
+      <div class="subtab-bar-container">
+        <div class="subtab-bar">
+          <button
+            class={`action-pill ${activeSubTab === "master" ? "active" : ""}`}
+            onClick={() => setActiveSubTab("master")}
+          >
+            <i class="fa-solid fa-user-gear"></i> Master Profile & Copilot
+          </button>
+          <button
+            class={`action-pill ${activeSubTab === "tailored" ? "active" : ""}`}
+            onClick={() => setActiveSubTab("tailored")}
+          >
+            <i class="fa-solid fa-file-lines"></i> Tailored Resumes Library ({resumesList.length})
+          </button>
+          <button
+            class={`action-pill ${activeSubTab === "vector" ? "active" : ""}`}
+            onClick={() => setActiveSubTab("vector")}
+          >
+            <i class="fa-solid fa-brain"></i> Active Scoring Vector
+          </button>
+        </div>
       </div>
 
-      {/* Sub-tab 1: Master Profile Editor */}
+      {/* Sub-tab 1: Unified Master Profile */}
       {activeSubTab === "master" && (
-        <div>
+        <div class="master-profile-layout">
           {masterLoading || !masterProfile ? (
-            <p>Loading master profile...</p>
+            <div class="resume-card">
+              <i class="fa-solid fa-spinner fa-spin"></i> Loading master profile...
+            </div>
           ) : (
-            <div style={{ maxWidth: "1000px" }}>
-              <div
-                style={{
-                  display: "flex",
-                  justifyContent: "space-between",
-                  alignItems: "center",
-                  marginBottom: "1rem",
-                }}
-              >
-                <div>
-                  <h3 style={{ margin: 0 }}>Master Resume Profile</h3>
-                  <p style={{ color: "var(--text-muted, #888)", margin: "0.25rem 0 0 0" }}>
-                    This data is saved directly in your CareerRadar database and dynamically loaded
-                    by the DeepSeek resume builder.
-                  </p>
-                </div>
-                <div style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
-                  {saveStatus && (
-                    <span
-                      style={{
-                        color: saveStatus.includes("error") ? "#ef4444" : "#10b981",
-                        fontWeight: 600,
-                      }}
-                    >
-                      {saveStatus}
-                    </span>
-                  )}
-                  <button
-                    class="action-pill text-green active"
-                    onClick={handleSaveMasterProfile}
-                    disabled={saving}
-                    style={{ padding: "0.5rem 1.25rem", fontSize: "0.95rem" }}
-                  >
-                    <i class={`fa-solid ${saving ? "fa-spinner fa-spin" : "fa-floppy-disk"}`}></i>{" "}
-                    {saving ? "Saving..." : "Save Changes"}
-                  </button>
-                </div>
-              </div>
-
-              {/* Personal / Contact Information */}
-              <div class="resume-card" style={{ marginBottom: "1.5rem" }}>
-                <h4>Personal & Contact Information</h4>
-                <div
-                  style={{
-                    display: "grid",
-                    gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-                    gap: "0.75rem",
-                    marginTop: "0.5rem",
-                  }}
-                >
+            <div class={`profile-main-grid ${showCopilot ? "with-copilot" : ""}`}>
+              {/* Left Column: Form Editor */}
+              <div class="profile-editor-column">
+                {/* Header Actions */}
+                <div class="profile-header-card">
                   <div>
-                    <label style={{ fontSize: "0.8rem", color: "#888" }}>Full Name</label>
-                    <input
-                      type="text"
-                      class="filter-input"
-                      style={{ width: "100%" }}
-                      value={masterProfile.name}
-                      onInput={(e) =>
-                        setMasterProfile({
-                          ...masterProfile,
-                          name: (e.target as HTMLInputElement).value,
-                        })
-                      }
-                    />
+                    <h3 style={{ margin: 0, fontSize: "1.25rem" }}>Master Candidate Profile</h3>
+                    <p style={{ color: "var(--ink-muted)", margin: "0.25rem 0 0 0", fontSize: "0.85rem" }}>
+                      Single source of truth. Updates automatically power both <strong>Job Fit Scoring</strong> and the <strong>1-Page Tailored Resume Builder</strong>.
+                    </p>
                   </div>
-                  <div>
-                    <label style={{ fontSize: "0.8rem", color: "#888" }}>Email</label>
-                    <input
-                      type="email"
-                      class="filter-input"
-                      style={{ width: "100%" }}
-                      value={masterProfile.email}
-                      onInput={(e) =>
-                        setMasterProfile({
-                          ...masterProfile,
-                          email: (e.target as HTMLInputElement).value,
-                        })
-                      }
-                    />
-                  </div>
-                  <div>
-                    <label style={{ fontSize: "0.8rem", color: "#888" }}>Phone</label>
-                    <input
-                      type="text"
-                      class="filter-input"
-                      style={{ width: "100%" }}
-                      value={masterProfile.phone}
-                      onInput={(e) =>
-                        setMasterProfile({
-                          ...masterProfile,
-                          phone: (e.target as HTMLInputElement).value,
-                        })
-                      }
-                    />
-                  </div>
-                  <div>
-                    <label style={{ fontSize: "0.8rem", color: "#888" }}>Location</label>
-                    <input
-                      type="text"
-                      class="filter-input"
-                      style={{ width: "100%" }}
-                      value={masterProfile.location}
-                      onInput={(e) =>
-                        setMasterProfile({
-                          ...masterProfile,
-                          location: (e.target as HTMLInputElement).value,
-                        })
-                      }
-                    />
-                  </div>
-                  <div>
-                    <label style={{ fontSize: "0.8rem", color: "#888" }}>GitHub URL</label>
-                    <input
-                      type="text"
-                      class="filter-input"
-                      style={{ width: "100%" }}
-                      value={masterProfile.github}
-                      onInput={(e) =>
-                        setMasterProfile({
-                          ...masterProfile,
-                          github: (e.target as HTMLInputElement).value,
-                        })
-                      }
-                    />
-                  </div>
-                  <div>
-                    <label style={{ fontSize: "0.8rem", color: "#888" }}>LinkedIn URL</label>
-                    <input
-                      type="text"
-                      class="filter-input"
-                      style={{ width: "100%" }}
-                      value={masterProfile.linkedin}
-                      onInput={(e) =>
-                        setMasterProfile({
-                          ...masterProfile,
-                          linkedin: (e.target as HTMLInputElement).value,
-                        })
-                      }
-                    />
-                  </div>
-                  <div>
-                    <label style={{ fontSize: "0.8rem", color: "#888" }}>Website / Portfolio</label>
-                    <input
-                      type="text"
-                      class="filter-input"
-                      style={{ width: "100%" }}
-                      value={masterProfile.website}
-                      onInput={(e) =>
-                        setMasterProfile({
-                          ...masterProfile,
-                          website: (e.target as HTMLInputElement).value,
-                        })
-                      }
-                    />
-                  </div>
-                </div>
-
-                <div style={{ marginTop: "1rem" }}>
-                  <label style={{ fontSize: "0.8rem", color: "#888" }}>
-                    Summary Guidance & Core Positioning
-                  </label>
-                  <textarea
-                    class="filter-input"
-                    rows={3}
-                    style={{ width: "100%", marginTop: "0.25rem" }}
-                    value={masterProfile.summary_guidance}
-                    onInput={(e) =>
-                      setMasterProfile({
-                        ...masterProfile,
-                        summary_guidance: (e.target as HTMLTextAreaElement).value,
-                      })
-                    }
-                  />
-                </div>
-              </div>
-
-              {/* Education */}
-              <div class="resume-card" style={{ marginBottom: "1.5rem" }}>
-                <div
-                  style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}
-                >
-                  <h4>Education History</h4>
-                  <button
-                    class="action-pill"
-                    onClick={() => {
-                      setMasterProfile({
-                        ...masterProfile,
-                        education: [
-                          ...masterProfile.education,
-                          { institution: "", degree: "", details: "" },
-                        ],
-                      });
-                    }}
-                  >
-                    <i class="fa-solid fa-plus"></i> Add Degree
-                  </button>
-                </div>
-                {masterProfile.education.map((edu, idx) => (
-                  <div
-                    key={idx}
-                    style={{
-                      display: "flex",
-                      gap: "0.75rem",
-                      alignItems: "center",
-                      marginTop: "0.75rem",
-                    }}
-                  >
-                    <input
-                      type="text"
-                      placeholder="Institution (e.g. UCLA)"
-                      class="filter-input"
-                      style={{ flex: 1 }}
-                      value={edu.institution}
-                      onInput={(e) => {
-                        const next = [...masterProfile.education];
-                        next[idx].institution = (e.target as HTMLInputElement).value;
-                        setMasterProfile({ ...masterProfile, education: next });
-                      }}
-                    />
-                    <input
-                      type="text"
-                      placeholder="Degree (e.g. PhD in Philosophy (2019); MA)"
-                      class="filter-input"
-                      style={{ flex: 2 }}
-                      value={edu.degree}
-                      onInput={(e) => {
-                        const next = [...masterProfile.education];
-                        next[idx].degree = (e.target as HTMLInputElement).value;
-                        setMasterProfile({ ...masterProfile, education: next });
-                      }}
-                    />
+                  <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", flexWrap: "wrap" }}>
                     <button
-                      class="action-pill text-red"
-                      onClick={() => {
-                        const next = masterProfile.education.filter((_, i) => i !== idx);
-                        setMasterProfile({ ...masterProfile, education: next });
-                      }}
+                      class={`action-pill ${showCopilot ? "active text-blue" : ""}`}
+                      onClick={() => setShowCopilot(!showCopilot)}
                     >
-                      <i class="fa-solid fa-trash"></i>
+                      <i class="fa-solid fa-robot"></i> {showCopilot ? "Hide Copilot" : "AI Copilot"}
+                    </button>
+                    <button
+                      class="action-pill text-green active"
+                      onClick={() => handleSaveMasterProfile()}
+                      disabled={saving}
+                    >
+                      <i class={`fa-solid ${saving ? "fa-spinner fa-spin" : "fa-floppy-disk"}`}></i>{" "}
+                      {saving ? "Saving..." : "Save & Sync Profile"}
                     </button>
                   </div>
-                ))}
-              </div>
-
-              {/* Skills Master Categories */}
-              <div class="resume-card" style={{ marginBottom: "1.5rem" }}>
-                <div
-                  style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}
-                >
-                  <h4>Skills Categories & Tools</h4>
-                  <button
-                    class="action-pill"
-                    onClick={() => {
-                      setMasterProfile({
-                        ...masterProfile,
-                        skills: [...masterProfile.skills, { category: "New Category", skills: [] }],
-                      });
-                    }}
-                  >
-                    <i class="fa-solid fa-plus"></i> Add Category
-                  </button>
                 </div>
-                {masterProfile.skills.map((cat, idx) => (
+
+                {saveStatus && (
                   <div
-                    key={idx}
-                    style={{
-                      display: "flex",
-                      gap: "0.75rem",
-                      alignItems: "center",
-                      marginTop: "0.75rem",
-                    }}
+                    class={`dropzone-status-msg ${saveStatus.includes("error") ? "error" : "success"}`}
+                    style={{ marginBottom: "1rem" }}
                   >
-                    <input
-                      type="text"
-                      placeholder="Category Name (e.g. Infrastructure)"
-                      class="filter-input"
-                      style={{ flex: 1 }}
-                      value={cat.category}
-                      onInput={(e) => {
-                        const next = [...masterProfile.skills];
-                        next[idx].category = (e.target as HTMLInputElement).value;
-                        setMasterProfile({ ...masterProfile, skills: next });
-                      }}
-                    />
-                    <input
-                      type="text"
-                      placeholder="Skills comma-separated (e.g. AWS, Terraform, Docker)"
-                      class="filter-input"
-                      style={{ flex: 3 }}
-                      value={cat.skills.join(", ")}
-                      onInput={(e) => {
-                        const raw = (e.target as HTMLInputElement).value;
-                        const parsed = raw
-                          .split(",")
-                          .map((s) => s.trim())
-                          .filter(Boolean);
-                        const next = [...masterProfile.skills];
-                        next[idx].skills = parsed;
-                        setMasterProfile({ ...masterProfile, skills: next });
-                      }}
-                    />
-                    <button
-                      class="action-pill text-red"
-                      onClick={() => {
-                        const next = masterProfile.skills.filter((_, i) => i !== idx);
-                        setMasterProfile({ ...masterProfile, skills: next });
-                      }}
-                    >
-                      <i class="fa-solid fa-trash"></i>
-                    </button>
+                    <i class={`fa-solid ${saveStatus.includes("error") ? "fa-triangle-exclamation" : "fa-check-circle"}`}></i>{" "}
+                    {saveStatus}
                   </div>
-                ))}
-              </div>
+                )}
 
-              {/* Master Experience & Projects Pool */}
-              <div class="resume-card" style={{ marginBottom: "1.5rem" }}>
-                <div
-                  style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}
-                >
-                  <h4>Master Experience & Projects Pool</h4>
-                  <button
-                    class="action-pill"
-                    onClick={() => {
-                      setMasterProfile({
-                        ...masterProfile,
-                        experience: [
-                          ...masterProfile.experience,
-                          {
-                            title: "New Role",
-                            company: "Company",
-                            dates: "Jan 2025 - Present",
-                            projects: [{ name: "Project", heading: "", bullets: [] }],
-                          },
-                        ],
-                      });
-                    }}
-                  >
-                    <i class="fa-solid fa-plus"></i> Add Role
-                  </button>
+                {/* Drag and Drop Resume Ingestion Zone */}
+                <div style={{ marginBottom: "1.5rem" }}>
+                  <ResumeDropzone onUploadSuccess={handleResumeUploadSuccess} disabled={saving} />
                 </div>
-                {masterProfile.experience.map((role, rIdx) => (
-                  <div
-                    key={rIdx}
-                    style={{
-                      border: "1px solid var(--border-color, #333)",
-                      borderRadius: "6px",
-                      padding: "1rem",
-                      marginTop: "1rem",
-                      backgroundColor: "rgba(255, 255, 255, 0.02)",
-                    }}
-                  >
-                    <div style={{ display: "flex", gap: "0.75rem", alignItems: "center" }}>
+
+                {/* Section 1: Personal & Contact Information */}
+                <div class="resume-card" style={{ marginBottom: "1.5rem" }}>
+                  <h4>1. Personal & Contact Information</h4>
+                  <div class="profile-form-grid">
+                    <div>
+                      <label class="form-label">Full Name</label>
                       <input
                         type="text"
-                        placeholder="Title"
                         class="filter-input"
-                        style={{ flex: 2 }}
-                        value={role.title}
+                        value={masterProfile.name}
+                        onInput={(e) =>
+                          setMasterProfile({
+                            ...masterProfile,
+                            name: (e.target as HTMLInputElement).value,
+                          })
+                        }
+                      />
+                    </div>
+                    <div>
+                      <label class="form-label">Email</label>
+                      <input
+                        type="email"
+                        class="filter-input"
+                        value={masterProfile.email}
+                        onInput={(e) =>
+                          setMasterProfile({
+                            ...masterProfile,
+                            email: (e.target as HTMLInputElement).value,
+                          })
+                        }
+                      />
+                    </div>
+                    <div>
+                      <label class="form-label">Phone</label>
+                      <input
+                        type="text"
+                        class="filter-input"
+                        value={masterProfile.phone}
+                        onInput={(e) =>
+                          setMasterProfile({
+                            ...masterProfile,
+                            phone: (e.target as HTMLInputElement).value,
+                          })
+                        }
+                      />
+                    </div>
+                    <div>
+                      <label class="form-label">Location (City, State)</label>
+                      <input
+                        type="text"
+                        class="filter-input"
+                        value={masterProfile.location}
+                        onInput={(e) =>
+                          setMasterProfile({
+                            ...masterProfile,
+                            location: (e.target as HTMLInputElement).value,
+                          })
+                        }
+                      />
+                    </div>
+                    <div>
+                      <label class="form-label">GitHub URL</label>
+                      <input
+                        type="text"
+                        class="filter-input"
+                        value={masterProfile.github}
+                        onInput={(e) =>
+                          setMasterProfile({
+                            ...masterProfile,
+                            github: (e.target as HTMLInputElement).value,
+                          })
+                        }
+                      />
+                    </div>
+                    <div>
+                      <label class="form-label">LinkedIn URL</label>
+                      <input
+                        type="text"
+                        class="filter-input"
+                        value={masterProfile.linkedin}
+                        onInput={(e) =>
+                          setMasterProfile({
+                            ...masterProfile,
+                            linkedin: (e.target as HTMLInputElement).value,
+                          })
+                        }
+                      />
+                    </div>
+                    <div>
+                      <label class="form-label">Website / Portfolio</label>
+                      <input
+                        type="text"
+                        class="filter-input"
+                        value={masterProfile.website}
+                        onInput={(e) =>
+                          setMasterProfile({
+                            ...masterProfile,
+                            website: (e.target as HTMLInputElement).value,
+                          })
+                        }
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Section 2: Work Eligibility & Availability (Door Openers) */}
+                <div class="resume-card" style={{ marginBottom: "1.5rem" }}>
+                  <h4>2. Work Eligibility & Availability (Door-Openers)</h4>
+                  <div class="profile-form-grid">
+                    <div>
+                      <label class="form-label">Citizenship & Work Auth (comma-separated)</label>
+                      <input
+                        type="text"
+                        class="filter-input"
+                        placeholder="e.g. US Citizen, Permanent Resident, EU Citizen"
+                        value={(masterProfile.citizenship || []).join(", ")}
                         onInput={(e) => {
-                          const next = [...masterProfile.experience];
-                          next[rIdx].title = (e.target as HTMLInputElement).value;
-                          setMasterProfile({ ...masterProfile, experience: next });
+                          const parsed = (e.target as HTMLInputElement).value
+                            .split(",")
+                            .map((s) => s.trim())
+                            .filter(Boolean);
+                          setMasterProfile({ ...masterProfile, citizenship: parsed });
+                        }}
+                      />
+                      <small style={{ color: "var(--ink-muted)", fontSize: "0.75rem" }}>
+                        Qualifies for US citizen-only roles & EU employment with zero visa sponsorship.
+                      </small>
+                    </div>
+
+                    <div>
+                      <label class="form-label">Location Availability (comma-separated)</label>
+                      <input
+                        type="text"
+                        class="filter-input"
+                        placeholder="e.g. Los Angeles, CA, Remote"
+                        value={(masterProfile.locations || []).join(", ")}
+                        onInput={(e) => {
+                          const parsed = (e.target as HTMLInputElement).value
+                            .split(",")
+                            .map((s) => s.trim())
+                            .filter(Boolean);
+                          setMasterProfile({ ...masterProfile, locations: parsed });
+                        }}
+                      />
+                    </div>
+
+                    <div>
+                      <label class="form-label">Minimum Base Compensation (USD Floor)</label>
+                      <input
+                        type="number"
+                        class="filter-input"
+                        placeholder="e.g. 90000"
+                        value={masterProfile.comp_floor_usd ?? ""}
+                        onInput={(e) => {
+                          const val = (e.target as HTMLInputElement).value;
+                          setMasterProfile({
+                            ...masterProfile,
+                            comp_floor_usd: val ? Number(val) : null,
+                          });
+                        }}
+                      />
+                    </div>
+
+                    <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginTop: "1.5rem" }}>
+                      <input
+                        type="checkbox"
+                        id="relocateCheck"
+                        checked={masterProfile.willing_to_relocate ?? true}
+                        onChange={(e) =>
+                          setMasterProfile({
+                            ...masterProfile,
+                            willing_to_relocate: (e.target as HTMLInputElement).checked,
+                          })
+                        }
+                      />
+                      <label htmlFor="relocateCheck" style={{ fontSize: "0.85rem", cursor: "pointer" }}>
+                        Open to Relocation for the right role
+                      </label>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Section 3: Executive Positioning & Experience Level */}
+                <div class="resume-card" style={{ marginBottom: "1.5rem" }}>
+                  <h4>3. Executive Positioning & Experience Level</h4>
+                  <div class="profile-form-grid" style={{ marginBottom: "0.75rem" }}>
+                    <div>
+                      <label class="form-label">Years of Professional Experience</label>
+                      <input
+                        type="number"
+                        step="0.5"
+                        class="filter-input"
+                        value={masterProfile.years_experience ?? 4.5}
+                        onInput={(e) =>
+                          setMasterProfile({
+                            ...masterProfile,
+                            years_experience: Number((e.target as HTMLInputElement).value),
+                          })
+                        }
+                      />
+                    </div>
+                    <div>
+                      <label class="form-label">Seniority Descriptor (Flexible)</label>
+                      <input
+                        type="text"
+                        class="filter-input"
+                        placeholder="e.g. Mid / Senior"
+                        value={masterProfile.seniority || ""}
+                        onInput={(e) =>
+                          setMasterProfile({
+                            ...masterProfile,
+                            seniority: (e.target as HTMLInputElement).value,
+                          })
+                        }
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label class="form-label">Summary Guidance & Core Positioning</label>
+                    <textarea
+                      class="filter-input"
+                      rows={3}
+                      value={masterProfile.summary_guidance}
+                      onInput={(e) =>
+                        setMasterProfile({
+                          ...masterProfile,
+                          summary_guidance: (e.target as HTMLTextAreaElement).value,
+                        })
+                      }
+                    />
+                  </div>
+                </div>
+
+                {/* Section 4: Work Experience & Projects Pool (Ground Truth Evidence) */}
+                <div class="resume-card" style={{ marginBottom: "1.5rem" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <h4>4. Work Experience & Projects Pool (Ground-Truth Evidence)</h4>
+                    <button
+                      class="action-pill"
+                      onClick={() => {
+                        setMasterProfile({
+                          ...masterProfile,
+                          experience: [
+                            ...masterProfile.experience,
+                            {
+                              title: "New Role",
+                              company: "Company",
+                              dates: "Jan 2025 - Present",
+                              location: "",
+                              projects: [{ name: "Project", heading: "", bullets: [] }],
+                            },
+                          ],
+                        });
+                      }}
+                    >
+                      <i class="fa-solid fa-plus"></i> Add Role
+                    </button>
+                  </div>
+
+                  {masterProfile.experience.map((role, rIdx) => (
+                    <div key={rIdx} class="experience-role-card">
+                      <div class="role-header-row">
+                        <input
+                          type="text"
+                          placeholder="Title (e.g. Software Engineer)"
+                          class="filter-input"
+                          style={{ flex: 2 }}
+                          value={role.title}
+                          onInput={(e) => {
+                            const next = [...masterProfile.experience];
+                            next[rIdx].title = (e.target as HTMLInputElement).value;
+                            setMasterProfile({ ...masterProfile, experience: next });
+                          }}
+                        />
+                        <input
+                          type="text"
+                          placeholder="Company"
+                          class="filter-input"
+                          style={{ flex: 2 }}
+                          value={role.company}
+                          onInput={(e) => {
+                            const next = [...masterProfile.experience];
+                            next[rIdx].company = (e.target as HTMLInputElement).value;
+                            setMasterProfile({ ...masterProfile, experience: next });
+                          }}
+                        />
+                        <input
+                          type="text"
+                          placeholder="Dates (e.g. 2024 - Present)"
+                          class="filter-input"
+                          style={{ flex: 1.5 }}
+                          value={role.dates}
+                          onInput={(e) => {
+                            const next = [...masterProfile.experience];
+                            next[rIdx].dates = (e.target as HTMLInputElement).value;
+                            setMasterProfile({ ...masterProfile, experience: next });
+                          }}
+                        />
+                        <button
+                          class="action-pill text-red"
+                          onClick={() => {
+                            const next = masterProfile.experience.filter((_, i) => i !== rIdx);
+                            setMasterProfile({ ...masterProfile, experience: next });
+                          }}
+                        >
+                          <i class="fa-solid fa-trash"></i>
+                        </button>
+                      </div>
+
+                      {/* Projects inside Role */}
+                      <div style={{ marginTop: "0.75rem", paddingLeft: "0.5rem" }}>
+                        {role.projects.map((proj, pIdx) => (
+                          <div key={pIdx} class="project-card-block">
+                            <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
+                              <input
+                                type="text"
+                                placeholder="Project Scope / Heading (e.g. Designed replacement for 20 sites:)"
+                                class="filter-input"
+                                style={{ flex: 1, fontSize: "0.85rem" }}
+                                value={proj.heading}
+                                onInput={(e) => {
+                                  const next = [...masterProfile.experience];
+                                  next[rIdx].projects[pIdx].heading = (
+                                    e.target as HTMLInputElement
+                                  ).value;
+                                  setMasterProfile({ ...masterProfile, experience: next });
+                                }}
+                              />
+                              <button
+                                class="action-pill text-red"
+                                style={{ fontSize: "0.75rem", padding: "0.2rem 0.4rem" }}
+                                onClick={() => {
+                                  const next = [...masterProfile.experience];
+                                  next[rIdx].projects = next[rIdx].projects.filter((_, i) => i !== pIdx);
+                                  setMasterProfile({ ...masterProfile, experience: next });
+                                }}
+                              >
+                                <i class="fa-solid fa-xmark"></i>
+                              </button>
+                            </div>
+
+                            {/* Bullets */}
+                            <div style={{ marginTop: "0.4rem", paddingLeft: "0.75rem" }}>
+                              {proj.bullets.map((b, bIdx) => (
+                                <div key={bIdx} style={{ display: "flex", gap: "0.4rem", alignItems: "center", marginTop: "0.25rem" }}>
+                                  <span style={{ color: "var(--ink-muted)" }}>•</span>
+                                  <input
+                                    type="text"
+                                    placeholder="Quantified impact bullet (action + tech + result)"
+                                    class="filter-input"
+                                    style={{ flex: 1, fontSize: "0.85rem" }}
+                                    value={b}
+                                    onInput={(e) => {
+                                      const next = [...masterProfile.experience];
+                                      next[rIdx].projects[pIdx].bullets[bIdx] = (
+                                        e.target as HTMLInputElement
+                                      ).value;
+                                      setMasterProfile({ ...masterProfile, experience: next });
+                                    }}
+                                  />
+                                  <button
+                                    class="action-pill text-red"
+                                    style={{ padding: "0.15rem 0.4rem" }}
+                                    onClick={() => {
+                                      const next = [...masterProfile.experience];
+                                      next[rIdx].projects[pIdx].bullets = next[rIdx].projects[
+                                        pIdx
+                                      ].bullets.filter((_, i) => i !== bIdx);
+                                      setMasterProfile({ ...masterProfile, experience: next });
+                                    }}
+                                  >
+                                    <i class="fa-solid fa-minus"></i>
+                                  </button>
+                                </div>
+                              ))}
+                              <button
+                                class="action-pill"
+                                style={{ fontSize: "0.75rem", marginTop: "0.35rem", padding: "0.2rem 0.5rem" }}
+                                onClick={() => {
+                                  const next = [...masterProfile.experience];
+                                  next[rIdx].projects[pIdx].bullets.push("Engineered...");
+                                  setMasterProfile({ ...masterProfile, experience: next });
+                                }}
+                              >
+                                <i class="fa-solid fa-plus"></i> Add Bullet
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+
+                        <button
+                          class="action-pill"
+                          style={{ fontSize: "0.8rem", marginTop: "0.5rem" }}
+                          onClick={() => {
+                            const next = [...masterProfile.experience];
+                            next[rIdx].projects.push({
+                              name: "Project",
+                              heading: "Project scope:",
+                              bullets: ["Engineered..."],
+                            });
+                            setMasterProfile({ ...masterProfile, experience: next });
+                          }}
+                        >
+                          <i class="fa-solid fa-plus"></i> Add Project Scope
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Section 5: Skills & Competencies */}
+                <div class="resume-card" style={{ marginBottom: "1.5rem" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <h4>5. Skills & Categorized Tools</h4>
+                    <button
+                      class="action-pill"
+                      onClick={() => {
+                        setMasterProfile({
+                          ...masterProfile,
+                          skills: [...masterProfile.skills, { category: "New Category", skills: [] }],
+                        });
+                      }}
+                    >
+                      <i class="fa-solid fa-plus"></i> Add Category
+                    </button>
+                  </div>
+                  {masterProfile.skills.map((cat, idx) => (
+                    <div key={idx} style={{ display: "flex", gap: "0.75rem", alignItems: "center", marginTop: "0.75rem" }}>
+                      <input
+                        type="text"
+                        placeholder="Category Name"
+                        class="filter-input"
+                        style={{ flex: 1 }}
+                        value={cat.category}
+                        onInput={(e) => {
+                          const next = [...masterProfile.skills];
+                          next[idx].category = (e.target as HTMLInputElement).value;
+                          setMasterProfile({ ...masterProfile, skills: next });
                         }}
                       />
                       <input
                         type="text"
-                        placeholder="Company"
+                        placeholder="Skills comma-separated (e.g. AWS, Terraform, Docker)"
                         class="filter-input"
-                        style={{ flex: 2 }}
-                        value={role.company}
+                        style={{ flex: 3 }}
+                        value={cat.skills.join(", ")}
                         onInput={(e) => {
-                          const next = [...masterProfile.experience];
-                          next[rIdx].company = (e.target as HTMLInputElement).value;
-                          setMasterProfile({ ...masterProfile, experience: next });
-                        }}
-                      />
-                      <input
-                        type="text"
-                        placeholder="Dates (e.g. 2024 - Present)"
-                        class="filter-input"
-                        style={{ flex: 1.5 }}
-                        value={role.dates}
-                        onInput={(e) => {
-                          const next = [...masterProfile.experience];
-                          next[rIdx].dates = (e.target as HTMLInputElement).value;
-                          setMasterProfile({ ...masterProfile, experience: next });
+                          const raw = (e.target as HTMLInputElement).value;
+                          const parsed = raw
+                            .split(",")
+                            .map((s) => s.trim())
+                            .filter(Boolean);
+                          const next = [...masterProfile.skills];
+                          next[idx].skills = parsed;
+                          setMasterProfile({ ...masterProfile, skills: next });
                         }}
                       />
                       <button
                         class="action-pill text-red"
                         onClick={() => {
-                          const next = masterProfile.experience.filter((_, i) => i !== rIdx);
-                          setMasterProfile({ ...masterProfile, experience: next });
+                          const next = masterProfile.skills.filter((_, i) => i !== idx);
+                          setMasterProfile({ ...masterProfile, skills: next });
                         }}
                       >
                         <i class="fa-solid fa-trash"></i>
                       </button>
                     </div>
+                  ))}
+                </div>
 
-                    {/* Projects & Bullets inside Role */}
-                    <div style={{ marginTop: "0.75rem", paddingLeft: "1rem" }}>
-                      {role.projects.map((proj, pIdx) => (
-                        <div key={pIdx} style={{ marginTop: "0.5rem" }}>
-                          <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
-                            <input
-                              type="text"
-                              placeholder="Project Heading / Italic Scope line"
-                              class="filter-input"
-                              style={{ flex: 1, fontSize: "0.9rem" }}
-                              value={proj.heading}
-                              onInput={(e) => {
-                                const next = [...masterProfile.experience];
-                                next[rIdx].projects[pIdx].heading = (
-                                  e.target as HTMLInputElement
-                                ).value;
-                                setMasterProfile({ ...masterProfile, experience: next });
-                              }}
-                            />
-                            <button
-                              class="action-pill text-red"
-                              style={{ fontSize: "0.8rem" }}
-                              onClick={() => {
-                                const next = [...masterProfile.experience];
-                                next[rIdx].projects = next[rIdx].projects.filter(
-                                  (_, i) => i !== pIdx
-                                );
-                                setMasterProfile({ ...masterProfile, experience: next });
-                              }}
-                            >
-                              <i class="fa-solid fa-xmark"></i>
-                            </button>
-                          </div>
-                          {/* Bullets */}
-                          <div style={{ marginTop: "0.25rem", paddingLeft: "1rem" }}>
-                            {proj.bullets.map((b, bIdx) => (
-                              <div
-                                key={bIdx}
-                                style={{
-                                  display: "flex",
-                                  gap: "0.5rem",
-                                  alignItems: "center",
-                                  marginTop: "0.25rem",
-                                }}
-                              >
-                                <span style={{ color: "#888" }}>•</span>
-                                <input
-                                  type="text"
-                                  placeholder="Achievement bullet (quantified impact + tech)"
-                                  class="filter-input"
-                                  style={{ flex: 1, fontSize: "0.85rem" }}
-                                  value={b}
-                                  onInput={(e) => {
-                                    const next = [...masterProfile.experience];
-                                    next[rIdx].projects[pIdx].bullets[bIdx] = (
-                                      e.target as HTMLInputElement
-                                    ).value;
-                                    setMasterProfile({ ...masterProfile, experience: next });
-                                  }}
-                                />
-                                <button
-                                  class="action-pill text-red"
-                                  style={{ padding: "0.15rem 0.4rem" }}
-                                  onClick={() => {
-                                    const next = [...masterProfile.experience];
-                                    next[rIdx].projects[pIdx].bullets = next[rIdx].projects[
-                                      pIdx
-                                    ].bullets.filter((_, i) => i !== bIdx);
-                                    setMasterProfile({ ...masterProfile, experience: next });
-                                  }}
-                                >
-                                  <i class="fa-solid fa-minus"></i>
-                                </button>
-                              </div>
-                            ))}
-                            <button
-                              class="action-pill"
-                              style={{
-                                fontSize: "0.75rem",
-                                marginTop: "0.25rem",
-                                padding: "0.2rem 0.5rem",
-                              }}
-                              onClick={() => {
-                                const next = [...masterProfile.experience];
-                                next[rIdx].projects[pIdx].bullets.push("New achievement bullet");
-                                setMasterProfile({ ...masterProfile, experience: next });
-                              }}
-                            >
-                              <i class="fa-solid fa-plus"></i> Add Bullet
-                            </button>
-                          </div>
-                        </div>
-                      ))}
-                      <button
-                        class="action-pill"
-                        style={{
-                          fontSize: "0.8rem",
-                          marginTop: "0.5rem",
-                          padding: "0.25rem 0.6rem",
+                {/* Section 6: Education History */}
+                <div class="resume-card" style={{ marginBottom: "1.5rem" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <h4>6. Education History</h4>
+                    <button
+                      class="action-pill"
+                      onClick={() => {
+                        setMasterProfile({
+                          ...masterProfile,
+                          education: [...masterProfile.education, { institution: "", degree: "", details: "" }],
+                        });
+                      }}
+                    >
+                      <i class="fa-solid fa-plus"></i> Add Degree
+                    </button>
+                  </div>
+                  {masterProfile.education.map((edu, idx) => (
+                    <div key={idx} style={{ display: "flex", gap: "0.75rem", alignItems: "center", marginTop: "0.75rem" }}>
+                      <input
+                        type="text"
+                        placeholder="Institution (e.g. UCLA)"
+                        class="filter-input"
+                        style={{ flex: 1 }}
+                        value={edu.institution}
+                        onInput={(e) => {
+                          const next = [...masterProfile.education];
+                          next[idx].institution = (e.target as HTMLInputElement).value;
+                          setMasterProfile({ ...masterProfile, education: next });
                         }}
+                      />
+                      <input
+                        type="text"
+                        placeholder="Degree (e.g. PhD in Philosophy (2019); MA)"
+                        class="filter-input"
+                        style={{ flex: 2 }}
+                        value={edu.degree}
+                        onInput={(e) => {
+                          const next = [...masterProfile.education];
+                          next[idx].degree = (e.target as HTMLInputElement).value;
+                          setMasterProfile({ ...masterProfile, education: next });
+                        }}
+                      />
+                      <button
+                        class="action-pill text-red"
                         onClick={() => {
-                          const next = [...masterProfile.experience];
-                          next[rIdx].projects.push({
-                            name: "New Project",
-                            heading: "Project scope:",
-                            bullets: ["Engineered..."],
-                          });
-                          setMasterProfile({ ...masterProfile, experience: next });
+                          const next = masterProfile.education.filter((_, i) => i !== idx);
+                          setMasterProfile({ ...masterProfile, education: next });
                         }}
                       >
-                        <i class="fa-solid fa-plus"></i> Add Project Scope
+                        <i class="fa-solid fa-trash"></i>
                       </button>
                     </div>
+                  ))}
+                </div>
+
+                {/* Section 7: Role Targeting & Boundaries (Preferences, Dealbreakers & Gaps) */}
+                <div class="resume-card" style={{ marginBottom: "2rem" }}>
+                  <h4>7. Role Targeting & Boundaries</h4>
+                  <div class="profile-form-grid" style={{ marginTop: "0.5rem" }}>
+                    <div>
+                      <label class="form-label">Target Role Families (comma-separated)</label>
+                      <input
+                        type="text"
+                        class="filter-input"
+                        placeholder="e.g. applied AI, platform engineering"
+                        value={(masterProfile.target_roles || []).join(", ")}
+                        onInput={(e) => {
+                          const parsed = (e.target as HTMLInputElement).value
+                            .split(",")
+                            .map((s) => s.trim())
+                            .filter(Boolean);
+                          setMasterProfile({ ...masterProfile, target_roles: parsed });
+                        }}
+                      />
+                    </div>
+
+                    <div>
+                      <label class="form-label">Target Industries (comma-separated)</label>
+                      <input
+                        type="text"
+                        class="filter-input"
+                        placeholder="e.g. AI infrastructure, robotics"
+                        value={(masterProfile.target_industries || []).join(", ")}
+                        onInput={(e) => {
+                          const parsed = (e.target as HTMLInputElement).value
+                            .split(",")
+                            .map((s) => s.trim())
+                            .filter(Boolean);
+                          setMasterProfile({ ...masterProfile, target_industries: parsed });
+                        }}
+                      />
+                    </div>
+
+                    <div>
+                      <label class="form-label">Explicit Dealbreakers / Avoid Stacks (comma-separated)</label>
+                      <input
+                        type="text"
+                        class="filter-input"
+                        placeholder="e.g. Defense contractors, WordPress-centric"
+                        value={(masterProfile.dealbreakers || []).join(", ")}
+                        onInput={(e) => {
+                          const parsed = (e.target as HTMLInputElement).value
+                            .split(",")
+                            .map((s) => s.trim())
+                            .filter(Boolean);
+                          setMasterProfile({ ...masterProfile, dealbreakers: parsed });
+                        }}
+                      />
+                    </div>
+
+                    <div>
+                      <label class="form-label">Honest Gaps / Limitations (comma-separated)</label>
+                      <input
+                        type="text"
+                        class="filter-input"
+                        placeholder="e.g. No large scale 1M QPS production"
+                        value={(masterProfile.weaknesses || []).join(", ")}
+                        onInput={(e) => {
+                          const parsed = (e.target as HTMLInputElement).value
+                            .split(",")
+                            .map((s) => s.trim())
+                            .filter(Boolean);
+                          setMasterProfile({ ...masterProfile, weaknesses: parsed });
+                        }}
+                      />
+                    </div>
                   </div>
-                ))}
+                </div>
+
+                {/* Bottom Save Bar */}
+                <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: "2rem" }}>
+                  <button
+                    class="action-pill text-green active"
+                    onClick={() => handleSaveMasterProfile()}
+                    disabled={saving}
+                    style={{ padding: "0.6rem 1.75rem", fontSize: "1rem" }}
+                  >
+                    <i class={`fa-solid ${saving ? "fa-spinner fa-spin" : "fa-floppy-disk"}`}></i>{" "}
+                    {saving ? "Saving..." : "Save Master Profile & Sync Scoring"}
+                  </button>
+                </div>
               </div>
 
-              {/* Bottom Save Bar */}
-              <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: "2rem" }}>
-                <button
-                  class="action-pill text-green active"
-                  onClick={handleSaveMasterProfile}
-                  disabled={saving}
-                  style={{ padding: "0.6rem 1.5rem", fontSize: "1rem" }}
-                >
-                  <i class={`fa-solid ${saving ? "fa-spinner fa-spin" : "fa-floppy-disk"}`}></i>{" "}
-                  {saving ? "Saving..." : "Save Master Profile"}
-                </button>
-              </div>
+              {/* Right Column: AI Copilot Chat Panel (when toggled open) */}
+              {showCopilot && (
+                <div class="profile-copilot-column">
+                  <ProfileChatPanel
+                    currentProfile={masterProfile}
+                    resumeText={uploadedResumeText}
+                    onUpdateProfile={(updated) => setMasterProfile(updated)}
+                    onClose={() => setShowCopilot(false)}
+                  />
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -695,9 +858,8 @@ export function ResumesPage() {
         <div style={{ maxWidth: "1000px" }}>
           <div style={{ marginBottom: "1rem" }}>
             <h3 style={{ margin: 0 }}>Tailored Resumes Library</h3>
-            <p style={{ color: "#888", margin: "0.25rem 0 0 0" }}>
-              1-page tailored resumes generated by LangGraph Actor-Critic pipeline for specific job
-              postings.
+            <p style={{ color: "var(--ink-muted)", margin: "0.25rem 0 0 0" }}>
+              1-page tailored resumes generated by LangGraph Actor-Critic pipeline for specific job postings.
             </p>
           </div>
 
@@ -705,7 +867,7 @@ export function ResumesPage() {
             <p>Loading generated resumes...</p>
           ) : resumesList.length === 0 ? (
             <div class="resume-card">
-              <p style={{ color: "#888" }}>
+              <p style={{ color: "var(--ink-muted)" }}>
                 No tailored resumes generated yet. Open any job in the Dashboard and click{" "}
                 <strong>"Generate Resume"</strong>!
               </p>
@@ -714,18 +876,12 @@ export function ResumesPage() {
             <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
               {resumesList.map((res) => (
                 <div key={res.id} class="resume-card">
-                  <div
-                    style={{
-                      display: "flex",
-                      justifyContent: "space-between",
-                      alignItems: "flex-start",
-                    }}
-                  >
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
                     <div>
                       <h3 style={{ margin: 0 }}>
                         {res.job_title || "Software Engineer"} @ {res.job_company || "Company"}
                       </h3>
-                      <span style={{ fontSize: "0.85rem", color: "#888" }}>
+                      <span style={{ fontSize: "0.85rem", color: "var(--ink-muted)" }}>
                         Job #{res.job_id} · Generated {(res.created_at || "").slice(0, 16)} · Model:{" "}
                         {res.model || "deepseek-chat"}
                       </span>
@@ -775,7 +931,7 @@ export function ResumesPage() {
                   </div>
 
                   {res.summary && (
-                    <p style={{ marginTop: "0.75rem", fontSize: "0.9rem", color: "#ccc" }}>
+                    <p style={{ marginTop: "0.75rem", fontSize: "0.9rem" }}>
                       <strong>Summary:</strong> {res.summary}
                     </p>
                   )}
@@ -786,9 +942,9 @@ export function ResumesPage() {
                         marginTop: "0.5rem",
                         padding: "0.5rem 0.75rem",
                         borderRadius: "4px",
-                        backgroundColor: "rgba(255, 255, 255, 0.03)",
+                        backgroundColor: "var(--bg-screen-alt)",
                         fontSize: "0.85rem",
-                        color: "#9ca3af",
+                        color: "var(--ink-secondary)",
                       }}
                     >
                       <i class="fa-solid fa-comments"></i> <strong>ATS Screener Feedback:</strong>{" "}
@@ -802,7 +958,7 @@ export function ResumesPage() {
         </div>
       )}
 
-      {/* Sub-tab 3: Active Scoring Profile */}
+      {/* Sub-tab 3: Active Scoring Vector */}
       {activeSubTab === "vector" && (
         <div class="resumes-grid" style={{ maxWidth: "1000px" }}>
           {vectorRecord === undefined ? (
@@ -813,8 +969,7 @@ export function ResumesPage() {
                 <h3>No active profile</h3>
               </div>
               <p class="card-note">
-                Nothing downstream is meaningful without one. Build it with{" "}
-                <code>careerradar profile build</code>.
+                Save your Master Profile in the Master Profile tab to activate scoring.
               </p>
             </div>
           ) : (
@@ -823,9 +978,9 @@ export function ResumesPage() {
                 <span>
                   Profile version {vectorRecord.version} · built{" "}
                   {(vectorRecord.created_at || "").slice(0, 10)} ·{" "}
-                  {vectorRecord.model || "unknown model"}
+                  {vectorRecord.model || "master-sync"}
                 </span>
-                <h3>{vectorRecord.profile.seniority || "Active profile"}</h3>
+                <h3>{vectorRecord.profile.seniority || "Active Profile"}</h3>
               </div>
               <div class="divider"></div>
               <p class="verdict-summary">{vectorRecord.profile.bio || ""}</p>
@@ -833,24 +988,21 @@ export function ResumesPage() {
               <div class="skills-scroll-area">
                 <SkillTags skills={vectorRecord.profile.skills} />
               </div>
-              <h4>Built from</h4>
-              <ul class="detail-list">
-                {vectorRecord.documents.length === 0 ? (
-                  <li>No source documents recorded.</li>
-                ) : (
-                  vectorRecord.documents.map((doc, i) => {
-                    const name = String(doc.path || "").split("/").pop();
-                    return (
-                      <li key={i}>
-                        <strong>{name}</strong>{" "}
-                        <span class="detail-meta">
-                          {doc.kind || ""} · {doc.chars ?? 0} chars
-                        </span>
-                      </li>
-                    );
-                  })
-                )}
-              </ul>
+              <h4>Prompt Prefix Summary Text</h4>
+              <pre
+                style={{
+                  backgroundColor: "var(--bg-screen-alt)",
+                  padding: "1rem",
+                  fontSize: "0.8rem",
+                  fontFamily: "var(--font-mono)",
+                  whiteSpace: "pre-wrap",
+                  border: "1px solid var(--ink-primary)",
+                  maxHeight: "300px",
+                  overflowY: "auto",
+                }}
+              >
+                {vectorRecord.summary_text}
+              </pre>
             </div>
           )}
         </div>

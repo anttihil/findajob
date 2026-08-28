@@ -425,7 +425,13 @@ def get_profile_versions():
     return list_versions()
 
 
-# --- Resume Builder & Generator Endpoints -----------------------------------------------
+# --- Master Profile & Resume Builder Endpoints ------------------------------------------
+
+
+class ProfileChatPayload(BaseModel):
+    messages: list[dict[str, str]]
+    current_profile: dict[str, Any]
+    resume_text: str | None = None
 
 
 @app.get("/api/resume-builder/profile")
@@ -442,10 +448,71 @@ def update_resume_builder_profile(profile_data: dict[str, Any]):
 
     try:
         profile = ResumeMasterProfile.model_validate(profile_data)
-        save_master_profile(profile)
+        save_master_profile(profile, sync_scoring=True)
         return {"status": "ok", "profile": profile.model_dump()}
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/profile/upload-resume")
+async def upload_resume(request: Request):
+    from fastapi import UploadFile
+
+    from careerradar.profile.copilot import (
+        extract_profile_from_resume_text,
+        parse_resume_file,
+    )
+    from careerradar.resumes.repository import load_master_profile
+
+    try:
+        form = await request.form()
+        uploaded_file = form.get("file")
+        if not isinstance(uploaded_file, UploadFile):
+            raise HTTPException(status_code=400, detail="Missing 'file' in upload form payload.")
+
+        content = await uploaded_file.read()
+        filename = uploaded_file.filename or "resume.pdf"
+        text = parse_resume_file(content, filename)
+        if not text.strip():
+            raise HTTPException(status_code=400, detail="Uploaded file contained no readable text.")
+
+        existing = load_master_profile()
+        extracted = extract_profile_from_resume_text(text, existing_profile=existing)
+        return {
+            "status": "ok",
+            "filename": filename,
+            "text_snippet": text[:500],
+            "raw_text": text,
+            "profile": extracted.model_dump(),
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("Failed to parse and extract uploaded resume")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.post("/api/profile/chat")
+def profile_copilot_chat(payload: ProfileChatPayload):
+    from careerradar.profile.copilot import chat_with_copilot
+    from careerradar.resumes.models import ResumeMasterProfile
+
+    try:
+        current_prof = ResumeMasterProfile.model_validate(payload.current_profile)
+        result = chat_with_copilot(
+            messages=payload.messages,
+            current_profile=current_prof,
+            resume_text=payload.resume_text,
+        )
+        return {
+            "status": "ok",
+            "reply": result.reply,
+            "updated_profile": result.updated_profile.model_dump(),
+            "changes_made": result.changes_made,
+        }
+    except Exception as exc:
+        logger.exception("Profile copilot chat turn failed")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
 @app.post("/api/jobs/{job_id}/resume/generate")

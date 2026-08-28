@@ -1886,3 +1886,332 @@ html, body {
 .mt-4 { margin-top: 1.25rem; }
 .mt-6 { margin-top: 1.75rem; }
 .divider { border-bottom: 1px solid var(--ink-primary); margin: 14px 0; }
+
+/* ==========================================================================
+   MASTER PROFILE & AI COPILOT WORKSPACE STYLES
+   ========================================================================== */
+
+.subtab-bar-container {
+  border-bottom: 2px solid var(--ink-primary);
+  margin-bottom: 1.5rem;
+  padding-bottom: 0.5rem;
+}
+
+.subtab-bar {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.profile-main-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 1.5rem;
+  transition: all 0.25s ease;
+}
+
+.profile-main-grid.with-copilot {
+  grid-template-columns: 1.2fr 0.8fr;
+}
+
+@media (max-width: 1100px) {
+  .profile-main-grid.with-copilot {
+    grid-template-columns: 1fr;
+  }
+}
+
+.profile-header-card {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 1rem;
+  margin-bottom: 1.25rem;
+  border-bottom: 1px solid var(--ink-primary);
+  padding-bottom: 1rem;
+}
+
+.profile-form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 1rem;
+  margin-top: 0.75rem;
+}
+
+.form-label {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--ink-muted);
+  margin-bottom: 0.35rem;
+}
+
+/* Experience Role Cards */
+.experience-role-card {
+  border: 1px solid var(--ink-primary);
+  background-color: var(--bg-screen-alt);
+  padding: 1.25rem;
+  margin-top: 1rem;
+}
+
+.role-header-row {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.project-card-block {
+  margin-top: 0.75rem;
+  border-left: 2px solid var(--ink-primary);
+  padding-left: 0.75rem;
+}
+
+/* Drag & Drop Zone */
+.resume-dropzone-container {
+  margin-bottom: 1rem;
+}
+
+.resume-dropzone {
+  border: 2px dashed var(--ink-primary);
+  background-color: var(--bg-screen-panel);
+  padding: 1.5rem;
+  text-align: center;
+  cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.resume-dropzone:hover, .resume-dropzone.dragging {
+  background-color: var(--bg-screen-alt);
+  border-style: solid;
+}
+
+.resume-dropzone.uploading {
+  cursor: wait;
+  opacity: 0.85;
+}
+
+.dropzone-inner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1.25rem;
+}
+
+.dropzone-icon {
+  font-size: 2rem;
+  color: var(--ink-primary);
+}
+
+.dropzone-text {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  font-family: var(--font-mono);
+}
+
+.dropzone-text strong {
+  font-size: 0.95rem;
+}
+
+.dropzone-hint {
+  font-size: 0.8rem;
+  color: var(--ink-muted);
+  margin-top: 0.25rem;
+}
+
+.dropzone-status-msg {
+  padding: 0.6rem 1rem;
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  font-weight: 700;
+  margin-top: 0.5rem;
+  border: 1px solid var(--ink-primary);
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.dropzone-status-msg.success {
+  background-color: #d1fae5;
+  color: #065f46;
+  border-color: #059669;
+}
+
+.dropzone-status-msg.error {
+  background-color: #fee2e2;
+  color: #991b1b;
+  border-color: #dc2626;
+}
+
+/* AI Copilot Chat Panel */
+.profile-copilot-column {
+  border: 2px solid var(--ink-primary);
+  background-color: var(--bg-screen);
+  display: flex;
+  flex-direction: column;
+  height: fit-content;
+  max-height: 850px;
+  position: sticky;
+  top: 1rem;
+}
+
+.profile-chat-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  font-family: var(--font-mono);
+}
+
+.chat-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.75rem 1rem;
+  background-color: var(--bg-screen-alt);
+  border-bottom: 2px solid var(--ink-primary);
+}
+
+.chat-title {
+  font-size: 0.9rem;
+  font-weight: 800;
+  letter-spacing: 0.5px;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.chat-resume-badge {
+  padding: 0.4rem 1rem;
+  background-color: var(--bg-screen-panel);
+  border-bottom: 1px dashed var(--ink-primary);
+  font-size: 0.75rem;
+  color: var(--ink-muted);
+}
+
+.chat-changes-banner {
+  padding: 0.5rem 1rem;
+  background-color: #ecfdf5;
+  color: #065f46;
+  border-bottom: 1px solid #10b981;
+  font-size: 0.8rem;
+}
+
+.chat-changes-banner ul {
+  margin: 0.25rem 0 0 1.25rem;
+  padding: 0;
+}
+
+.chat-messages {
+  flex: 1;
+  min-height: 250px;
+  max-height: 450px;
+  overflow-y: auto;
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.chat-bubble-row {
+  display: flex;
+  width: 100%;
+}
+
+.chat-bubble-row.user {
+  justify-content: flex-end;
+}
+
+.chat-bubble-row.assistant {
+  justify-content: flex-start;
+}
+
+.chat-bubble {
+  max-width: 88%;
+  padding: 0.6rem 0.85rem;
+  border: 1px solid var(--ink-primary);
+  font-size: 0.85rem;
+  line-height: 1.45;
+}
+
+.chat-bubble-row.user .chat-bubble {
+  background-color: var(--bg-inverse);
+  color: var(--ink-inverse);
+}
+
+.chat-bubble-row.assistant .chat-bubble {
+  background-color: var(--bg-screen-alt);
+  color: var(--ink-primary);
+}
+
+.chat-bubble.thinking {
+  background-color: var(--bg-screen-panel);
+  font-style: italic;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.bubble-sender {
+  font-size: 0.7rem;
+  font-weight: 800;
+  margin-bottom: 0.25rem;
+  opacity: 0.8;
+}
+
+.chat-quick-prompts {
+  padding: 0.5rem 1rem;
+  border-top: 1px dashed var(--ink-primary);
+  background-color: var(--bg-screen-panel);
+}
+
+.quick-label {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--ink-muted);
+}
+
+.quick-pills-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-top: 0.35rem;
+}
+
+.quick-pill {
+  border: 1px solid var(--ink-primary);
+  background-color: var(--bg-screen);
+  padding: 0.2rem 0.5rem;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  cursor: pointer;
+  text-align: left;
+}
+
+.quick-pill:hover {
+  background-color: var(--bg-inverse);
+  color: var(--ink-inverse);
+}
+
+.chat-input-row {
+  display: flex;
+  gap: 0.5rem;
+  padding: 0.75rem 1rem;
+  border-top: 2px solid var(--ink-primary);
+  background-color: var(--bg-screen-alt);
+}
+
+.chat-input {
+  flex: 1;
+  border: 1px solid var(--ink-primary);
+  background-color: var(--bg-screen);
+  padding: 0.5rem;
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  resize: none;
+}
+
+.chat-send-btn {
+  padding: 0.5rem 1rem;
+}

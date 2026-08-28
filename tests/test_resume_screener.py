@@ -31,13 +31,13 @@ def test_render_resume_plaintext_and_job_context():
 
     payload = TailoredResumePayload(
         name="Jane Doe",
-        contact_line_1="LA, CA | test@test.com",
-        contact_line_2="github.com/test",
+        contact_line_1="San Francisco, CA | jane@example.com",
+        contact_line_2="github.com/janedoe",
         summary="Senior backend engineer.",
         experience=[
             ResumeRole(
                 title="Lead Software Engineer",
-                company="UCLA",
+                company="Acme Corp",
                 dates="2020 - present",
                 subsections=[
                     ResumeSubsection(
@@ -48,16 +48,16 @@ def test_render_resume_plaintext_and_job_context():
             )
         ],
         skills=[ResumeSkillCategory(category="Backend", skills="Python, FastAPI")],
-        education=[ResumeEducation(institution="UCLA", degree="PhD")],
+        education=[ResumeEducation(institution="State University", degree="BS")],
     )
 
     txt = render_resume_plaintext(payload)
     assert "JANE DOE" in txt
     assert "SUMMARY" in txt
     assert "EXPERIENCE" in txt
-    assert "Lead Software Engineer, UCLA" in txt
+    assert "Lead Software Engineer, Acme Corp" in txt
     assert "Backend: Python, FastAPI" in txt
-    assert "UCLA, PhD" in txt
+    assert "State University, BS" in txt
 
 
 @patch("careerradar.resumes.screener.invoke_structured")
@@ -78,8 +78,8 @@ def test_screen_resume_mock(mock_model: MagicMock, mock_invoke: MagicMock):
     }
     payload = TailoredResumePayload(
         name="Jane Doe",
-        contact_line_1="LA | user@test.com",
-        contact_line_2="github.com",
+        contact_line_1="SF | jane@example.com",
+        contact_line_2="github.com/janedoe",
         summary="Experienced Python developer.",
         experience=[],
         skills=[],

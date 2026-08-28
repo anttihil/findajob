@@ -24,7 +24,7 @@ def test_estimate_visual_lines():
 def test_valid_1page_resume():
     payload = TailoredResumePayload(
         name="Jane Doe",
-        contact_line_1="Greater Los Angeles Area | jane.doe@example.com | 555-019-2834",
+        contact_line_1="San Francisco Bay Area | jane.doe@example.com | 555-019-2834",
         contact_line_2="github.com/janedoe | linkedin.com/in/janedoe",
         summary=(
             "Senior full-stack & systems engineer with deep expertise in Python and cloud "
@@ -33,13 +33,13 @@ def test_valid_1page_resume():
         experience=[
             ResumeRole(
                 title="Lead Software Engineer",
-                company="UCLA",
+                company="Acme Platform Corp",
                 dates="Jan 2020 - present",
                 subsections=[
                     ResumeSubsection(
-                        heading="Led modernization of campus web systems and microservices:",
+                        heading="Led modernization of core web systems and microservices:",
                         bullets=[
-                            "Engineered scalable containerized services for 50k+ campus users.",
+                            "Engineered scalable containerized services for 50k+ active users.",
                             "Implemented automated CI/CD pipelines reducing deployment friction.",
                         ],
                     )
@@ -47,7 +47,7 @@ def test_valid_1page_resume():
             ),
             ResumeRole(
                 title="Senior Software Engineer",
-                company="Acme Robotics",
+                company="Beta Robotics Inc",
                 dates="Jan 2018 - Dec 2019",
                 subsections=[
                     ResumeSubsection(
@@ -72,8 +72,8 @@ def test_valid_1page_resume():
         ],
         education=[
             ResumeEducation(
-                institution="University of California, Los Angeles",
-                degree="PhD (2019); MA",
+                institution="State University",
+                degree="BS in Computer Science",
             )
         ],
     )

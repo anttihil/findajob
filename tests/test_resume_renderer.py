@@ -18,7 +18,7 @@ from careerradar.resumes.renderer import convert_to_pdf, render_docx, verify_pag
 def test_render_docx_and_convert_pdf(tmp_path: Path):
     payload = TailoredResumePayload(
         name="Jane Doe",
-        contact_line_1="Greater Los Angeles Area | jane.doe@example.com | 555-019-2834",
+        contact_line_1="San Francisco Bay Area | jane.doe@example.com | 555-019-2834",
         contact_line_2="github.com/janedoe | linkedin.com/in/janedoe",
         summary=(
             "Senior full-stack software engineer specialized in distributed systems, "
@@ -27,11 +27,11 @@ def test_render_docx_and_convert_pdf(tmp_path: Path):
         experience=[
             ResumeRole(
                 title="Lead Software Engineer",
-                company="UCLA",
+                company="Acme Cloud Systems",
                 dates="Jan 2020 - present",
                 subsections=[
                     ResumeSubsection(
-                        heading="Designed campus-wide infrastructure and web services:",
+                        heading="Designed platform infrastructure and web services:",
                         bullets=[
                             "Architected distributed web application handling 50k+ users.",
                             "Automated cloud migrations saving 30+ engineering hrs/week.",
@@ -52,8 +52,8 @@ def test_render_docx_and_convert_pdf(tmp_path: Path):
         ],
         education=[
             ResumeEducation(
-                institution="University of California, Los Angeles",
-                degree="PhD (2019); MA",
+                institution="State University",
+                degree="BS in Computer Science",
             )
         ],
     )
@@ -67,7 +67,7 @@ def test_render_docx_and_convert_pdf(tmp_path: Path):
     doc = docx.Document(docx_path)
     text = " ".join(p.text for p in doc.paragraphs)
     assert "JANE DOE" in text or "Jane Doe" in text
-    assert "UCLA" in text
+    assert "Acme Cloud Systems" in text
     assert "EXPERIENCE" in text
     assert "SKILLS" in text
     assert "EDUCATION" in text

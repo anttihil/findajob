@@ -20,17 +20,17 @@ def test_master_profile_crud():
 
     # Initial profile seeded by migration v17
     p0 = load_master_profile(conn)
-    assert p0.name != ""
+    assert p0 is not None
 
     # Update profile
     p1 = ResumeMasterProfile(
-        name="Jane Test",
-        email="user@test.com",
+        name="Jane Doe",
+        email="jane@example.com",
         phone="555-0199",
         location="San Francisco, CA",
-        github="https://github.com/usertest",
-        linkedin="https://linkedin.com/in/usertest",
-        website="https://usertest.dev",
+        github="https://github.com/janedoe",
+        linkedin="https://linkedin.com/in/janedoe",
+        website="https://janedoe.dev",
         summary_guidance="Staff software engineer specialized in distributed systems and AI.",
         education=[MasterEducation(institution="MIT", degree="MS Computer Science", details="")],
         skills=[MasterSkillCategory(category="Languages", skills=["Python", "TypeScript", "Go"])],
@@ -53,8 +53,8 @@ def test_master_profile_crud():
     save_master_profile(p1, conn)
     loaded = load_master_profile(conn)
 
-    assert loaded.name == "Jane Test"
-    assert loaded.email == "user@test.com"
+    assert loaded.name == "Jane Doe"
+    assert loaded.email == "jane@example.com"
     assert len(loaded.education) == 1
     assert loaded.education[0].institution == "MIT"
     assert len(loaded.skills) == 1

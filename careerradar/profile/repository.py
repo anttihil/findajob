@@ -127,6 +127,20 @@ def load_active(db: Database | None = None) -> tuple[int, Profile, str] | None:
             "SELECT version, profile_json, summary_text FROM profiles WHERE is_active = 1"
         ).fetchone()
         if row is None:
+            from careerradar.resumes.repository import (
+                load_master_profile,
+                master_profile_to_scoring_profile,
+            )
+
+            master = load_master_profile(db.conn)
+            if master.name or master.experience or master.skills:
+                scoring_prof = master_profile_to_scoring_profile(master)
+                v = save_profile(scoring_prof, model="master-profile-sync", db=db)
+                row = db.conn.execute(
+                    "SELECT version, profile_json, summary_text FROM profiles WHERE version = ?",
+                    (v,),
+                ).fetchone()
+        if row is None:
             return None
         return (
             row["version"],

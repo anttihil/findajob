@@ -26,12 +26,12 @@ def test_update_master_profile(mock_save: MagicMock):
     client = TestClient(app)
     payload = {
         "name": "Jane Doe Updated",
-        "email": "user@new.com",
+        "email": "jane@example.com",
         "phone": "555-1234",
-        "location": "Los Angeles",
-        "github": "github.com/user",
-        "linkedin": "linkedin.com/in/user",
-        "website": "user.dev",
+        "location": "San Francisco",
+        "github": "github.com/janedoe",
+        "linkedin": "linkedin.com/in/janedoe",
+        "website": "example.dev",
         "summary_guidance": "Lead architect.",
         "education": [],
         "skills": [],

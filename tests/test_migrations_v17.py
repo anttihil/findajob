@@ -10,15 +10,11 @@ def test_migration_v17():
     conn.row_factory = sqlite3.Row
     migrate(conn)
 
-    assert current_version(conn) == 17
+    assert current_version(conn) >= 17
 
-    # Check resume_master_profile table exists and is seeded
+    # Check resume_master_profile table exists
     row = conn.execute("SELECT * FROM resume_master_profile").fetchone()
     assert row is not None
-    assert row["name"] != ""
-    has_ucla = "UCLA" in (row["experience_json"] or "")
-    has_brain = "Acme Robotics" in (row["experience_json"] or "")
-    assert has_ucla or has_brain
 
     # Check generated_resumes table exists and respects foreign key to jobs
     conn.execute(

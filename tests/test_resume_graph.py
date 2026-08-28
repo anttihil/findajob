@@ -89,13 +89,13 @@ def test_full_graph_execution(
 
     payload = TailoredResumePayload(
         name="Jane Doe",
-        contact_line_1="LA, CA | test@test.com",
-        contact_line_2="github.com/test",
+        contact_line_1="San Francisco, CA | jane@example.com",
+        contact_line_2="github.com/janedoe",
         summary="Senior full-stack engineer.",
         experience=[
             ResumeRole(
                 title="Lead Software Engineer",
-                company="UCLA",
+                company="Acme Platform",
                 dates="2020 - Present",
                 subsections=[
                     ResumeSubsection(
@@ -106,7 +106,7 @@ def test_full_graph_execution(
             )
         ],
         skills=[ResumeSkillCategory(category="Cloud", skills="AWS, Docker")],
-        education=[ResumeEducation(institution="UCLA", degree="PhD")],
+        education=[ResumeEducation(institution="State University", degree="BS")],
     )
 
     verdict = ATSScreeningVerdict(
