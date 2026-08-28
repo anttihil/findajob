@@ -144,8 +144,7 @@ export function JobDrawer({
 
                   {generating && (
                     <div style={{ marginTop: "0.75rem", color: "#a78bfa", fontSize: "0.9rem" }}>
-                      <i class="fa-solid fa-spinner fa-spin"></i> Tailoring resume with DeepSeek &
-                      validating 1-page layout...
+                      <i class="fa-solid fa-spinner fa-spin"></i> Generating tailored 1-page resume...
                     </div>
                   )}
 

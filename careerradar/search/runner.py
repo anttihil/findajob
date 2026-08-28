@@ -199,6 +199,12 @@ def run_sync(
             if limit:
                 tasks = tasks[:limit]
             totals["cells_planned"] += len(tasks)
+            if run_id is not None:
+                db.conn.execute(
+                    "UPDATE sync_runs SET cells_planned = ? WHERE id = ?",
+                    (totals["cells_planned"], run_id),
+                )
+                db.conn.commit()
 
             logger.info(f"[{source}] {len(tasks)} cells planned")
 

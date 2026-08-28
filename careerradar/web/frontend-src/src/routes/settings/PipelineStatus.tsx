@@ -1,7 +1,9 @@
 import { useEffect, useRef } from "preact/hooks";
+import { getJSON, reportError } from "../../api/client";
 import type {
   PipelineScoreStatus,
   PipelineScrapeStatus,
+  PipelineStatusResponse,
 } from "../../api/types";
 import { renderMeters } from "../../charts/charts";
 import { ago } from "../../lib/format";
@@ -20,11 +22,28 @@ function ScrapeStage({ scrape }: { scrape: PipelineScrapeStatus }) {
           {
             label: "cells",
             value: scrape.cells_done ?? 0,
-            display: `${scrape.cells_done}/${scrape.cells_planned}`,
+            display: `${scrape.cells_done ?? 0}/${scrape.cells_planned}`,
           },
         ],
         { max: scrape.cells_planned },
       );
+    } else if (!running && scrape.previous_run?.cells) {
+      const [succeeded, planned] = scrape.previous_run.cells;
+      if (planned > 0) {
+        renderMeters(
+          meterRef.current,
+          [
+            {
+              label: "cells",
+              value: succeeded,
+              display: `${succeeded}/${planned}`,
+            },
+          ],
+          { max: planned },
+        );
+      } else {
+        meterRef.current.innerHTML = "";
+      }
     } else {
       meterRef.current.innerHTML = "";
     }
@@ -101,16 +120,24 @@ function ScoreStage({ score }: { score: PipelineScoreStatus }) {
 }
 
 export function PipelineStatus() {
+  useEffect(() => {
+    if (!livePipelineStatus.value) {
+      getJSON<PipelineStatusResponse>("/api/pipeline/status")
+        .then((data) => {
+          if (data) livePipelineStatus.value = data;
+        })
+        .catch((err) => {
+          reportError("Loading pipeline status", err);
+        });
+    }
+  }, []);
+
   return (
     <div class="glass-card mt-6">
       <h3>
         <i class="fa-solid fa-gauge-high"></i> Pipeline Progress
       </h3>
-      <p>
-        Live status for the two background stages. Both also run on their own
-        timer, independent of the buttons above, so this reflects whatever is
-        happening right now -- not just what this browser triggered.
-      </p>
+      <p>Live status for background scraping and scoring pipelines.</p>
       {livePipelineStatus.value && (
         <>
           <ScrapeStage scrape={livePipelineStatus.value.scrape} />

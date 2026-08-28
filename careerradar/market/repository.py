@@ -52,7 +52,8 @@ def get_postings_by_family(
     source: str | None = None,
 ) -> list[sqlite3.Row]:
     """Retrieve postings grouped by role family within the time window."""
-    query = eligibility_sql + " AND date_found >= ?"
+    where_conj = " AND " if " WHERE " in eligibility_sql.upper() else " WHERE "
+    query = eligibility_sql + where_conj + "date_found >= ?"
     params: list[Any] = [window_start]
     if source:
         query += " AND source = ?"
@@ -103,7 +104,8 @@ def load_gap_analysis_corpus(
     exclude_agencies: bool = True,
 ) -> list[dict[str, Any]]:
     """Load postings for gap analysis matching filters."""
-    query = eligibility_sql + " AND date_found >= ?"
+    where_conj = " AND " if " WHERE " in eligibility_sql.upper() else " WHERE "
+    query = eligibility_sql + where_conj + "date_found >= ?"
     params: list[Any] = [window_start]
     if exclude_agencies:
         query += " AND COALESCE(is_agency, 0) = 0"

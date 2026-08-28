@@ -96,13 +96,13 @@ export function ResumeDropzone({ onUploadSuccess, disabled }: ResumeDropzoneProp
           <div class="dropzone-text">
             <strong>
               {isUploading
-                ? "Extracting & Parsing Resume..."
+                ? "Parsing resume..."
                 : "Drop updated resume here (.PDF, .DOCX, .TXT, .MD)"}
             </strong>
             <span class="dropzone-hint">
               {isUploading
-                ? "Extracting skills, roles, and project scopes..."
-                : "or click to browse from disk. AI Copilot will parse and update your Master Profile."}
+                ? "Extracting profile details..."
+                : "or click to browse from disk. Automatically extracts and updates your profile."}
             </span>
           </div>
         </div>

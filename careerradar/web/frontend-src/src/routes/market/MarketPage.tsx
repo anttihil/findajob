@@ -38,17 +38,14 @@ function MarketPanel({ result }: { result: PanelResult }) {
           label: "truncated",
           value: censoredCount ? `${censoredCount} lower-bound` : "none",
           warn: censoredCount > 0,
-          tooltip:
-            "The board cut off the result set for these families, so their flow is a " +
-            "lower bound rather than a measurement.",
+          tooltip: "Result set truncated by the job board; value represents a lower bound.",
         },
         {
           label: "window",
           value: `${p.window_days}d`,
           warn: p.window_below_minimum,
           tooltip: p.window_below_minimum
-            ? `Below the ${p.min_window_days}-day minimum: a full scrape cycle takes about ` +
-              "5 days, so shorter windows have uneven coverage."
+            ? `Below ${p.min_window_days}-day minimum; shorter windows have partial scrape coverage.`
             : "",
         },
       ]);
@@ -260,22 +257,16 @@ export function MarketPage() {
           </div>
         </div>
         <p class="card-note">
-          New postings per day, not totals. Absolute supply is not estimable — job boards
-          never report how many postings exist, and every result set is truncated. A bar
-          with an arrow cap and a "≥" label is a <strong>lower bound</strong>: the board cut
-          us off, so there were more.
+          New postings per day. Bars marked "≥" are <strong>lower bounds</strong> due to job board result truncation.
         </p>
         <p class="card-note">
-          Each location is charted separately on purpose. Flow is only comparable within one
-          location and source, so a single pooled ranking would be the one comparison that
-          isn't valid.
+          Flow rates are comparable only within the same location and source.
         </p>
         <div class="market-panels">
           {results === null && <p class="chart-empty">Loading…</p>}
           {results && !anyData && (
             <p class="cold-start-note">
-              No supply figures yet. Run a scrape sync a few times, then check back — each
-              family needs enough observed window coverage before a rate can be stated.
+              No supply data yet. Run scraper syncs to populate coverage.
             </p>
           )}
           {results?.map((r) => (
@@ -289,8 +280,7 @@ export function MarketPage() {
           <i class="fa-solid fa-table-cells text-purple"></i> Role family × location
         </h3>
         <p class="card-note">
-          Postings per day. A dot means that cell has not been scraped yet — not that demand
-          is zero.
+          Postings per day. Dots indicate unscraped cells.
         </p>
         <div class="heatmap-wrap" ref={heatmapRef}></div>
       </div>
@@ -308,7 +298,7 @@ export function MarketPage() {
             </span>
           )}
         </div>
-        <p class="card-note">Per-cell health. This is where a silently degrading scraper becomes visible.</p>
+        <p class="card-note">Per-cell scraping status and error history.</p>
         <div class="coverage-table-wrap">
           <CoverageTable cells={coverageCells} />
         </div>

@@ -29,7 +29,7 @@ export function ProfileChatPanel({
     {
       role: "assistant",
       content:
-        "Hello! I am your **Master Profile Copilot**. I can help you refine your experience bullets, categorize skills, calibrate hard dealbreakers, and ensure your profile is primed for both scoring and tailored resume generation. What would you like to update or review?",
+        "I can help refine experience bullets, categorize skills, and update your master profile for scoring and tailored resumes. What would you like to adjust?",
     },
   ]);
   const [inputVal, setInputVal] = useState("");
@@ -135,7 +135,7 @@ export function ProfileChatPanel({
         {loading && (
           <div class="chat-bubble-row assistant">
             <div class="chat-bubble thinking">
-              <i class="fa-solid fa-spinner fa-spin"></i> Copilot is analyzing & refining profile...
+              <i class="fa-solid fa-spinner fa-spin"></i> Analyzing and updating profile...
             </div>
           </div>
         )}

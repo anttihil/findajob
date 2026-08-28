@@ -157,7 +157,10 @@ class LiveEventHub:
                 stats = db.get_stats()
                 self.broadcast(event_type="stats_update", data=stats)
                 self.broadcast(event_type="jobs_changed", data={"version": current_version})
-            if sync_running or self._last_sync_running != sync_running:
+                self.broadcast(
+                    event_type="pipeline_progress", data=self._get_pipeline_status(db, sync_running)
+                )
+            elif sync_running or self._last_sync_running != sync_running:
                 self.broadcast(
                     event_type="pipeline_progress", data=self._get_pipeline_status(db, sync_running)
                 )

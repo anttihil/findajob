@@ -39,8 +39,13 @@ def collect_status_report(
     # -- stages ---------------------------------------------------------------------
     run = conn.execute(
         "SELECT started_at, mode, status, cells_planned, cells_succeeded, postings_new "
-        "FROM sync_runs ORDER BY id DESC LIMIT 1"
+        "FROM sync_runs WHERE status != 'running' ORDER BY id DESC LIMIT 1"
     ).fetchone()
+    if run is None:
+        run = conn.execute(
+            "SELECT started_at, mode, status, cells_planned, cells_succeeded, postings_new "
+            "FROM sync_runs ORDER BY id DESC LIMIT 1"
+        ).fetchone()
     runs_per_day = (
         conn.execute(
             "SELECT COUNT(*) FROM sync_runs WHERE started_at >= datetime('now', '-7 days')"
@@ -168,7 +173,8 @@ def get_pipeline_status(
     }
     if sync_running:
         run = conn.execute(
-            "SELECT id FROM sync_runs WHERE status = 'running' ORDER BY id DESC LIMIT 1"
+            "SELECT id, cells_planned FROM sync_runs "
+            "WHERE status = 'running' ORDER BY id DESC LIMIT 1"
         ).fetchone()
         if run is not None:
             config = load_config()
@@ -180,10 +186,12 @@ def get_pipeline_status(
                 "SELECT COUNT(*) FROM cell_observations WHERE sync_run_id = ?",
                 (run["id"],),
             ).fetchone()[0]
-            if db_instance is not None:
-                scrape["cells_planned"] = sum(
+            planned = run["cells_planned"]
+            if not planned and db_instance is not None:
+                planned = sum(
                     len(scrape_tasks(db_instance, config, roles, source)) for source in enabled
                 )
+            scrape["cells_planned"] = planned or None
 
     recent_verdicts = count_recent_verdicts(conn, minutes=5)
 

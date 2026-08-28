@@ -20,9 +20,7 @@ function GapRow({ row, index, kind, onSelect }: {
         label: "blocking",
         value: row.blocking_gap,
         display: pct(row.blocking_gap),
-        tooltip:
-          "Share of postings you otherwise match well that require this skill — the " +
-          "reason to learn it next.",
+        tooltip: "Share of matching postings requiring this skill.",
       },
       {
         label: "demand",
@@ -34,9 +32,7 @@ function GapRow({ row, index, kind, onSelect }: {
         label: "adjacent",
         value: row.adjacency,
         display: pct(row.adjacency),
-        tooltip:
-          "How much of the surrounding stack you already know — a proxy for how " +
-          "reachable this skill is from where you are.",
+        tooltip: "Share of related stack technologies you already know.",
       },
     ]);
   }, [row, kind]);
@@ -125,15 +121,13 @@ export function SkillsPage() {
         value: p.n_postings ?? 0,
         label: "postings analysed",
         sub: `n_eff ${p.n_eff ?? 0}`,
-        tooltip:
-          "Effective sample size after reweighting. Lower than the raw count because an " +
-          "uneven scrape mix costs precision.",
+        tooltip: "Effective sample size after target mix reweighting.",
       },
       {
         value: p.n_good_fit ?? 0,
         label: "strong matches",
         sub: `score ≥ ${p.good_fit_threshold ?? 60}`,
-        tooltip: "Postings you already match well. Blocking gaps are measured against these.",
+        tooltip: "Postings meeting the match threshold for gap analysis.",
       },
       { value: data.views.priority_gaps.length, label: "skills to acquire" },
       { value: data.views.validated_strengths.length, label: "validated strengths" },
@@ -160,9 +154,7 @@ export function SkillsPage() {
   if (data?.provenance.cold_start) {
     notes.push({
       severity: "info",
-      text:
-        "Building baseline — the corpus is still small, so treat these figures as " +
-        "provisional. A full scrape cycle takes about 5 days.",
+      text: "Building baseline — small corpus size; full scrape cycle takes ~5 days.",
     });
   }
   if (data?.provenance.residual_bias_note) {
@@ -210,9 +202,8 @@ export function SkillsPage() {
         <div class="stat-tile-row" ref={tilesRef}></div>
         <div class="coverage-strip" ref={coverageRef}></div>
         <p class="card-note">
-          Ranked by <strong>blocking gap</strong> — how often a skill you lack appears in
-          postings you <em>otherwise</em> match well. That is a more actionable signal than
-          raw popularity, and it is weighted down for skills that take longer to learn.
+          Ranked by <strong>blocking gap</strong> — missing skills across matching
+          postings, weighted by learning effort.
         </p>
         {data ? (
           <GapList rows={data.views.priority_gaps} kind="gap" onSelect={setSelectedSkill} />
@@ -226,14 +217,14 @@ export function SkillsPage() {
           <h3>
             <i class="fa-solid fa-circle-check text-green"></i> Validated strengths
           </h3>
-          <p class="card-note">On your resume and genuinely in demand.</p>
+          <p class="card-note">On your resume and in active demand.</p>
           {data && <GapList rows={data.views.validated_strengths} kind="strength" onSelect={setSelectedSkill} />}
         </div>
         <div class="glass-card">
           <h3>
             <i class="fa-solid fa-circle-minus"></i> Dead weight
           </h3>
-          <p class="card-note">On your resume, but almost nobody asks for it. Resume space with little market return.</p>
+          <p class="card-note">On your resume with minimal market demand.</p>
           {data && <GapList rows={data.views.dead_weight} kind="dead" onSelect={setSelectedSkill} />}
         </div>
       </div>
@@ -246,8 +237,7 @@ export function SkillsPage() {
           <span class="results-count">{data ? `${data.views.suppressed.length} skills` : ""}</span>
         </div>
         <p class="card-note">
-          Reported rather than hidden: these skills lack the sample size, company spread, or
-          coverage to state a number honestly.
+          Skills with insufficient sample size, company spread, or coverage for reliable metrics.
         </p>
         <div class="suppressed-list">
           {data && data.views.suppressed.length === 0 && <p class="chart-empty">Nothing suppressed.</p>}

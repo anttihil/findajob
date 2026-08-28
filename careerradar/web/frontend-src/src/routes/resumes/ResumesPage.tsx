@@ -144,7 +144,7 @@ export function ResumesPage() {
                   <div>
                     <h3 style={{ margin: 0, fontSize: "1.25rem" }}>Master Candidate Profile</h3>
                     <p style={{ color: "var(--ink-muted)", margin: "0.25rem 0 0 0", fontSize: "0.85rem" }}>
-                      Single source of truth. Updates automatically power both <strong>Job Fit Scoring</strong> and the <strong>1-Page Tailored Resume Builder</strong>.
+                      Single source of truth for job fit scoring and tailored resume generation.
                     </p>
                   </div>
                   <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", flexWrap: "wrap" }}>
@@ -285,9 +285,9 @@ export function ResumesPage() {
                   </div>
                 </div>
 
-                {/* Section 2: Work Eligibility & Availability (Door Openers) */}
+                {/* Section 2: Work Eligibility & Availability */}
                 <div class="resume-card" style={{ marginBottom: "1.5rem" }}>
-                  <h4>2. Work Eligibility & Availability (Door-Openers)</h4>
+                  <h4>2. Work Eligibility & Availability</h4>
                   <div class="profile-form-grid">
                     <div>
                       <label class="form-label">Citizenship & Work Auth (comma-separated)</label>
@@ -305,7 +305,7 @@ export function ResumesPage() {
                         }}
                       />
                       <small style={{ color: "var(--ink-muted)", fontSize: "0.75rem" }}>
-                        Qualifies for US citizen-only roles & EU employment with zero visa sponsorship.
+                        e.g. US Citizen, Permanent Resident, EU Citizen (no sponsorship needed)
                       </small>
                     </div>
 
@@ -362,9 +362,9 @@ export function ResumesPage() {
                   </div>
                 </div>
 
-                {/* Section 3: Executive Positioning & Experience Level */}
+                {/* Section 3: Experience & Positioning */}
                 <div class="resume-card" style={{ marginBottom: "1.5rem" }}>
-                  <h4>3. Executive Positioning & Experience Level</h4>
+                  <h4>3. Experience & Positioning</h4>
                   <div class="profile-form-grid" style={{ marginBottom: "0.75rem" }}>
                     <div>
                       <label class="form-label">Years of Professional Experience</label>
@@ -382,7 +382,7 @@ export function ResumesPage() {
                       />
                     </div>
                     <div>
-                      <label class="form-label">Seniority Descriptor (Flexible)</label>
+                      <label class="form-label">Seniority Descriptor</label>
                       <input
                         type="text"
                         class="filter-input"
@@ -399,7 +399,7 @@ export function ResumesPage() {
                   </div>
 
                   <div>
-                    <label class="form-label">Summary Guidance & Core Positioning</label>
+                    <label class="form-label">Summary Guidance & Positioning</label>
                     <textarea
                       class="filter-input"
                       rows={3}
@@ -414,10 +414,10 @@ export function ResumesPage() {
                   </div>
                 </div>
 
-                {/* Section 4: Work Experience & Projects Pool (Ground Truth Evidence) */}
+                {/* Section 4: Work Experience & Projects */}
                 <div class="resume-card" style={{ marginBottom: "1.5rem" }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <h4>4. Work Experience & Projects Pool (Ground-Truth Evidence)</h4>
+                    <h4>4. Work Experience & Projects</h4>
                     <button
                       class="action-pill"
                       onClick={() => {
@@ -594,7 +594,7 @@ export function ResumesPage() {
                 {/* Section 5: Skills & Competencies */}
                 <div class="resume-card" style={{ marginBottom: "1.5rem" }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <h4>5. Skills & Categorized Tools</h4>
+                    <h4>5. Skills & Competencies</h4>
                     <button
                       class="action-pill"
                       onClick={() => {
@@ -706,7 +706,7 @@ export function ResumesPage() {
                   ))}
                 </div>
 
-                {/* Section 7: Role Targeting & Boundaries (Preferences, Dealbreakers & Gaps) */}
+                {/* Section 7: Role Targeting & Boundaries */}
                 <div class="resume-card" style={{ marginBottom: "2rem" }}>
                   <h4>7. Role Targeting & Boundaries</h4>
                   <div class="profile-form-grid" style={{ marginTop: "0.5rem" }}>
@@ -745,7 +745,7 @@ export function ResumesPage() {
                     </div>
 
                     <div>
-                      <label class="form-label">Explicit Dealbreakers / Avoid Stacks (comma-separated)</label>
+                      <label class="form-label">Dealbreakers & Excluded Tech (comma-separated)</label>
                       <input
                         type="text"
                         class="filter-input"
@@ -762,7 +762,7 @@ export function ResumesPage() {
                     </div>
 
                     <div>
-                      <label class="form-label">Honest Gaps / Limitations (comma-separated)</label>
+                      <label class="form-label">Skill & Experience Gaps (comma-separated)</label>
                       <input
                         type="text"
                         class="filter-input"
@@ -816,7 +816,7 @@ export function ResumesPage() {
           <div style={{ marginBottom: "1rem" }}>
             <h3 style={{ margin: 0 }}>Tailored Resumes Library</h3>
             <p style={{ color: "var(--ink-muted)", margin: "0.25rem 0 0 0" }}>
-              1-page tailored resumes generated by LangGraph Actor-Critic pipeline for specific job postings.
+              1-page tailored resumes generated for specific job postings.
             </p>
           </div>
 
