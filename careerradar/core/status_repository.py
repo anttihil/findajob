@@ -6,7 +6,11 @@ from typing import Any
 
 from careerradar.core.config import load_config
 from careerradar.core.status_manager import load_sync_status
-from careerradar.scoring.repository import count_recent_verdicts
+from careerradar.profile.models import VERDICT_SCHEMA_VERSION
+from careerradar.scoring.repository import (
+    count_pending_scoring,
+    get_pending_scoring_stats,
+)
 
 STALL_MULTIPLE = 2.0
 COVERAGE_SKEW = 0.20
@@ -28,7 +32,7 @@ def collect_status_report(
     conn: sqlite3.Connection,
     now: datetime | None = None,
 ) -> dict[str, Any]:
-    """Compile the operational health report for the pipeline."""
+    """Compile the full operational health report for the pipeline (CLI diagnostics)."""
     now = now or datetime.now(timezone.utc)
     config = load_config()
     scraper = config.get("scraper", {}) or {}
@@ -48,7 +52,8 @@ def collect_status_report(
         ).fetchone()
     runs_per_day = (
         conn.execute(
-            "SELECT COUNT(*) FROM sync_runs WHERE started_at >= datetime('now', '-7 days')"
+            "SELECT COUNT(*) FROM sync_runs "
+            "WHERE unixepoch(started_at) >= unixepoch('now', '-7 days')"
         ).fetchone()[0]
         / 7.0
     )
@@ -62,15 +67,37 @@ def collect_status_report(
     }
 
     verdict = conn.execute("SELECT MAX(created_at) FROM job_verdicts").fetchone()[0]
-    backlog, oldest_new = conn.execute(
-        "SELECT COUNT(*), MIN(date_found) FROM jobs WHERE pipeline_state = 'new'"
-    ).fetchone()
-    total_jobs = conn.execute("SELECT COUNT(*) FROM jobs").fetchone()[0]
+    try:
+        pv_row = conn.execute(
+            "SELECT COALESCE("
+            "(SELECT version FROM profiles WHERE is_active = 1 ORDER BY version DESC LIMIT 1), "
+            "(SELECT MAX(version) FROM profiles), 1)"
+        ).fetchone()
+        profile_version = pv_row[0] if pv_row else 1
+    except sqlite3.OperationalError:
+        profile_version = 1
+
+    try:
+        backlog, oldest_new = get_pending_scoring_stats(conn, profile_version=profile_version)
+        scored_count = conn.execute(
+            "SELECT COUNT(*) FROM job_verdicts WHERE profile_version = ? "
+            "AND COALESCE(verdict_schema_version, 1) >= ?",
+            (profile_version, VERDICT_SCHEMA_VERSION),
+        ).fetchone()[0]
+        total_eligible = scored_count + backlog
+        backlog_share = (backlog / total_eligible) if total_eligible else 0.0
+    except (sqlite3.OperationalError, sqlite3.DatabaseError):
+        backlog, oldest_new = conn.execute(
+            "SELECT COUNT(*), MIN(date_found) FROM jobs WHERE pipeline_state = 'new'"
+        ).fetchone()
+        total_jobs = conn.execute("SELECT COUNT(*) FROM jobs").fetchone()[0]
+        backlog_share = (backlog / total_jobs) if total_jobs else 0.0
+
     report["score"] = {
         "last_verdict": verdict,
         "hours_since": hours_since(verdict, now),
         "backlog": backlog,
-        "backlog_share": (backlog / total_jobs) if total_jobs else 0.0,
+        "backlog_share": backlog_share,
         "oldest_unscored": oldest_new,
         "oldest_unscored_days": (hours_since(oldest_new, now) or 0) / 24.0,
     }
@@ -159,43 +186,111 @@ def get_pipeline_status(
     conn: sqlite3.Connection,
     sync_running: bool,
     db_instance: Any = None,
+    now: datetime | None = None,
 ) -> dict[str, Any]:
-    """Unified pipeline status report for web endpoints and live event hubs."""
-    from careerradar.search.scheduler import scrape_tasks
-    from careerradar.taxonomy.roles import load_roles
+    """Lightweight, low-latency pipeline progress report for web UI and live SSE events."""
+    now = now or datetime.now(timezone.utc)
 
-    report = collect_status_report(conn)
+    # 1. Scrape: query the latest completed run
+    last_sync = conn.execute(
+        "SELECT started_at, status, cells_succeeded, cells_planned, postings_new "
+        "FROM sync_runs WHERE status != 'running' ORDER BY id DESC LIMIT 1"
+    ).fetchone()
+    if last_sync is None:
+        last_sync = conn.execute(
+            "SELECT started_at, status, cells_succeeded, cells_planned, postings_new "
+            "FROM sync_runs ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+
+    previous_run = (
+        {
+            "last_run": last_sync["started_at"],
+            "hours_since": hours_since(last_sync["started_at"], now),
+            "status": last_sync["status"],
+            "cells": (last_sync["cells_succeeded"], last_sync["cells_planned"]),
+            "postings_new": last_sync["postings_new"],
+        }
+        if last_sync
+        else None
+    )
 
     scrape: dict[str, Any] = {
         "in_progress": sync_running,
         "started_at": load_sync_status().get("started_at") if sync_running else None,
-        "previous_run": report["search"],
+        "previous_run": previous_run,
     }
+
     if sync_running:
         run = conn.execute(
             "SELECT id, cells_planned FROM sync_runs "
             "WHERE status = 'running' ORDER BY id DESC LIMIT 1"
         ).fetchone()
         if run is not None:
-            config = load_config()
-            roles = load_roles()
-            enabled = [
-                name for name, on in (config.get("scraper", {}).get("sources") or {}).items() if on
-            ]
             scrape["cells_done"] = conn.execute(
                 "SELECT COUNT(*) FROM cell_observations WHERE sync_run_id = ?",
                 (run["id"],),
             ).fetchone()[0]
             planned = run["cells_planned"]
             if not planned and db_instance is not None:
+                from careerradar.search.scheduler import scrape_tasks
+                from careerradar.taxonomy.roles import load_roles
+
+                config = load_config()
+                roles = load_roles()
+                enabled = [
+                    name
+                    for name, on in (config.get("scraper", {}).get("sources") or {}).items()
+                    if on
+                ]
                 planned = sum(
                     len(scrape_tasks(db_instance, config, roles, source)) for source in enabled
                 )
             scrape["cells_planned"] = planned or None
 
-    recent_verdicts = count_recent_verdicts(conn, minutes=5)
+    # 2. Score: single query for latest verdict timestamp and recent 5-min verdict count
+    v_row = conn.execute(
+        "SELECT MAX(created_at), "
+        "SUM(CASE WHEN unixepoch(created_at) >= unixepoch('now', '-5 minutes') THEN 1 ELSE 0 END) "
+        "FROM job_verdicts"
+    ).fetchone()
+    last_verdict = v_row[0] if v_row else None
+    recent_verdicts = int(v_row[1] or 0) if v_row else 0
+
+    try:
+        pv_row = conn.execute(
+            "SELECT COALESCE("
+            "(SELECT version FROM profiles WHERE is_active = 1 ORDER BY version DESC LIMIT 1), "
+            "(SELECT MAX(version) FROM profiles), 1)"
+        ).fetchone()
+        profile_version = pv_row[0] if pv_row else 1
+    except sqlite3.OperationalError:
+        profile_version = 1
+
+    try:
+        backlog = count_pending_scoring(conn, profile_version=profile_version)
+        scored_count = conn.execute(
+            "SELECT COUNT(*) FROM job_verdicts WHERE profile_version = ? "
+            "AND COALESCE(verdict_schema_version, 1) >= ?",
+            (profile_version, VERDICT_SCHEMA_VERSION),
+        ).fetchone()[0]
+        total_eligible = scored_count + backlog
+        backlog_share = (backlog / total_eligible) if total_eligible else 0.0
+    except (sqlite3.OperationalError, sqlite3.DatabaseError):
+        backlog = conn.execute("SELECT COUNT(*) FROM jobs WHERE pipeline_state = 'new'").fetchone()[
+            0
+        ]
+        total_jobs = conn.execute("SELECT COUNT(*) FROM jobs").fetchone()[0]
+        backlog_share = (backlog / total_jobs) if total_jobs else 0.0
+
+    score = {
+        "last_verdict": last_verdict,
+        "hours_since": hours_since(last_verdict, now),
+        "backlog": backlog,
+        "backlog_share": backlog_share,
+        "recent_verdicts_5min": recent_verdicts,
+    }
 
     return {
         "scrape": scrape,
-        "score": {**report["score"], "recent_verdicts_5min": recent_verdicts},
+        "score": score,
     }

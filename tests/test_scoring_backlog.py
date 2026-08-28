@@ -311,6 +311,63 @@ class QuarantineTests(_Fixture, unittest.TestCase):
         self.assertEqual(_pending(self.db, PROFILE), 1)
 
 
+class RecentVerdictsTests(_Fixture, unittest.TestCase):
+    def test_count_recent_verdicts_handles_iso_timestamps(self) -> None:
+        from datetime import datetime, timedelta, timezone
+
+        from careerradar.scoring.repository import count_recent_verdicts
+
+        now = datetime.now(timezone.utc)
+        self.job(1)
+        self.job(2)
+
+        # Verdict created 3 hours ago (ISO 8601 with 'T' on same day)
+        three_hours_ago = (now - timedelta(hours=3)).isoformat()
+        self.conn.execute(
+            "INSERT INTO job_verdicts (job_id, profile_version, model, fit, reason_type, "
+            "reason_description, verdict_schema_version, created_at) "
+            "VALUES (1, ?, 'm', 1, 'match', 'desc', ?, ?)",
+            (PROFILE, VERDICT_SCHEMA_VERSION, three_hours_ago),
+        )
+
+        # Verdict created 2 minutes ago
+        two_mins_ago = (now - timedelta(minutes=2)).isoformat()
+        self.conn.execute(
+            "INSERT INTO job_verdicts (job_id, profile_version, model, fit, reason_type, "
+            "reason_description, verdict_schema_version, created_at) "
+            "VALUES (2, ?, 'm', 1, 'match', 'desc', ?, ?)",
+            (PROFILE, VERDICT_SCHEMA_VERSION, two_mins_ago),
+        )
+        self.conn.commit()
+
+        self.assertEqual(count_recent_verdicts(self.conn, minutes=5), 1)
+        self.assertEqual(count_recent_verdicts(self.conn, minutes=240), 2)
+
+
+class StatusReportBacklogTests(_Fixture, unittest.TestCase):
+    def test_collect_status_report_counts_only_eligible_pending(self) -> None:
+        from careerradar.core.status_repository import collect_status_report
+
+        self.conn.execute(
+            "INSERT INTO profiles (version, is_active, created_at, model, profile_json, "
+            "summary_text) VALUES (?, 1, '2026-08-01T00:00:00', 'm', '{}', 'summary')",
+            (PROFILE,),
+        )
+
+        # 2 eligible pending jobs
+        self.job(1)
+        self.job(2)
+
+        # Ineligible jobs in state 'new'
+        self.job(3, duplicate_of=1)
+        self.job(4, description="short")
+        self.job(5, description=None)
+
+        report = collect_status_report(self.conn)
+        self.assertEqual(report["score"]["backlog"], 2)
+        self.assertEqual(report["score"]["backlog_share"], 1.0)
+
+
 _VERDICT = {
     "fit_score": 50,
     "verdict": "maybe",

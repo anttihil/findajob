@@ -89,6 +89,26 @@ def select_scoring_backlog(
     return [dict(row) for row in conn.execute(query, params)]
 
 
+def get_pending_scoring_stats(
+    conn: sqlite3.Connection, profile_version: int, include_closed: bool = False
+) -> tuple[int, str | None]:
+    """How many postings are pending scoring and the date found of the oldest one."""
+    sql = (
+        "SELECT COUNT(*), MIN(j.date_found)"
+        + _ELIGIBLE.format(
+            live_clause=_live_clause(include_closed),
+            max_failures=MAX_SCORING_FAILURES,
+            seniority_clause=_seniority_clause(),
+            age_clause=_age_clause(),
+        )
+        + _NO_VERDICT
+    )
+    row = conn.execute(sql, [profile_version, VERDICT_SCHEMA_VERSION]).fetchone()
+    if row is None:
+        return 0, None
+    return row[0], row[1]
+
+
 def count_pending_scoring(
     conn: sqlite3.Connection, profile_version: int, include_closed: bool = False
 ) -> int:
@@ -104,6 +124,16 @@ def count_pending_scoring(
         + _NO_VERDICT
     )
     return conn.execute(sql, [profile_version, VERDICT_SCHEMA_VERSION]).fetchone()[0]
+
+
+def get_oldest_pending_date(
+    conn: sqlite3.Connection, profile_version: int, include_closed: bool = False
+) -> str | None:
+    """Date found of the oldest eligible posting waiting to be scored."""
+    _, oldest = get_pending_scoring_stats(
+        conn, profile_version=profile_version, include_closed=include_closed
+    )
+    return oldest
 
 
 def get_ineligible_breakdown(conn: sqlite3.Connection) -> sqlite3.Row:
@@ -559,6 +589,6 @@ def query_observability_verdicts(
 def count_recent_verdicts(conn: sqlite3.Connection, minutes: int = 5) -> int:
     """Count verdicts produced in the last N minutes."""
     return conn.execute(
-        "SELECT COUNT(*) FROM job_verdicts WHERE created_at >= datetime('now', ?)",
+        "SELECT COUNT(*) FROM job_verdicts WHERE unixepoch(created_at) >= unixepoch('now', ?)",
         (f"-{minutes} minutes",),
     ).fetchone()[0]
