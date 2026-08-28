@@ -54,7 +54,7 @@ def _run(outcomes: list[str]) -> tuple[dict[str, Any], list[str], list[str]]:
         role_family="platform",
         location_id="helsinki",
         query="Platform Engineer",
-        tier="core",
+        active=True,
         last_success_at=datetime.now(timezone.utc).isoformat(),
     )
     db = mock.MagicMock()

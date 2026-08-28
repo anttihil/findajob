@@ -98,7 +98,7 @@ def get_cells(
                 role_family=row["role_family"],
                 location_id=row["location_id"],
                 query=row["query"],
-                tier=row["tier"],
+                active=bool(row["enabled"]),
                 enabled=row["enabled"],
                 last_scraped_at=row["last_scraped_at"],
                 last_success_at=row["last_success_at"],

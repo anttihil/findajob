@@ -129,25 +129,26 @@ def collect_status_report(
     ]
 
     # -- cells ------------------------------------------------------------------------
-    cells = []
-    for row in conn.execute(
-        "SELECT tier, COUNT(*) AS cells, "
+    cadence_hours = int(cadence) if isinstance(cadence, (int, float)) else 24
+    row = conn.execute(
+        "SELECT COUNT(*) AS cells, "
         "SUM(CASE WHEN last_success_at IS NULL THEN 1 ELSE 0 END) AS never, "
         "MAX(last_success_at) AS newest, MIN(last_success_at) AS oldest, "
         "SUM(CASE WHEN consecutive_error > 0 THEN 1 ELSE 0 END) AS erroring, "
         "SUM(CASE WHEN backoff_until IS NOT NULL THEN 1 ELSE 0 END) AS backed_off "
-        "FROM scrape_cells WHERE enabled = 1 GROUP BY tier"
-    ):
+        "FROM scrape_cells WHERE enabled = 1"
+    ).fetchone()
+    cells = []
+    if row and row["cells"]:
         oldest_hours = hours_since(row["oldest"], now)
-        tier_cadence = cadence.get(row["tier"], 168)
         cells.append(
             {
-                "tier": row["tier"],
+                "active": True,
                 "cells": row["cells"],
                 "never_scraped": row["never"],
                 "oldest_success_hours": oldest_hours,
-                "cadence_hours": tier_cadence,
-                "stale": bool(oldest_hours and oldest_hours > tier_cadence * STALL_MULTIPLE),
+                "cadence_hours": cadence_hours,
+                "stale": bool(oldest_hours and oldest_hours > cadence_hours * STALL_MULTIPLE),
                 "erroring": row["erroring"],
                 "backed_off": row["backed_off"],
             }

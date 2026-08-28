@@ -46,54 +46,24 @@ scraper:
   # window. Set to 0 to keep everything.
   archive_retention_days: 14
 
-  # How often a cell in each tier should be revisited. This feeds the priority ranking and
-  # the starvation deadline below; it is a target, not a promise.
-  cadence_hours:
-    core: 24
-    adjacent: 72
-    breadth: 168
+  # How often an active search cell should be revisited (daily). This feeds the
+  # priority ranking and the starvation deadline below; it is a target, not a promise.
+  cadence_hours: 24
 
-  # How far back one scrape looks. hours_old is sent to the board as a recency filter, so
-  # only postings published inside the window can come back.
-  #
-  # The window is not read straight from here. adaptive_hours_old() derives it per cell as
-  # max(floor, 1.5 * hours since that cell last succeeded), capped at max_hours_old. The
-  # reason is that the scheduler rotates: each run visits a subset of the cells, so how long
-  # a cell waits between visits comes from its priority rank and not from the run timer, and
-  # it varies from hours to weeks. A window shorter than that wait means postings published
-  # between the two visits are never seen at all. Deriving it from the wait keeps the window
-  # covering it, and the 1.5x is overlap margin -- dedup drops the repeats, so overlap is
-  # cheap and a hole is not.
-  #
-  # The floor is the minimum window, and it applies to cells the rotation visits often.
-  # Prefer it low. A cell asks for a fixed number of postings (results_wanted), and boards
-  # rank the window by their own relevance rather than by date, so in a wide window a
-  # posting from an hour ago competes with the whole backlog for the same slots and often
-  # loses.
-  hours_old_floor:
-    core: 72
-    adjacent: 72
-    breadth: 168
-  # Upper bound on the derived window. Past a ~224h wait this wins, and the window then
-  # stops covering the full wait -- accepted, since a board's recency filter is of little
-  # use much further back than two weeks.
-  max_hours_old: 336
+  # Minimum recency window for scraping (72 hours).
+  hours_old_floor: 72
+  # Upper bound on the derived window (7 days).
+  max_hours_old: 168
   # Window used when a cell has never been scraped successfully, and by backfill runs.
-  backfill_hours_old: 336
+  backfill_hours_old: 168
 
-  # Freshness guarantee for the most important cells. If a core cell in a top-weighted
-  # location has not been visited within this many hours, its role family's supply figures
-  # are suppressed and the dashboard shows a coverage warning instead of a stale number.
+  # Freshness guarantee: If a cell in a top-weighted location has not been visited
+  # within this many hours, the dashboard shows a coverage warning.
   max_staleness_hours: 72
 
-  # Deadline for any cell, as a multiple of its tier's cadence_hours. A cell past its
-  # deadline jumps the priority ranking and is scheduled regardless of how it ranks.
-  #
-  # This exists because priority alone does not guarantee coverage. Ranking cells by
-  # expected yield starves the low-yield ones forever, and then "this role family has no
-  # jobs" and "this query has been broken for a month" look identical. With 4: core is
-  # visited within 4 days, adjacent within 12, breadth within 28.
-  starvation_multiple: 4
+  # Deadline for any cell, as a multiple of cadence_hours (24h * 3 = 72h max wait).
+  # A cell past its deadline jumps the priority ranking and is scheduled immediately.
+  starvation_multiple: 3
 
   # Per-source limits on one run. Several caps apply at once and the SMALLEST one binds, so
   # raising a single number often changes nothing -- check which one is actually stopping

@@ -13,7 +13,7 @@ from careerradar.core.logger import get_logger
 
 logger = get_logger()
 
-SCHEMA_VERSION = 19
+SCHEMA_VERSION = 20
 
 
 def _v1_baseline(cursor: sqlite3.Cursor) -> None:
@@ -1574,6 +1574,107 @@ def _v19_single_profile_table(cursor: sqlite3.Cursor) -> None:
     )
 
 
+def _v20_target_roles_and_queries(cursor: sqlite3.Cursor) -> None:
+    """Create target_roles, target_queries, and target_locations tables."""
+    import json
+    import os
+    from datetime import datetime, timezone
+
+    import yaml
+
+    from careerradar.core.paths import DATA_DIR
+
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS target_roles (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            key          TEXT UNIQUE NOT NULL,
+            label        TEXT NOT NULL,
+            resume       TEXT,
+            aliases_json TEXT NOT NULL DEFAULT '[]',
+            enabled      INTEGER NOT NULL DEFAULT 1,
+            created_at   TEXT NOT NULL
+        );
+        """
+    )
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS target_queries (
+            id       INTEGER PRIMARY KEY AUTOINCREMENT,
+            role_key TEXT NOT NULL REFERENCES target_roles(key) ON DELETE CASCADE,
+            query    TEXT NOT NULL,
+            enabled  INTEGER NOT NULL DEFAULT 1
+        );
+        """
+    )
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS target_locations (
+            id             TEXT PRIMARY KEY,
+            label          TEXT NOT NULL,
+            search_label   TEXT NOT NULL,
+            country        TEXT NOT NULL,
+            indeed_country TEXT NOT NULL DEFAULT 'usa',
+            is_remote      INTEGER NOT NULL DEFAULT 0,
+            access         TEXT NOT NULL DEFAULT 'relocation',
+            weight         REAL NOT NULL DEFAULT 1.0,
+            distance       INTEGER NOT NULL DEFAULT 50,
+            enabled        INTEGER NOT NULL DEFAULT 1
+        );
+        """
+    )
+
+    roles_path = os.path.join(DATA_DIR, "roles.yaml")
+    if os.path.exists(roles_path):
+        try:
+            with open(roles_path, encoding="utf-8") as f:
+                data = yaml.safe_load(f.read()) or {}
+            now = datetime.now(timezone.utc).isoformat()
+            for key, spec in (data.get("families") or {}).items():
+                spec = spec or {}
+                label = spec.get("label", key.replace("_", " ").title())
+                patterns = spec.get("patterns") or []
+                resume = spec.get("resume")
+                cursor.execute(
+                    """
+                    INSERT OR IGNORE INTO target_roles
+                    (key, label, resume, aliases_json, enabled, created_at)
+                    VALUES (?, ?, ?, ?, 1, ?)
+                    """,
+                    (key, label, resume, json.dumps(patterns), now),
+                )
+                for q in spec.get("query_terms") or []:
+                    cursor.execute(
+                        """
+                        INSERT INTO target_queries (role_key, query, enabled)
+                        VALUES (?, ?, 1)
+                        """,
+                        (key, q),
+                    )
+            for loc in data.get("locations") or []:
+                cursor.execute(
+                    """
+                    INSERT OR IGNORE INTO target_locations (
+                        id, label, search_label, country, indeed_country,
+                        is_remote, access, weight, distance, enabled
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+                    """,
+                    (
+                        loc["id"],
+                        loc["label"],
+                        loc.get("search_label", loc["label"]),
+                        loc["country"],
+                        loc.get("indeed_country", "usa"),
+                        1 if loc.get("is_remote") else 0,
+                        loc.get("access", "relocation"),
+                        float(loc.get("weight", 1.0)),
+                        int(loc.get("distance", 50)),
+                    ),
+                )
+        except (sqlite3.Error, OSError, ValueError, yaml.YAMLError) as exc:
+            logger.warning("Failed to populate target tables from roles.yaml: %s", exc)
+
+
 MIGRATIONS: list[tuple[int, str, Callable[[sqlite3.Cursor], None]]] = [
     (1, "baseline jobs table", _v1_baseline),
     (2, "market analytics: cells, observations, skills, stats", _v2_analytics),
@@ -1617,6 +1718,11 @@ MIGRATIONS: list[tuple[int, str, Callable[[sqlite3.Cursor], None]]] = [
         19,
         "single profile table: canonical singleton profile for scoring and resumes",
         _v19_single_profile_table,
+    ),
+    (
+        20,
+        "database-driven target roles, queries, and locations",
+        _v20_target_roles_and_queries,
     ),
 ]
 

@@ -331,7 +331,7 @@ class MarketAnalytics:
                 {
                     "role_family": family,
                     "label": self.roles.label(family),
-                    "tier": self.roles.tier(family),
+                    "active": self.roles.is_active(family),
                     "resume": self.roles.resume_for(family),
                     "flow_per_day": round(flow, 2) if flow is not None else None,
                     # A censored flow is a lower bound. The UI must render it with an open bar

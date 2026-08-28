@@ -138,24 +138,13 @@ def title_family_fit(
     roles: "RoleTaxonomy",
     profile: "ProfileAdapter | None" = None,  # noqa: ARG001 - kept so callers need not special-case this scorer
 ) -> float:
-    """How close the posting's role family sits to the user's stated targets.
-
-    This used to ask "does the user have a tailored resume for this family, and is that
-    resume present in the corpus?", which layered a file-existence check on top of the
-    tier. With one unified profile there are no resume variants to check, and that middle
-    branch answered 0.4 for every family -- flattening a component that carries 20% of the
-    score into a constant.
-
-    Tier is what the question was always really asking. roles.yaml already states it:
-    core families are the targets, adjacent and breadth are pivots. An unmapped family
-    still scores low, because nothing in roles.yaml claims it is a fit.
-    """
+    """How close the posting's role family sits to the user's stated targets."""
     if not role_family:
         return 0.0
-    if not roles.resume_for(role_family):
-        return 0.2
-    tier: str | None = roles.tier(role_family)
-    return {"core": 1.0, "adjacent": 0.75, "breadth": 0.5}.get(tier or "", 0.5)
+    family = roles.get(role_family)
+    if not family or not family.enabled:
+        return 0.0
+    return 1.0
 
 
 def seniority_fit(seniority: str | None) -> float:

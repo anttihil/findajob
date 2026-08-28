@@ -142,13 +142,11 @@ class ComponentTests(unittest.TestCase):
     def test_unknown_seniority_is_neutral_not_zero(self) -> None:
         self.assertGreater(seniority_fit(None), 0.5)
 
-    def test_core_families_fit_better_than_breadth(self) -> None:
-        core = title_family_fit("ai_engineer", self.roles, self.profile)
-        breadth = title_family_fit("mobile_engineer", self.roles, self.profile)
-        self.assertGreater(core, breadth)
-
-    def test_unclassified_family_scores_zero(self) -> None:
-        self.assertEqual(title_family_fit(None, self.roles, self.profile), 0.0)
+    def test_active_target_family_fits_and_unclassified_scores_zero(self) -> None:
+        ai = title_family_fit("ai_engineer", self.roles, self.profile)
+        self.assertEqual(ai, 1.0)
+        unclassified = title_family_fit(None, self.roles, self.profile)
+        self.assertEqual(unclassified, 0.0)
 
 
 class CoverageRatioTests(unittest.TestCase):

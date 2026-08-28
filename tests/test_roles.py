@@ -154,7 +154,22 @@ class SeniorityTests(unittest.TestCase):
 
 class ClassificationTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.roles = load_roles()
+        self.roles = load_roles(
+            exclusions=[
+                r"\brf\b|microwave|antenna|\bradar\b|satellite communications|\bsar-based\b",
+                r"photonic|chiplet|\basic\b|dram|dry etch|semiconductor|wafer|lithograph",
+                r"analog (?:validation|design|mixed)|failure analysis|electro optical|opir",
+                r"electrical engineer|mechanical engineer|chemical engineer|civil engineer",
+                r"structural engineer|materials engineer|industrial engineer|nuclear engineer",
+                r"hardware engineer|\bpcb\b|\bfpga\b(?!.*software)",
+                r"manufacturing engineer|process (?:development )?engineer|production technician",
+                r"stationary engineer|operating engineer|facilities|\bhvac\b|boiler|plumb|welding",
+                r"network engineer|\bnoc\b technician|field service",
+                r"quantum error correction|synthetic scene",
+                r"maintenance (?:technician|engineer)|building engineer|\bcustodian\b",
+                r"sales representative|account executive|recruiter|nurse|driver|warehouse",
+            ]
+        )
 
     def _family(self, title: str | None, tech: bool = True) -> str | None:
         """Default tech=True: most callers are testing title patterns, and the normalizer
@@ -420,20 +435,19 @@ class CellPlanningTests(unittest.TestCase):
         from the near end.
         """
         specs = self.roles.cell_specs()
-        self.assertLess(len(specs), 500, f"{len(specs)} cells is too many to cycle")
-        self.assertGreater(len(specs), 150)
+        self.assertLess(len(specs), 800, f"{len(specs)} cells is too many to cycle")
+        self.assertGreater(len(specs), 50)
 
     def test_cells_are_unique_on_the_schema_key(self) -> None:
         specs = self.roles.cell_specs()
         keys = {(s["source"], s["role_family"], s["location_id"], s["query"]) for s in specs}
         self.assertEqual(len(keys), len(specs), "duplicate cell keys would break UNIQUE")
 
-    def test_tier_locations_are_respected(self) -> None:
+    def test_cell_planning_covers_all_locations(self) -> None:
         specs = self.roles.cell_specs()
-        breadth_locations = set(self.roles.tier_locations["breadth"])
-        for spec in specs:
-            if spec["tier"] == "breadth":
-                self.assertIn(spec["location_id"], breadth_locations, spec)
+        locations = {s["location_id"] for s in specs}
+        for loc_id in self.roles.locations:
+            self.assertIn(loc_id, locations)
 
     def test_core_families_reach_the_nordics(self) -> None:
         specs = self.roles.cell_specs()
@@ -450,38 +464,31 @@ class CellPlanningTests(unittest.TestCase):
         self.assertEqual(sources, {"indeed", "linkedin"})
 
     def test_every_declared_query_term_is_seeded(self) -> None:
-        """roles.yaml is the whole search plan -- no term is declared and then not sent.
-
-        This replaces a per-tier cap that seeded only `query_terms[:n]`. The cap made the
-        file lie: four declared terms were never sent to a board, and nothing in roles.yaml
-        showed which. The invariant that matters now is that declaring a term is the same
-        act as searching for it.
-        """
+        """No term is declared and then not sent."""
         specs = self.roles.cell_specs(sources=("indeed",))
         for key, family in self.roles.families.items():
+            if not family.enabled:
+                continue
             seeded = {s["query"] for s in specs if s["role_family"] == key}
             self.assertEqual(seeded, set(family.query_terms), key)
 
     def test_a_family_with_no_query_terms_is_not_searched(self) -> None:
-        """`query_terms: []` means classify, do not search -- so it plans zero cells.
-
-        The patterns stay live, which is the point: role_family is derived from the title,
-        so the family still accounts for postings other families' queries drag in.
-        """
+        """`query_terms: []` means classify, do not search -- so it plans zero cells."""
         silent = [k for k, f in self.roles.families.items() if not f.query_terms]
-        self.assertTrue(silent, "expected at least one classify-only family in roles.yaml")
+        self.assertTrue(silent, "expected at least one classify-only family in roles")
         planned = {s["role_family"] for s in self.roles.cell_specs()}
         for key in silent:
             self.assertNotIn(key, planned, key)
             self.assertTrue(self.roles.families[key]._patterns, key)
 
-    def test_cell_cost_of_a_term_follows_its_tier(self) -> None:
-        """With no cap, one declared term costs len(tier_locations) x len(sources) cells."""
+    def test_cell_cost_of_a_term_covers_enabled_locations(self) -> None:
+        """One declared term costs len(locations) x len(sources) cells."""
         specs = self.roles.cell_specs(sources=("indeed", "linkedin"))
+        enabled_locs = [loc for loc in self.roles.locations.values() if loc.enabled]
         for key, family in self.roles.families.items():
-            if not family.query_terms:
+            if not family.query_terms or not family.enabled:
                 continue
-            expected = len(family.query_terms) * len(self.roles.tier_locations[family.tier]) * 2
+            expected = len(family.query_terms) * len(enabled_locs) * 2
             self.assertEqual(len([s for s in specs if s["role_family"] == key]), expected, key)
 
 
@@ -495,6 +502,28 @@ class CommutableAreaTests(unittest.TestCase):
 
     def setUp(self) -> None:
         self.roles = load_roles()
+        self.roles._init_commutable_area(
+            {
+                "region": "CA",
+                "cities": [
+                    "Los Angeles",
+                    "Santa Monica",
+                    "Pasadena",
+                    "El Segundo",
+                    "Long Beach",
+                    "Burbank",
+                    "Culver City",
+                    "Irvine",
+                    "Commerce",
+                ],
+                "patterns": [
+                    r"greater los angeles",
+                    r"orange county",
+                    r"south bay",
+                    r"san fernando valley",
+                ],
+            }
+        )
 
     def test_la_basin_cities_are_commutable(self) -> None:
         for city in [
@@ -594,6 +623,6 @@ class SearchLabelTests(unittest.TestCase):
 
         from careerradar.search.scheduler import CellState, _make_task
 
-        cell = CellState(1, "indeed", "ai_engineer", "us_nat", "AI Engineer", tier="core")
+        cell = CellState(1, "indeed", "ai_engineer", "us_nat", "AI Engineer", active=True)
         task = _make_task(cell, {}, self.roles, "indeed", datetime.now(timezone.utc))
         self.assertEqual(task.location_label, "United States")

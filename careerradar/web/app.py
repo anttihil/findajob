@@ -365,10 +365,43 @@ def market_locations():
     return {
         "locations": [location.to_dict() for location in roles.locations.values()],
         "role_families": [
-            {"key": f.key, "label": f.label, "tier": f.tier, "resume": f.resume}
+            {"key": f.key, "label": f.label, "active": f.active, "resume": f.resume}
             for f in roles.families.values()
         ],
     }
+
+
+@app.get("/api/targets/capacity")
+def get_target_capacity():
+    from careerradar.search.capacity import calculate_capacity
+    from careerradar.taxonomy import repository as target_repo
+
+    db = get_db()
+    try:
+        config, _, _, _ = analytics_context(db)
+        queries = target_repo.get_target_queries(db.conn, enabled_only=True)
+        locs = target_repo.get_target_locations(db.conn, enabled_only=True)
+        return calculate_capacity(len(queries), len(locs), config)
+    finally:
+        db.close()
+
+
+@app.get("/api/targets")
+def list_targets():
+    from careerradar.taxonomy import repository as target_repo
+
+    db = get_db()
+    try:
+        roles = target_repo.get_target_roles(db.conn)
+        queries = target_repo.get_target_queries(db.conn)
+        locs = target_repo.get_target_locations(db.conn)
+        return {
+            "roles": roles,
+            "queries": queries,
+            "locations": locs,
+        }
+    finally:
+        db.close()
 
 
 @app.get("/api/market/coverage")

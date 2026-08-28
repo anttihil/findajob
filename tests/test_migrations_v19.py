@@ -20,7 +20,7 @@ def test_migration_v19_columns_and_defaults():
     conn.row_factory = sqlite3.Row
     migrate(conn)
 
-    assert current_version(conn) == 19
+    assert current_version(conn) >= 19
 
     # Verify columns exist on single `profile` table
     columns = {row["name"] for row in conn.execute("PRAGMA table_info(profile)")}

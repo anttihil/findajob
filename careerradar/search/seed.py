@@ -57,19 +57,16 @@ def seed_cells(prune: bool = False) -> int:
             by_source[cell.source] = by_source.get(cell.source, 0) + 1
         print(f"by source:      {by_source}")
 
-        budgets = scraper.get("budgets") or {}
-        per_day = sum(
-            (budgets.get(s, {}).get("searches_per_run", 0)) * RUNS_PER_DAY for s in enabled_sources
+        from careerradar.search.capacity import calculate_capacity
+
+        active_queries = sum(len(f.query_terms) for f in roles.families.values() if f.enabled)
+        active_locations = sum(1 for loc in roles.locations.values() if loc.enabled)
+        cap = calculate_capacity(active_queries, active_locations, config)
+        print(
+            f"\nmatrix: {active_queries} queries x {active_locations} locations "
+            f"= {cap['search_pairs']} search pairs"
         )
-        if per_day:
-            print(
-                f"\nat {RUNS_PER_DAY} runs/day ({per_day} cells/day) a full matrix cycle takes "
-                f"~{total / per_day:.1f} days"
-            )
-            print(
-                f"analytics.min_window_days is "
-                f"{config.get('analytics', {}).get('min_window_days', 30)}"
-            )
+        print(f"status: [{cap['zone'].upper()}] - {cap['message']}")
     finally:
         db.close()
     return 0

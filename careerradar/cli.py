@@ -109,6 +109,78 @@ def _cmd_resume(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_target(args: argparse.Namespace) -> int:
+    import sqlite3
+
+    from careerradar.core.config import load_config
+    from careerradar.core.paths import DB_PATH
+    from careerradar.search.capacity import calculate_capacity
+    from careerradar.taxonomy import repository as target_repo
+
+    sub = args.subcommand
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    try:
+        if sub == "list":
+            roles = target_repo.get_target_roles(conn)
+            if not roles:
+                print("No target roles configured.")
+                return 0
+            print(f"{'Key':<25} {'Label':<28} {'Status':<10} {'Queries'}")
+            print("-" * 80)
+            for r in roles:
+                queries = [
+                    q["query"] for q in target_repo.get_target_queries(conn, role_key=r["key"])
+                ]
+                status = "ACTIVE" if r["enabled"] else "PAUSED"
+                print(f"{r['key']:<25} {r['label']:<28} {status:<10} {', '.join(queries)}")
+            return 0
+
+        if sub == "add":
+            aliases = [a.strip() for a in (args.aliases or "").split(",") if a.strip()]
+            queries = [q.strip() for q in (args.queries or "").split(",") if q.strip()]
+            target_repo.save_target_role(
+                conn,
+                key=args.key,
+                label=args.label or args.key.replace("_", " ").title(),
+                aliases=aliases,
+                enabled=True,
+            )
+            for q in queries:
+                target_repo.add_target_query(conn, role_key=args.key, query_term=q)
+            print(f"Added target role '{args.key}' with {len(queries)} queries.")
+            return 0
+
+        if sub == "toggle":
+            enabled = not getattr(args, "disable", False)
+            target_repo.toggle_target_role(conn, key=args.key, enabled=enabled)
+            print(f"Target role '{args.key}' is now {'ACTIVE' if enabled else 'PAUSED'}.")
+            return 0
+
+        if sub == "delete":
+            target_repo.delete_target_role(conn, key=args.key)
+            print(f"Deleted target role '{args.key}'.")
+            return 0
+
+        if sub == "status":
+            roles = target_repo.get_target_roles(conn, enabled_only=True)
+            queries = target_repo.get_target_queries(conn, enabled_only=True)
+            locs = target_repo.get_target_locations(conn, enabled_only=True)
+            cfg = load_config()
+            cap = calculate_capacity(len(queries), len(locs), cfg)
+            print(f"Active Roles:     {len(roles)}")
+            print(f"Active Queries:   {len(queries)}")
+            print(f"Active Locations: {len(locs)}")
+            print(f"Search Pairs:     {cap['search_pairs']} ({cap['total_cells']} total cells)")
+            print(f"Cycle Duration:   ~{cap['cycle_hours']}h ({cap['cycle_days']} days)")
+            print(f"Capacity Zone:    [{cap['zone'].upper()}]")
+            print(f"Guidance:         {cap['message']}")
+            return 0
+    finally:
+        conn.close()
+    return 0
+
+
 def _cmd_migrate(args: argparse.Namespace) -> int:  # noqa: ARG001 - argparse handler signature
     import sqlite3
 
@@ -217,6 +289,28 @@ def build_parser() -> argparse.ArgumentParser:
     res_batch.add_argument("--status", default="saved", help="status to match (default: saved)")
     res_batch.add_argument("--model", help="DeepSeek model to use for tailoring")
     res_batch.set_defaults(func=_cmd_resume)
+
+    # --- target ----------------------------------------------------------------------
+    tar = sub.add_parser("target", help="manage target roles, search queries, and capacity")
+    tar_sub = tar.add_subparsers(dest="subcommand", required=True)
+
+    tar_sub.add_parser("list", help="list all configured target roles and queries")
+
+    tar_add = tar_sub.add_parser("add", help="add a new target role with queries")
+    tar_add.add_argument("key", help="unique role key (e.g. ai_engineer)")
+    tar_add.add_argument("--label", help="display label (e.g. AI Engineer)")
+    tar_add.add_argument("--aliases", help="comma-separated aliases")
+    tar_add.add_argument("--queries", help="comma-separated search queries")
+
+    tar_tog = tar_sub.add_parser("toggle", help="enable or pause a target role")
+    tar_tog.add_argument("key", help="unique role key")
+    tar_tog.add_argument("--disable", action="store_true", help="pause this target role")
+
+    tar_del = tar_sub.add_parser("delete", help="delete a target role and its queries")
+    tar_del.add_argument("key", help="unique role key")
+
+    tar_sub.add_parser("status", help="show capacity status and matrix cycle guidance")
+    tar.set_defaults(func=_cmd_target)
 
     # --- db / status -----------------------------------------------------------------
     d = sub.add_parser("migrate", help="apply pending schema migrations and seed cells")
