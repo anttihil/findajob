@@ -68,6 +68,7 @@ async def lifespan(_: FastAPI):
         live_task.cancel()
         with suppress(asyncio.CancelledError):
             await live_task
+        live_hub.stop()
 
 
 app = FastAPI(title="Job Search Automation Dashboard", lifespan=lifespan)

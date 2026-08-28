@@ -208,7 +208,13 @@ def _cmd_status(args: argparse.Namespace) -> Any:
 def _cmd_start(args: argparse.Namespace) -> int:
     import uvicorn
 
-    uvicorn.run("careerradar.web.app:app", host=args.host, port=args.port, reload=args.reload)
+    uvicorn.run(
+        "careerradar.web.app:app",
+        host=args.host,
+        port=args.port,
+        reload=args.reload,
+        timeout_graceful_shutdown=5,
+    )
     return 0
 
 

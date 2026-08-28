@@ -21,6 +21,7 @@ ExecStart=/opt/careerradar/.venv/bin/careerradar start --host 127.0.0.1 --port 8
 
 Restart=on-failure
 RestartSec=10s
+TimeoutStopSec=15s
 
 StandardOutput=journal
 StandardError=journal

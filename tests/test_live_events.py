@@ -35,6 +35,16 @@ class TestLiveEventHub(unittest.IsolatedAsyncioTestCase):
         msg = await gen.__anext__()
         self.assertIn("stats_update", msg)
 
+    async def test_subscribe_and_stop(self):
+        """Verify that stopping the hub cleanly terminates subscriber generators."""
+        hub = LiveEventHub()
+        gen = hub.subscribe()
+        await gen.__anext__()  # pipeline_progress
+        await gen.__anext__()  # stats_update
+        hub.stop()
+        with self.assertRaises(StopAsyncIteration):
+            await gen.__anext__()
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -78,7 +78,7 @@ class LiveEventHub:
     """
 
     def __init__(self) -> None:
-        self.subscribers: set[asyncio.Queue[str]] = set()
+        self.subscribers: set[asyncio.Queue[str | None]] = set()
         self._last_data_version: int | None = None
         self._last_sync_running: bool = False
         self._ping_counter: int = 0
@@ -87,12 +87,12 @@ class LiveEventHub:
         """Async generator yielding SSE events to a connected client.
 
         TODO for implementation:
-        1. Create an `asyncio.Queue[str](maxsize=50)` and add it to `self.subscribers`.
+        1. Create an `asyncio.Queue[str | None](maxsize=50)` and add it to `self.subscribers`.
         2. Optionally yield an initial snapshot (e.g. current stats or pipeline status).
         3. Loop `msg = await queue.get()` and `yield msg`.
         4. In the `finally` block, remove the queue from `self.subscribers`.
         """
-        queue = asyncio.Queue[str](maxsize=50)
+        queue = asyncio.Queue[str | None](maxsize=50)
         self.subscribers.add(queue)
 
         db = Database()
@@ -109,9 +109,18 @@ class LiveEventHub:
         try:
             while True:
                 msg = await queue.get()
+                if msg is None:
+                    break
                 yield msg
         finally:
             self.subscribers.discard(queue)
+
+    def stop(self) -> None:
+        """Signals all active subscriber queues to terminate for graceful shutdown."""
+        for sub in list(self.subscribers):
+            with suppress(asyncio.QueueFull):
+                sub.put_nowait(None)
+        self.subscribers.clear()
 
     def broadcast(self, event_type: str, data: dict[str, Any]) -> None:
         """Broadcast an event to all connected subscriber queues.
