@@ -89,7 +89,6 @@ def test_single_profile_load_and_save():
                 dates="2024 - Present",
                 projects=[
                     MasterProject(
-                        name="Simulator",
                         heading="Robot simulator:",
                         bullets=["Built frontend robot simulator in TypeScript."],
                     )

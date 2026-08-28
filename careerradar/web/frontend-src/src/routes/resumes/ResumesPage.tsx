@@ -575,7 +575,7 @@ export function ResumesPage() {
                               company: "Company",
                               dates: "Jan 2025 - Present",
                               location: "",
-                              projects: [{ name: "Project", heading: "", bullets: [] }],
+                              projects: [{ heading: "", bullets: [] }],
                             },
                           ],
                         });
@@ -654,23 +654,9 @@ export function ResumesPage() {
                             <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
                               <input
                                 type="text"
-                                placeholder="Project / System Name (e.g. Streaming Engine)"
+                                placeholder="Optional Sub-heading (e.g. Designed replacement for 20 sites: — leave empty for direct bullets)"
                                 class="filter-input"
-                                style={{ flex: 1.5, fontSize: "0.85rem" }}
-                                value={proj.name}
-                                onInput={(e) => {
-                                  const next = [...masterProfile.experience];
-                                  next[rIdx].projects[pIdx].name = (
-                                    e.target as HTMLInputElement
-                                  ).value;
-                                  setMasterProfile({ ...masterProfile, experience: next });
-                                }}
-                              />
-                              <input
-                                type="text"
-                                placeholder="Scope / Heading (e.g. Designed replacement for 20 sites:)"
-                                class="filter-input"
-                                style={{ flex: 2, fontSize: "0.85rem" }}
+                                style={{ flex: 1, fontSize: "0.85rem" }}
                                 value={proj.heading || ""}
                                 onInput={(e) => {
                                   const next = [...masterProfile.experience];
@@ -748,14 +734,13 @@ export function ResumesPage() {
                           onClick={() => {
                             const next = [...masterProfile.experience];
                             next[rIdx].projects.push({
-                              name: "Project",
-                              heading: "Project scope:",
+                              heading: "",
                               bullets: ["Engineered..."],
                             });
                             setMasterProfile({ ...masterProfile, experience: next });
                           }}
                         >
-                          <i class="fa-solid fa-plus"></i> Add Project Scope
+                          <i class="fa-solid fa-plus"></i> Add Sub-heading / Bullet Group
                         </button>
                       </div>
                     </div>
@@ -774,8 +759,7 @@ export function ResumesPage() {
                           projects: [
                             ...(masterProfile.projects || []),
                             {
-                              name: "New Project",
-                              heading: "Autonomous tool or system",
+                              heading: "New Project",
                               url: "https://github.com/...",
                               bullets: ["Engineered..."],
                             },
@@ -792,21 +776,9 @@ export function ResumesPage() {
                       <div class="role-header-row">
                         <input
                           type="text"
-                          placeholder="Project Name (e.g. CareerRadar / ZMK Firmware)"
+                          placeholder="Project Title / Heading (e.g. CareerRadar / ZMK Firmware)"
                           class="filter-input"
-                          style={{ flex: 2 }}
-                          value={proj.name}
-                          onInput={(e) => {
-                            const next = [...masterProfile.projects];
-                            next[pIdx].name = (e.target as HTMLInputElement).value;
-                            setMasterProfile({ ...masterProfile, projects: next });
-                          }}
-                        />
-                        <input
-                          type="text"
-                          placeholder="Tagline / Scope (e.g. AI-driven resume engine)"
-                          class="filter-input"
-                          style={{ flex: 2 }}
+                          style={{ flex: 3 }}
                           value={proj.heading || ""}
                           onInput={(e) => {
                             const next = [...masterProfile.projects];
@@ -816,9 +788,9 @@ export function ResumesPage() {
                         />
                         <input
                           type="text"
-                          placeholder="GitHub / Live Demo URL"
+                          placeholder="GitHub / Live Demo URL (optional)"
                           class="filter-input"
-                          style={{ flex: 2 }}
+                          style={{ flex: 3 }}
                           value={proj.url || ""}
                           onInput={(e) => {
                             const next = [...masterProfile.projects];

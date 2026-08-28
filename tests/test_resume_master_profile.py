@@ -41,7 +41,6 @@ def test_master_profile_crud():
                 dates="2022 - Present",
                 projects=[
                     MasterProject(
-                        name="AI Engine",
                         heading="Engineered real-time streaming engine",
                         bullets=["Reduced p99 latency by 40% using async Rust pipeline."],
                     )

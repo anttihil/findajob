@@ -42,7 +42,11 @@ class ProfileAdapter:
         exp_text = ""
         for role in profile.experience:
             for proj in role.projects:
-                exp_text += " " + proj.name + " " + proj.heading + " " + " ".join(proj.bullets)
+                proj_heading = proj.heading or ""
+                exp_text += f" {proj_heading} " + " ".join(proj.bullets)
+        for proj in profile.projects:
+            proj_heading = proj.heading or ""
+            exp_text += f" {proj_heading} " + " ".join(proj.bullets)
         exp_lower = exp_text.lower()
 
         for key, rec in skills_map.items():

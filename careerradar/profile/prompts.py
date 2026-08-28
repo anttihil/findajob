@@ -19,7 +19,8 @@ CRITICAL RULES:
 2. 1-PAGE LAYOUT CONSTRAINTS:
    - Summary: Exactly 2 to 3 sentences (200-320 characters) focusing on key differentiators.
    - Experience:
-     - For major roles, provide 1-2 distinct project subheadings with 2-3 high-impact bullets each.
+     - For major roles with multiple distinct projects, you may provide 1-2 optional project
+       subheadings with 2-3 high-impact bullets each.
      - Each bullet must be 100 to 160 characters (action verb + what was built/solved +
        quantified impact/technologies).
      - Total bullets across the entire resume must be between 10 and 13 bullets.
@@ -53,40 +54,38 @@ def render_master_profile_context(profile: Profile) -> str:
 
     exec_summary = profile.executive_summary or profile.summary_guidance
     if exec_summary:
-        parts.append(f"\nBASE EXECUTIVE SUMMARY (SALES PITCH TEMPLATE):\n{exec_summary}")
+        parts.append(f"\nEXECUTIVE SUMMARY:\n{exec_summary}")
 
     if profile.model_guidance:
-        parts.append(f"\nAI GUIDANCE / TAILORING DIRECTIVES:\n{profile.model_guidance}")
+        parts.append(f"\nMODEL GUIDANCE:\n{profile.model_guidance}")
 
-    parts.append("\n--- MASTER EXPERIENCE (ROLES & EMPLOYMENT) ---")
+    parts.append("\n--- EXPERIENCE ---")
     for role in profile.experience:
         loc_str = f" ({role.location})" if role.location else ""
         parts.append(f"\nROLE: {role.title} at {role.company}{loc_str} [{role.dates}]")
         for proj in role.projects:
-            proj_title = f"Project: {proj.name}" if proj.name else "Project"
-            if proj.heading:
-                proj_title += f" - {proj.heading}"
-            parts.append(f"  {proj_title}")
+            if proj.heading and proj.heading.strip():
+                parts.append(f"  Scope / Project: {proj.heading.strip()}")
             for b in proj.bullets:
                 parts.append(f"    * {b}")
 
     if profile.projects:
-        parts.append("\n--- STANDALONE / PERSONAL / OPEN SOURCE PROJECTS ---")
+        parts.append("\n--- PROJECTS ---")
         for proj in profile.projects:
             url_str = f" ({proj.url})" if proj.url else ""
-            proj_title = f"PROJECT: {proj.name}{url_str}"
-            if proj.heading:
-                proj_title += f" - {proj.heading}"
-            parts.append(f"\n{proj_title}")
+            if proj.heading and proj.heading.strip():
+                parts.append(f"\nPROJECT: {proj.heading.strip()}{url_str}")
+            else:
+                parts.append(f"\nPROJECT{url_str}")
             for b in proj.bullets:
                 parts.append(f"  * {b}")
 
-    parts.append("\n--- MASTER SKILLS ---")
+    parts.append("\n--- SKILLS ---")
     for cat in profile.skills:
         skills_str = ", ".join(cat.skills)
         parts.append(f"{cat.category}: {skills_str}")
 
-    parts.append("\n--- MASTER EDUCATION ---")
+    parts.append("\n--- EDUCATION ---")
     for edu in profile.education:
         detail_str = f" ({edu.details})" if edu.details else ""
         parts.append(f"{edu.institution}, {edu.degree}{detail_str}")
@@ -114,7 +113,7 @@ def render_job_context(job: dict[str, Any]) -> str:
         f"COMPANY: {company}",
         f"LOCATION: {location}",
         f"ROLE FAMILY: {role_family} | SENIORITY: {seniority}",
-        f"KEYWORD / SKILL SIGNALS: {', '.join(matched_skills)}",
+        f"MATCHED SKILLS: {', '.join(matched_skills)}",
         "\n--- JOB DESCRIPTION ---",
         desc,
     ]

@@ -30,7 +30,7 @@ def render_profile(profile: Profile) -> str:
 
     # Categorized skills
     if profile.skills:
-        lines.append("CORE SKILLS & TECHNOLOGIES:")
+        lines.append("SKILLS:")
         for cat in sorted(profile.skills, key=lambda c: c.category.lower()):
             clean_skills = [s.strip() for s in cat.skills if s.strip()]
             if clean_skills:
@@ -38,28 +38,37 @@ def render_profile(profile: Profile) -> str:
         lines.append("")
 
     # Experience & Project evidence (Ground-truth evidence)
-    extracted_projects = []
+    project_lines = []
     for role in profile.experience:
+        if not role.projects:
+            project_lines.append(f"  - {role.title} at {role.company}")
         for proj in role.projects:
-            bullets_text = " ".join(proj.bullets[:2])
-            desc = f"{role.title} at {role.company}: {proj.name}"
-            if proj.heading:
-                desc += f" - {proj.heading}"
-            if bullets_text:
-                desc += f" ({bullets_text})"
-            extracted_projects.append(desc[:200])
+            if proj.heading and proj.heading.strip():
+                desc = f"{role.title} at {role.company}: {proj.heading.strip()}"
+            else:
+                desc = f"{role.title} at {role.company}"
+            project_lines.append(f"  - {desc}")
+            for bullet in proj.bullets:
+                clean_b = bullet.strip()
+                if clean_b:
+                    project_lines.append(f"    * {clean_b}")
 
     for proj in profile.projects:
-        bullets_text = " ".join(proj.bullets[:2])
-        desc = f"Project: {proj.name}"
-        if proj.heading:
-            desc += f" - {proj.heading}"
-        if bullets_text:
-            desc += f" ({bullets_text})"
-        extracted_projects.append(desc[:200])
+        desc = (
+            f"Project: {proj.heading.strip()}"
+            if (proj.heading and proj.heading.strip())
+            else "Project"
+        )
+        if proj.url:
+            desc += f" ({proj.url})"
+        project_lines.append(f"  - {desc}")
+        for bullet in proj.bullets:
+            clean_b = bullet.strip()
+            if clean_b:
+                project_lines.append(f"    * {clean_b}")
 
-    if extracted_projects:
-        lines += ["KEY PROJECTS / ACHIEVEMENTS (GROUND TRUTH):", _bullets(extracted_projects), ""]
+    if project_lines:
+        lines += ["EXPERIENCE:", *project_lines, ""]
 
     # Education
     if profile.education:
@@ -85,12 +94,12 @@ def render_profile(profile: Profile) -> str:
     if eligibility.comp_floor_usd:
         eligibility_lines.append(f"Comp floor: ${eligibility.comp_floor_usd:,} base")
     if eligibility_lines:
-        lines += ["HARD ELIGIBILITY & CONSTRAINTS:", _bullets(eligibility_lines), ""]
+        lines += ["ELIGIBILITY:", _bullets(eligibility_lines), ""]
 
     # Positioning & AI Strategic Guidance
     if profile.model_guidance and profile.model_guidance.strip():
         lines += [
-            "POSITIONING & STRATEGIC DIRECTIVES (internal guidance for scoring):",
+            "MODEL GUIDANCE:",
             f"  {profile.model_guidance.strip()}",
             "",
         ]
@@ -99,7 +108,7 @@ def render_profile(profile: Profile) -> str:
     dealbreakers = profile.dealbreakers or profile.targeting.dealbreakers
     if dealbreakers:
         lines += [
-            "NON-NEGOTIABLE DEALBREAKERS (a posting matching any of these is a hard veto):",
+            "DEAL-BREAKERS:",
             _bullets(dealbreakers),
             "",
         ]

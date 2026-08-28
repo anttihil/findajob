@@ -66,7 +66,6 @@ class RenderTests(unittest.TestCase):
                     location="San Francisco, CA",
                     projects=[
                         MasterProject(
-                            name="Streaming Engine",
                             heading="Built high throughput data engine",
                             bullets=["Processed 50k events/sec with sub-second latency."],
                         )
@@ -96,7 +95,7 @@ class RenderTests(unittest.TestCase):
         text = render_profile(self.sample_profile())
         self.assertIn("Python", text)
         self.assertIn("TechCorp", text)
-        self.assertIn("Streaming Engine", text)
+        self.assertIn("Built high throughput data engine", text)
         self.assertIn("$150,000", text)
         self.assertIn("DEALBREAKERS", text)
         self.assertIn("No 24/7 on-call", text)
@@ -106,6 +105,65 @@ class RenderTests(unittest.TestCase):
         text = render_profile(self.sample_profile())
         for marker in ("2026-", "2025-", "T00:", "GMT", "UTC"):
             self.assertNotIn(marker, text)
+
+    def test_render_includes_all_project_bullets_without_truncation(self) -> None:
+        """Ensure every bullet across multiple projects and roles is fully rendered."""
+        b1 = (
+            "Cut ~1,000 hours of manual migration by having coding agents "
+            "mine millions of lines of site data into deterministic XML transformation rules"
+        )
+        b2 = (
+            "Consolidated independently maintained sites into a multi-tenant "
+            "platform with centralized CI/CD and IaC, onboarding first 15 clients"
+        )
+        b3 = (
+            "Enabled decommissioning decisions with a content inventory "
+            "tool surfacing media volume, page age, and content issues invisible to admin users"
+        )
+        profile = Profile(
+            summary_guidance="Senior developer.",
+            experience=[
+                MasterRole(
+                    title="Software Engineer",
+                    company="University of California Los Angeles",
+                    dates="Jan 2025 - Present",
+                    projects=[
+                        MasterProject(
+                            heading="Designed and delivered the replacement for 20 sites:",
+                            bullets=[b1, b2, b3],
+                        ),
+                    ],
+                ),
+                MasterRole(
+                    title="Research Assistant",
+                    company="UCLA",
+                    dates="2020 - 2022",
+                    projects=[],
+                ),
+            ],
+            projects=[
+                MasterProject(
+                    heading="Multi-agent search workflow",
+                    bullets=[
+                        "Built async pipeline handling 50 requests/sec with low latency.",
+                        "Integrated SQLite vector search for sub-second retrieval.",
+                    ],
+                )
+            ],
+        )
+        text = render_profile(profile)
+        self.assertIn(
+            "Software Engineer at University of California Los Angeles: "
+            "Designed and delivered the replacement for 20 sites:",
+            text,
+        )
+        self.assertIn(b1, text)
+        self.assertIn(b2, text)
+        self.assertIn(b3, text)
+        self.assertIn("Research Assistant at UCLA", text)
+        self.assertIn("Project: Multi-agent search workflow", text)
+        self.assertIn("Built async pipeline handling 50 requests/sec with low latency.", text)
+        self.assertIn("Integrated SQLite vector search for sub-second retrieval.", text)
 
 
 class AdapterTests(unittest.TestCase):
@@ -126,7 +184,6 @@ class AdapterTests(unittest.TestCase):
                     dates="2020 - Present",
                     projects=[
                         MasterProject(
-                            name="Cloud API",
                             heading="Built REST APIs",
                             bullets=["Used Python and AWS to build scalable microservices."],
                         )

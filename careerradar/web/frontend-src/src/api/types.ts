@@ -95,8 +95,7 @@ export interface MasterSkillCategory {
 }
 
 export interface MasterProject {
-  name: string;
-  heading?: string;
+  heading?: string | null;
   url?: string | null;
   bullets: string[];
 }

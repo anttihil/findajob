@@ -56,8 +56,9 @@ Guidelines:
 3. If specific positioning guidance or directives are evident, capture in model_guidance.
 4. Extract education history (institution, degree, details).
 5. Categorize skills into logical groups (e.g. Infrastructure, AI Systems, Frontend, Languages).
-6. In Experience, capture corporate roles, dates, locations, project scopes, and impact bullets.
-7. In Projects, capture standalone open-source, personal, or research projects with URLs.
+6. In Experience, capture roles, dates, locations, optional punchy subheadings (only when
+   grouping distinct project scopes; omit for single-focus roles), and impact bullets.
+7. In Projects, capture standalone open-source or personal projects with optional heading and URLs.
 8. Identify work authorization/citizenship and location preferences in eligibility.
 9. Identify any explicit non-negotiable dealbreakers in dealbreakers.
 """

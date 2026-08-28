@@ -20,16 +20,26 @@ class MasterSkillCategory(BaseModel):
 
 
 class MasterProject(BaseModel):
-    name: str = Field(description="Project or system name, e.g. 'Realtime Stream Engine'")
-    heading: str = Field(
-        default="",
-        description="Scope description or role summary, e.g. 'Designed replacement for 20 sites:'",
+    heading: str | None = Field(
+        default=None,
+        description="Optional project/scope heading, e.g. 'Designed replacement for 20 sites:'",
     )
     url: str | None = Field(default="", description="Project repository or live URL")
     bullets: list[str] = Field(
         default_factory=list,
         description="Quantified impact bullet points demonstrating skills",
     )
+
+    @model_validator(mode="before")
+    @classmethod
+    def _migrate_fields(cls, data: Any) -> Any:
+        if isinstance(data, dict) and "heading" not in data and "name" in data:
+            data["heading"] = data.get("name")
+        return data
+
+    @property
+    def name(self) -> str:
+        return self.heading or ""
 
 
 class MasterRole(BaseModel):
