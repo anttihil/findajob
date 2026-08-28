@@ -60,7 +60,8 @@ export function App() {
         {/* Top System Header Bar */}
         <header class="system-header-bar">
           <div class="system-title">
-            <strong>CAREERRADAR [ver. 2.4.83]</strong> - {PAGE_SUBTITLES[location] ?? "Job Intelligence Dashboard"}
+            <strong>CAREERRADAR</strong> -{" "}
+            {PAGE_SUBTITLES[location] ?? "Job Intelligence Dashboard"}
           </div>
           <div class="system-clock">{clock}</div>
         </header>
@@ -89,10 +90,8 @@ export function App() {
         <footer class="global-status-bar">
           <div class="status-left">CONNECTED TO CAREERRADAR</div>
           <div class="status-center">UPTIME: {formatUptime(uptimeSeconds)}</div>
-          <div class="status-right">USERS ONLINE: 372</div>
         </footer>
       </div>
     </div>
   );
 }
-
