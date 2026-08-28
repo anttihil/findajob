@@ -307,6 +307,28 @@ def get_observability_verdicts(
         db.close()
 
 
+@app.get("/api/observability/prompt")
+def get_observability_prompt():
+    from careerradar.profile.render import render_profile
+    from careerradar.profile.repository import load_active_row, load_profile
+    from careerradar.scoring.prompts import build_rules, build_system, prompt_hash
+
+    prof = load_profile()
+    row = load_active_row()
+    summary_text = (row.get("summary_text") if row else "") or render_profile(prof)
+    system_prompt = build_system(summary_text)
+    rules_text = build_rules()
+    hash_val = prompt_hash(summary_text)
+
+    return {
+        "prompt_hash": hash_val,
+        "rules": rules_text,
+        "summary_text": summary_text,
+        "system_prompt": system_prompt,
+        "updated_at": row.get("updated_at") if row else None,
+    }
+
+
 # --- Market analytics -------------------------------------------------------------------
 
 
@@ -426,6 +448,37 @@ def get_profile_versions():
     from careerradar.profile.repository import list_versions
 
     return list_versions()
+
+
+@app.get("/api/profile/vector")
+def get_profile_vector_endpoint():
+    from careerradar.profile.adapter import load_profile as load_adapter_profile
+    from careerradar.profile.render import render_profile
+    from careerradar.profile.repository import load_active_row, load_profile
+
+    prof = load_profile()
+    row = load_active_row()
+    summary_text = (row.get("summary_text") if row else "") or render_profile(prof)
+    adapter = load_adapter_profile(required=False)
+    skills_vector = []
+    if adapter:
+        for key, rec in adapter.skills.items():
+            skills_vector.append(
+                {
+                    "key": key,
+                    "label": rec["label"],
+                    "level": rec["level"],
+                    "evidence": rec.get("evidence", []),
+                }
+            )
+    return {
+        "version": 1,
+        "updated_at": row.get("updated_at") if row else None,
+        "model": "deepseek-chat",
+        "profile": prof.model_dump(),
+        "skills_vector": skills_vector,
+        "summary_text": summary_text,
+    }
 
 
 # --- Master Profile & Resume Builder Endpoints ------------------------------------------

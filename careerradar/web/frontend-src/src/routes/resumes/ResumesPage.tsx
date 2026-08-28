@@ -2,40 +2,14 @@ import { useEffect, useState } from "preact/hooks";
 import { getJSONOrNull, guard } from "../../api/client";
 import type {
   GeneratedResumeRecord,
-  ProfileRecord,
-  ProfileSkill,
   ResumeMasterProfile,
   ResumeUploadResponse,
 } from "../../api/types";
 import { ResumeDropzone } from "./ResumeDropzone";
 import { ProfileChatPanel } from "./ProfileChatPanel";
 
-const LEVEL_LABELS = ["none", "familiar", "working", "strong", "expert"];
-
-function levelLabel(level: number): string {
-  return LEVEL_LABELS[level] ?? String(level);
-}
-
-function SkillTags({ skills }: { skills: ProfileSkill[] }) {
-  if (!skills.length) return <span class="skill-tag">No skills recorded</span>;
-  const sorted = [...skills].sort((a, b) => b.level - a.level || a.key.localeCompare(b.key));
-  return (
-    <>
-      {sorted.map((skill) => (
-        <span
-          key={skill.key}
-          class="skill-tag"
-          title={`level ${skill.level} — ${levelLabel(skill.level)}`}
-        >
-          {skill.label || skill.key.replace(/_/g, " ")} <em>{levelLabel(skill.level)}</em>
-        </span>
-      ))}
-    </>
-  );
-}
-
 export function ResumesPage() {
-  const [activeSubTab, setActiveSubTab] = useState<"master" | "tailored" | "vector">("master");
+  const [activeSubTab, setActiveSubTab] = useState<"master" | "tailored">("master");
 
   // Master profile state
   const [masterProfile, setMasterProfile] = useState<ResumeMasterProfile | null>(null);
@@ -50,9 +24,6 @@ export function ResumesPage() {
   // Tailored resumes list
   const [resumesList, setResumesList] = useState<GeneratedResumeRecord[]>([]);
   const [resumesLoading, setResumesLoading] = useState(false);
-
-  // Active scoring profile
-  const [vectorRecord, setVectorRecord] = useState<ProfileRecord | null | undefined>(undefined);
 
   // Load master profile on mount
   useEffect(() => {
@@ -90,7 +61,7 @@ export function ResumesPage() {
     });
   }, []);
 
-  // Load tailored resumes or vector profile when switching subtabs
+  // Load tailored resumes when switching subtabs
   useEffect(() => {
     if (activeSubTab === "tailored") {
       setResumesLoading(true);
@@ -100,14 +71,8 @@ export function ResumesPage() {
         setResumesList(data || []);
         setResumesLoading(false);
       });
-    } else if (activeSubTab === "vector" && vectorRecord === undefined) {
-      guard("Loading active profile vector", () =>
-        getJSONOrNull<ProfileRecord>("/api/profile")
-      ).then((data) => {
-        setVectorRecord(data);
-      });
     }
-  }, [activeSubTab, vectorRecord]);
+  }, [activeSubTab]);
 
   const handleSaveMasterProfile = async (profileToSave?: ResumeMasterProfile) => {
     const prof = profileToSave || masterProfile;
@@ -122,8 +87,6 @@ export function ResumesPage() {
       });
       if (resp.ok) {
         setSaveStatus("Saved and synced for scoring & resumes!");
-        // Refresh vector record on next visit
-        setVectorRecord(undefined);
         setTimeout(() => setSaveStatus(null), 4000);
       } else {
         const err = await resp.json();
@@ -161,12 +124,6 @@ export function ResumesPage() {
             onClick={() => setActiveSubTab("tailored")}
           >
             <i class="fa-solid fa-file-lines"></i> Tailored Resumes Library ({resumesList.length})
-          </button>
-          <button
-            class={`action-pill ${activeSubTab === "vector" ? "active" : ""}`}
-            onClick={() => setActiveSubTab("vector")}
-          >
-            <i class="fa-solid fa-brain"></i> Active Scoring Vector
           </button>
         </div>
       </div>
@@ -953,56 +910,6 @@ export function ResumesPage() {
                   )}
                 </div>
               ))}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Sub-tab 3: Active Scoring Vector */}
-      {activeSubTab === "vector" && (
-        <div class="resumes-grid" style={{ maxWidth: "1000px" }}>
-          {vectorRecord === undefined ? (
-            <p>Loading active scoring profile...</p>
-          ) : vectorRecord === null ? (
-            <div class="resume-card">
-              <div class="resume-card-header">
-                <h3>No active profile</h3>
-              </div>
-              <p class="card-note">
-                Save your Master Profile in the Master Profile tab to activate scoring.
-              </p>
-            </div>
-          ) : (
-            <div class="resume-card">
-              <div class="resume-card-header">
-                <span>
-                  Profile version {vectorRecord.version} · built{" "}
-                  {(vectorRecord.created_at || "").slice(0, 10)} ·{" "}
-                  {vectorRecord.model || "master-sync"}
-                </span>
-                <h3>{vectorRecord.profile.seniority || "Active Profile"}</h3>
-              </div>
-              <div class="divider"></div>
-              <p class="verdict-summary">{vectorRecord.profile.bio || ""}</p>
-              <h4>Skills Vector ({vectorRecord.profile.skills.length})</h4>
-              <div class="skills-scroll-area">
-                <SkillTags skills={vectorRecord.profile.skills} />
-              </div>
-              <h4>Prompt Prefix Summary Text</h4>
-              <pre
-                style={{
-                  backgroundColor: "var(--bg-screen-alt)",
-                  padding: "1rem",
-                  fontSize: "0.8rem",
-                  fontFamily: "var(--font-mono)",
-                  whiteSpace: "pre-wrap",
-                  border: "1px solid var(--ink-primary)",
-                  maxHeight: "300px",
-                  overflowY: "auto",
-                }}
-              >
-                {vectorRecord.summary_text}
-              </pre>
             </div>
           )}
         </div>

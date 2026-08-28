@@ -1,6 +1,7 @@
 import { useEffect, useState } from "preact/hooks";
 import { getJSON, guard } from "../../api/client";
 import type {
+  ObservabilityPromptResponse,
   ObservabilityReason,
   ObservabilityStats,
   ObservabilityVerdictItem,
@@ -12,6 +13,12 @@ export function ObservabilityPage() {
   const [verdictsData, setVerdictsData] = useState<ObservabilityVerdictsResponse | null>(null);
   const [loadingVerdicts, setLoadingVerdicts] = useState(false);
 
+  // Scoring prompt inspection state
+  const [promptData, setPromptData] = useState<ObservabilityPromptResponse | null>(null);
+  const [promptViewMode, setPromptViewMode] = useState<"system" | "profile" | "rules">("system");
+  const [promptExpanded, setPromptExpanded] = useState(false);
+  const [copiedPrompt, setCopiedPrompt] = useState(false);
+
   // Filters and pagination state
   const [searchTerm, setSearchTerm] = useState("");
   const [activeQuery, setActiveQuery] = useState("");
@@ -21,7 +28,7 @@ export function ObservabilityPage() {
   const [limit, setLimit] = useState<number>(20);
   const [offset, setOffset] = useState<number>(0);
 
-  // Load overall stats on mount
+  // Load overall stats and prompt info on mount
   useEffect(() => {
     let cancelled = false;
     guard("Loading observability stats", () =>
@@ -31,6 +38,15 @@ export function ObservabilityPage() {
         setStats(data);
       }
     });
+
+    guard("Loading scoring prompt prefix", () =>
+      getJSON<ObservabilityPromptResponse>("/api/observability/prompt")
+    ).then((data) => {
+      if (!cancelled && data) {
+        setPromptData(data);
+      }
+    });
+
     return () => {
       cancelled = true;
     };
@@ -88,6 +104,20 @@ export function ObservabilityPage() {
     setOffset(0);
     setLimit(val);
   }
+
+  function handleCopyPrompt(text: string) {
+    if (!text) return;
+    navigator.clipboard.writeText(text);
+    setCopiedPrompt(true);
+    setTimeout(() => setCopiedPrompt(false), 2500);
+  }
+
+  const displayedPromptText =
+    promptViewMode === "system"
+      ? promptData?.system_prompt || ""
+      : promptViewMode === "profile"
+      ? promptData?.summary_text || ""
+      : promptData?.rules || "";
 
   const totalVerdicts = verdictsData?.total ?? 0;
   const items = verdictsData?.items ?? [];
@@ -273,6 +303,122 @@ export function ObservabilityPage() {
             )}
           </div>
         </div>
+      </div>
+
+      {/* Active Scoring Prompt & Cached System Prefix Inspector */}
+      <div class="glass-card obs-panel" style={{ marginBottom: "18px" }}>
+        <div
+          class="obs-panel-header"
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            flexWrap: "wrap",
+            gap: "0.75rem",
+          }}
+        >
+          <div>
+            <h4 style={{ margin: 0, display: "flex", alignItems: "center", gap: "0.5rem" }}>
+              <i class="fa-solid fa-code text-blue"></i> Active Scoring Prompt & Cached System Prefix
+            </h4>
+            <span class="obs-panel-hint">
+              Byte-identical prompt prefix cached on DeepSeek/LLM. Paid once, then read from cache.
+            </span>
+          </div>
+
+          <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+            {promptData?.prompt_hash && (
+              <span
+                style={{
+                  fontSize: "0.75rem",
+                  fontFamily: "var(--font-mono)",
+                  padding: "0.2rem 0.5rem",
+                  border: "1px solid var(--ink-primary)",
+                  backgroundColor: "var(--bg-screen-alt)",
+                }}
+              >
+                hash: <strong>{promptData.prompt_hash}</strong>
+              </span>
+            )}
+            <button
+              class="action-pill"
+              onClick={() => setPromptExpanded(!promptExpanded)}
+              style={{ fontSize: "0.8rem", padding: "0.25rem 0.6rem" }}
+            >
+              <i class={`fa-solid ${promptExpanded ? "fa-chevron-up" : "fa-chevron-down"}`}></i>{" "}
+              {promptExpanded ? "Collapse" : "Inspect Prompt"}
+            </button>
+          </div>
+        </div>
+
+        {promptExpanded && (
+          <div style={{ marginTop: "1rem" }}>
+            {/* View Mode Toggle & Copy Button */}
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                marginBottom: "0.75rem",
+                flexWrap: "wrap",
+                gap: "0.5rem",
+              }}
+            >
+              <div class="subtab-bar" style={{ gap: "0.35rem" }}>
+                <button
+                  class={`action-pill ${promptViewMode === "system" ? "active" : ""}`}
+                  onClick={() => setPromptViewMode("system")}
+                  style={{ fontSize: "0.8rem", padding: "0.25rem 0.6rem" }}
+                >
+                  <i class="fa-solid fa-layer-group"></i> Full Cached System Prompt (
+                  {displayedPromptText.length} chars)
+                </button>
+                <button
+                  class={`action-pill ${promptViewMode === "profile" ? "active" : ""}`}
+                  onClick={() => setPromptViewMode("profile")}
+                  style={{ fontSize: "0.8rem", padding: "0.25rem 0.6rem" }}
+                >
+                  <i class="fa-solid fa-user"></i> Candidate Profile Prefix
+                </button>
+                <button
+                  class={`action-pill ${promptViewMode === "rules" ? "active" : ""}`}
+                  onClick={() => setPromptViewMode("rules")}
+                  style={{ fontSize: "0.8rem", padding: "0.25rem 0.6rem" }}
+                >
+                  <i class="fa-solid fa-gavel"></i> Scoring Rules
+                </button>
+              </div>
+
+              <button
+                class="action-pill text-blue"
+                onClick={() => handleCopyPrompt(displayedPromptText)}
+                disabled={!displayedPromptText}
+                style={{ fontSize: "0.8rem", padding: "0.25rem 0.6rem" }}
+              >
+                <i class={`fa-solid ${copiedPrompt ? "fa-check text-green" : "fa-copy"}`}></i>{" "}
+                {copiedPrompt ? "Copied!" : "Copy Text"}
+              </button>
+            </div>
+
+            {/* Prompt Code Display */}
+            <pre
+              style={{
+                backgroundColor: "var(--bg-screen-alt)",
+                padding: "1rem",
+                fontSize: "0.8rem",
+                fontFamily: "var(--font-mono)",
+                whiteSpace: "pre-wrap",
+                border: "1px solid var(--ink-primary)",
+                maxHeight: "350px",
+                overflowY: "auto",
+                lineHeight: 1.45,
+                margin: 0,
+              }}
+            >
+              {displayedPromptText || "No active prompt loaded."}
+            </pre>
+          </div>
+        )}
       </div>
 
       {/* Model Output & Token Inspection Explorer */}

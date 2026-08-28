@@ -240,6 +240,16 @@ class ObservabilityApiEndpointsTests(unittest.TestCase):
         self.assertEqual(data_search["total"], 1)
         self.assertEqual(data_search["items"][0]["company"], "Datadog")
 
+    def test_observability_prompt_endpoint(self) -> None:
+        response = self.client.get("/api/observability/prompt")
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertIn("prompt_hash", data)
+        self.assertIn("rules", data)
+        self.assertIn("summary_text", data)
+        self.assertIn("system_prompt", data)
+        self.assertEqual(len(data["prompt_hash"]), 16)
+
 
 if __name__ == "__main__":
     unittest.main()

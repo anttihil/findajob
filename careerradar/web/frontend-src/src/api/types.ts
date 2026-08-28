@@ -337,6 +337,7 @@ export interface ProfileSkill {
   key: string;
   label?: string;
   level: number;
+  evidence?: string[];
 }
 
 export interface ProfileDocument {
@@ -345,16 +346,32 @@ export interface ProfileDocument {
   chars?: number;
 }
 
-export interface ProfileRecord {
+export interface ProfileVectorResponse {
   version: number;
-  created_at: string;
+  updated_at?: string | null;
   model?: string;
-  profile: {
-    seniority?: string;
-    bio?: string;
-    skills: ProfileSkill[];
+  profile: ResumeMasterProfile;
+  skills_vector: ProfileSkill[];
+  summary_text: string;
+}
+
+export interface ProfileRecord {
+  version?: number;
+  updated_at?: string | null;
+  created_at?: string | null;
+  model?: string;
+  seniority?: string | null;
+  summary_guidance?: string | null;
+  profile?: {
+    name?: string;
+    seniority?: string | null;
+    bio?: string | null;
+    summary_guidance?: string | null;
+    skills?: ProfileSkill[];
   };
-  documents: ProfileDocument[];
+  skills_vector?: ProfileSkill[];
+  summary_text?: string;
+  documents?: ProfileDocument[];
 }
 
 // --- Config -----------------------------------------------------------------------------
@@ -450,5 +467,13 @@ export interface ObservabilityVerdictsResponse {
   total: number;
   limit: number;
   offset: number;
+}
+
+export interface ObservabilityPromptResponse {
+  prompt_hash: string;
+  rules: string;
+  summary_text: string;
+  system_prompt: string;
+  updated_at?: string | null;
 }
 

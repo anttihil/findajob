@@ -24,6 +24,15 @@ def test_get_master_profile(mock_load: MagicMock):
     assert resp2.status_code == 200
     assert resp2.json()["name"] == "Jane Doe"
 
+    # Also test /api/profile/vector endpoint
+    resp3 = client.get("/api/profile/vector")
+    assert resp3.status_code == 200
+    vdata = resp3.json()
+    assert vdata["version"] == 1
+    assert vdata["profile"]["name"] == "Jane Doe"
+    assert "summary_text" in vdata
+    assert isinstance(vdata["skills_vector"], list)
+
 
 @patch("careerradar.profile.repository.save_profile")
 def test_update_master_profile(mock_save: MagicMock):
