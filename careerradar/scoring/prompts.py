@@ -18,8 +18,6 @@ MAX_DESCRIPTION_CHARS = 6000
 MAX_HINT_MATCHED = 12
 MAX_HINT_MISSING = 15
 
-_LEVEL_NAMES = {3: "STRONG", 2: "WORKING", 1: "FAMILIAR"}
-
 
 def build_rules(fit_threshold: int = 90) -> str:
     return f"""\
@@ -77,17 +75,20 @@ def render_skill_hint(matched: list[str] | None = None, missing: list[str] | Non
         )
     ]
     if matched:
-        lines.append("candidate evidences: " + ", ".join(matched))
+        lines.append("candidate profile has: " + ", ".join(matched))
     if missing:
-        lines.append("posting asks, not evidenced: " + ", ".join(missing))
+        lines.append("posting asks, not on profile: " + ", ".join(missing))
     lines.append("</taxonomy_signal>")
     return "\n".join(lines)
 
 
-def format_matched(matched_levels: list[tuple[str, int]]) -> list[str]:
-    """`[(label, level), ...]` -> `['Python(STRONG)', ...]`, strongest first."""
-    ordered = sorted(matched_levels, key=lambda pair: (-pair[1], pair[0].lower()))
-    return [f"{label}({_LEVEL_NAMES.get(level, 'FAMILIAR')})" for label, level in ordered]
+def format_matched(matched_skills: list[Any]) -> list[str]:
+    """Format matched skill labels for prompt rendering."""
+    if not matched_skills:
+        return []
+    if isinstance(matched_skills[0], tuple):
+        return [str(label) for label, _ in matched_skills]
+    return [str(s) for s in matched_skills]
 
 
 def _facts(posting: dict[str, Any]) -> list[str]:

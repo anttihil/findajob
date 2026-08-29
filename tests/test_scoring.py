@@ -20,9 +20,6 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from careerradar.profile.adapter import ProfileAdapter
 from careerradar.profile.models import (
-    LEVEL_CLAIMED,
-    LEVEL_MENTIONED,
-    LEVEL_STRONG,
     MasterSkillCategory,
     Profile,
 )
@@ -36,36 +33,28 @@ from careerradar.taxonomy.roles import load_roles
 from careerradar.taxonomy.skills import Taxonomy, load_taxonomy
 
 
-def make_profile(levels: dict[str, int], taxonomy: Taxonomy) -> ProfileAdapter:
-    """A profile with explicit levels, so tests do not depend on the real resumes."""
+def make_profile(
+    skills: list[str] | dict[str, Any] | set[str], taxonomy: Taxonomy
+) -> ProfileAdapter:
+    """A profile with explicit skills, so tests do not depend on the real resumes."""
+    skill_list = list(skills.keys()) if isinstance(skills, dict) else list(skills)
     profile = Profile(
         summary_guidance="test candidate",
         skills=[
             MasterSkillCategory(
                 category="Technical",
-                skills=list(levels.keys()),
+                skills=skill_list,
             )
         ],
     )
-    adapter = ProfileAdapter(profile, version=0, taxonomy=taxonomy)
-    for key, lvl in levels.items():
-        if key in adapter.skills:
-            adapter.skills[key]["level"] = lvl
-        else:
-            adapter.skills[key] = {
-                "level": lvl,
-                "label": key,
-                "evidence": ["test"],
-                "recency": None,
-            }
-    return adapter
+    return ProfileAdapter(profile, version=0, taxonomy=taxonomy)
 
 
 class CoverageTests(unittest.TestCase):
     def setUp(self) -> None:
         self.tax = load_taxonomy()
         self.profile = make_profile(
-            {"python": LEVEL_STRONG, "docker": LEVEL_CLAIMED, "terraform": LEVEL_MENTIONED},
+            ["python", "docker", "terraform"],
             self.tax,
         )
 
@@ -112,10 +101,13 @@ class CoverageTests(unittest.TestCase):
         self.assertIn("kubernetes", missing)
 
     def test_stronger_evidence_scores_at_least_as_well(self) -> None:
-        strong = make_profile({"python": LEVEL_STRONG}, self.tax)
-        weak = make_profile({"python": LEVEL_MENTIONED}, self.tax)
+        has_skill = make_profile(["python"], self.tax)
+        no_skill = make_profile([], self.tax)
         required = {"python": {}}
-        self.assertGreater(skill_coverage(required, strong)[0], skill_coverage(required, weak)[0])
+        self.assertGreater(
+            skill_coverage(required, has_skill)[0],
+            skill_coverage(required, no_skill)[0],
+        )
 
     def test_title_skills_weigh_more_than_body_skills(self) -> None:
         """A skill in the title is a hard requirement; missing it should cost more."""
@@ -131,7 +123,7 @@ class ComponentTests(unittest.TestCase):
     def setUp(self) -> None:
         self.tax = load_taxonomy()
         self.roles = load_roles()
-        self.profile = make_profile({"python": LEVEL_STRONG}, self.tax)
+        self.profile = make_profile(["python"], self.tax)
 
     def test_seniority_fit_prefers_mid_and_senior(self) -> None:
         self.assertGreater(seniority_fit("mid"), seniority_fit("staff"))
@@ -154,7 +146,7 @@ class CoverageRatioTests(unittest.TestCase):
 
     def setUp(self) -> None:
         self.tax = load_taxonomy()
-        self.profile = make_profile({"python": LEVEL_STRONG}, self.tax)
+        self.profile = make_profile(["python"], self.tax)
 
     def test_a_posting_naming_nothing_recognised_has_unknown_coverage(self) -> None:
         _cov, _m, _mi, ratio = skill_coverage({}, self.profile)
@@ -171,7 +163,7 @@ class ImpliesTests(unittest.TestCase):
 
     def setUp(self) -> None:
         self.tax = load_taxonomy()
-        self.profile = make_profile({"claude_api": LEVEL_STRONG}, self.tax)
+        self.profile = make_profile(["claude_api"], self.tax)
 
     def test_a_child_skill_evidences_its_parent(self) -> None:
         required = {"llm_apps": {"in_title": False}}
@@ -195,15 +187,15 @@ class ScorerTests(unittest.TestCase):
         self.tax = load_taxonomy()
         self.roles = load_roles()
         self.profile = make_profile(
-            {
-                "python": LEVEL_STRONG,
-                "docker": LEVEL_STRONG,
-                "aws": LEVEL_STRONG,
-                "terraform": LEVEL_CLAIMED,
-                "postgresql": LEVEL_CLAIMED,
-                "react": LEVEL_CLAIMED,
-                "typescript": LEVEL_CLAIMED,
-            },
+            [
+                "python",
+                "docker",
+                "aws",
+                "terraform",
+                "postgresql",
+                "react",
+                "typescript",
+            ],
             self.tax,
         )
         self.scorer = JobScorer(self.profile, self.roles, self.tax)

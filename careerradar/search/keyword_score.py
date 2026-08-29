@@ -24,8 +24,6 @@ recognise.
 
 from typing import TYPE_CHECKING, Any
 
-from careerradar.profile.models import LEVEL_CLAIMED, LEVEL_MENTIONED, LEVEL_STRONG
-
 if TYPE_CHECKING:
     from careerradar.profile.adapter import ProfileAdapter
     from careerradar.taxonomy.roles import RoleTaxonomy
@@ -38,14 +36,6 @@ DEFAULT_WEIGHTS = {
     "skill_coverage": 0.62,
     "title_family": 0.24,
     "seniority_fit": 0.14,
-}
-
-# How much each profile evidence level contributes when a required skill is matched. A skill
-# named once in prose should not count as fully as one used across current projects.
-LEVEL_CREDIT = {
-    LEVEL_STRONG: 1.0,
-    LEVEL_CLAIMED: 0.85,
-    LEVEL_MENTIONED: 0.55,
 }
 
 # A skill named in the TITLE is a hard requirement in a way a body mention is not, so both
@@ -111,14 +101,12 @@ def skill_coverage(
     for skill, info in (required or {}).items():
         weight = TITLE_SKILL_MULTIPLIER if info.get("in_title") else 1.0
         possible += weight
-        level: int = profile.level(skill)
-        credit = LEVEL_CREDIT.get(level, 0.5) if level > 0 else 0.0
-        if level == 0 and taxonomy is not None:
-            implied: int = max(
-                (profile.level(child) for child in taxonomy.implied_by(skill)), default=0
-            )
-            if implied > 0:
-                credit = LEVEL_CREDIT.get(implied, 0.5) * IMPLIED_CREDIT
+        has_skill = profile.has(skill)
+        credit = 1.0 if has_skill else 0.0
+        if not has_skill and taxonomy is not None:
+            implied = any(profile.has(child) for child in taxonomy.implied_by(skill))
+            if implied:
+                credit = IMPLIED_CREDIT
         if credit > 0:
             earned += weight * credit
             matched.append(skill)

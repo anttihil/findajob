@@ -50,7 +50,7 @@ export function SkillDrawer({ skill, onClose }: { skill: string | null; onClose:
             <div class="drawer-header">
               <div class="drawer-badge-row">
                 <span class="match-badge-lg">
-                  {detail ? (detail.user_has ? `Level ${detail.user_level}` : "Not on resume") : ""}
+                  {detail ? (detail.user_has ? "In profile" : "Not on resume") : ""}
                 </span>
                 <span class="source-badge">{detail?.category ?? ""}</span>
               </div>

@@ -56,7 +56,7 @@ function GapRow({ row, index, kind, onSelect }: {
         <span class="gap-tags">
           <span class="gap-tag">{row.category}</span>
           {kind === "gap" && <span class={`gap-tag is-effort-${row.effort}`}>{row.effort} effort</span>}
-          {row.user_level && <span class="gap-tag is-have">level {row.user_level}</span>}
+          {row.user_has && <span class="gap-tag is-have">in profile</span>}
         </span>
       </div>
       {kind === "gap" && <div class="gap-row-body" ref={metersRef}></div>}

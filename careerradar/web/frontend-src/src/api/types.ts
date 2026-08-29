@@ -283,6 +283,7 @@ export interface SkillGapRow {
   skill: string;
   label: string;
   category: string;
+  user_has: boolean;
   priority: number;
   blocking_gap: number;
   demand: number;

@@ -214,7 +214,7 @@ class AdapterTests(unittest.TestCase):
         self.assertTrue(self.adapter.has("python"))
         self.assertTrue(self.adapter.has("aws"))
         self.assertFalse(self.adapter.has("rust"))
-        self.assertEqual(self.adapter.level("python"), 3)
+        self.assertEqual(self.adapter.level("python"), 1)
         self.assertEqual(self.adapter.level("nonexistent"), 0)
 
     def test_keys_and_contains(self) -> None:

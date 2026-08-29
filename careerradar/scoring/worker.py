@@ -149,9 +149,7 @@ def _skill_hint(scorer: "JobScorer | None", job: dict[str, Any]) -> str:
     except Exception:  # a scorer failure must not cost the posting its verdict
         logger.debug("Skill hint unavailable for job %s", job.get("id"), exc_info=True)
         return ""
-    matched = [
-        (scorer.taxonomy.label(key), scorer.profile.level(key)) for key in result["matched_skills"]
-    ]
+    matched = [scorer.taxonomy.label(key) for key in result["matched_skills"]]
     missing = [scorer.taxonomy.label(key) for key in result["missing_skills"]]
     return render_skill_hint(matched=format_matched(matched), missing=missing)
 

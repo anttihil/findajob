@@ -3,7 +3,7 @@
 import re
 from typing import TYPE_CHECKING, Any
 
-from careerradar.profile.models import LEVEL_CLAIMED, LEVEL_MENTIONED, LEVEL_STRONG, Profile
+from careerradar.profile.models import Profile
 
 if TYPE_CHECKING:
     from careerradar.core.database import Database
@@ -23,7 +23,7 @@ class ProfileAdapter:
         self.version = version
         self.taxonomy = taxonomy
 
-        # Build skills map from categorized skills
+        # Build skills map from categorized skills (binary: has skill)
         skills_map: dict[str, dict[str, Any]] = {}
         for cat in profile.skills:
             for s_name in cat.skills:
@@ -32,44 +32,23 @@ class ProfileAdapter:
                     continue
                 key = re.sub(r"[^a-z0-9_]+", "_", clean.lower()).strip("_")
                 skills_map[key] = {
-                    "level": LEVEL_CLAIMED,
+                    "level": 1,
                     "label": clean,
                     "evidence": [f"{cat.category}: {clean}"],
                     "recency": None,
                 }
 
-        # Check experience bullets for strong evidence (ground truth)
-        exp_text = ""
-        for role in profile.experience:
-            for proj in role.projects:
-                proj_heading = proj.heading or ""
-                exp_text += f" {proj_heading} " + " ".join(proj.bullets)
-        for proj in profile.projects:
-            proj_heading = proj.heading or ""
-            exp_text += f" {proj_heading} " + " ".join(proj.bullets)
-        exp_lower = exp_text.lower()
-
-        for key, rec in skills_map.items():
-            if (
-                key in exp_lower
-                or rec["label"].lower() in exp_lower
-                or re.search(rf"\b{re.escape(key)}\b", exp_lower)
-            ):
-                rec["level"] = LEVEL_STRONG
-                rec["evidence"].append(f"Demonstrated in work experience: {rec['label']}")
-
         self.skills = skills_map
         self.sources = [f"profile v{version}"] if version else ["profile"]
 
-    def has(self, key: str, min_level: int = LEVEL_MENTIONED) -> bool:
-        return self.level(key) >= min_level
+    def has(self, key: str, min_level: int = 1) -> bool:  # noqa: ARG002 - compatibility
+        return key in self.skills
 
     def level(self, key: str) -> int:
-        record = self.skills.get(key)
-        return record["level"] if record else 0
+        return 1 if key in self.skills else 0
 
-    def keys(self, min_level: int = LEVEL_MENTIONED) -> set[str]:
-        return {k for k, v in self.skills.items() if v["level"] >= min_level}
+    def keys(self, min_level: int = 1) -> set[str]:  # noqa: ARG002 - compatibility
+        return set(self.skills.keys())
 
     def evidence(self, key: str) -> list[str]:
         record = self.skills.get(key)
