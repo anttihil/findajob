@@ -17,176 +17,6 @@ function svgEl(tag: string, attrs: Record<string, string | number | undefined> =
   return el;
 }
 
-/* Rounded only on the data end, anchored to the baseline. */
-function barPath(x: number, y: number, width: number, height: number, radius: number): string {
-  const r = Math.max(0, Math.min(radius, width, height / 2));
-  if (r === 0 || width <= 0) {
-    return `M${x},${y}h${Math.max(width, 0)}v${height}h${-Math.max(width, 0)}z`;
-  }
-  return (
-    `M${x},${y}h${width - r}a${r},${r} 0 0 1 ${r},${r}v${height - 2 * r}` +
-    `a${r},${r} 0 0 1 ${-r},${r}h${-(width - r)}z`
-  );
-}
-
-export interface BarChartRow {
-  label: string;
-  value: number;
-  censored?: boolean;
-  zero_yield?: boolean;
-  n_postings?: number;
-  n_companies?: number;
-  coverage_fraction?: number;
-  flow_per_day?: number;
-}
-
-export interface BarChartOptions {
-  valueKey?: keyof BarChartRow;
-  labelKey?: keyof BarChartRow;
-  formatValue?: (v: number) => string;
-  labelWidth?: number;
-  unit?: string;
-  emptyText?: string;
-  ariaLabel?: string;
-}
-
-function buildTooltip(
-  row: BarChartRow,
-  formatValue: (v: number) => string,
-  unit: string
-): string {
-  const parts: string[] = [row.label];
-  if (row.zero_yield) parts.push("no on-topic postings observed");
-  else if (row.value !== undefined || row.flow_per_day !== undefined) {
-    const value = row.value ?? row.flow_per_day ?? 0;
-    parts.push(`${row.censored ? "at least " : ""}${formatValue(value)}${unit}`);
-  }
-  if (row.n_postings !== undefined) parts.push(`${row.n_postings} postings`);
-  if (row.n_companies !== undefined) parts.push(`${row.n_companies} companies`);
-  if (row.coverage_fraction !== undefined) {
-    parts.push(`window coverage ${Math.round(row.coverage_fraction * 100)}%`);
-  }
-  if (row.censored) parts.push("result set truncated — lower bound only");
-  return parts.filter(Boolean).join(" · ");
-}
-
-/* Role supply. One series, so no legend -- the title names it.
- * A censored value is a LOWER BOUND (the board truncated the result set), so it gets an
- * arrow cap and a ">=" label instead of an ordinary bar end. */
-export function renderBarChart(
-  container: HTMLElement,
-  rows: BarChartRow[] | null | undefined,
-  options: BarChartOptions = {}
-): void {
-  const {
-    valueKey = "value",
-    formatValue = (v: number) => v.toFixed(1),
-    labelWidth = 190,
-    unit = "",
-    emptyText = "No data yet",
-  } = options;
-
-  container.innerHTML = "";
-  if (!rows || !rows.length) {
-    container.innerHTML = `<p class="chart-empty">${esc(emptyText)}</p>`;
-    return;
-  }
-
-  // Fixed design width rather than container.clientWidth -- see charts.js for why.
-  const width = 560;
-  const plotWidth = Math.max(width - labelWidth - 92, 80);
-  const height = rows.length * (CHART.BAR_H + CHART.BAR_GAP) + 8;
-  const max = Math.max(...rows.map((r) => Number(r[valueKey]) || 0), 0.0001);
-
-  const svg = svgEl("svg", {
-    class: "chart-svg",
-    width: "100%",
-    height,
-    viewBox: `0 0 ${width} ${height}`,
-    role: "img",
-    "aria-label": options.ariaLabel || "Bar chart",
-  });
-
-  rows.forEach((row, index) => {
-    const y = index * (CHART.BAR_H + CHART.BAR_GAP) + 4;
-    const value = Number(row[valueKey]) || 0;
-    const barWidth = Math.max((value / max) * plotWidth, value > 0 ? 3 : 0);
-    const censored = Boolean(row.censored);
-    const zeroYield = Boolean(row.zero_yield);
-    const group = svgEl("g", { class: "chart-row" });
-
-    const label = svgEl("text", {
-      x: labelWidth - 10,
-      y: y + CHART.BAR_H / 2 + 4,
-      "text-anchor": "end",
-      class: "chart-label",
-    });
-    label.textContent = row.label;
-    group.appendChild(label);
-
-    group.appendChild(
-      svgEl("rect", {
-        x: labelWidth,
-        y,
-        width: plotWidth,
-        height: CHART.BAR_H,
-        rx: CHART.RADIUS,
-        fill: CHART.track,
-      })
-    );
-
-    if (zeroYield) {
-      // Scraped, nothing on-topic returned. Distinct from a measured low value: a
-      // zero-length bar would read as "low demand" rather than "nothing found".
-      const none = svgEl("text", {
-        x: labelWidth + 8,
-        y: y + CHART.BAR_H / 2 + 4,
-        class: "chart-none",
-      });
-      none.textContent = "none observed";
-      group.appendChild(none);
-    } else {
-      group.appendChild(
-        svgEl("path", {
-          d: barPath(labelWidth, y, barWidth, CHART.BAR_H, CHART.RADIUS),
-          fill: censored ? CHART.censored : CHART.accent,
-        })
-      );
-      if (censored) {
-        // Open arrow cap: the true value lies beyond this point.
-        const tip = labelWidth + barWidth;
-        group.appendChild(
-          svgEl("path", {
-            d:
-              `M${tip + 2},${y + 2}L${tip + 10},${y + CHART.BAR_H / 2}` +
-              `L${tip + 2},${y + CHART.BAR_H - 2}`,
-            fill: "none",
-            stroke: CHART.censored,
-            "stroke-width": 2,
-            "stroke-linecap": "round",
-            "stroke-linejoin": "round",
-          })
-        );
-      }
-      const valueLabel = svgEl("text", {
-        x: labelWidth + barWidth + (censored ? 18 : 8),
-        y: y + CHART.BAR_H / 2 + 4,
-        class: "chart-value",
-      });
-      valueLabel.textContent = `${censored ? "≥" : ""}${formatValue(value)}${unit}`;
-      group.appendChild(valueLabel);
-    }
-
-    const tooltip = svgEl("title");
-    tooltip.textContent = buildTooltip(row, formatValue, unit);
-    group.appendChild(tooltip);
-
-    svg.appendChild(group);
-  });
-
-  container.appendChild(svg);
-}
-
 export interface MeterComponent {
   label: string;
   value: number;
@@ -251,62 +81,6 @@ export function renderStatTiles(container: HTMLElement, tiles: StatTile[]): void
     .join("");
 }
 
-export interface HeatmapOptions {
-  rowLabels?: string[];
-  colLabels?: string[];
-  formatValue?: (v: number) => string;
-}
-
-/* Role family x location. Sequential single hue: magnitude, not identity. */
-export function renderHeatmap(
-  container: HTMLElement,
-  matrix: (number | null | undefined)[][],
-  options: HeatmapOptions = {}
-): void {
-  const { rowLabels = [], colLabels = [], formatValue = (v: number) => v.toFixed(1) } = options;
-  container.innerHTML = "";
-  if (!matrix.length) {
-    container.innerHTML = '<p class="chart-empty">No data yet</p>';
-    return;
-  }
-
-  const values = matrix.flat().filter((v): v is number => v !== null && v !== undefined);
-  const max = Math.max(...values, 0.0001);
-
-  const table = document.createElement("table");
-  table.className = "heatmap";
-  const head = document.createElement("thead");
-  head.innerHTML = `<tr><th></th>${colLabels.map((c) => `<th>${esc(c)}</th>`).join("")}</tr>`;
-  table.appendChild(head);
-
-  const body = document.createElement("tbody");
-  matrix.forEach((row, rowIndex) => {
-    const tr = document.createElement("tr");
-    tr.innerHTML = `<th scope="row">${esc(rowLabels[rowIndex] || "")}</th>`;
-    row.forEach((value, colIndex) => {
-      const cell = document.createElement("td");
-      if (value === null || value === undefined) {
-        cell.className = "heat-empty";
-        cell.title = `${rowLabels[rowIndex]} / ${colLabels[colIndex]}: not scraped`;
-        cell.textContent = "·";
-      } else {
-        // Alpha carries magnitude; the number is also printed, so the encoding is not
-        // color-alone.
-        const alpha = 0.10 + 0.85 * (value / max);
-        cell.style.background = `rgba(0, 0, 0, ${alpha.toFixed(3)})`;
-        cell.style.color = alpha > 0.5 ? "#ffffff" : "#000000";
-        cell.textContent = value > 0 ? formatValue(value) : "0";
-        cell.title =
-          `${rowLabels[rowIndex]} / ${colLabels[colIndex]}: ` + `${formatValue(value)}/day`;
-      }
-      tr.appendChild(cell);
-    });
-    body.appendChild(tr);
-  });
-  table.appendChild(body);
-  container.appendChild(table);
-}
-
 export interface CoverageFact {
   label: string;
   value: string | number | null | undefined;
@@ -326,4 +100,154 @@ export function renderCoverageStrip(container: HTMLElement, facts: CoverageFact[
         <span class="coverage-val">${esc(fact.value)}</span></span>`
     )
     .join("");
+}
+
+export interface YieldBarChartRow {
+  label: string;
+  subLabel?: string;
+  totalPostings: number;
+  scoredPostings: number;
+  strongFits: number;
+  fitRatePct: number;
+  yieldCategory?: string;
+}
+
+export interface YieldBarChartOptions {
+  labelWidth?: number;
+  emptyText?: string;
+  ariaLabel?: string;
+}
+
+export function renderYieldBarChart(
+  container: HTMLElement,
+  rows: YieldBarChartRow[] | null | undefined,
+  options: YieldBarChartOptions = {}
+): void {
+  const {
+    labelWidth = 200,
+    emptyText = "No query yield data available",
+  } = options;
+
+  container.innerHTML = "";
+  if (!rows || !rows.length) {
+    container.innerHTML = `<p class="chart-empty">${esc(emptyText)}</p>`;
+    return;
+  }
+
+  const width = 640;
+  const plotWidth = Math.max(width - labelWidth - 140, 100);
+  const rowHeight = 28;
+  const gap = 8;
+  const height = rows.length * (rowHeight + gap) + 12;
+  const maxPostings = Math.max(...rows.map((r) => r.totalPostings || 0), 1);
+
+  const svg = svgEl("svg", {
+    class: "chart-svg",
+    width: "100%",
+    height,
+    viewBox: `0 0 ${width} ${height}`,
+    role: "img",
+    "aria-label": options.ariaLabel || "Query Yield Chart",
+  });
+
+  rows.forEach((row, index) => {
+    const y = index * (rowHeight + gap) + 6;
+    const barWidth = Math.max(
+      (row.totalPostings / maxPostings) * plotWidth,
+      row.totalPostings > 0 ? 3 : 0
+    );
+    const fitWidth =
+      row.totalPostings > 0 ? (row.strongFits / row.totalPostings) * barWidth : 0;
+    const group = svgEl("g", { class: "chart-row" });
+
+    // Label
+    const label = svgEl("text", {
+      x: labelWidth - 10,
+      y: y + rowHeight / 2 + 4,
+      "text-anchor": "end",
+      class: "chart-label",
+      style: "font-weight: 700; font-size: 11px;",
+    });
+    label.textContent =
+      row.label.length > 26 ? row.label.slice(0, 25) + "…" : row.label;
+    group.appendChild(label);
+
+    // Full Track background
+    group.appendChild(
+      svgEl("rect", {
+        x: labelWidth,
+        y,
+        width: plotWidth,
+        height: rowHeight,
+        rx: CHART.RADIUS,
+        fill: CHART.track,
+      })
+    );
+
+    if (row.totalPostings === 0) {
+      const none = svgEl("text", {
+        x: labelWidth + 8,
+        y: y + rowHeight / 2 + 4,
+        class: "chart-none",
+      });
+      none.textContent = "0 postings found";
+      group.appendChild(none);
+    } else {
+      // Total Postings Bar (light monochrome / accentDim)
+      group.appendChild(
+        svgEl("rect", {
+          x: labelWidth,
+          y,
+          width: Math.max(barWidth, 2),
+          height: rowHeight,
+          rx: CHART.RADIUS,
+          fill: "rgba(0, 0, 0, 0.20)",
+        })
+      );
+
+      // Strong Fits Bar overlay (solid dark black / accent)
+      if (row.strongFits > 0) {
+        group.appendChild(
+          svgEl("rect", {
+            x: labelWidth,
+            y,
+            width: Math.max(fitWidth, 4),
+            height: rowHeight,
+            rx: CHART.RADIUS,
+            fill: "#000000",
+          })
+        );
+      }
+
+      // Value label on the right
+      const valueLabel = svgEl("text", {
+        x: labelWidth + barWidth + 8,
+        y: y + rowHeight / 2 + 4,
+        class: "chart-value",
+        style: "font-size: 11px; font-weight: 700;",
+      });
+      const fitsText = `${row.strongFits} fit${row.strongFits === 1 ? "" : "s"}`;
+      const rateText =
+        row.scoredPostings > 0 ? ` (${row.fitRatePct.toFixed(1)}%)` : "";
+      valueLabel.textContent = `${fitsText}${rateText} · ${row.totalPostings}p`;
+      group.appendChild(valueLabel);
+    }
+
+    // Tooltip
+    const tooltip = svgEl("title");
+    const fitPct =
+      row.scoredPostings > 0
+        ? `${row.fitRatePct.toFixed(1)}% fit rate`
+        : "unscored";
+    tooltip.textContent = `${row.label}${
+      row.subLabel ? ` [${row.subLabel}]` : ""
+    }: ${row.strongFits} strong fits of ${
+      row.scoredPostings
+    } scored (${fitPct}) · ${row.totalPostings} total postings`;
+    group.appendChild(tooltip);
+
+    svg.appendChild(group);
+  });
+
+  container.appendChild(svg);
 }

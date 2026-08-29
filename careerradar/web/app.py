@@ -382,28 +382,31 @@ def get_observability_prompt():
 # --- Market analytics -------------------------------------------------------------------
 
 
-@app.get("/api/market/supply")
-def market_supply(
-    window_days: int = Query(14, ge=1, le=365),
-    location: str = Query(
-        ..., description="Required: flow is only comparable within one location and source"
-    ),
-    source: str = Query("indeed"),
+@app.get("/api/market/yield")
+@app.get("/api/market/query-yield")
+def market_query_yield(
+    window_days: int | None = Query(None, ge=1, le=365),
+    source: str | None = Query(None),
+    location: str | None = Query(None),
+    role_family: str | None = Query(None),
+    min_postings: int = Query(0, ge=0),
 ):
-    """Role-family supply for one location and source.
+    """Query yield analytics for (source, query, location) search tuples.
 
-    `location` is required rather than optional by design. Flow is comparable only within a
-    comparability class of (location, source, hours_old bucket, results bucket), so a pooled
-    cross-location ranking would be the one comparison that is not valid. The dashboard
-    renders small multiples -- one panel per location -- instead.
+    Returns postings found and scoring agent strong fits for each search tuple,
+    as well as rollups by query term, source, and location.
     """
     db = get_db()
     try:
         config, taxonomy, roles, profile = analytics_context(db)
-        if location not in roles.locations:
+        if location and location not in roles.locations:
             raise HTTPException(status_code=400, detail=f"Unknown location: {location}")
-        return MarketAnalytics(db, config, roles, taxonomy, profile).role_supply(
-            window_days=window_days, location_id=location, source=source
+        return MarketAnalytics(db, config, roles, taxonomy, profile).query_yield(
+            window_days=window_days,
+            source=source,
+            location_id=location,
+            role_family=role_family,
+            min_postings=min_postings,
         )
     finally:
         db.close()

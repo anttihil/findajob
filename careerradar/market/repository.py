@@ -22,49 +22,6 @@ def _parse_date(value: datetime | str | None) -> datetime | None:
 # =====================================================================================
 
 
-def get_cell_observations_in_window(
-    conn: sqlite3.Connection,
-    window_start: str,
-    location_id: str | None = None,
-    source: str | None = None,
-) -> list[sqlite3.Row]:
-    """Retrieve successful/empty cell observations within the time window."""
-    query = """
-        SELECT role_family, location_id, source, hours_old, requested, returned,
-               returned_on_topic, saturated, window_start, window_end, status
-          FROM cell_observations
-         WHERE status IN ('ok', 'empty')
-           AND observed_at >= ?
-           AND (? IS NULL OR location_id = ?)
-           AND (? IS NULL OR source = ?)
-    """
-    return conn.execute(
-        query,
-        (window_start, location_id, location_id, source, source),
-    ).fetchall()
-
-
-def get_postings_by_family(
-    conn: sqlite3.Connection,
-    eligibility_sql: str,
-    window_start: str,
-    location_id: str | None = None,
-    source: str | None = None,
-) -> list[sqlite3.Row]:
-    """Retrieve postings grouped by role family within the time window."""
-    where_conj = " AND " if " WHERE " in eligibility_sql.upper() else " WHERE "
-    query = eligibility_sql + where_conj + "date_found >= ?"
-    params: list[Any] = [window_start]
-    if source:
-        query += " AND source = ?"
-        params.append(source)
-    if location_id:
-        query += " AND scrape_cell_id IN (SELECT id FROM scrape_cells WHERE location_id = ?)"
-        params.append(location_id)
-
-    return conn.execute(query, params).fetchall()
-
-
 def get_coverage_report_cells(conn: sqlite3.Connection) -> list[dict[str, Any]]:
     """Retrieve per-cell health and scrape statistics."""
     rows = conn.execute(
@@ -88,6 +45,62 @@ def get_coverage_report_cells(conn: sqlite3.Connection) -> list[dict[str, Any]]:
         )
         out.append(record)
     return out
+
+
+def get_query_yield_cells(
+    conn: sqlite3.Connection,
+    window_start: str | None = None,
+    source: str | None = None,
+    location_id: str | None = None,
+    role_family: str | None = None,
+    min_postings: int = 0,
+) -> list[dict[str, Any]]:
+    """Retrieve posting counts and strong fit verdicts for each
+    (source, query, location) search cell.
+    """
+    query = """
+        SELECT
+            sc.id AS cell_id,
+            sc.source,
+            sc.query,
+            sc.location_id,
+            sc.role_family,
+            sc.tier,
+            sc.enabled,
+            tq.id AS target_query_id,
+            COUNT(DISTINCT j.id) AS total_postings,
+            COUNT(DISTINCT CASE WHEN j.duplicate_of IS NULL THEN j.id END) AS unique_postings,
+            COUNT(DISTINCT v.job_id) AS scored_postings,
+            COUNT(DISTINCT CASE WHEN v.fit = 1 THEN v.job_id END) AS strong_fits,
+            COUNT(DISTINCT CASE WHEN v.fit = 0 THEN v.job_id END) AS no_fits,
+            sc.total_scrapes,
+            sc.last_scraped_at,
+            sc.last_success_at
+        FROM scrape_cells sc
+        LEFT JOIN target_queries tq ON tq.role_key = sc.role_family AND tq.query = sc.query
+        LEFT JOIN jobs j ON j.scrape_cell_id = sc.id
+             AND (? IS NULL OR j.date_found >= ?)
+        LEFT JOIN job_verdicts v ON v.job_id = j.id
+        WHERE (? IS NULL OR sc.source = ?)
+          AND (? IS NULL OR sc.location_id = ?)
+          AND (? IS NULL OR sc.role_family = ?)
+        GROUP BY sc.id, sc.source, sc.query, sc.location_id, sc.role_family
+        HAVING COUNT(DISTINCT j.id) >= ? OR sc.total_scrapes > 0
+        ORDER BY strong_fits DESC, total_postings DESC, sc.query ASC
+    """
+    params: list[Any] = [
+        window_start,
+        window_start,
+        source,
+        source,
+        location_id,
+        location_id,
+        role_family,
+        role_family,
+        min_postings,
+    ]
+    rows = conn.execute(query, params).fetchall()
+    return [dict(r) for r in rows]
 
 
 # =====================================================================================

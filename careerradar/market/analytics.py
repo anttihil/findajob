@@ -1,29 +1,9 @@
-"""Market supply and skill-demand estimation.
+"""Market analytics: search query yield estimation and skill-demand statistics.
 
-The hard part is not computing averages, it is not lying. Coverage rotates across 410 cells
-on a ~1.5-day cycle, so raw posting counts across role families are NOT comparable: a family
-that was scraped three times looks bigger than one scraped once, regardless of the market.
-Three mechanisms keep the numbers honest.
-
-  Flow, not counts. The headline supply metric is postings per day, computed over the
-  interval UNION of each observation's [observed_at - hours_old, observed_at] window. Never
-  sum hours_old: with hours_old=72 on a 24h cadence, summing triple-counts exposure and
-  understates flow by ~3x.
-
-  Saturation is right-censoring. If a board returned ~everything we asked for, there were
-  probably more, so the count is a LOWER BOUND and is rendered as such. An unsaturated cell
-  saw essentially every matching posting and yields an unbiased count. The truncation is the
-  informative bit, not a nuisance.
-
-  Post-stratification for skill demand. Demand is a within-posting ratio, so it survives
-  uneven sampling *sizes* -- but not an uneven sampling *mix*. Weights come from a declared
-  reference mix rather than the observed sample, so the estimate stays comparable as the
-  rotation changes. Confidence intervals then use Kish n_eff, because reweighting an
-  unbalanced sample inflates variance and a raw-n interval would understate uncertainty by
-  exactly the amount the scheduler misbehaved.
-
-Absolute supply is not estimable at all -- boards never report totals and results_wanted
-truncates -- so nothing here claims "there are N Kubernetes jobs".
+Provides query yield tracking for (source, query, location) search tuples,
+evaluating posting volume vs scoring agent strong fits, and statistical
+methods (Wilson score intervals, Kish effective sample sizes, stratum weighting)
+used by skills gap analysis.
 """
 
 import math
@@ -47,51 +27,12 @@ SUPPRESS_COVERAGE_INCOMPLETE = "coverage_incomplete"
 
 
 # =========================================================================================
-# Interval arithmetic
-# =========================================================================================
-
-
-def merge_intervals(
-    intervals: list[tuple[datetime, datetime]],
-) -> list[tuple[datetime, datetime]]:
-    """Union of [start, end] datetime pairs, as a list of disjoint pairs."""
-    cleaned = [(s, e) for s, e in intervals if s and e and e > s]
-    if not cleaned:
-        return []
-    cleaned.sort()
-    merged = [list(cleaned[0])]
-    for start, end in cleaned[1:]:
-        if start <= merged[-1][1]:
-            merged[-1][1] = max(merged[-1][1], end)
-        else:
-            merged.append([start, end])
-    return [(s, e) for s, e in merged]
-
-
-def covered_days(
-    intervals: list[tuple[datetime, datetime]], window_start: datetime, window_end: datetime
-) -> float:
-    """Days of observation coverage inside the analysis window.
-
-    Uses the UNION of exposure intervals. Summing hours_old instead would multiply-count
-    overlapping windows and deflate every flow estimate.
-    """
-    clipped = []
-    for start, end in intervals:
-        clipped.append((max(start, window_start), min(end, window_end)))
-    total = sum((end - start).total_seconds() for start, end in merge_intervals(clipped))
-    return total / 86400.0
-
-
-# =========================================================================================
-# Interval estimation
+# Statistical estimation (used by gap_analysis.py)
 # =========================================================================================
 
 
 def wilson_interval(successes: float, total: float, z: float = 1.96) -> tuple[float, float, float]:
-    """Wilson score interval. Behaves sensibly at small n and near 0 or 1, unlike normal
-    approximation -- 21 of 40 should not be presented with the same confidence as 300 of 600.
-    """
+    """Wilson score interval for proportion confidence."""
     if total <= 0:
         return 0.0, 0.0, 0.0
     proportion = successes / total
@@ -106,11 +47,7 @@ def wilson_interval(successes: float, total: float, z: float = 1.96) -> tuple[fl
 
 
 def kish_n_eff(weights: list[float]) -> float:
-    """Kish effective sample size: (sum w)^2 / sum w^2.
-
-    Reweighting an unbalanced sample costs precision. Using raw n in a confidence interval
-    would understate uncertainty by precisely the amount the scrape rotation was skewed.
-    """
+    """Kish effective sample size: (sum w)^2 / sum w^2."""
     if not weights:
         return 0.0
     total = sum(weights)
@@ -135,23 +72,12 @@ def weighted_median(pairs: list[tuple[float, float]]) -> float | None:
     return cleaned[-1][0]
 
 
-# =========================================================================================
-# Post-stratification
-# =========================================================================================
-
-
 def build_stratum_weights(
     stratum_counts: dict[str, int],
     reference_mix: dict[str, float],
     min_stratum_n: int = 10,
 ) -> tuple[dict[str, float], dict[str, Any]]:
-    """Per-posting weights that rake the observed sample toward a declared mix.
-
-    Returns (weights_by_stratum, diagnostics). `missing_weight` is the share of the target
-    mix that could not be filled because those strata were not sampled enough -- the
-    mechanism by which a scheduler coverage failure becomes a *visible caveat* rather than a
-    quietly wrong number.
-    """
+    """Per-posting weights that rake the observed sample toward a declared mix."""
     usable = {
         key: n
         for key, n in stratum_counts.items()
@@ -170,7 +96,6 @@ def build_stratum_weights(
     }
 
     if not usable or target_total <= 0:
-        # Fall back to equal weights: honest, and flagged via missing_weight.
         return dict.fromkeys(stratum_counts, 1.0), diagnostics
 
     n_used = diagnostics["n_used"]
@@ -179,54 +104,13 @@ def build_stratum_weights(
         target_share = reference_mix[key] / target_total
         observed_share = n / n_used
         weights[key] = target_share / observed_share if observed_share else 0.0
-    # Strata outside the reference mix contribute nothing to a weighted estimate.
     for key in stratum_counts:
         weights.setdefault(key, 0.0)
     return weights, diagnostics
 
 
 # =========================================================================================
-# Comparability
-# =========================================================================================
-
-
-def hours_old_bucket(hours_old: int | None) -> str:
-    if hours_old is None:
-        return "unknown"
-    if hours_old <= 72:
-        return "<=72"
-    if hours_old <= 168:
-        return "<=168"
-    return "<=336"
-
-
-def results_bucket(requested: int | None) -> str:
-    if not requested:
-        return "unknown"
-    if requested <= 50:
-        return "<=50"
-    if requested <= 100:
-        return "<=100"
-    return "<=200"
-
-
-def comparability_class(
-    location_id: str | None,
-    source: str | None,
-    hours_old: int | None,
-    requested: int | None,
-) -> str:
-    """Flow is comparable only within one of these classes.
-
-    Backfill observations (hours_old=336, results_wanted=200) therefore form their own class
-    and never pool with incremental ones for flow -- though they count fully for skill
-    demand, which does not depend on hours_old.
-    """
-    return f"{location_id}|{source}|{hours_old_bucket(hours_old)}|{results_bucket(requested)}"
-
-
-# =========================================================================================
-# Supply
+# Market Analytics
 # =========================================================================================
 
 
@@ -246,178 +130,292 @@ class MarketAnalytics:
         self.taxonomy = taxonomy
         self.profile = profile
 
-    # -- helpers ----------------------------------------------------------------------
     def _window(self, window_days: int) -> tuple[datetime, datetime]:
         end = datetime.now(timezone.utc)
         return end - timedelta(days=window_days), end
 
-    def _eligibility_sql(self, view: str = "v_supply_eligible") -> str:
-        clause = f"SELECT * FROM {view} WHERE 1=1"
-        if self.analytics_config.get("exclude_agencies", True):
-            clause += " AND COALESCE(is_agency, 0) = 0"
-        return clause
+    def coverage_report(self) -> list[dict[str, Any]]:
+        """Per-cell scrape health and statistics."""
+        return market_repo.get_coverage_report_cells(self.db.conn)
 
-    # -- role supply ------------------------------------------------------------------
-    def role_supply(
+    def query_yield(
         self,
-        window_days: int = 30,
+        window_days: int | None = None,
+        source: str | None = None,
         location_id: str | None = None,
-        source: str | None = "indeed",
+        role_family: str | None = None,
+        min_postings: int = 0,
     ) -> dict[str, Any]:
-        """Postings per day per role family, within one comparability class.
+        """Yield analysis for search query tuples (source, query, location).
 
-        `location_id` and `source` are required rather than optional, because pooling across
-        them is exactly the comparison that is not valid. The API surfaces small multiples
-        (one panel per location) instead of a single pooled ranking.
+        Tracks how many postings were found and how many were scored as a strong fit
+        by the scoring agent, allowing the user to evaluate and edit query terms over time.
         """
-        window_start, window_end = self._window(window_days)
-        min_coverage = self.analytics_config.get("min_coverage_fraction", 0.5)
-        min_observations = self.analytics_config.get("min_observations_per_cell", 3)
+        window_start = None
+        if window_days and window_days > 0:
+            start_dt, _ = self._window(window_days)
+            window_start = start_dt.isoformat()
 
-        observations = market_repo.get_cell_observations_in_window(
+        raw_cells = market_repo.get_query_yield_cells(
             self.db.conn,
-            window_start=window_start.isoformat(),
-            location_id=location_id,
+            window_start=window_start,
             source=source,
+            location_id=location_id,
+            role_family=role_family,
+            min_postings=min_postings,
         )
 
-        grouped = {}
-        for row in observations:
-            key = row["role_family"]
-            record = grouped.setdefault(
-                key,
+        tuples: list[dict[str, Any]] = []
+        query_map: dict[str, dict[str, Any]] = {}
+        source_map: dict[str, dict[str, Any]] = {}
+        location_map: dict[str, dict[str, Any]] = {}
+
+        total_postings_sum = 0
+        total_unique_sum = 0
+        total_scored_sum = 0
+        total_strong_fits_sum = 0
+
+        for r in raw_cells:
+            tot = r["total_postings"]
+            uniq = r["unique_postings"]
+            scored = r["scored_postings"]
+            fits = r["strong_fits"]
+            no_fits = r["no_fits"]
+            q = r["query"]
+            src = r["source"]
+            loc = r["location_id"]
+            rf = r["role_family"]
+
+            total_postings_sum += tot
+            total_unique_sum += uniq
+            total_scored_sum += scored
+            total_strong_fits_sum += fits
+
+            fit_rate = (fits / scored) if scored > 0 else 0.0
+            yield_rate = (fits / tot) if tot > 0 else 0.0
+
+            if fits >= 2 or (scored >= 3 and fit_rate >= 0.25):
+                category = "high_yield"
+            elif fits >= 1:
+                category = "moderate_yield"
+            elif scored >= 5 and fits == 0:
+                category = "zero_yield"
+            elif scored > 0 and fits == 0:
+                category = "low_yield"
+            elif tot > 0:
+                category = "unscored"
+            else:
+                category = "unscraped"
+
+            tuple_item = {
+                "cell_id": r["cell_id"],
+                "source": src,
+                "query": q,
+                "location_id": loc,
+                "role_family": rf,
+                "role_label": self.roles.label(rf),
+                "tier": r["tier"],
+                "enabled": bool(r["enabled"]),
+                "target_query_id": r["target_query_id"],
+                "total_postings": tot,
+                "unique_postings": uniq,
+                "scored_postings": scored,
+                "strong_fits": fits,
+                "no_fits": no_fits,
+                "fit_rate": round(fit_rate, 4),
+                "fit_rate_pct": round(fit_rate * 100, 1),
+                "yield_rate": round(yield_rate, 4),
+                "yield_rate_pct": round(yield_rate * 100, 1),
+                "total_scrapes": r["total_scrapes"],
+                "last_scraped_at": r["last_scraped_at"],
+                "last_success_at": r["last_success_at"],
+                "yield_category": category,
+            }
+            tuples.append(tuple_item)
+
+            # Aggregate by query text
+            if q not in query_map:
+                query_map[q] = {
+                    "query": q,
+                    "role_family": rf,
+                    "role_label": self.roles.label(rf),
+                    "target_query_id": r["target_query_id"],
+                    "total_postings": 0,
+                    "unique_postings": 0,
+                    "scored_postings": 0,
+                    "strong_fits": 0,
+                    "no_fits": 0,
+                    "total_scrapes": 0,
+                    "sources": set(),
+                    "locations": set(),
+                    "cells_count": 0,
+                }
+            q_rec = query_map[q]
+            q_rec["total_postings"] += tot
+            q_rec["unique_postings"] += uniq
+            q_rec["scored_postings"] += scored
+            q_rec["strong_fits"] += fits
+            q_rec["no_fits"] += no_fits
+            q_rec["total_scrapes"] += r["total_scrapes"]
+            q_rec["cells_count"] += 1
+            if tot > 0 or r["total_scrapes"] > 0:
+                q_rec["sources"].add(src)
+                q_rec["locations"].add(loc)
+
+            # Aggregate by source
+            if src not in source_map:
+                source_map[src] = {
+                    "source": src,
+                    "total_postings": 0,
+                    "scored_postings": 0,
+                    "strong_fits": 0,
+                }
+            source_map[src]["total_postings"] += tot
+            source_map[src]["scored_postings"] += scored
+            source_map[src]["strong_fits"] += fits
+
+            # Aggregate by location
+            if loc not in location_map:
+                location_map[loc] = {
+                    "location_id": loc,
+                    "total_postings": 0,
+                    "scored_postings": 0,
+                    "strong_fits": 0,
+                }
+            location_map[loc]["total_postings"] += tot
+            location_map[loc]["scored_postings"] += scored
+            location_map[loc]["strong_fits"] += fits
+
+        top_queries = []
+        for q_rec in query_map.values():
+            s_post = q_rec["scored_postings"]
+            s_fit = q_rec["strong_fits"]
+            tot = q_rec["total_postings"]
+            fr = (s_fit / s_post) if s_post > 0 else 0.0
+            yr = (s_fit / tot) if tot > 0 else 0.0
+
+            if s_fit >= 2 or (s_post >= 3 and fr >= 0.25):
+                cat = "high_yield"
+            elif s_fit >= 1:
+                cat = "moderate_yield"
+            elif s_post >= 5 and s_fit == 0:
+                cat = "zero_yield"
+            elif s_post > 0 and s_fit == 0:
+                cat = "low_yield"
+            elif tot > 0:
+                cat = "unscored"
+            else:
+                cat = "unscraped"
+
+            top_queries.append(
                 {
-                    "intervals": [],
-                    "observations": 0,
-                    "on_topic": 0,
-                    "saturated": 0,
-                    "classes": set(),
-                },
-            )
-            start = _parse(row["window_start"])
-            end = _parse(row["window_end"])
-            if start and end:
-                record["intervals"].append((start, end))
-            record["observations"] += 1
-            record["on_topic"] += row["returned_on_topic"] or 0
-            record["saturated"] += 1 if row["saturated"] else 0
-            record["classes"].add(
-                comparability_class(
-                    row["location_id"], row["source"], row["hours_old"], row["requested"]
-                )
-            )
-
-        postings = self._postings_by_family(window_start, location_id, source)
-
-        rows = []
-        for family, record in grouped.items():
-            if not family:
-                continue
-            days = covered_days(record["intervals"], window_start, window_end)
-            coverage_fraction = min(1.0, days / window_days) if window_days else 0.0
-            counts = postings.get(family, {"n": 0, "companies": set(), "remote": 0, "salaries": []})
-            censored = record["saturated"] > 0
-
-            suppressed = None
-            if record["observations"] < min_observations:
-                suppressed = SUPPRESS_TOO_FEW_OBSERVATIONS
-            elif coverage_fraction < min_coverage:
-                suppressed = SUPPRESS_COVERAGE_GAP
-
-            flow = (counts["n"] / days) if days > 0 else None
-            salaries = sorted(counts["salaries"])
-
-            rows.append(
-                {
-                    "role_family": family,
-                    "label": self.roles.label(family),
-                    "active": self.roles.is_active(family),
-                    "resume": self.roles.resume_for(family),
-                    "flow_per_day": round(flow, 2) if flow is not None else None,
-                    # A censored flow is a lower bound. The UI must render it with an open bar
-                    # cap and a ">=" label rather than as an ordinary value.
-                    "censored": censored,
-                    "n_postings": counts["n"],
-                    "n_companies": len(counts["companies"]),
-                    "remote_share": (
-                        round(counts["remote"] / counts["n"], 3) if counts["n"] else None
-                    ),
-                    "median_salary_usd": (
-                        salaries[len(salaries) // 2] if len(salaries) >= 5 else None
-                    ),
-                    "covered_days": round(days, 2),
-                    "coverage_fraction": round(coverage_fraction, 3),
-                    "saturated_share": round(record["saturated"] / record["observations"], 3)
-                    if record["observations"]
-                    else None,
-                    "n_observations": record["observations"],
-                    "comparability_classes": sorted(record["classes"]),
-                    # Distinguishes "we looked and found none" from "we measured low demand".
-                    # Both are 0.0/day, but only the second is a market fact, and rendering a
-                    # zero-length bar for the first reads as the second.
-                    "zero_yield": counts["n"] == 0,
-                    "suppressed_reason": suppressed,
+                    "query": q_rec["query"],
+                    "role_family": q_rec["role_family"],
+                    "role_label": q_rec["role_label"],
+                    "target_query_id": q_rec["target_query_id"],
+                    "total_postings": tot,
+                    "unique_postings": q_rec["unique_postings"],
+                    "scored_postings": s_post,
+                    "strong_fits": s_fit,
+                    "no_fits": q_rec["no_fits"],
+                    "fit_rate": round(fr, 4),
+                    "fit_rate_pct": round(fr * 100, 1),
+                    "yield_rate": round(yr, 4),
+                    "yield_rate_pct": round(yr * 100, 1),
+                    "total_scrapes": q_rec["total_scrapes"],
+                    "sources": sorted(q_rec["sources"]),
+                    "locations": sorted(q_rec["locations"]),
+                    "cells_count": q_rec["cells_count"],
+                    "yield_category": cat,
                 }
             )
 
-        published = [r for r in rows if not r["suppressed_reason"]]
-        total_flow = sum(r["flow_per_day"] or 0 for r in published)
-        for row in published:
-            row["share"] = round((row["flow_per_day"] or 0) / total_flow, 4) if total_flow else None
-        for row in rows:
-            row.setdefault("share", None)
+        top_queries.sort(
+            key=lambda x: (x["strong_fits"], x["fit_rate"], x["total_postings"]),
+            reverse=True,
+        )
 
-        rows.sort(key=lambda r: r["flow_per_day"] or -1, reverse=True)
+        zero_yield_queries = [
+            q for q in top_queries if q["strong_fits"] == 0 and q["scored_postings"] >= 3
+        ]
+        zero_yield_queries.sort(key=lambda x: x["scored_postings"], reverse=True)
+
+        by_source = []
+        for s_rec in source_map.values():
+            sc_tot = s_rec["scored_postings"]
+            sc_fit = s_rec["strong_fits"]
+            s_fr = (sc_fit / sc_tot * 100) if sc_tot > 0 else 0.0
+            by_source.append(
+                {
+                    "source": s_rec["source"],
+                    "total_postings": s_rec["total_postings"],
+                    "scored_postings": sc_tot,
+                    "strong_fits": sc_fit,
+                    "fit_rate_pct": round(s_fr, 1),
+                }
+            )
+        by_source.sort(key=lambda x: x["strong_fits"], reverse=True)
+
+        by_location = []
+        for l_rec in location_map.values():
+            lc_tot = l_rec["scored_postings"]
+            lc_fit = l_rec["strong_fits"]
+            l_fr = (lc_fit / lc_tot * 100) if lc_tot > 0 else 0.0
+            loc_obj = getattr(self.roles, "locations", {}).get(l_rec["location_id"])
+            loc_label = loc_obj.label if loc_obj else l_rec["location_id"]
+            by_location.append(
+                {
+                    "location_id": l_rec["location_id"],
+                    "location_label": loc_label,
+                    "total_postings": l_rec["total_postings"],
+                    "scored_postings": lc_tot,
+                    "strong_fits": lc_fit,
+                    "fit_rate_pct": round(l_fr, 1),
+                }
+            )
+        by_location.sort(key=lambda x: x["strong_fits"], reverse=True)
+
+        overall_fit_rate = (
+            round((total_strong_fits_sum / total_scored_sum * 100), 1)
+            if total_scored_sum > 0
+            else 0.0
+        )
+
+        active_tuples = [t for t in tuples if t["total_postings"] > 0 or t["total_scrapes"] > 0]
+        high_yield_count = sum(1 for q in top_queries if q["strong_fits"] > 0)
+        zero_yield_count = len(zero_yield_queries)
+
+        summary = {
+            "total_tuples": len(tuples),
+            "active_tuples": len(active_tuples),
+            "total_postings": total_postings_sum,
+            "total_unique_postings": total_unique_sum,
+            "total_scored": total_scored_sum,
+            "total_strong_fits": total_strong_fits_sum,
+            "overall_fit_rate_pct": overall_fit_rate,
+            "high_yield_queries_count": high_yield_count,
+            "zero_yield_queries_count": zero_yield_count,
+        }
 
         return {
             "window_days": window_days,
-            "location_id": location_id,
             "source": source,
-            "rows": rows,
-            "provenance": self._provenance(window_days, len(published), len(rows)),
+            "location_id": location_id,
+            "role_family": role_family,
+            "summary": summary,
+            "top_queries": top_queries,
+            "zero_yield_queries": zero_yield_queries,
+            "tuples": active_tuples if min_postings > 0 else tuples,
+            "by_source": by_source,
+            "by_location": by_location,
+            "provenance": {
+                "generated_at": datetime.now(timezone.utc).isoformat(),
+                "window_days": window_days,
+                "exclude_agencies": self.analytics_config.get("exclude_agencies", True),
+                "taxonomy_hash": self.taxonomy.hash,
+                "roles_hash": self.roles.hash,
+            },
         }
-
-    def _postings_by_family(
-        self, window_start: datetime, location_id: str | None, source: str | None
-    ) -> dict[str, dict[str, Any]]:
-        rows = market_repo.get_postings_by_family(
-            self.db.conn,
-            eligibility_sql=self._eligibility_sql(),
-            window_start=window_start.isoformat(),
-            location_id=location_id,
-            source=source,
-        )
-        grouped: dict[str, dict[str, Any]] = {}
-        for row in rows:
-            family = row["role_family"]
-            record = grouped.setdefault(
-                family,
-                {
-                    "n": 0,
-                    "companies": set(),
-                    "remote": 0,
-                    "salaries": [],
-                },
-            )
-            record["n"] += 1
-            if row["company_normalized"]:
-                record["companies"].add(row["company_normalized"])
-            if row["is_remote"]:
-                record["remote"] += 1
-            if row["salary_annual_usd"]:
-                record["salaries"].append(row["salary_annual_usd"])
-        return grouped
-
-    def coverage_report(self) -> list[dict[str, Any]]:
-        """Per-cell health, so a silently degrading scraper becomes obvious.
-
-        `query` and the two EWMAs are part of the report rather than internal scheduler
-        state: a cell is (source, family, location, QUERY), and without the query term the
-        report cannot answer which phrasing is earning its cell. That question had to be
-        answered by a live A/B probe against the boards once already, purely because the
-        numbers the scheduler was already keeping were not exposed anywhere.
-        """
-        return market_repo.get_coverage_report_cells(self.db.conn)
 
     def _provenance(self, window_days: int, published: int, total: int) -> dict[str, Any]:
         return {

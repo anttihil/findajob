@@ -217,26 +217,98 @@ export interface Stats {
 
 // --- Market -------------------------------------------------------------------------
 
-export interface MarketSupplyRow {
+export interface QueryYieldTuple {
+  cell_id: number;
+  source: string;
+  query: string;
+  location_id: string;
   role_family: string;
-  label: string;
-  flow_per_day: number | null;
-  censored: boolean;
-  zero_yield: boolean;
-  n_postings?: number;
-  n_companies?: number;
-  coverage_fraction?: number;
-  suppressed_reason?: string;
+  role_label: string;
+  tier: string;
+  enabled: boolean;
+  target_query_id: number | null;
+  total_postings: number;
+  unique_postings: number;
+  scored_postings: number;
+  strong_fits: number;
+  no_fits: number;
+  fit_rate: number;
+  fit_rate_pct: number;
+  yield_rate: number;
+  yield_rate_pct: number;
+  total_scrapes: number;
+  last_scraped_at: string | null;
+  last_success_at: string | null;
+  yield_category: "high_yield" | "moderate_yield" | "zero_yield" | "low_yield" | "unscored" | "unscraped";
 }
 
-export interface MarketSupplyResponse {
-  rows: MarketSupplyRow[];
+export interface QueryTermYield {
+  query: string;
+  role_family: string;
+  role_label: string;
+  target_query_id: number | null;
+  total_postings: number;
+  unique_postings: number;
+  scored_postings: number;
+  strong_fits: number;
+  no_fits: number;
+  fit_rate: number;
+  fit_rate_pct: number;
+  yield_rate: number;
+  yield_rate_pct: number;
+  total_scrapes: number;
+  sources: string[];
+  locations: string[];
+  cells_count: number;
+  yield_category: "high_yield" | "moderate_yield" | "zero_yield" | "low_yield" | "unscored" | "unscraped";
+}
+
+export interface QueryYieldSummary {
+  total_tuples: number;
+  active_tuples: number;
+  total_postings: number;
+  total_unique_postings: number;
+  total_scored: number;
+  total_strong_fits: number;
+  overall_fit_rate_pct: number;
+  high_yield_queries_count: number;
+  zero_yield_queries_count: number;
+}
+
+export interface SourceYield {
+  source: string;
+  total_postings: number;
+  scored_postings: number;
+  strong_fits: number;
+  fit_rate_pct: number;
+}
+
+export interface LocationYield {
+  location_id: string;
+  location_label: string;
+  total_postings: number;
+  scored_postings: number;
+  strong_fits: number;
+  fit_rate_pct: number;
+}
+
+export interface MarketYieldResponse {
+  window_days: number | null;
+  source: string | null;
+  location_id: string | null;
+  role_family: string | null;
+  summary: QueryYieldSummary;
+  top_queries: QueryTermYield[];
+  zero_yield_queries: QueryTermYield[];
+  tuples: QueryYieldTuple[];
+  by_source: SourceYield[];
+  by_location: LocationYield[];
   provenance: {
-    published_rows: number;
-    total_rows: number;
-    window_days: number;
-    window_below_minimum: boolean;
-    min_window_days: number;
+    generated_at: string;
+    window_days: number | null;
+    exclude_agencies: boolean;
+    taxonomy_hash: string;
+    roles_hash: string;
   };
 }
 

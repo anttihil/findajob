@@ -1,103 +1,12 @@
-import { useEffect, useRef, useState } from "preact/hooks";
-import { getJSON } from "../../api/client";
+import { useEffect, useMemo, useRef, useState } from "preact/hooks";
+import { getJSON, guard, putJSON, reportError } from "../../api/client";
 import type {
   CoverageCell,
   MarketCoverageResponse,
-  MarketLocation,
   MarketLocationsResponse,
-  MarketSupplyResponse,
+  MarketYieldResponse,
 } from "../../api/types";
-import { renderBarChart, renderCoverageStrip, renderHeatmap } from "../../charts/charts";
-import { esc } from "../../charts/palette";
-
-interface PanelResult {
-  loc: MarketLocation;
-  data?: MarketSupplyResponse;
-  error?: string;
-}
-
-function MarketPanel({ result }: { result: PanelResult }) {
-  const stripRef = useRef<HTMLDivElement>(null);
-  const chartRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!result.data) {
-      if (chartRef.current) {
-        chartRef.current.innerHTML = `<p class="chart-empty">${esc(result.error)}</p>`;
-      }
-      return;
-    }
-    const published = result.data.rows.filter((r) => !r.suppressed_reason);
-    const p = result.data.provenance;
-    const censoredCount = published.filter((r) => r.censored).length;
-
-    if (stripRef.current) {
-      renderCoverageStrip(stripRef.current, [
-        { label: "shown", value: `${p.published_rows}/${p.total_rows}` },
-        {
-          label: "truncated",
-          value: censoredCount ? `${censoredCount} lower-bound` : "none",
-          warn: censoredCount > 0,
-          tooltip: "Result set truncated by the job board; value represents a lower bound.",
-        },
-        {
-          label: "window",
-          value: `${p.window_days}d`,
-          warn: p.window_below_minimum,
-          tooltip: p.window_below_minimum
-            ? `Below ${p.min_window_days}-day minimum; shorter windows have partial scrape coverage.`
-            : "",
-        },
-      ]);
-    }
-
-    if (chartRef.current) {
-      renderBarChart(
-        chartRef.current,
-        published.map((r) => ({
-          label: r.label,
-          value: r.flow_per_day || 0,
-          censored: r.censored,
-          zero_yield: r.zero_yield,
-          n_postings: r.n_postings,
-          n_companies: r.n_companies,
-          coverage_fraction: r.coverage_fraction,
-        })),
-        {
-          unit: "/day",
-          formatValue: (v) => v.toFixed(1),
-          labelWidth: 170,
-          emptyText: "Nothing published for this location yet.",
-          ariaLabel: `Role supply in ${result.loc.label}`,
-        }
-      );
-    }
-  }, [result]);
-
-  const suppressed = result.data ? result.data.rows.filter((r) => r.suppressed_reason) : [];
-
-  return (
-    <div class="market-panel">
-      <div class="market-panel-head">
-        <h4>
-          {result.loc.label}
-          {result.loc.is_remote ? " · remote" : ""}
-        </h4>
-        <span class="market-panel-meta">{result.loc.country}</span>
-      </div>
-      <div class="coverage-strip" ref={stripRef}></div>
-      <div ref={chartRef}></div>
-      {suppressed.length > 0 && (
-        <div class="market-suppressed">
-          <span class="suppressed-note">
-            {suppressed.length} suppressed:{" "}
-            {suppressed.map((r) => `${r.label} (${r.suppressed_reason})`).join(", ")}
-          </span>
-        </div>
-      )}
-    </div>
-  );
-}
+import { renderCoverageStrip, renderYieldBarChart } from "../../charts/charts";
 
 function CoverageTable({ cells }: { cells: CoverageCell[] | null }) {
   if (cells === null) return null;
@@ -153,155 +62,615 @@ function CoverageTable({ cells }: { cells: CoverageCell[] | null }) {
   );
 }
 
-// Ported from `templates/tabs/market.html` + `frontend/js/features/market.js`.
-export function MarketPage() {
-  const [source, setSource] = useState("indeed");
-  const [windowDays, setWindowDays] = useState(14);
-  const [locations, setLocations] = useState<MarketLocationsResponse | null>(null);
-  const [results, setResults] = useState<PanelResult[] | null>(null);
-  const [coverageCells, setCoverageCells] = useState<CoverageCell[] | null>(null);
-  const heatmapRef = useRef<HTMLDivElement>(null);
+function YieldBadge({ category, scored }: { category: string; scored: number }) {
+  if (category === "high_yield") {
+    return <span class="yield-badge yield-badge-high">High Yield</span>;
+  }
+  if (category === "moderate_yield") {
+    return <span class="yield-badge yield-badge-moderate">Moderate</span>;
+  }
+  if (category === "zero_yield") {
+    return <span class="yield-badge yield-badge-zero">Zero Fits ({scored} scored)</span>;
+  }
+  if (category === "low_yield") {
+    return <span class="yield-badge yield-badge-zero">Low Yield</span>;
+  }
+  if (category === "unscored") {
+    return <span class="yield-badge yield-badge-unscored">Pending Scoring</span>;
+  }
+  return <span class="yield-badge yield-badge-unscored">Unscraped</span>;
+}
 
+export function MarketPage() {
+  const [yieldData, setYieldData] = useState<MarketYieldResponse | null>(null);
+  const [locations, setLocations] = useState<MarketLocationsResponse | null>(null);
+  const [coverageCells, setCoverageCells] = useState<CoverageCell[] | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [showCoverage, setShowCoverage] = useState(false);
+
+  // Filters state
+  const [viewMode, setViewMode] = useState<"query" | "tuple">("query");
+  const [windowDays, setWindowDays] = useState<number | null>(null);
+  const [sourceFilter, setSourceFilter] = useState<string>("all");
+  const [locationFilter, setLocationFilter] = useState<string>("all");
+  const [roleFamilyFilter, setRoleFamilyFilter] = useState<string>("all");
+  const [categoryFilter, setCategoryFilter] = useState<string>("all");
+  const [searchQuery, setSearchQuery] = useState<string>("");
+  const [togglingQueryId, setTogglingQueryId] = useState<number | null>(null);
+
+  const chartRef = useRef<HTMLDivElement>(null);
+  const stripRef = useRef<HTMLDivElement>(null);
+
+  // Load locations metadata on mount
   useEffect(() => {
     getJSON<MarketLocationsResponse>("/api/market/locations")
       .then(setLocations)
       .catch(() => setLocations({ locations: [], role_families: [] }));
   }, []);
 
+  // Load coverage on mount
   useEffect(() => {
     getJSON<MarketCoverageResponse>("/api/market/coverage")
       .then((data) => setCoverageCells(data.cells))
       .catch(() => setCoverageCells([]));
   }, []);
 
-  useEffect(() => {
-    if (!locations) return;
-    let cancelled = false;
-    setResults(null);
-    Promise.all(
-      locations.locations.map(async (loc): Promise<PanelResult> => {
-        try {
-          const data = await getJSON<MarketSupplyResponse>(
-            `/api/market/supply?location=${encodeURIComponent(loc.id)}` +
-              `&source=${encodeURIComponent(source)}&window_days=${windowDays}`
-          );
-          return { loc, data };
-        } catch (e) {
-          return { loc, error: e instanceof Error ? e.message : String(e) };
-        }
-      })
-    ).then((r) => {
-      if (!cancelled) setResults(r);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [locations, source, windowDays]);
+  // Fetch yield analytics data when filters change
+  const fetchYieldData = () => {
+    setLoading(true);
+    const params = new URLSearchParams();
+    if (windowDays) params.set("window_days", String(windowDays));
+    if (sourceFilter !== "all") params.set("source", sourceFilter);
+    if (locationFilter !== "all") params.set("location", locationFilter);
+    if (roleFamilyFilter !== "all") params.set("role_family", roleFamilyFilter);
 
-  // The heatmap reuses the same per-location fetches the panels above already made,
-  // rather than the old JS's second round of identical `/api/market/supply` requests.
+    guard("Loading query yield analytics", () =>
+      getJSON<MarketYieldResponse>(`/api/market/yield?${params.toString()}`)
+    )
+      .then((data) => {
+        if (data) setYieldData(data);
+        setLoading(false);
+      })
+      .catch(() => setLoading(false));
+  };
+
   useEffect(() => {
-    if (!heatmapRef.current || !locations || !results) return;
-    const perLocation = results.map((r) => {
-      const map: Record<string, number> = {};
-      r.data?.rows.forEach((row) => {
-        if (!row.suppressed_reason) map[row.role_family] = row.flow_per_day || 0;
-      });
-      return map;
-    });
-    const families = locations.role_families.filter((f) =>
-      perLocation.some((m) => m[f.key] !== undefined)
-    );
-    if (!families.length) {
-      heatmapRef.current.innerHTML = '<p class="chart-empty">Not enough coverage yet.</p>';
+    fetchYieldData();
+  }, [windowDays, sourceFilter, locationFilter, roleFamilyFilter]);
+
+  // Render Yield Bar Chart
+  useEffect(() => {
+    if (!chartRef.current || !yieldData) return;
+
+    const topQueries = yieldData.top_queries.slice(0, 15);
+    if (topQueries.length === 0) {
+      chartRef.current.innerHTML = '<p class="chart-empty">No query yield data available for current filters.</p>';
       return;
     }
-    renderHeatmap(
-      heatmapRef.current,
-      families.map((f) => perLocation.map((m) => (m[f.key] === undefined ? null : m[f.key]))),
+
+    renderYieldBarChart(
+      chartRef.current,
+      topQueries.map((q) => ({
+        label: q.query,
+        subLabel: q.role_label,
+        totalPostings: q.total_postings,
+        scoredPostings: q.scored_postings,
+        strongFits: q.strong_fits,
+        fitRatePct: q.fit_rate_pct,
+        yieldCategory: q.yield_category,
+      })),
       {
-        rowLabels: families.map((f) => f.label),
-        colLabels: locations.locations.map((l) => l.id),
-        formatValue: (v) => (v >= 10 ? v.toFixed(0) : v.toFixed(1)),
+        labelWidth: 190,
+        emptyText: "No yield data to render.",
+        ariaLabel: "Query term strong fit yield chart",
       }
     );
-  }, [locations, results]);
+  }, [yieldData]);
 
-  const anyData = results?.some((r) => r.data?.rows.some((row) => !row.suppressed_reason));
+  // Render Provenance Strip
+  useEffect(() => {
+    if (!stripRef.current || !yieldData) return;
+    const s = yieldData.summary;
+    renderCoverageStrip(stripRef.current, [
+      { label: "postings", value: s.total_postings.toLocaleString() },
+      { label: "unique", value: s.total_unique_postings.toLocaleString() },
+      { label: "scored", value: s.total_scored.toLocaleString() },
+      { label: "strong fits", value: `${s.total_strong_fits} (${s.overall_fit_rate_pct}%)` },
+      { label: "window", value: yieldData.window_days ? `${yieldData.window_days}d` : "all time" },
+    ]);
+  }, [yieldData]);
+
+  // Toggle Query enabled/disabled status
+  const handleToggleQuery = async (queryId: number) => {
+    setTogglingQueryId(queryId);
+    try {
+      await putJSON(`/api/targets/queries/${queryId}/toggle`, {});
+      fetchYieldData();
+    } catch (e) {
+      reportError("Failed to toggle target query", e);
+    } finally {
+      setTogglingQueryId(null);
+    }
+  };
+
+  // Filtered queries for the table
+  const filteredQueries = useMemo(() => {
+    if (!yieldData) return [];
+    return yieldData.top_queries.filter((q) => {
+      if (searchQuery.trim()) {
+        const needle = searchQuery.toLowerCase();
+        const matchesName = q.query.toLowerCase().includes(needle);
+        const matchesRole = q.role_label.toLowerCase().includes(needle) || q.role_family.toLowerCase().includes(needle);
+        if (!matchesName && !matchesRole) return false;
+      }
+      if (categoryFilter !== "all" && q.yield_category !== categoryFilter) {
+        return false;
+      }
+      return true;
+    });
+  }, [yieldData, searchQuery, categoryFilter]);
+
+  // Filtered tuples for the table
+  const filteredTuples = useMemo(() => {
+    if (!yieldData) return [];
+    return yieldData.tuples.filter((t) => {
+      if (searchQuery.trim()) {
+        const needle = searchQuery.toLowerCase();
+        const matchesQuery = t.query.toLowerCase().includes(needle);
+        const matchesRole = t.role_label.toLowerCase().includes(needle) || t.role_family.toLowerCase().includes(needle);
+        const matchesLoc = t.location_id.toLowerCase().includes(needle);
+        const matchesSource = t.source.toLowerCase().includes(needle);
+        if (!matchesQuery && !matchesRole && !matchesLoc && !matchesSource) return false;
+      }
+      if (categoryFilter !== "all" && t.yield_category !== categoryFilter) {
+        return false;
+      }
+      return true;
+    });
+  }, [yieldData, searchQuery, categoryFilter]);
+
+  const summary = yieldData?.summary;
 
   return (
-    <section class="tab-pane active">
+    <section class="tab-pane active market-yield-page">
+      {/* Header */}
       <div class="glass-card">
         <div class="card-header-row">
-          <h3>
-            <i class="fa-solid fa-chart-simple text-purple"></i> Role supply
-          </h3>
-          <div class="inline-controls">
+          <div>
+            <h3>
+              <i class="fa-solid fa-crosshairs text-purple"></i> Query Yield & Search Optimization
+            </h3>
+            <p class="card-note">
+              Tracking posting volume and scoring agent strong fits across <strong>(job source, query term, location)</strong> search tuples to identify high-yield queries and prune unproductive ones over time.
+            </p>
+          </div>
+          <a href="/settings" class="yield-action-btn" title="Manage Target Queries">
+            <i class="fa-solid fa-sliders"></i> Edit Search Targets
+          </a>
+        </div>
+
+        {/* Top Summary Stat Grid */}
+        <div class="stats-grid obs-stats-grid" style="margin-top: 14px;">
+          <div class="stat-card obs-stat-card">
+            <div class="stat-info">
+              <span class="stat-label">Total Postings Found</span>
+              <h3>{summary ? summary.total_postings.toLocaleString() : "..."}</h3>
+              <div class="obs-card-sub">
+                <span>Unique: <strong>{summary?.total_unique_postings.toLocaleString() ?? "..."}</strong></span>
+              </div>
+            </div>
+          </div>
+
+          <div class="stat-card obs-stat-card">
+            <div class="stat-info">
+              <span class="stat-label">Evaluated by Scorer</span>
+              <h3>{summary ? summary.total_scored.toLocaleString() : "..."}</h3>
+              <div class="obs-card-sub">
+                <span>Coverage: <strong>{summary && summary.total_postings ? Math.round((summary.total_scored / summary.total_postings) * 100) : 0}%</strong></span>
+              </div>
+            </div>
+          </div>
+
+          <div class="stat-card obs-stat-card">
+            <div class="stat-info">
+              <span class="stat-label">Strong Fits (fit = 1)</span>
+              <h3>{summary ? summary.total_strong_fits.toLocaleString() : "..."}</h3>
+              <div class="obs-card-sub">
+                <span>Overall Fit Rate: <strong>{summary?.overall_fit_rate_pct ?? 0}%</strong></span>
+              </div>
+            </div>
+          </div>
+
+          <div class="stat-card obs-stat-card">
+            <div class="stat-info">
+              <span class="stat-label">Query Efficiency</span>
+              <h3>{summary ? `${summary.high_yield_queries_count} High Yield` : "..."}</h3>
+              <div class="obs-card-sub">
+                <span style="color: var(--ink-muted);">{summary?.zero_yield_queries_count ?? 0} zero-yield candidates</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Provenance strip */}
+        <div class="coverage-strip" ref={stripRef}></div>
+      </div>
+
+      {/* Filter Toolbar */}
+      <div class="glass-card">
+        <div class="yield-filter-bar">
+          {/* View Mode Toggle */}
+          <div class="yield-view-toggle">
+            <button
+              type="button"
+              class={`yield-toggle-btn ${viewMode === "query" ? "is-active" : ""}`}
+              onClick={() => setViewMode("query")}
+            >
+              <i class="fa-solid fa-list-ul"></i> By Query Term
+            </button>
+            <button
+              type="button"
+              class={`yield-toggle-btn ${viewMode === "tuple" ? "is-active" : ""}`}
+              onClick={() => setViewMode("tuple")}
+            >
+              <i class="fa-solid fa-table-cells"></i> By Search Tuple
+            </button>
+          </div>
+
+          {/* Time Window */}
+          <div class="yield-filter-item">
+            <label>Window:</label>
             <select
               class="form-select-sm"
-              value={source}
-              onChange={(e) => setSource((e.target as HTMLSelectElement).value)}
+              value={windowDays === null ? "all" : String(windowDays)}
+              onChange={(e) => {
+                const val = (e.target as HTMLSelectElement).value;
+                setWindowDays(val === "all" ? null : Number(val));
+              }}
             >
+              <option value="all">All Time</option>
+              <option value="90">Last 90 days</option>
+              <option value="30">Last 30 days</option>
+              <option value="14">Last 14 days</option>
+            </select>
+          </div>
+
+          {/* Job Source */}
+          <div class="yield-filter-item">
+            <label>Source:</label>
+            <select
+              class="form-select-sm"
+              value={sourceFilter}
+              onChange={(e) => setSourceFilter((e.target as HTMLSelectElement).value)}
+            >
+              <option value="all">All Sources</option>
               <option value="indeed">Indeed</option>
               <option value="linkedin">LinkedIn</option>
             </select>
+          </div>
+
+          {/* Location */}
+          <div class="yield-filter-item">
+            <label>Location:</label>
             <select
               class="form-select-sm"
-              value={String(windowDays)}
-              onChange={(e) => setWindowDays(Number((e.target as HTMLSelectElement).value))}
+              value={locationFilter}
+              onChange={(e) => setLocationFilter((e.target as HTMLSelectElement).value)}
             >
-              <option value="14">Last 14 days</option>
-              <option value="30">Last 30 days</option>
-              <option value="90">Last 90 days</option>
+              <option value="all">All Locations</option>
+              {locations?.locations.map((loc) => (
+                <option key={loc.id} value={loc.id}>
+                  {loc.label}
+                </option>
+              ))}
             </select>
           </div>
+
+          {/* Role Family */}
+          <div class="yield-filter-item">
+            <label>Role:</label>
+            <select
+              class="form-select-sm"
+              value={roleFamilyFilter}
+              onChange={(e) => setRoleFamilyFilter((e.target as HTMLSelectElement).value)}
+            >
+              <option value="all">All Roles</option>
+              {locations?.role_families.map((rf) => (
+                <option key={rf.key} value={rf.key}>
+                  {rf.label}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Category Filter */}
+          <div class="yield-filter-item">
+            <label>Yield Tier:</label>
+            <select
+              class="form-select-sm"
+              value={categoryFilter}
+              onChange={(e) => setCategoryFilter((e.target as HTMLSelectElement).value)}
+            >
+              <option value="all">All Tiers</option>
+              <option value="high_yield">High Yield (≥2 fits or ≥25%)</option>
+              <option value="moderate_yield">Moderate Yield (≥1 fit)</option>
+              <option value="zero_yield">Zero Yield (0 fits, ≥3 scored)</option>
+            </select>
+          </div>
+
+          {/* Text Search Filter */}
+          <div class="yield-filter-item" style="flex: 1; min-width: 160px;">
+            <input
+              type="text"
+              class="form-control-sm"
+              placeholder="Search query term..."
+              value={searchQuery}
+              onInput={(e) => setSearchQuery((e.target as HTMLInputElement).value)}
+              style="width: 100%;"
+            />
+          </div>
         </div>
-        <p class="card-note">
-          New postings per day. Bars marked "≥" are <strong>lower bounds</strong> due to job board result truncation.
-        </p>
-        <p class="card-note">
-          Flow rates are comparable only within the same location and source.
-        </p>
-        <div class="market-panels">
-          {results === null && <p class="chart-empty">Loading…</p>}
-          {results && !anyData && (
-            <p class="cold-start-note">
-              No supply data yet. Run scraper syncs to populate coverage.
+
+        {/* Visual Charts Row */}
+        <div class="yield-grid-2">
+          {/* Left Chart: Top High-Yield Query Terms */}
+          <div>
+            <div class="card-header-row" style="margin-bottom: 8px;">
+              <h4>
+                <i class="fa-solid fa-chart-bar text-purple"></i> Top Query Terms by Strong Fit Yield
+              </h4>
+              <span class="card-note" style="margin: 0;">
+                Solid bar = <strong>Strong Fits</strong> · Light track = <strong>Total Postings</strong>
+              </span>
+            </div>
+            <div ref={chartRef}></div>
+          </div>
+
+          {/* Right Cards: Distribution by Source & Location */}
+          <div>
+            <div class="card-header-row" style="margin-bottom: 8px;">
+              <h4>
+                <i class="fa-solid fa-chart-pie text-purple"></i> Strong Fits Distribution
+              </h4>
+            </div>
+
+            {/* By Source */}
+            <div style="margin-bottom: 14px;">
+              <span class="stat-label" style="font-size: 11px;">BY JOB SOURCE</span>
+              <div class="yield-dist-list">
+                {yieldData?.by_source.map((s) => (
+                  <div key={s.source} class="yield-dist-row">
+                    <span class="yield-dist-label" style="text-transform: capitalize;">{s.source}</span>
+                    <span class="yield-dist-val">
+                      {s.strong_fits} fits ({s.fit_rate_pct}%) · {s.total_postings} posts
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* By Location */}
+            <div>
+              <span class="stat-label" style="font-size: 11px;">BY TARGET LOCATION</span>
+              <div class="yield-dist-list">
+                {yieldData?.by_location.slice(0, 6).map((l) => (
+                  <div key={l.location_id} class="yield-dist-row">
+                    <span class="yield-dist-label">{l.location_label}</span>
+                    <span class="yield-dist-val">
+                      {l.strong_fits} fits ({l.fit_rate_pct}%) · {l.total_postings} posts
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Zero-Yield / Pruning Candidates Callout */}
+        {yieldData && yieldData.zero_yield_queries.length > 0 && (
+          <div class="yield-prune-callout">
+            <div class="yield-prune-head">
+              <h4>
+                <i class="fa-solid fa-triangle-exclamation"></i> Low Yield / Pruning Candidates
+              </h4>
+              <a href="/settings" class="yield-action-btn">
+                <i class="fa-solid fa-sliders"></i> Edit in Search Targets
+              </a>
+            </div>
+            <p class="card-note" style="margin-bottom: 6px;">
+              These queries returned postings and consumed LLM scoring budget but yielded <strong>0 strong fits</strong>. Consider disabling or narrowing their phrasing:
             </p>
-          )}
-          {results?.map((r) => (
-            <MarketPanel key={r.loc.id} result={r} />
-          ))}
-        </div>
-      </div>
+            <div class="yield-prune-tags">
+              {yieldData.zero_yield_queries.slice(0, 10).map((zq) => (
+                <span key={zq.query} class="yield-prune-tag">
+                  <strong>{zq.query}</strong>
+                  <span class="yield-tag-badge">{zq.scored_postings} scored · 0 fits</span>
+                  {zq.target_query_id && (
+                    <button
+                      type="button"
+                      class="yield-action-btn"
+                      disabled={togglingQueryId === zq.target_query_id}
+                      onClick={() => handleToggleQuery(zq.target_query_id!)}
+                      style="padding: 1px 5px; font-size: 10px;"
+                    >
+                      {togglingQueryId === zq.target_query_id ? "..." : "Disable"}
+                    </button>
+                  )}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
 
-      <div class="glass-card">
-        <h3>
-          <i class="fa-solid fa-table-cells text-purple"></i> Role family × location
-        </h3>
-        <p class="card-note">
-          Postings per day. Dots indicate unscraped cells.
-        </p>
-        <div class="heatmap-wrap" ref={heatmapRef}></div>
-      </div>
-
-      <div class="glass-card">
-        <div class="card-header-row">
-          <h3>
-            <i class="fa-solid fa-satellite-dish text-purple"></i> Scrape coverage
-          </h3>
-          {coverageCells && (
+        {/* Main Data Table */}
+        <div style="margin-top: 18px;">
+          <div class="card-header-row" style="margin-bottom: 10px;">
+            <h4>
+              <i class="fa-solid fa-table text-purple"></i> {viewMode === "query" ? "Query Terms Yield Matrix" : "Search Tuple Yield Matrix (Source × Query × Location)"}
+            </h4>
             <span class="results-count">
-              {coverageCells.filter((c) => c.total_scrapes > 0).length}/{coverageCells.length} cells
-              visited · {coverageCells.filter((c) => c.total_scrapes > 0 && (c.hours_since_success ?? 1e6) > 96).length}{" "}
-              stale · {coverageCells.filter((c) => c.consecutive_error > 0).length} erroring
+              Showing {viewMode === "query" ? filteredQueries.length : filteredTuples.length} entries
             </span>
+          </div>
+
+          {loading ? (
+            <p class="chart-empty">Loading query yield analytics…</p>
+          ) : viewMode === "query" ? (
+            /* Grouped by Query Term Table */
+            <div class="table-responsive">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Query Term</th>
+                    <th>Role Family</th>
+                    <th>Sources</th>
+                    <th>Locations</th>
+                    <th style="text-align: right;">Postings</th>
+                    <th style="text-align: right;">Scored</th>
+                    <th style="text-align: right;">Strong Fits</th>
+                    <th style="text-align: right;">Fit Rate</th>
+                    <th>Yield Tier</th>
+                    <th>Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredQueries.length === 0 ? (
+                    <tr>
+                      <td colSpan={10} class="text-center">No query terms match the current filters.</td>
+                    </tr>
+                  ) : (
+                    filteredQueries.map((q) => (
+                      <tr key={q.query} class={q.yield_category === "high_yield" ? "row-highlight" : ""}>
+                        <td>
+                          <strong>{q.query}</strong>
+                        </td>
+                        <td>
+                          <span style="font-size: 12px; color: var(--ink-muted);">{q.role_label}</span>
+                        </td>
+                        <td>
+                          <span style="font-size: 11.5px;">{q.sources.join(", ") || "—"}</span>
+                        </td>
+                        <td>
+                          <span style="font-size: 11.5px;">{q.locations.length} locations</span>
+                        </td>
+                        <td style="text-align: right;">
+                          <strong>{q.total_postings}</strong>
+                          {q.unique_postings !== q.total_postings && (
+                            <span style="font-size: 10.5px; color: var(--ink-muted);"> ({q.unique_postings}u)</span>
+                          )}
+                        </td>
+                        <td style="text-align: right;">{q.scored_postings}</td>
+                        <td style="text-align: right; font-weight: 800;">
+                          {q.strong_fits > 0 ? (
+                            <span style="border-bottom: 2px solid var(--ink-primary);">{q.strong_fits}</span>
+                          ) : (
+                            <span style="color: var(--ink-faint);">0</span>
+                          )}
+                        </td>
+                        <td style="text-align: right; font-weight: 700;">
+                          {q.scored_postings > 0 ? `${q.fit_rate_pct.toFixed(1)}%` : "—"}
+                        </td>
+                        <td>
+                          <YieldBadge category={q.yield_category} scored={q.scored_postings} />
+                        </td>
+                        <td>
+                          <a href="/settings" class="yield-action-btn" title="Edit query term in settings">
+                            <i class="fa-solid fa-pen-to-square"></i> Edit
+                          </a>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            /* Granular Tuple Table (Source, Query, Location) */
+            <div class="table-responsive">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Source</th>
+                    <th>Query Term</th>
+                    <th>Location</th>
+                    <th>Role Family</th>
+                    <th style="text-align: right;">Postings</th>
+                    <th style="text-align: right;">Scored</th>
+                    <th style="text-align: right;">Strong Fits</th>
+                    <th style="text-align: right;">Fit Rate</th>
+                    <th>Scrapes</th>
+                    <th>Yield Tier</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredTuples.length === 0 ? (
+                    <tr>
+                      <td colSpan={10} class="text-center">No search tuples match the current filters.</td>
+                    </tr>
+                  ) : (
+                    filteredTuples.map((t) => (
+                      <tr key={`${t.source}-${t.query}-${t.location_id}`} class={t.yield_category === "high_yield" ? "row-highlight" : ""}>
+                        <td style="text-transform: capitalize; font-weight: 700;">{t.source}</td>
+                        <td>
+                          <strong>{t.query}</strong>
+                        </td>
+                        <td>{t.location_id}</td>
+                        <td>
+                          <span style="font-size: 12px; color: var(--ink-muted);">{t.role_label}</span>
+                        </td>
+                        <td style="text-align: right;">
+                          <strong>{t.total_postings}</strong>
+                        </td>
+                        <td style="text-align: right;">{t.scored_postings}</td>
+                        <td style="text-align: right; font-weight: 800;">
+                          {t.strong_fits > 0 ? (
+                            <span style="border-bottom: 2px solid var(--ink-primary);">{t.strong_fits}</span>
+                          ) : (
+                            <span style="color: var(--ink-faint);">0</span>
+                          )}
+                        </td>
+                        <td style="text-align: right; font-weight: 700;">
+                          {t.scored_postings > 0 ? `${t.fit_rate_pct.toFixed(1)}%` : "—"}
+                        </td>
+                        <td style="text-align: right;">{t.total_scrapes}</td>
+                        <td>
+                          <YieldBadge category={t.yield_category} scored={t.scored_postings} />
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
           )}
         </div>
-        <p class="card-note">Per-cell scraping status and error history.</p>
-        <div class="coverage-table-wrap">
-          <CoverageTable cells={coverageCells} />
+      </div>
+
+      {/* Collapsible Scrape Coverage & Cell Status */}
+      <div class="glass-card">
+        <div class="card-header-row" style="cursor: pointer;" onClick={() => setShowCoverage(!showCoverage)}>
+          <h3>
+            <i class="fa-solid fa-satellite-dish text-purple"></i> Scraper Health & Coverage Details
+          </h3>
+          <div style="display: flex; align-items: center; gap: 12px;">
+            {coverageCells && (
+              <span class="results-count">
+                {coverageCells.filter((c) => c.total_scrapes > 0).length}/{coverageCells.length} cells visited
+              </span>
+            )}
+            <button type="button" class="yield-action-btn">
+              <i class={`fa-solid fa-chevron-${showCoverage ? "up" : "down"}`}></i> {showCoverage ? "Hide" : "Show"}
+            </button>
+          </div>
         </div>
+        {showCoverage && (
+          <div style="margin-top: 14px;">
+            <p class="card-note">Per-cell scraping frequency, staleness, and error status.</p>
+            <div class="coverage-table-wrap">
+              <CoverageTable cells={coverageCells} />
+            </div>
+          </div>
+        )}
       </div>
     </section>
   );
