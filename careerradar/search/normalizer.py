@@ -1,6 +1,8 @@
 """Normalize raw board rows into the shape the database and analytics expect.
 
 Pure functions over dicts, so every rule here is unit-testable without a network call.
+Contextual assessment (role fit, technical depth, remote/hybrid nuances, clearance/domain)
+is left to downstream scoring and LLM stages.
 
 Four normalizations carry real analytical weight:
 
@@ -19,11 +21,7 @@ import hashlib
 import math
 import re
 from datetime import date, datetime, timedelta, timezone
-from typing import TYPE_CHECKING, Any
-
-if TYPE_CHECKING:
-    from careerradar.taxonomy.roles import RoleTaxonomy
-    from careerradar.taxonomy.skills import Taxonomy
+from typing import Any
 
 # Descriptions shorter than this are snippets, not job descriptions. Skill extraction over a
 # snippet produces a handful of hits and silently deflates every demand denominator, so
@@ -104,13 +102,6 @@ _SUFFIX_RE = re.compile(
     r"[\s,]+(?:{})\.?$".format("|".join(re.escape(s) for s in COMPANY_SUFFIXES)),
     re.IGNORECASE,
 )
-
-_REMOTE_POSITIVE = re.compile(
-    r"\b(?:fully remote|100%\s*remote|remote[- ]first|work from anywhere|"
-    r"remote position|distributed team)\b",
-    re.IGNORECASE,
-)
-_REMOTE_NEGATIVE = re.compile(r"\b(?:hybrid|on-?site|in[- ]office|in person)\b", re.IGNORECASE)
 
 
 def _text(value: Any) -> str:
@@ -212,8 +203,11 @@ def parse_location(
 
 
 def infer_remote(row: dict[str, Any], is_remote_query: bool = False) -> int | None:
-    """1 / 0 / None. None means undetermined -- never guess 0, since that would make
-    remote_share look artificially low rather than unknown."""
+    """1 / 0 / None. None means undetermined from board metadata / query.
+
+    Avoids regex-guessing on unstructured description text; contextual work-arrangement
+    nuances are evaluated by the LLM.
+    """
     explicit = row.get("is_remote")
     if explicit is not None and not (isinstance(explicit, float) and math.isnan(explicit)):
         try:
@@ -224,11 +218,6 @@ def infer_remote(row: dict[str, Any], is_remote_query: bool = False) -> int | No
     if is_remote_query:
         return 1
 
-    haystack = f"{_text(row.get('title'))} {_text(row.get('description'))[:1500]}"
-    if _REMOTE_POSITIVE.search(haystack):
-        return 1
-    if _REMOTE_NEGATIVE.search(haystack):
-        return 0
     return None
 
 
@@ -375,14 +364,11 @@ def normalize_row(
     task: dict[str, Any],
     observed_at: datetime | None = None,
     config: dict[str, Any] | None = None,
-    roles: "RoleTaxonomy | None" = None,
-    taxonomy: "Taxonomy | None" = None,
 ) -> dict[str, Any]:
-    """Turn one board row into a database-ready posting dict.
+    """Turn one board row into a database-ready posting dict with normalized fields.
 
     `task` supplies the query provenance: source, location, country, remote flag, and the
-    `hours_old` bound. `role_family` is derived from the title via `roles`, never from
-    `task.role_family` -- that is kept only as `role_family_hint`.
+    `hours_old` bound.
     """
     config = config or {}
     observed_at = observed_at or datetime.now(timezone.utc)
@@ -426,65 +412,7 @@ def normalize_row(
     posting.update(normalize_date_posted(row, observed_at, task.get("hours_old")))
     posting["content_hash"] = content_hash(company, title, posting["location"])
 
-    # Skills are extracted before classification, because weak title patterns need
-    # technical corroboration: bare "X Engineer" is only a software role if the posting
-    # actually mentions a technology.
-    if taxonomy is not None and posting["description_quality"] == "full":
-        posting["skills"] = taxonomy.extract(description, title=title)
-        posting["blockers"] = taxonomy.extract_blockers(description)
-    else:
-        posting["skills"] = {}
-        posting["blockers"] = []
-
-    if roles is not None:
-        family, seniority = roles.classify(
-            title, has_tech_skills=has_technical_skill(posting["skills"], taxonomy)
-        )
-        posting["role_family"] = family
-        posting["seniority"] = seniority
-        # Judged from the posting's own city, not from the search that surfaced it. A
-        # nationwide or remote-flagged search regularly returns roles in the LA basin, and
-        # those are the most actionable results in the corpus.
-        posting["access"] = roles.classify_access(
-            city=posting.get("city"),
-            region=posting.get("region"),
-            location_text=posting.get("location"),
-            is_remote=posting.get("is_remote"),
-        )
-    else:
-        posting["role_family"] = None
-        posting["seniority"] = None
-        posting["access"] = None
-
     return posting
-
-
-# Categories that make a posting a technology job. Practice and domain skills alone do not:
-# an "R&D Engineer, Materials" posting mentioning A/B testing and technical writing is still
-# not a software role.
-TECHNICAL_CATEGORIES = frozenset(
-    {
-        "language",
-        "frontend",
-        "backend",
-        "database",
-        "cloud",
-        "infrastructure",
-        "devops",
-        "ai_ml",
-        "data",
-        "security",
-        "cms",
-        "testing",
-        "tooling",
-    }
-)
-
-
-def has_technical_skill(skills: dict[str, Any] | None, taxonomy: "Taxonomy | None") -> bool:
-    if not skills or taxonomy is None:
-        return False
-    return any(taxonomy.category(key) in TECHNICAL_CATEGORIES for key in skills)
 
 
 def normalize_rows(
@@ -492,15 +420,10 @@ def normalize_rows(
     task: dict[str, Any],
     observed_at: datetime | None = None,
     config: dict[str, Any] | None = None,
-    roles: "RoleTaxonomy | None" = None,
-    taxonomy: "Taxonomy | None" = None,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     """Normalize a batch, dropping rows with no title or no URL.
 
     Returns (postings, stats) where stats carries the counts `cell_observations` needs.
-    `returned` is everything the board gave us and drives saturation; `on_topic` counts
-    rows whose title maps to a role family and drives flow. Conflating the two would let
-    off-target results inflate every supply number.
     """
     observed_at = observed_at or datetime.now(timezone.utc)
     postings = []
@@ -510,13 +433,12 @@ def normalize_rows(
         if not _text(row.get("title")) or not _text(row.get("job_url")):
             skipped += 1
             continue
-        postings.append(normalize_row(row, task, observed_at, config, roles, taxonomy))
+        postings.append(normalize_row(row, task, observed_at, config))
 
     stats = {
         "returned": len(rows),
         "usable": len(postings),
         "skipped": skipped,
-        "on_topic": sum(1 for p in postings if p["role_family"]),
         "with_full_description": sum(1 for p in postings if p["description_quality"] == "full"),
         "with_salary": sum(1 for p in postings if p["salary_annual_usd"] is not None),
     }

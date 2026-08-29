@@ -354,8 +354,6 @@ def _scrape_one(
         payload,
         observed_at=observed_at,
         config=config.get("scraper", {}),
-        roles=roles,
-        taxonomy=taxonomy,
     )
     saturated = 1 if is_saturated(stats["returned"], task.results_wanted) else 0
 
@@ -369,8 +367,34 @@ def _scrape_one(
     new_count = 0
     duplicates = 0
     stored = []
+    on_topic = 0
 
     for posting in postings:
+        if taxonomy is not None and posting.get("description_quality") == "full":
+            posting["skills"] = taxonomy.extract(posting["description"], title=posting["title"])
+            posting["blockers"] = taxonomy.extract_blockers(posting["description"])
+        else:
+            posting["skills"] = {}
+            posting["blockers"] = []
+
+        if roles is not None:
+            family, seniority = roles.classify(posting["title"])
+            posting["role_family"] = family
+            posting["seniority"] = seniority
+            posting["access"] = roles.classify_access(
+                city=posting.get("city"),
+                region=posting.get("region"),
+                location_text=posting.get("location"),
+                is_remote=posting.get("is_remote"),
+            )
+        else:
+            posting["role_family"] = None
+            posting["seniority"] = None
+            posting["access"] = None
+
+        if posting.get("role_family"):
+            on_topic += 1
+
         result = scorer.score(posting)
         posting["match_score"] = result["score"]
         posting["matched_skills"] = result["matched_skills"]
@@ -393,6 +417,8 @@ def _scrape_one(
                 duplicates += 1
         db.replace_job_skills(job_id, posting.get("skills") or {})
         db.replace_job_blockers(job_id, posting.get("blockers") or [])
+
+    stats["on_topic"] = on_topic
 
     if dry_run:
         _print_dry_run(task, stats, stored, saturated)
