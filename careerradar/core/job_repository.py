@@ -8,6 +8,8 @@ from datetime import datetime, timedelta, timezone
 from difflib import SequenceMatcher
 from typing import Any
 
+from careerradar.profile.models import DEFAULT_PROFILE_VERSION
+
 # Memoized `get_stats()` results, keyed by database path: (data_version, write_generation) -> stats.
 _StatsCacheEntry = tuple[tuple[int, int], dict[str, Any]]
 
@@ -83,10 +85,7 @@ LIVENESS_CASE = """
       ELSE 'live'
     END"""
 
-ACTIVE_PROFILE_VERSION = """COALESCE(
-    (SELECT version FROM profiles WHERE is_active = 1 ORDER BY version DESC LIMIT 1),
-    (SELECT MAX(version) FROM profiles)
-)"""
+ACTIVE_PROFILE_VERSION = str(DEFAULT_PROFILE_VERSION)
 
 FEED_FROM = f"""
       FROM jobs

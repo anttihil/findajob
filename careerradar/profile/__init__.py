@@ -2,6 +2,8 @@
 
 from careerradar.profile.adapter import ProfileAdapter
 from careerradar.profile.models import (
+    DEFAULT_PROFILE_VERSION,
+    MASTER_PROFILE_ID,
     MasterEducation,
     MasterProfile,
     MasterProject,
@@ -22,6 +24,8 @@ from careerradar.profile.repository import (
 )
 
 __all__ = [
+    "DEFAULT_PROFILE_VERSION",
+    "MASTER_PROFILE_ID",
     "MasterEducation",
     "MasterProfile",
     "MasterProject",

@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from careerradar.core.config import load_config
-from careerradar.profile.models import VERDICT_SCHEMA_VERSION
+from careerradar.profile.models import DEFAULT_PROFILE_VERSION, VERDICT_SCHEMA_VERSION
 from careerradar.taxonomy.roles import SENIORITY_UNSPECIFIED
 
 MAX_SCORING_FAILURES = 3
@@ -277,10 +277,7 @@ def get_verdict_distribution_stats(
 ) -> dict[str, Any] | None:
     """Distribution observability for stored verdicts."""
     if profile_version is None:
-        row = conn.execute("SELECT version FROM profiles WHERE is_active = 1").fetchone()
-        if row is None:
-            return None
-        profile_version = row[0]
+        profile_version = DEFAULT_PROFILE_VERSION
 
     query = "SELECT fit, reason_type, cost_usd FROM job_verdicts WHERE profile_version = ?"
     params: list[Any] = [profile_version]

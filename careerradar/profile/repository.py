@@ -6,6 +6,8 @@ from typing import Any
 
 from careerradar.core.logger import get_logger
 from careerradar.profile.models import (
+    DEFAULT_PROFILE_VERSION,
+    MASTER_PROFILE_ID,
     MasterEducation,
     MasterProject,
     MasterRole,
@@ -39,9 +41,10 @@ def load_profile(conn: sqlite3.Connection | None = None) -> Profile:
             """
             SELECT *
               FROM profile
-             WHERE id = 1
+             WHERE id = ?
              LIMIT 1
-            """
+            """,
+            (MASTER_PROFILE_ID,),
         ).fetchone()
 
         if row is None:
@@ -134,13 +137,14 @@ def save_profile(
                 targeting_json, education_json, skills_json, experience_json, summary_text,
                 executive_summary, model_guidance, dealbreakers_json, projects_json
             ) VALUES (
-                1, strftime('%Y-%m-%dT%H:%M:%SZ', 'now'), ?, ?, ?, ?, ?, ?, ?,
+                ?, strftime('%Y-%m-%dT%H:%M:%SZ', 'now'), ?, ?, ?, ?, ?, ?, ?,
                 ?, ?, ?, ?,
                 ?, ?, ?, ?, ?,
                 ?, ?, ?, ?
             )
             """,
             (
+                MASTER_PROFILE_ID,
                 profile.name,
                 profile.email,
                 profile.phone,
@@ -180,7 +184,8 @@ def load_active(db: Any | None = None) -> tuple[int, Profile, str] | None:
         database = Database()
     try:
         row = database.conn.execute(
-            "SELECT summary_text FROM profile WHERE id = 1 LIMIT 1"
+            "SELECT summary_text FROM profile WHERE id = ? LIMIT 1",
+            (MASTER_PROFILE_ID,),
         ).fetchone()
         prof = load_profile(conn=database.conn)
         summary_text = (row["summary_text"] if row else "") or ""
@@ -188,7 +193,7 @@ def load_active(db: Any | None = None) -> tuple[int, Profile, str] | None:
             from careerradar.profile.render import render_profile
 
             summary_text = render_profile(prof)
-        return (1, prof, summary_text)
+        return (DEFAULT_PROFILE_VERSION, prof, summary_text)
     finally:
         if owned and database:
             database.close()
@@ -203,7 +208,10 @@ def load_active_row(db: Any | None = None) -> dict[str, Any] | None:
 
         database = Database()
     try:
-        row = database.conn.execute("SELECT * FROM profile WHERE id = 1 LIMIT 1").fetchone()
+        row = database.conn.execute(
+            "SELECT * FROM profile WHERE id = ? LIMIT 1",
+            (MASTER_PROFILE_ID,),
+        ).fetchone()
         return dict(row) if row else None
     finally:
         if owned and database:
@@ -212,7 +220,7 @@ def load_active_row(db: Any | None = None) -> dict[str, Any] | None:
 
 def list_versions(_conn: sqlite3.Connection | None = None) -> list[dict[str, Any]]:
     """Return active profile versions."""
-    return [{"version": 1, "is_active": 1, "name": "Current Profile"}]
+    return [{"version": DEFAULT_PROFILE_VERSION, "is_active": 1, "name": "Current Profile"}]
 
 
 # --- Generated Resumes Persistence ------------------------------------------------------

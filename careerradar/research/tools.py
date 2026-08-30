@@ -18,6 +18,7 @@ from typing import Any
 
 from careerradar.core.database import Database
 from careerradar.core.logger import get_logger
+from careerradar.profile.models import DEFAULT_PROFILE_VERSION
 from careerradar.research import repository as research_repo
 
 logger = get_logger()
@@ -35,12 +36,10 @@ MAX_SEARCH_RESULTS = 6
 # stale one does not just render wrong, it is reasoned over and cached. The stage already
 # refuses to run on a stale profile -- `worker._candidates` gates on this same join -- so
 # reading around it here was inconsistency rather than a decision.
-_ACTIVE_VERDICT_JOIN = """
+_ACTIVE_VERDICT_JOIN = f"""
           job_verdicts v
                  ON v.job_id = j.id
-                AND v.profile_version = (
-                    SELECT version FROM profiles WHERE is_active = 1
-                )
+                AND v.profile_version = {DEFAULT_PROFILE_VERSION}
 """
 
 

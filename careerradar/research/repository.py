@@ -5,18 +5,17 @@ import sqlite3
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
+from careerradar.profile.models import DEFAULT_PROFILE_VERSION
 from careerradar.search.normalizer import normalize_company
 
 DEFAULT_RESEARCH_GATE: dict[str, Any] = {
     "fit": True,
 }
 
-_ACTIVE_VERDICT_JOIN = """
+_ACTIVE_VERDICT_JOIN = f"""
           job_verdicts v
                  ON v.job_id = j.id
-                AND v.profile_version = (
-                    SELECT version FROM profiles WHERE is_active = 1
-                )
+                AND v.profile_version = {DEFAULT_PROFILE_VERSION}
 """
 
 
@@ -61,9 +60,7 @@ def get_research_candidates(
           FROM jobs j
           JOIN job_verdicts v
                     ON v.job_id = j.id
-                   AND v.profile_version = (
-                       SELECT version FROM profiles WHERE is_active = 1
-                   )
+                   AND v.profile_version = {DEFAULT_PROFILE_VERSION}
           LEFT JOIN scrape_cells c ON c.id = j.scrape_cell_id
           LEFT JOIN v_job_liveness l ON l.job_id = j.id
           LEFT JOIN company_dossiers d ON d.company_normalized = j.company_normalized

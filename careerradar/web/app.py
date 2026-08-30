@@ -804,6 +804,7 @@ def get_profile_versions():
 @app.get("/api/profile/vector")
 def get_profile_vector_endpoint():
     from careerradar.profile.adapter import load_profile as load_adapter_profile
+    from careerradar.profile.models import DEFAULT_PROFILE_VERSION
     from careerradar.profile.render import render_profile
     from careerradar.profile.repository import load_active_row, load_profile
 
@@ -823,7 +824,7 @@ def get_profile_vector_endpoint():
                 }
             )
     return {
-        "version": 1,
+        "version": DEFAULT_PROFILE_VERSION,
         "updated_at": row.get("updated_at") if row else None,
         "model": "deepseek-chat",
         "profile": prof.model_dump(),

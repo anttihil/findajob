@@ -6,7 +6,7 @@ from typing import Any
 
 from careerradar.core.config import load_config
 from careerradar.core.status_manager import load_sync_status
-from careerradar.profile.models import VERDICT_SCHEMA_VERSION
+from careerradar.profile.models import DEFAULT_PROFILE_VERSION, VERDICT_SCHEMA_VERSION
 from careerradar.scoring.repository import (
     count_pending_scoring,
     get_pending_scoring_stats,
@@ -67,15 +67,7 @@ def collect_status_report(
     }
 
     verdict = conn.execute("SELECT MAX(created_at) FROM job_verdicts").fetchone()[0]
-    try:
-        pv_row = conn.execute(
-            "SELECT COALESCE("
-            "(SELECT version FROM profiles WHERE is_active = 1 ORDER BY version DESC LIMIT 1), "
-            "(SELECT MAX(version) FROM profiles), 1)"
-        ).fetchone()
-        profile_version = pv_row[0] if pv_row else 1
-    except sqlite3.OperationalError:
-        profile_version = 1
+    profile_version = DEFAULT_PROFILE_VERSION
 
     try:
         backlog, oldest_new = get_pending_scoring_stats(conn, profile_version=profile_version)
@@ -257,15 +249,7 @@ def get_pipeline_status(
     last_verdict = v_row[0] if v_row else None
     recent_verdicts = int(v_row[1] or 0) if v_row else 0
 
-    try:
-        pv_row = conn.execute(
-            "SELECT COALESCE("
-            "(SELECT version FROM profiles WHERE is_active = 1 ORDER BY version DESC LIMIT 1), "
-            "(SELECT MAX(version) FROM profiles), 1)"
-        ).fetchone()
-        profile_version = pv_row[0] if pv_row else 1
-    except sqlite3.OperationalError:
-        profile_version = 1
+    profile_version = DEFAULT_PROFILE_VERSION
 
     try:
         backlog = count_pending_scoring(conn, profile_version=profile_version)

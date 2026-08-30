@@ -5,6 +5,13 @@ from typing import Any
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+# --- Core Profile Constants -------------------------------------------------------------
+# Database primary key for the singleton candidate profile record (`profile.id = 1`).
+MASTER_PROFILE_ID: int = 1
+
+# Canonical profile version integer for scoring evaluation (`job_verdicts.profile_version = 1`).
+DEFAULT_PROFILE_VERSION: int = 1
+
 # --- Core Profile Shapes (The Single Source of Truth) -----------------------------------
 
 
