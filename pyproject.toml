@@ -3,6 +3,7 @@ name = "careerradar"
 version = "0.1.0"
 description = "Agentic job search: scrapes job boards by role family and location, scores postings against an LLM-built profile, and researches the companies behind the good ones"
 readme = "README.md"
+license = { text = "MIT" }
 requires-python = ">=3.10"
 dependencies = [
     "pyyaml>=6.0.1",
@@ -90,7 +91,7 @@ ignore = [
 known-first-party = ["careerradar"]
 
 [tool.pyright]
-include = ["careerradar", "tests", "evals", "scripts"]
+include = ["careerradar", "tests", "evals"]
 venvPath = "."
 venv = ".venv"
 pythonVersion = "3.10"
