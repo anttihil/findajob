@@ -111,8 +111,7 @@ class MigrationV5Tests(unittest.TestCase):
 
     def test_the_scrape_history_is_untouched(self) -> None:
         """The coverage cycle is expensive to rebuild -- ~5 days of scraping."""
-        self.migrate_to(4)
-        migrate(self.conn)
+        self.migrate_to(5)
         for table in (
             "scrape_cells",
             "cell_observations",
@@ -126,8 +125,7 @@ class MigrationV5Tests(unittest.TestCase):
             self.assertIn(table, self.tables())
 
     def test_the_new_tables_exist(self) -> None:
-        self.migrate_to(4)
-        migrate(self.conn)
+        self.migrate_to(5)
         for table in (
             "profiles",
             "profile_documents",
@@ -152,7 +150,7 @@ class MigrationV5Tests(unittest.TestCase):
     # --- invariants the schema is supposed to enforce ---------------------------------
 
     def test_only_one_profile_can_be_active(self) -> None:
-        migrate(self.conn)
+        self.migrate_to(5)
         self.conn.execute(
             "INSERT INTO profiles (version, created_at, is_active, profile_json, "
             "summary_text) VALUES (1, 'now', 1, '{}', 's')"

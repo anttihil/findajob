@@ -2,15 +2,23 @@
 
 import sqlite3
 
-from careerradar.core.migrations import current_version, migrate
+from careerradar.core.migrations import MIGRATIONS, apply_pragmas, current_version
 
 
 def test_migration_v17():
     conn = sqlite3.connect(":memory:")
     conn.row_factory = sqlite3.Row
-    migrate(conn)
 
-    assert current_version(conn) >= 17
+    apply_pragmas(conn)
+    cursor = conn.cursor()
+    for target, _desc, fn in MIGRATIONS:
+        if target > 17:
+            break
+        fn(cursor)
+        cursor.execute(f"PRAGMA user_version = {int(target)}")
+    conn.commit()
+
+    assert current_version(conn) == 17
 
     # Check resume_master_profile table exists
     row = conn.execute("SELECT * FROM resume_master_profile").fetchone()

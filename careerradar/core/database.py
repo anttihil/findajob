@@ -336,8 +336,5 @@ class Database:
     def replace_job_skills(self, job_id: int, skills: dict[str, dict[str, Any]]) -> None:
         search_repo.replace_job_skills(self.conn, job_id, skills)
 
-    def replace_job_blockers(self, job_id: int, blockers: list[str]) -> None:
-        search_repo.replace_job_blockers(self.conn, job_id, blockers)
-
     def close(self) -> None:
         self.conn.close()

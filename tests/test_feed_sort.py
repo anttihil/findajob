@@ -32,12 +32,7 @@ class DatePostedSortTests(unittest.TestCase):
         os.unlink(self.path)
 
     def profile(self, version: int = 1, is_active: int = 1) -> None:
-        self.db.conn.execute(
-            "INSERT INTO profiles (version, is_active, profile_json, summary_text, created_at) "
-            "VALUES (?, ?, '{}', '', '2026-01-01T00:00:00+00:00')",
-            (version, is_active),
-        )
-        self.db.conn.commit()
+        pass
 
     def verdict(self, job_id: int, fit: int | None, profile_version: int = 1) -> None:
         if fit is not None:

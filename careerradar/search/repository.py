@@ -501,17 +501,6 @@ def replace_job_skills(
     conn.commit()
 
 
-def replace_job_blockers(conn: sqlite3.Connection, job_id: int, blockers: list[str]) -> None:
-    cursor = conn.cursor()
-    cursor.execute("DELETE FROM job_blockers WHERE job_id = ?", (job_id,))
-    if blockers:
-        cursor.executemany(
-            "INSERT OR REPLACE INTO job_blockers (job_id, blocker) VALUES (?, ?)",
-            [(job_id, b) for b in blockers],
-        )
-    conn.commit()
-
-
 def count_stale_taxonomy(conn: sqlite3.Connection, taxonomy_hash: str) -> int:
     return conn.execute(
         "SELECT COUNT(*) FROM jobs WHERE taxonomy_hash IS NOT NULL AND taxonomy_hash != ?",

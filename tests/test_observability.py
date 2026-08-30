@@ -17,13 +17,6 @@ from careerradar.web.app import app
 
 def _seed_sample_data(db: Database) -> None:
     cur = db.conn.cursor()
-    # Seed active profile
-    cur.execute(
-        "INSERT INTO profiles (version, is_active, created_at, model, profile_json, "
-        "summary_text) VALUES (1, 1, '2026-08-21T00:00:00', 'deepseek-v4-pro', '{}', "
-        "'Candidate profile summary')"
-    )
-
     # Seed jobs
     cur.execute(
         """

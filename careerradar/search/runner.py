@@ -416,7 +416,6 @@ def _scrape_one(
                 db.mark_duplicate(job_id, canonical)
                 duplicates += 1
         db.replace_job_skills(job_id, posting.get("skills") or {})
-        db.replace_job_blockers(job_id, posting.get("blockers") or [])
 
     stats["on_topic"] = on_topic
 

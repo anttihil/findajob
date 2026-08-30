@@ -13,7 +13,7 @@ from careerradar.core.logger import get_logger
 
 logger = get_logger()
 
-SCHEMA_VERSION = 21
+SCHEMA_VERSION = 22
 
 
 def _v1_baseline(cursor: sqlite3.Cursor) -> None:
@@ -1720,6 +1720,92 @@ def _v21_profile_executive_summary_and_projects(cursor: sqlite3.Cursor) -> None:
                 pass
 
 
+def _v22_drop_legacy_tables_and_columns(cursor: sqlite3.Cursor) -> None:
+    """Drop legacy tables and unused columns from early architecture iterations.
+
+    Dropped tables:
+      - role_market_stats, skill_market_stats, skill_candidates: abandoned v2 tables.
+      - profile_documents, interview_turns: obsolete v5 profile ingest/interview tables.
+      - resume_master_profile, profiles: superseded by singleton `profile` table (v19).
+      - job_blockers: write-only table with no reader queries (reasons now in `job_verdicts`).
+
+    Dropped / recreated columns:
+      - scrape_cells.ewma_yield_per_day: unused 100% NULL column.
+      - generated_resumes.profile_version: obsolete foreign key to legacy `profiles` table.
+    """
+    # 1. Drop unused market analytics / candidate tables and indexes
+    cursor.execute("DROP TABLE IF EXISTS role_market_stats")
+    cursor.execute("DROP TABLE IF EXISTS skill_market_stats")
+    cursor.execute("DROP TABLE IF EXISTS skill_candidates")
+    cursor.execute("DROP INDEX IF EXISTS idx_rms_lookup")
+    cursor.execute("DROP INDEX IF EXISTS idx_sms_lookup")
+
+    # 2. Drop legacy v5 / v17 profile tables
+    cursor.execute("DROP TABLE IF EXISTS profile_documents")
+    cursor.execute("DROP TABLE IF EXISTS interview_turns")
+    cursor.execute("DROP TABLE IF EXISTS resume_master_profile")
+
+    # 3. Drop write-only job_blockers table
+    cursor.execute("DROP TABLE IF EXISTS job_blockers")
+
+    # 4. Drop unused ewma_yield_per_day column on scrape_cells if present
+    cells_cols = {row[1] for row in cursor.execute("PRAGMA table_info(scrape_cells)")}
+    if "ewma_yield_per_day" in cells_cols:
+        cursor.execute("ALTER TABLE scrape_cells DROP COLUMN ewma_yield_per_day")
+
+    # 5. Recreate generated_resumes to cleanly remove profile_version and its FK to profiles
+    existing_gr = {row[1] for row in cursor.execute("PRAGMA table_info(generated_resumes)")}
+    if existing_gr:
+        cursor.execute(
+            """
+            CREATE TABLE generated_resumes_new (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                job_id INTEGER NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+                model TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                docx_path TEXT NOT NULL,
+                pdf_path TEXT,
+                resume_json TEXT NOT NULL,
+                summary TEXT,
+                ats_score INTEGER,
+                ats_verdict TEXT,
+                ats_feedback TEXT,
+                status TEXT DEFAULT 'generated'
+            )
+            """
+        )
+        cols_to_copy = [
+            c
+            for c in [
+                "id",
+                "job_id",
+                "model",
+                "created_at",
+                "docx_path",
+                "pdf_path",
+                "resume_json",
+                "summary",
+                "ats_score",
+                "ats_verdict",
+                "ats_feedback",
+                "status",
+            ]
+            if c in existing_gr
+        ]
+        cols_str = ", ".join(cols_to_copy)
+        cursor.execute(
+            f"INSERT INTO generated_resumes_new ({cols_str}) "
+            f"SELECT {cols_str} FROM generated_resumes"
+        )
+        cursor.execute("DROP TABLE generated_resumes")
+        cursor.execute("ALTER TABLE generated_resumes_new RENAME TO generated_resumes")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_resumes_job_id ON generated_resumes(job_id)")
+
+    # 6. Drop legacy profiles table and index
+    cursor.execute("DROP TABLE IF EXISTS profiles")
+    cursor.execute("DROP INDEX IF EXISTS idx_profiles_one_active")
+
+
 MIGRATIONS: list[tuple[int, str, Callable[[sqlite3.Cursor], None]]] = [
     (1, "baseline jobs table", _v1_baseline),
     (2, "market analytics: cells, observations, skills, stats", _v2_analytics),
@@ -1773,6 +1859,11 @@ MIGRATIONS: list[tuple[int, str, Callable[[sqlite3.Cursor], None]]] = [
         21,
         "profile executive summary, model guidance, dealbreakers, and standalone projects",
         _v21_profile_executive_summary_and_projects,
+    ),
+    (
+        22,
+        "drop legacy tables (profiles, role/skill market stats, job_blockers) and columns",
+        _v22_drop_legacy_tables_and_columns,
     ),
 ]
 

@@ -348,12 +348,6 @@ class StatusReportBacklogTests(_Fixture, unittest.TestCase):
     def test_collect_status_report_counts_only_eligible_pending(self) -> None:
         from careerradar.core.status_repository import collect_status_report
 
-        self.conn.execute(
-            "INSERT INTO profiles (version, is_active, created_at, model, profile_json, "
-            "summary_text) VALUES (?, 1, '2026-08-01T00:00:00', 'm', '{}', 'summary')",
-            (PROFILE,),
-        )
-
         # 2 eligible pending jobs
         self.job(1)
         self.job(2)
