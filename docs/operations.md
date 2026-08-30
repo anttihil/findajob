@@ -126,7 +126,7 @@ starts late still drains exactly what it would have drained.
 
 The wait is unbounded here on purpose. `TimeoutStartSec` in each unit is the bound, and a
 second one in the code would only disagree with it. The dashboard's Sync button takes the
-same lock; read-only commands (`status`, `score stats`, `search cost`, `web`) never do.
+same lock; read-only commands (`status`, `profile show`, `target list`) and `start` never do.
 
 Nothing needs to be cleaned up after a crash. The kernel drops an `flock` when the holder
 dies, unlike the `sync_status.json` lock, which needs `STALE_LOCK_MINUTES` to recover.

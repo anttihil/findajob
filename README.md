@@ -9,7 +9,7 @@ Four stages, each on its own timer, handing off through one column:
 search    scrape LinkedIn + Indeed on a rotating cell matrix   -> pipeline_state='new'
 score     judge each posting against your profile              -> pipeline_state='scored'
 research  build a dossier for companies behind strong matches  -> pipeline_state='researched'
-web       serve the dashboard
+start     serve the dashboard and background scheduler
 ```
 
 They are separate commands rather than one pipeline because a failure in one must not cost
@@ -23,21 +23,26 @@ missing skill most often blocks a posting you otherwise match.
 ## Setup
 
 ```bash
-uv sync
-cp /path/to/.env .                         # see below
-scripts/sync_corpus.sh /path/to/resume     # pulls achievements.md in
-uv run careerradar migrate                 # schema
-uv run careerradar profile build           # the interview -- do this first
+# 1. Install dependencies and compile frontend
+make setup
+make build
 
-npm install                                # dashboard frontend (Preact + TypeScript)
-npm run build                              # -> careerradar/web/frontend/dist/, gitignored
+# 2. Configure environment
+cp .env.example .env                         # add DEEPSEEK_API_KEY
+
+# 3. Initialize schema and ingest resume profile
+uv run careerradar migrate
+uv run careerradar profile build examples/sample_resume.md
+
+# 4. Start dashboard and background scheduler
+make start                                   # or: uv run careerradar start --port 8010
 ```
 
-The frontend is built output, not something FastAPI generates at request time -- `web/app.py`
-serves whatever is in `frontend/dist/` and 503s with a clear message if nothing has been
+The frontend is built output, not something FastAPI generates at request time -- `careerradar start`
+serves whatever is in `careerradar/web/frontend/dist/` and 503s with a clear message if nothing has been
 built yet. Re-run `npm run build` after pulling changes that touch
 `careerradar/web/frontend-src/`, or run `npm run dev` for hot reload against a locally
-running `careerradar web` (see `vite.config.ts` for the dev proxy target).
+running `careerradar start` (see `vite.config.ts` for the dev proxy target).
 
 `python-jobspy` is pinned to a git commit rather than the PyPI wheel, which constrains
 numpy to 1.26.3 and has no cp313 wheel.
@@ -117,29 +122,26 @@ as a gap. The first real build produced exactly this for 4 of 28 skills.
 
 ```bash
 # Scrape. Postings land unscored.
-uv run careerradar search run --dry-run --limit 3     # verify without writing
-uv run careerradar search run --backfill --source indeed
-uv run careerradar search run                          # steady state
-uv run careerradar search cost                         # what the last run cost, per cell
+uv run careerradar search run --dry-run               # plan and fetch, but write nothing
+uv run careerradar search run                          # run scrape pass
 
 # Score. Cheap, idempotent, safe to run often.
-uv run careerradar score run --dry-run                 # cost estimate, writes nothing
-uv run careerradar score run --limit 200
-uv run careerradar score run --rescore-all             # after a profile rebuild
+uv run careerradar score run                           # drain unscored postings
+uv run careerradar score run --limit 200               # cap batch size
 
 # Research the companies behind strong matches.
-uv run careerradar research run --dry-run
-uv run careerradar research run --company "MongoDB"
+uv run careerradar research run                        # drain researched queue
+uv run careerradar research run --company "MongoDB"     # research specific company
 
-uv run careerradar web --port 8010
+# Serve dashboard and background scheduler.
+uv run careerradar start --port 8010
 ```
 
 ### What scraping costs
 
 Every cell visit records its wall time (`cell_observations.duration_ms`) and the HTTP
-requests it issued (`.requests_made`), measured around the JobSpy call. `careerradar search
-cost` reports them per source and lists the slowest cells; the `cell_cost` view exposes the
-same rows with the ratios (`seconds`, `ms_per_request`, `requests_per_posting`) already
+requests it issued (`.requests_made`), measured around the JobSpy call. The `cell_cost` view exposes
+these rows with the ratios (`seconds`, `ms_per_request`, `requests_per_posting`) already
 derived, for ad-hoc SQL:
 
 ```sql
@@ -147,7 +149,7 @@ SELECT source, AVG(seconds), AVG(requests_per_posting) FROM cell_cost GROUP BY s
 ```
 
 The number to watch is measured requests against what `scheduler.estimate_units` planned.
-`careerradar search cost` prints both and warns when a source outspends its estimate. Rows
+The `cell_cost` view exposes both and reveals when a source outspends its estimate. Rows
 scraped before schema v11 are NULL and are reported as unmeasured.
 
 The first measurements (2026-08-15, 11 cells) showed the estimate was wrong in both
@@ -248,7 +250,7 @@ and nothing supports one.
 
 `fit_score` survives as a *projection* of the tuple, for the places that need one number. It
 is an invented weighting and is labelled as such. Because the ordinals are stored,
-`careerradar score rescale` recomputes it over the whole corpus with no API calls.
+the projection can be recomputed over the whole corpus with no API calls.
 
 `match_score` measures requirement coverage, not fit. It feeds the skill hint in the scoring
 prompt, the gap analytics, and a tiebreak. BM25 was removed from it: its query was a fixed
@@ -259,7 +261,7 @@ component beside it with more noise and no validation.
 
 There is no golden set yet, and two of the checks that matter need no labels at all.
 
-`careerradar score audit` re-runs both over stored verdicts with no API calls. A quote is or
+Verdicts can be audited over stored verdicts with no API calls. A quote is or
 is not in the posting -- measured over 9,053 stored blockers, 89.6% were verifiable and ~10%
 could not be found. And a blocker either does or does not demand something the profile says
 you already have; that check found ~50 verdicts blocking a US citizen for not being a US
@@ -304,14 +306,12 @@ subprocesses with automated pipeline chaining.
 ```bash
 git clone https://github.com/your-username/careerradar.git ~/projects/careerradar
 cd ~/projects/careerradar
-uv sync
-scripts/sync_corpus.sh /path/to/resume
-cp /path/to/.env .
-sqlite3 /path/to/old/jobs.db ".backup 'jobs.db'"   # WAL mode: never plain-copy a live DB
-uv run careerradar migrate                         # applies migrations & auto-seeds scrape cells
+make setup
+cp .env.example .env                                   # configure API keys
+uv run careerradar migrate                             # applies migrations & auto-seeds scrape cells
+uv run careerradar profile build examples/sample_resume.md
 
-npm ci                                             # frontend, locked to package-lock.json
-npm run build                                      # -> frontend/dist/; careerradar-web serves it
+make build                                             # -> careerradar/web/frontend/dist/
 
 sudo cp deploy/careerradar.service /etc/systemd/system/
 sudo install -m 0644 deploy/careerradar.logrotate /etc/logrotate.d/careerradar

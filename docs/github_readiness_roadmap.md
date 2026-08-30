@@ -35,7 +35,7 @@ flowchart TD
     end
 
     subgraph P1["P1: Developer Experience (DX)"]
-        B1["Add 'web' alias to 'start' in CLI"]
+        B1["Remove obsolete commands & standardize on 'careerradar start'"]
         B2["Fix 'careerradar profile build <file>' argparse"]
         B3["Add Makefile for 1-command setup & build"]
         B4["Restructure README for 5-min Quickstart"]
@@ -80,7 +80,6 @@ flowchart TD
   ```
 
 ### 1.3. Streamline Candidate Profile Ingestion
-- **Problem**: `scripts/sync_corpus.sh` hardcodes `../resume/achievements.md` from an external private repository.
 - **Fixes**:
   1. Update `careerradar/cli.py` so `careerradar profile build` takes an optional file argument:
      ```bash
@@ -94,52 +93,19 @@ flowchart TD
 ## Phase 2: CLI Consistency & Build Automation (P1 — High)
 
 ### 2.1. Align CLI Subcommands with Documentation
-- **Problem**: `README.md` instructs users to run `careerradar web --port 8010`, but `careerradar/cli.py` registers `start`.
-- **Fixes**:
-  1. Add `web` as an alias or subcommand pointing to `_cmd_start` in `careerradar/cli.py`:
-     ```python
-     web_parser = sub.add_parser("web", help="alias for 'start'")
-     web_parser.add_argument("--host", default="127.0.0.1")
-     web_parser.add_argument("--port", type=int, default=8010)
-     web_parser.add_argument("--reload", action="store_true")
-     web_parser.set_defaults(func=_cmd_start)
-     ```
-  2. Audit all flags referenced in documentation (`search run --dry-run`, `score run --limit`, `migrate`, `status`) to ensure 100% agreement between docs and `cli.py`.
+- **Action**: Standardize on `careerradar start` across all documentation and purge obsolete commands (`web`, `score rescale`, `score audit`, `search cost`, `score stats`).
+- **Audit**: All flags referenced in documentation (`search run --dry-run`, `score run --limit`, `migrate`, `status`) match `careerradar/cli.py` exactly.
 
 ### 2.2. Single-Step Setup & Build Automation (`Makefile`)
-- **Problem**: Python developers often get confused when FastAPI returns a 503 error because `careerradar/web/frontend/dist/` has not been compiled with Node/npm.
-- **Fix**: Add a root `Makefile`:
-  ```makefile
-  .PHONY: setup build start test lint check
-
-  setup:
-  	uv sync
-  	npm ci
-
-  build:
-  	npm run build
-
-  start: build
-  	uv run careerradar start --port 8010
-
-  test:
-  	uv run pytest -q
-  	npm test
-
-  lint:
-  	uv run ruff check .
-  	uv run pyright
-  	npm run lint
-  	npm run typecheck
-  ```
+- **Fix**: Add a root `Makefile` for one-command installation, build, and test.
 
 ### 2.3. Restructure `README.md`
 - Provide a clear, top-level **"⚡ Quickstart (5 Minutes)"** section:
-  1. Clone & install dependencies (`uv sync && npm ci && npm run build`)
+  1. Clone & install dependencies (`make setup && make build`)
   2. Configure `.env` (`cp .env.example .env`)
   3. Initialize database (`uv run careerradar migrate`)
-  4. Ingest resume (`uv run careerradar profile build my_resume.pdf`)
-  5. Start app (`uv run careerradar start`)
+  4. Ingest resume (`uv run careerradar profile build examples/sample_resume.md`)
+  5. Start app (`make start`)
 - Move deep technical essays (DeepSeek pricing analysis, LinkedIn guest API pagination benchmarks, Pareto score theory) into dedicated subheadings or `docs/` files to keep the main README accessible.
 
 ---
@@ -217,11 +183,11 @@ flowchart TD
 ## 3. Implementation Checklist
 
 - [x] Add `LICENSE` (MIT).
-- [ ] Add `.env.example`.
-- [ ] Add `careerradar web` alias to `careerradar start` in `careerradar/cli.py`.
-- [ ] Fix `careerradar profile build [file]` argument parsing in `careerradar/cli.py`.
-- [ ] Add `Makefile` for one-command install/build/start.
+- [x] Add `.env.example`.
+- [x] Standardize on `careerradar start` and remove obsolete commands from documentation.
+- [x] Fix `careerradar profile build [file]` argument parsing in `careerradar/cli.py`.
+- [x] Add `Makefile` for one-command install/build/start.
 - [ ] Add `Dockerfile` and `docker-compose.yml`.
 - [ ] Add optional Basic Auth / Bearer token gate in `careerradar/web/app.py`.
-- [ ] Reorganize `README.md` with a clean 5-minute Quickstart.
+- [x] Reorganize `README.md` with a clean 5-minute Quickstart.
 - [ ] Add `.github/ISSUE_TEMPLATE/` and `CONTRIBUTING.md`.

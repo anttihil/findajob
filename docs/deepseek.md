@@ -123,7 +123,7 @@ Two consequences worth keeping in mind when reading a distribution:
 `evals/metamorphic.py` over the same 10 postings moves one or two ordinals between runs, so
 treat repeated identical output as likely rather than guaranteed.
 
-Check any of this with `careerradar score stats`.
+Check pipeline state with `careerradar status` or view metrics in the dashboard.
 
 ## 6. Measured token shape (for cost estimates)
 
