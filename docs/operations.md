@@ -19,8 +19,8 @@ across sources, whether cells are being revisited inside their tier's cadence, w
 quarantined after repeated failures, and whether stored postings still agree with the
 taxonomy on disk.
 
-**Read the coverage section first.** Every hit rate in this project — the tier table in
-`data/roles.yaml` included — is a ratio over *scored* postings. If one source is scored at
+**Read the coverage section first.** Every hit rate in this project — the target roles table
+included — is a ratio over *scored* postings. If one source is scored at
 67% and another at 27%, those ratios describe the scored subset rather than the market. The
 report prints a warning when the spread crosses 20 points.
 
@@ -80,7 +80,7 @@ Rules that make this safe:
   repository; a snapshot is a copy of a personal job search, and a published repository is
   the wrong place for either it or the map to it.
 
-Analysis done this way is why several numbers in `data/roles.yaml` carry a note saying
+Analysis done this way is why several historical benchmark figures carry a note saying
 which database produced them. A figure computed on a development copy and a figure computed
 on production have differed by up to 7x in this project, in both directions. Say which one
 you used.
@@ -151,15 +151,23 @@ uv run careerradar status               # confirm the pipeline still reads healt
 ```
 
 ## Deploying a taxonomy change
-
-Editing `data/roles.yaml` or `data/skills.yaml` is automatically applied on restart or via:
-
+ 
+Editing `data/skills.yaml` is automatically applied on restart or via:
+ 
 ```bash
 careerradar migrate
 ```
-
-This runs schema migrations and automatically syncs `roles.yaml` queries into `scrape_cells` (with `--prune` to disable retired cells).
-
+ 
+Target roles, queries, and locations are managed directly in SQLite via the web dashboard or CLI:
+ 
+```bash
+careerradar target add role "AI Engineer" --pattern "ai engineer|machine learning engineer"
+careerradar target add query "AI Engineer" "AI Engineer"
+careerradar search seed-cells --prune
+```
+ 
+This syncs configured target queries into `scrape_cells` (with `--prune` to disable retired cells).
+ 
 And a pattern edit is **not retroactive**. `role_family` is written at ingest, and
 `--rescore-only` passes it through rather than re-deriving it, so a pattern edit applies to
 postings scraped after it lands and to nothing already stored.

@@ -1,12 +1,12 @@
-"""Populate scrape_cells from roles.yaml.
+"""Populate scrape_cells from target roles and locations.
 
 Re-runnable after every taxonomy edit. Existing cells keep their scrape history, so editing
-roles.yaml does not reset coverage; cells no longer in the taxonomy are disabled rather than
+targets does not reset coverage; cells no longer in the taxonomy are disabled rather than
 deleted, which keeps cell_observations' foreign keys and past analytics auditable.
 
     careerradar search seed-cells [--prune]
 
-Every query_term declared in roles.yaml is seeded. There is no per-tier cap, so the file
+Every query_term declared in target_queries is seeded. There is no per-tier cap, so the matrix
 is the whole plan: what it lists is what gets searched.
 """
 
@@ -32,7 +32,7 @@ def seed_cells(prune: bool = False) -> int:
         print("Search targets / role taxonomy has problems; fix these first:")
         for problem in problems:
             print(f"  - {problem}")
-        print("  (Tip: Configure target roles and query terms via Dashboard or data/roles.yaml)")
+        print("  (Tip: Configure targets via Dashboard or 'careerradar target')")
         return 1
 
     specs = roles.cell_specs(sources=enabled_sources)

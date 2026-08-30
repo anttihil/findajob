@@ -470,7 +470,7 @@ class StalenessFloorTests(unittest.TestCase):
 
 
 class LocationWeightWiringTests(unittest.TestCase):
-    """Weights are declared in roles.yaml and consumed off the scraper config.
+    """Weights are declared on target locations and consumed off the scraper config.
 
     These assert the *bridge* rather than the policy. Every weight-dependent test above
     hand-builds CONFIG with a "locations" key, so all of them passed while production
@@ -481,13 +481,13 @@ class LocationWeightWiringTests(unittest.TestCase):
     def setUp(self) -> None:
         self.roles = load_roles()
 
-    def test_weights_are_populated_from_roles_yaml(self) -> None:
+    def test_weights_are_populated_from_target_locations(self) -> None:
         merged = with_location_weights({"cadence_hours": 24}, self.roles)
         self.assertTrue(merged["locations"])
         for location_id, location in self.roles.locations.items():
             self.assertEqual(merged["locations"][location_id]["weight"], location.weight)
 
-    def test_fixture_ids_match_roles_yaml(self) -> None:
+    def test_fixture_ids_match_target_locations(self) -> None:
         """Guards the specific rot that hid the bug: renamed ids, silent lookup misses."""
         self.assertEqual(set(CONFIG["locations"]), set(self.roles.locations))
 

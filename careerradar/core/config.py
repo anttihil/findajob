@@ -44,7 +44,7 @@ def deep_merge(base: dict[str, Any], incoming: dict[str, Any]) -> dict[str, Any]
 
 def load_config() -> dict[str, Any]:
     # Fallback defaults only, for a missing config.yaml. The real configuration lives in
-    # config.yaml; the search space itself now comes from data/roles.yaml (role families x
+    # config.yaml; the search space itself comes from SQLite target tables (target roles x
     # locations), not from a flat query list.
     defaults: dict[str, Any] = {
         "scraper": {

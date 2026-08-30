@@ -220,22 +220,13 @@ and every coverage figure downstream inherits the shortfall.
 
 ## How the search space is defined
 
-`data/roles.yaml` holds ~28 role families × 7 locations. The cross-product is pruned to
-**410 cells** (205 per source) on the assumption that LinkedIn rate-limits around the 10th
-page on a single IP — a figure carried forward from prior scraping experience, not something
-this project ever measured. A direct probe (`scripts/probe_linkedin_page_wall.py`) found zero
-429s or blocks across 99 consecutive pages (990 results) on one proxied IP; the run stopped at
-page 100 only because that's LinkedIn's own guest-API pagination ceiling (offset ~1000, the
-same wall JobSpy hardcodes as `start < 1000`), not because anything got flagged. See
-`experiments/linkedin_page_wall/`. The scheduler still *rotates* through the 410 cells rather
-than sweeping them, now as a request-budget control rather than a proven rate-limit dodge, so
-a full matrix cycle takes roughly 5 days — which is why `analytics.min_window_days` is 30.
+Target roles, query terms, and search locations are stored in SQLite (`target_roles`, `target_queries`, `target_locations` tables) and managed directly via the Web Dashboard or CLI (`careerradar target`). The search matrix holds the cross-product of enabled queries across enabled locations. The scheduler rotates through these cells as a request-budget control, with cycle times tracking within the analysis window.
 
 `data/skills.yaml` is the shared vocabulary: 172 canonical skills with aliases. The profile
 and scraped descriptions both map onto these keys, which is what makes a match mean the same
 thing on both sides.
 
-Editing either file changes what a run measures, so `taxonomy_hash` and `plan_hash` are
+Editing taxonomy definitions changes what a run measures, so `taxonomy_hash` and `plan_hash` are
 recorded on every run and every stats row, and trend queries refuse to compare across a
 change.
 
@@ -369,7 +360,7 @@ loopback TCP port and have Serve proxy to a Unix socket (`tailscale serve unix:.
 ```
 careerradar/
 ├── core/       config, db, migrations, logging, paths, LLM construction + cost
-├── taxonomy/   roles.yaml and skills.yaml loaders -- the shared vocabulary
+├── taxonomy/   skills.yaml loader & SQLite target taxonomy -- the shared vocabulary
 ├── profile/    document ingest, interview graph, canonicalization, versioned store
 ├── search/     scheduler, sources, circuit breaker, proxies, normalizer, keyword score
 ├── scoring/    prompts, per-posting graph, queue worker
@@ -379,7 +370,7 @@ careerradar/
 │   ├── frontend-src/   Preact + TypeScript dashboard (Vite), source of truth
 │   └── frontend/dist/  built output `npm run build` produces, gitignored
 └── cli.py
-data/           roles.yaml, skills.yaml
+data/           skills.yaml
 deploy/         systemd units, logrotate snippet for app.log
 docs/           deepseek.md -- the API constraints the scoring design rests on
                 operations.md -- status, the JSON API over ssh, read-only snapshots, logs

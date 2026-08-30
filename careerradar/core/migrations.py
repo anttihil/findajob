@@ -1576,14 +1576,6 @@ def _v19_single_profile_table(cursor: sqlite3.Cursor) -> None:
 
 def _v20_target_roles_and_queries(cursor: sqlite3.Cursor) -> None:
     """Create target_roles, target_queries, and target_locations tables."""
-    import json
-    import os
-    from datetime import datetime, timezone
-
-    import yaml
-
-    from careerradar.core.paths import DATA_DIR
-
     cursor.execute(
         """
         CREATE TABLE IF NOT EXISTS target_roles (
@@ -1624,56 +1616,6 @@ def _v20_target_roles_and_queries(cursor: sqlite3.Cursor) -> None:
         );
         """
     )
-
-    roles_path = os.path.join(DATA_DIR, "roles.yaml")
-    if os.path.exists(roles_path):
-        try:
-            with open(roles_path, encoding="utf-8") as f:
-                data = yaml.safe_load(f.read()) or {}
-            now = datetime.now(timezone.utc).isoformat()
-            for key, spec in (data.get("families") or {}).items():
-                spec = spec or {}
-                label = spec.get("label", key.replace("_", " ").title())
-                patterns = spec.get("patterns") or []
-                resume = spec.get("resume")
-                cursor.execute(
-                    """
-                    INSERT OR IGNORE INTO target_roles
-                    (key, label, resume, aliases_json, enabled, created_at)
-                    VALUES (?, ?, ?, ?, 1, ?)
-                    """,
-                    (key, label, resume, json.dumps(patterns), now),
-                )
-                for q in spec.get("query_terms") or []:
-                    cursor.execute(
-                        """
-                        INSERT OR IGNORE INTO target_queries (role_key, query, enabled)
-                        VALUES (?, ?, 1)
-                        """,
-                        (key, q),
-                    )
-            for loc in data.get("locations") or []:
-                cursor.execute(
-                    """
-                    INSERT OR IGNORE INTO target_locations (
-                        id, label, search_label, country, indeed_country,
-                        is_remote, access, weight, distance, enabled
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
-                    """,
-                    (
-                        loc["id"],
-                        loc["label"],
-                        loc.get("search_label", loc["label"]),
-                        loc["country"],
-                        loc.get("indeed_country", "usa"),
-                        1 if loc.get("is_remote") else 0,
-                        loc.get("access", "relocation"),
-                        float(loc.get("weight", 1.0)),
-                        int(loc.get("distance", 50)),
-                    ),
-                )
-        except (sqlite3.Error, OSError, ValueError, yaml.YAMLError) as exc:
-            logger.warning("Failed to populate target tables from roles.yaml: %s", exc)
 
 
 def _v21_profile_executive_summary_and_projects(cursor: sqlite3.Cursor) -> None:

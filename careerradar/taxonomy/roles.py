@@ -4,16 +4,13 @@
 that surfaced the posting. Titles that match no family get `None`.
 """
 
-import hashlib
 import os
 import re
 import sqlite3
 from typing import Any
 
-from careerradar.core.paths import DATA_DIR, DB_PATH
+from careerradar.core.paths import DB_PATH
 from careerradar.taxonomy import repository as taxonomy_repo
-
-ROLES_PATH = os.path.join(DATA_DIR, "roles.yaml")
 
 SENIORITY_UNSPECIFIED = "unspecified"
 
@@ -252,7 +249,6 @@ class RoleTaxonomy:
             return
 
         # Attempt to load from SQLite target tables
-        loaded = False
         target_conn = conn
         close_conn = False
         if target_conn is None:
@@ -289,17 +285,11 @@ class RoleTaxonomy:
                     db_locs = taxonomy_repo.get_target_locations(target_conn)
                     for loc in db_locs:
                         self.locations[loc["id"]] = Location(loc)
-
-                    loaded = True
             except sqlite3.Error:
-                loaded = False
+                pass
             finally:
                 if close_conn and target_conn is not None:
                     target_conn.close()
-
-        # Fallback to roles.yaml if database target tables were empty or not present
-        if not loaded and os.path.exists(ROLES_PATH):
-            self._load_from_yaml(ROLES_PATH)
 
         self._init_commutable_area(commutable_area)
 
@@ -346,18 +336,6 @@ class RoleTaxonomy:
         for spec in data.get("locations") or []:
             location = Location(spec)
             self.locations[location.id] = location
-
-    def _load_from_yaml(self, path: str) -> None:
-        try:
-            import yaml
-
-            with open(path, encoding="utf-8") as handle:
-                raw = handle.read()
-            data: dict[str, Any] = yaml.safe_load(raw) or {}
-            self._load_from_dict(data)
-            self.hash = hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
-        except (OSError, yaml.YAMLError):
-            pass
 
     # -- lookup ------------------------------------------------------------------------
     def __len__(self) -> int:

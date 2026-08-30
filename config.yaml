@@ -350,7 +350,7 @@ scoring:
   # for a handful of hits, and it is not a role-family effect -- they score just as badly
   # inside the best families.
   #
-  # Note what this catches beyond its literal name: roles.yaml reads manager, director and
+  # Note what this catches beyond its literal name: the role taxonomy reads manager, director and
   # head-of titles as `lead`, and those never hit at all. It is also why the tech_lead,
   # eng_manager, tpm and product_manager families look dead.
   #

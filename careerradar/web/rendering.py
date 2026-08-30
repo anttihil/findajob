@@ -4,7 +4,7 @@ The dashboard's rendering -- URL-building, HTML escaping, markup -- moved to the
 (`careerradar/web/frontend-src/`) along with the templates it used to feed. What's left here
 is server-side-only: the filter's *parsing* (still needed to validate and normalise the query
 params `/api/jobs/{id}/context` accepts) and the two joins that have to stay server-side
-because their normalisation has to match `profile/models.py` and `data/roles.yaml` exactly.
+because their normalisation has to match `profile/models.py` and the role taxonomy exactly.
 """
 
 from __future__ import annotations
@@ -64,7 +64,7 @@ class FilterQuery:
         return {key: (value if value != "" else None) for key, value in self.values.items()}
 
 
-# Display names for the country codes that appear in data/roles.yaml. The set of codes is
+# Display names for the country codes that appear in target locations. The set of codes is
 # derived from the locations rather than restated, so adding a location cannot leave the
 # dashboard filtering on a country it never offers.
 COUNTRY_LABELS = {

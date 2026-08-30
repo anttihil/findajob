@@ -167,10 +167,10 @@ flowchart TD
 ## Phase 4: Localization & Model Flexibility (P2 — Medium)
 
 ### 4.1. Configurable Search Locations & Currency Presets
-- **Problem**: `data/roles.yaml` hardcodes locations (`[us_remote, los_angeles, us_nat, helsinki, stockholm, oslo, copenhagen]`), Swedish regexes (`nybörjare`, `erfaren`), and Nordic consulting firms (`Netcompany`, `Consid`, `HiQ`, `Cygni`).
-- **Fixes**:
-  1. Allow defining target locations directly in `config.yaml` or through the Target Roles UI (`careerradar target add/list/toggle`).
-  2. Provide regional starter configuration presets (e.g. `presets/us_tech.yaml`, `presets/uk_europe.yaml`, `presets/remote_only.yaml`).
+- **Context**: Target roles, queries, and locations have been migrated from the legacy `data/roles.yaml` file into SQLite database tables (`target_roles`, `target_queries`, `target_locations`) and are dynamically manageable via the Target Roles UI and CLI (`careerradar target add/list/toggle`).
+- **Remaining Improvements**:
+  1. Provide regional starter configuration presets (e.g. `presets/us_tech.json`, `presets/uk_europe.json`, `presets/remote_only.json`) that can be imported via CLI/UI.
+  2. Externalize Nordic-specific exclusions (`Netcompany`, `Consid`, `HiQ`, `Cygni`) and Swedish regexes (`nybörjare`, `erfaren`) into configurable exclusion rules.
   3. Ensure exchange rates under `scraper.fx` in `config.yaml` are easily customizable for other currencies (GBP, CAD, AUD, INR, etc.).
 
 ### 4.2. Multi-LLM Provider Extensibility

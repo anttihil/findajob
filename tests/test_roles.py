@@ -425,7 +425,7 @@ class CellPlanningTests(unittest.TestCase):
         rather than 1 (see roles.py/cell_specs' docstring for why: LinkedIn's page-wall
         assumption that originally bounded this was empirically refuted), and the matrix is
         larger than the original ~250-cell/~5-day-cycle design point. The guard is on the
-        total, which is now a consequence of roles.yaml alone.
+        total, which is now a consequence of the target matrix.
 
         The ceiling is derived from measured throughput rather than guessed: production
         sustains 64 cells/day (2 runs x ~32 cells, verified over 23 sync_runs on

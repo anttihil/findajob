@@ -99,7 +99,10 @@ def run_sync(
 
     scraper_config = with_location_weights(scraper_config, roles)
 
-    for label, problems in (("skills.yaml", taxonomy.validate()), ("roles.yaml", roles.validate())):
+    for label, problems in (
+        ("skills.yaml", taxonomy.validate()),
+        ("target_roles", roles.validate()),
+    ):
         if problems:
             logger.error(f"{label} is invalid; aborting:")
             for problem in problems:
