@@ -41,6 +41,25 @@ def _add_right_tab(paragraph: Any) -> None:
     pPr.append(tabs)
 
 
+def _add_bottom_border(
+    paragraph: Any,
+    sz: str = "6",
+    color: str = "auto",
+    space: str = "1",
+) -> None:
+    pPr = paragraph._element.get_or_add_pPr()
+    existing_pBdr = pPr.find(qn("w:pBdr"))
+    if existing_pBdr is not None:
+        pPr.remove(existing_pBdr)
+    xml_str = (
+        f'<w:pBdr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
+        f'<w:bottom w:val="single" w:sz="{sz}" w:space="{space}" w:color="{color}"/>'
+        f"</w:pBdr>"
+    )
+    pBdr = parse_xml(xml_str)
+    pPr.append(pBdr)
+
+
 def render_docx(
     payload: TailoredResumePayload,
     output_path: str,
@@ -101,24 +120,25 @@ def render_docx(
     p_exp_h.paragraph_format.space_before = Pt(6)
     p_exp_h.paragraph_format.space_after = Pt(2)
     p_exp_h.paragraph_format.line_spacing = 1.0
+    _add_bottom_border(p_exp_h)
     r_exp_h = p_exp_h.add_run("EXPERIENCE")
     r_exp_h.bold = True
     r_exp_h.font.size = Pt(11)
     r_exp_h.font.name = "Roboto"
 
-    for role in payload.experience:
+    for role_idx, role in enumerate(payload.experience):
         p_role = doc.add_paragraph(style="Heading 3")
-        p_role.paragraph_format.space_before = Pt(4)
+        p_role.paragraph_format.space_before = Pt(10) if role_idx > 0 else Pt(4)
         p_role.paragraph_format.space_after = Pt(1)
         _add_right_tab(p_role)
         r_role = p_role.add_run(f"{role.title}, {role.company}\t{role.dates}")
         r_role.font.name = "Roboto Medium"
         r_role.font.size = Pt(10.5)
 
-        for sub in role.subsections:
+        for sub_idx, sub in enumerate(role.subsections):
             if sub.heading and sub.heading.strip():
                 p_sub = doc.add_paragraph()
-                p_sub.paragraph_format.space_before = Pt(2)
+                p_sub.paragraph_format.space_before = Pt(10) if sub_idx > 0 else Pt(2)
                 p_sub.paragraph_format.space_after = Pt(1)
                 p_sub.paragraph_format.line_spacing = 1.05
                 r_sub = p_sub.add_run(sub.heading)
@@ -126,11 +146,14 @@ def render_docx(
                 r_sub.font.size = Pt(10.5)
                 r_sub.font.name = "Roboto"
 
-            for bullet in sub.bullets:
+            for b_idx, bullet in enumerate(sub.bullets):
                 bp = doc.add_paragraph()
                 bp.paragraph_format.left_indent = Inches(0.25)
                 bp.paragraph_format.first_line_indent = Inches(-0.15)
-                bp.paragraph_format.space_before = Pt(0)
+                if not (sub.heading and sub.heading.strip()) and sub_idx > 0 and b_idx == 0:
+                    bp.paragraph_format.space_before = Pt(10)
+                else:
+                    bp.paragraph_format.space_before = Pt(0)
                 bp.paragraph_format.space_after = Pt(1.5)
                 bp.paragraph_format.line_spacing = 1.05
                 br = bp.add_run("•  " + bullet)
@@ -139,9 +162,10 @@ def render_docx(
 
     # 4. SKILLS Section
     p_sk_h = doc.add_paragraph(style="Heading 2")
-    p_sk_h.paragraph_format.space_before = Pt(5)
+    p_sk_h.paragraph_format.space_before = Pt(6)
     p_sk_h.paragraph_format.space_after = Pt(2)
     p_sk_h.paragraph_format.line_spacing = 1.0
+    _add_bottom_border(p_sk_h)
     r_sk_h = p_sk_h.add_run("SKILLS")
     r_sk_h.bold = True
     r_sk_h.font.size = Pt(11)
@@ -162,9 +186,10 @@ def render_docx(
 
     # 5. EDUCATION Section
     p_ed_h = doc.add_paragraph(style="Heading 2")
-    p_ed_h.paragraph_format.space_before = Pt(5)
+    p_ed_h.paragraph_format.space_before = Pt(6)
     p_ed_h.paragraph_format.space_after = Pt(2)
     p_ed_h.paragraph_format.line_spacing = 1.0
+    _add_bottom_border(p_ed_h)
     r_ed_h = p_ed_h.add_run("EDUCATION")
     r_ed_h.bold = True
     r_ed_h.font.size = Pt(11)

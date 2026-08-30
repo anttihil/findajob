@@ -53,13 +53,13 @@ def calculate_resume_points(payload: TailoredResumePayload) -> tuple[float, list
     # 4. Experience Section
     total_bullets = 0
     for r_idx, role in enumerate(payload.experience, 1):
-        # Role title + dates line: 16pt (includes 4pt space before, 1pt after)
-        total_pts += 16.0
+        # Role title + dates line: 16pt for 1st role (4pt before), 22pt for subsequent (10pt before)
+        total_pts += 22.0 if r_idx > 1 else 16.0
 
-        for _s_idx, sub in enumerate(role.subsections, 1):
+        for s_idx, sub in enumerate(role.subsections, 1):
             if sub.heading and sub.heading.strip():
-                # Subheading line: 14pt
-                total_pts += 14.0
+                # Subheading line: 14pt for 1st sub (2pt before), 22pt for subsequent (10pt before)
+                total_pts += 22.0 if s_idx > 1 else 14.0
 
             for b_idx, bullet in enumerate(sub.bullets, 1):
                 total_bullets += 1
@@ -73,6 +73,9 @@ def calculate_resume_points(payload: TailoredResumePayload) -> tuple[float, list
                     violations.append(
                         f"Role {r_idx} bullet {b_idx} wraps to {b_lines} lines (max 2-3 lines)."
                     )
+                # If no heading and subsequent subsection, first bullet has 10pt space before
+                if not (sub.heading and sub.heading.strip()) and s_idx > 1 and b_idx == 1:
+                    total_pts += 10.0
                 # 11.5pt per line + 1.5pt space after
                 total_pts += (b_lines * 11.5) + 1.5
 
