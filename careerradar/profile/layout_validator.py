@@ -4,14 +4,14 @@ import math
 
 from careerradar.profile.models import LayoutValidationResult, TailoredResumePayload
 
-# Usable vertical printable height for Letter (11in = 792pt) with 0.5in top/bottom margins:
-# 792 - 72 = 720pt printable height. Ceiling is 695pt to prevent page overflow.
-MAX_PAGE_POINTS = 695.0
+# Usable vertical printable height for Letter (11in = 792pt) with 1.0in top/bottom margins:
+# 792 - 144 = 648pt printable height. Ceiling is 635pt to prevent page overflow.
+MAX_PAGE_POINTS = 635.0
 
-CHARS_PER_LINE_SUMMARY = 102
-CHARS_PER_LINE_BULLET = 96
-CHARS_PER_LINE_SKILL = 100
-CHARS_PER_LINE_EDU = 100
+CHARS_PER_LINE_SUMMARY = 88
+CHARS_PER_LINE_BULLET = 82
+CHARS_PER_LINE_SKILL = 86
+CHARS_PER_LINE_EDU = 86
 
 
 def estimate_visual_lines(text: str, chars_per_line: int) -> int:
@@ -46,8 +46,8 @@ def calculate_resume_points(payload: TailoredResumePayload) -> tuple[float, list
     total_pts += sum_pts
 
     # 3. Section Headings (Experience, Skills, Education)
-    # 11pt font + 6pt before + 2pt after = 19pt per section header
-    section_headers_pts = 3 * 19.0
+    # 11pt font + 10pt before + 2pt after = 23pt per section header
+    section_headers_pts = 3 * 23.0
     total_pts += section_headers_pts
 
     # 4. Experience Section

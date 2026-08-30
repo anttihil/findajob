@@ -256,7 +256,7 @@ class ATSScreeningVerdict(BaseModel):
 class LayoutValidationResult(BaseModel):
     is_valid: bool
     estimated_points: float
-    max_points: float = 695.0
+    max_points: float = 635.0
     violations: list[str] = Field(default_factory=list)
 
 

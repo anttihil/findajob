@@ -91,22 +91,27 @@ def test_render_docx_and_convert_pdf(tmp_path: Path):
     assert "SKILLS" in text
     assert "EDUCATION" in text
 
-    # Verify section margins: 0.5 in top, bottom, left, right
+    # Verify section margins: 1.0 in top, bottom, left, right
     for section in doc.sections:
-        assert section.top_margin == Inches(0.5)
-        assert section.bottom_margin == Inches(0.5)
-        assert section.left_margin == Inches(0.5)
-        assert section.right_margin == Inches(0.5)
+        assert section.top_margin == Inches(1.0)
+        assert section.bottom_margin == Inches(1.0)
+        assert section.left_margin == Inches(1.0)
+        assert section.right_margin == Inches(1.0)
 
-    # Verify main headers have page-wide bottom borders
+    # Verify contact header and main headers have page-wide bottom borders
     headers_with_border = []
     for p in doc.paragraphs:
-        if p.text in ["EXPERIENCE", "SKILLS", "EDUCATION"]:
+        if p.text in [payload.contact_line_2, "EXPERIENCE", "SKILLS", "EDUCATION"]:
             pPr = p._element.pPr
             pbdr = pPr.find(qn("w:pBdr")) if pPr is not None else None
             if pbdr is not None and pbdr.find(qn("w:bottom")) is not None:
                 headers_with_border.append(p.text)
-    assert headers_with_border == ["EXPERIENCE", "SKILLS", "EDUCATION"]
+    assert headers_with_border == [payload.contact_line_2, "EXPERIENCE", "SKILLS", "EDUCATION"]
+
+    # Verify summary spacing after contact header
+    sum_p = [p for p in doc.paragraphs if "Senior full-stack software engineer" in p.text]
+    assert len(sum_p) == 1
+    assert sum_p[0].paragraph_format.space_before == Pt(6)
 
     # Verify subsection and role spacing (1 line = 10pt space_before on subsequent items)
     sub2_p = [p for p in doc.paragraphs if "Data Pipeline Modernization" in p.text]

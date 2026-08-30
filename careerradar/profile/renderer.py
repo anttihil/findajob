@@ -34,7 +34,7 @@ def _add_right_tab(paragraph: Any) -> None:
     pPr = paragraph._element.get_or_add_pPr()
     xml_str = (
         '<w:tabs xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
-        '<w:tab w:val="right" w:pos="10800"/>'
+        '<w:tab w:val="right" w:pos="9360"/>'
         "</w:tabs>"
     )
     tabs = parse_xml(xml_str)
@@ -69,12 +69,12 @@ def render_docx(
     tpl = template_path or _get_template_path()
     doc = docx.Document(tpl) if (tpl and os.path.exists(tpl)) else docx.Document()
 
-    # Ensure section margins: 0.5 in top/bottom, 0.5 in left/right
+    # Ensure section margins: 1.0 in all around
     for section in doc.sections:
-        section.top_margin = Inches(0.5)
-        section.bottom_margin = Inches(0.5)
-        section.left_margin = Inches(0.5)
-        section.right_margin = Inches(0.5)
+        section.top_margin = Inches(1.0)
+        section.bottom_margin = Inches(1.0)
+        section.left_margin = Inches(1.0)
+        section.right_margin = Inches(1.0)
 
     # Clear body paragraphs while preserving styles, fontTable, settings
     body = doc._body._element
@@ -98,17 +98,22 @@ def render_docx(
     r_c1.font.size = Pt(10.5)
     r_c1.font.name = "Roboto"
 
-    p_c2 = doc.add_paragraph()
-    p_c2.paragraph_format.space_before = Pt(0)
-    p_c2.paragraph_format.space_after = Pt(4)
-    p_c2.paragraph_format.line_spacing = 1.0
-    r_c2 = p_c2.add_run(payload.contact_line_2)
-    r_c2.font.size = Pt(10.5)
-    r_c2.font.name = "Roboto"
+    last_contact_p = p_c1
+    if payload.contact_line_2 and payload.contact_line_2.strip():
+        p_c2 = doc.add_paragraph()
+        p_c2.paragraph_format.space_before = Pt(0)
+        p_c2.paragraph_format.space_after = Pt(4)
+        p_c2.paragraph_format.line_spacing = 1.0
+        r_c2 = p_c2.add_run(payload.contact_line_2)
+        r_c2.font.size = Pt(10.5)
+        r_c2.font.name = "Roboto"
+        last_contact_p = p_c2
+
+    _add_bottom_border(last_contact_p)
 
     # 2. Summary
     p_sum = doc.add_paragraph(style="Subtitle")
-    p_sum.paragraph_format.space_before = Pt(2)
+    p_sum.paragraph_format.space_before = Pt(6)
     p_sum.paragraph_format.space_after = Pt(4)
     p_sum.paragraph_format.line_spacing = 1.15
     r_sum = p_sum.add_run(payload.summary)
@@ -117,7 +122,7 @@ def render_docx(
 
     # 3. EXPERIENCE Section
     p_exp_h = doc.add_paragraph(style="Heading 2")
-    p_exp_h.paragraph_format.space_before = Pt(6)
+    p_exp_h.paragraph_format.space_before = Pt(10)
     p_exp_h.paragraph_format.space_after = Pt(2)
     p_exp_h.paragraph_format.line_spacing = 1.0
     _add_bottom_border(p_exp_h)
@@ -162,7 +167,7 @@ def render_docx(
 
     # 4. SKILLS Section
     p_sk_h = doc.add_paragraph(style="Heading 2")
-    p_sk_h.paragraph_format.space_before = Pt(6)
+    p_sk_h.paragraph_format.space_before = Pt(10)
     p_sk_h.paragraph_format.space_after = Pt(2)
     p_sk_h.paragraph_format.line_spacing = 1.0
     _add_bottom_border(p_sk_h)
@@ -186,7 +191,7 @@ def render_docx(
 
     # 5. EDUCATION Section
     p_ed_h = doc.add_paragraph(style="Heading 2")
-    p_ed_h.paragraph_format.space_before = Pt(6)
+    p_ed_h.paragraph_format.space_before = Pt(10)
     p_ed_h.paragraph_format.space_after = Pt(2)
     p_ed_h.paragraph_format.line_spacing = 1.0
     _add_bottom_border(p_ed_h)

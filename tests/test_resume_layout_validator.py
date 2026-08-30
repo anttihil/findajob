@@ -79,7 +79,7 @@ def test_valid_1page_resume():
     )
 
     pts, violations = calculate_resume_points(payload)
-    assert pts < 695.0
+    assert pts < 635.0
     assert len(violations) == 0
 
     res = validate_resume_layout(payload)
@@ -120,4 +120,4 @@ def test_overflow_detection():
     res = validate_resume_layout(payload)
     assert res.is_valid is False
     assert len(res.violations) > 0
-    assert res.estimated_points > 695.0
+    assert res.estimated_points > 635.0
