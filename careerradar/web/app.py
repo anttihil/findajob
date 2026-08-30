@@ -934,13 +934,13 @@ def get_job_resume(job_id: int):
 
 
 @app.get("/api/resumes")
-def get_generated_resumes(limit: int = 50, offset: int = 0):
+def get_generated_resumes(limit: int = 50, offset: int = 0, job_id: int | None = None):
     from careerradar.profile.repository import list_tailored_resumes
 
     db = get_db()
     try:
         _ = offset
-        return list_tailored_resumes(limit=limit, conn=db.conn)
+        return list_tailored_resumes(limit=limit, job_id=job_id, conn=db.conn)
     finally:
         db.close()
 

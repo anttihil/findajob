@@ -40,6 +40,11 @@ export function JobCard({ job, query }: { job: Job; query: FilterQuery }) {
       <div class="job-card-right">
         <div class="match-badge-wrap">
           {job.status !== "unread" && <span class={`job-status-indicator ${job.status}`}>[{job.status}]</span>}
+          {job.tailored_resume_id != null && (
+            <span class="job-status-indicator" style={{ borderColor: "#8b5cf6", color: "#8b5cf6" }} title="Tailored resume available">
+              <i class="fa-solid fa-file-lines"></i> [Resume]
+            </span>
+          )}
           <TierBadge job={job} />
         </div>
         <div class="job-card-action">

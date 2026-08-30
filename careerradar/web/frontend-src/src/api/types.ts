@@ -48,6 +48,7 @@ export interface Job {
 
   // Computed server-side, not raw columns.
   liveness: Liveness;
+  tailored_resume_id?: number | null;
 }
 
 export interface JobsPage {

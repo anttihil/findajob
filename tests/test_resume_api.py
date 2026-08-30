@@ -96,6 +96,12 @@ def test_list_resumes_endpoint(mock_list: MagicMock):
     assert len(data) == 1
     assert data[0]["job_company"] == "Stripe"
 
+    resp_filtered = client.get("/api/resumes?job_id=5")
+    assert resp_filtered.status_code == 200
+    assert mock_list.call_count == 2
+    _args, kwargs = mock_list.call_args
+    assert kwargs.get("job_id") == 5
+
 
 @patch("careerradar.profile.copilot.extract_profile_from_resume_text")
 @patch("careerradar.profile.copilot.parse_resume_file")

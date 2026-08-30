@@ -1,4 +1,5 @@
-import { useEffect, useState } from "preact/hooks";
+import { useEffect, useMemo, useState } from "preact/hooks";
+import { Link, useLocation, useSearch } from "wouter-preact";
 import { getJSONOrNull, guard } from "../../api/client";
 import type {
   GeneratedResumeRecord,
@@ -118,7 +119,18 @@ function toProfilePayload(f: ProfileFormState): Profile {
 }
 
 export function ResumesPage() {
-  const [activeSubTab, setActiveSubTab] = useState<"master" | "tailored">("master");
+  const search = useSearch();
+  const [, navigate] = useLocation();
+  const searchParams = useMemo(() => new URLSearchParams(search), [search]);
+  const targetJobId = searchParams.get("job") || searchParams.get("job_id");
+  const targetResumeId = searchParams.get("resume") || searchParams.get("resume_id");
+  const targetTab = searchParams.get("tab");
+
+  // Single source of truth: activeSubTab is derived directly from router query params
+  const activeSubTab: "master" | "tailored" =
+    targetTab === "tailored" || Boolean(targetJobId) || Boolean(targetResumeId)
+      ? "tailored"
+      : "master";
 
   // Master profile form state
   const [masterProfile, setMasterProfile] = useState<ProfileFormState | null>(null);
@@ -156,6 +168,26 @@ export function ResumesPage() {
       });
     }
   }, [activeSubTab]);
+
+  // Auto-scroll to targeted resume card when loaded
+  useEffect(() => {
+    if (activeSubTab === "tailored" && (targetJobId || targetResumeId) && resumesList.length > 0) {
+      const match = resumesList.find(
+        (r) =>
+          (targetJobId && String(r.job_id) === targetJobId) ||
+          (targetResumeId && String(r.id) === targetResumeId)
+      );
+      if (match) {
+        const timer = setTimeout(() => {
+          const el = document.getElementById(`resume-card-${match.id}`);
+          if (el) {
+            el.scrollIntoView({ behavior: "smooth", block: "center" });
+          }
+        }, 100);
+        return () => clearTimeout(timer);
+      }
+    }
+  }, [activeSubTab, targetJobId, targetResumeId, resumesList]);
 
   const handleSaveMasterProfile = async (formToSave?: ProfileFormState) => {
     const form = formToSave || masterProfile;
@@ -197,18 +229,20 @@ export function ResumesPage() {
       {/* Sub-tab navigation */}
       <div class="subtab-bar-container">
         <div class="subtab-bar">
-          <button
+          <Link
+            href="/resumes"
             class={`action-pill ${activeSubTab === "master" ? "active" : ""}`}
-            onClick={() => setActiveSubTab("master")}
+            style={{ textDecoration: "none" }}
           >
             <i class="fa-solid fa-user-gear"></i> Master Profile & Copilot
-          </button>
-          <button
+          </Link>
+          <Link
+            href="/resumes?tab=tailored"
             class={`action-pill ${activeSubTab === "tailored" ? "active" : ""}`}
-            onClick={() => setActiveSubTab("tailored")}
+            style={{ textDecoration: "none" }}
           >
             <i class="fa-solid fa-file-lines"></i> Tailored Resumes Library ({resumesList.length})
-          </button>
+          </Link>
         </div>
       </div>
 
@@ -1017,6 +1051,39 @@ export function ResumesPage() {
             </p>
           </div>
 
+          {(targetJobId || targetResumeId) && (
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                marginBottom: "1rem",
+                padding: "0.6rem 1rem",
+                borderRadius: "6px",
+                backgroundColor: "rgba(139, 92, 246, 0.12)",
+                border: "1px solid var(--accent-purple, #a78bfa)",
+                flexWrap: "wrap",
+                gap: "0.5rem",
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                <i class="fa-solid fa-bullseye" style={{ color: "#a78bfa" }}></i>
+                <span style={{ fontSize: "0.9rem", fontWeight: 600 }}>
+                  {targetJobId
+                    ? `Viewing tailored resume for Job #${targetJobId}`
+                    : `Viewing Tailored Resume #${targetResumeId}`}
+                </span>
+              </div>
+              <button
+                class="action-pill"
+                onClick={() => navigate("/resumes?tab=tailored")}
+                style={{ fontSize: "0.8rem", padding: "0.25rem 0.6rem" }}
+              >
+                <i class="fa-solid fa-xmark"></i> Show All Resumes
+              </button>
+            </div>
+          )}
+
           {resumesLoading ? (
             <p>Loading generated resumes...</p>
           ) : resumesList.length === 0 ? (
@@ -1028,85 +1095,173 @@ export function ResumesPage() {
             </div>
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
-              {resumesList.map((res) => (
-                <div key={res.id} class="resume-card">
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-                    <div>
-                      <h3 style={{ margin: 0 }}>
-                        {res.job_title || "Software Engineer"} @ {res.job_company || "Company"}
-                      </h3>
-                      <span style={{ fontSize: "0.85rem", color: "var(--ink-muted)" }}>
-                        Job #{res.job_id} · Generated {(res.created_at || "").slice(0, 16)} · Model:{" "}
-                        {res.model || "deepseek-chat"}
-                      </span>
-                    </div>
+              {resumesList.map((res) => {
+                const isTargeted = Boolean(
+                  (targetJobId && String(res.job_id) === targetJobId) ||
+                    (targetResumeId && String(res.id) === targetResumeId)
+                );
 
-                    <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
-                      {res.ats_score !== null && res.ats_score !== undefined && (
-                        <span
-                          class={`match-badge-lg ${res.ats_score >= 9 ? "text-green" : "text-yellow"}`}
-                          style={{
-                            padding: "0.25rem 0.6rem",
-                            borderRadius: "4px",
-                            backgroundColor:
-                              res.ats_score >= 9
-                                ? "rgba(16, 185, 129, 0.15)"
-                                : "rgba(245, 158, 11, 0.15)",
-                            border: `1px solid ${res.ats_score >= 9 ? "#10b981" : "#f59e0b"}`,
-                            fontSize: "0.85rem",
-                            fontWeight: 600,
-                          }}
-                        >
-                          <i class="fa-solid fa-shield-halved"></i> ATS: {res.ats_score}/10 (
-                          {res.ats_verdict || "evaluated"})
-                        </span>
-                      )}
+                return (
+                  <div
+                    key={res.id}
+                    id={`resume-card-${res.id}`}
+                    class="resume-card"
+                    style={
+                      isTargeted
+                        ? {
+                            border: "2px solid #8b5cf6",
+                            boxShadow: "0 0 12px rgba(139, 92, 246, 0.35)",
+                          }
+                        : undefined
+                    }
+                  >
+                    <div
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "flex-start",
+                        gap: "1rem",
+                        flexWrap: "wrap",
+                      }}
+                    >
+                      <div>
+                        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap" }}>
+                          {res.job_id ? (
+                            <Link
+                              href={`/?job=${res.job_id}`}
+                              style={{ color: "inherit", textDecoration: "none" }}
+                              title="Open this job in the Dashboard"
+                            >
+                              <h3 style={{ margin: 0, display: "inline-flex", alignItems: "center", gap: "0.4rem" }}>
+                                {res.job_title || "Software Engineer"} @ {res.job_company || "Company"}
+                                <i
+                                  class="fa-solid fa-arrow-up-right-from-square"
+                                  style={{ fontSize: "0.75rem", color: "var(--ink-muted)" }}
+                                ></i>
+                              </h3>
+                            </Link>
+                          ) : (
+                            <h3 style={{ margin: 0 }}>
+                              {res.job_title || "Software Engineer"} @ {res.job_company || "Company"}
+                            </h3>
+                          )}
+                          {isTargeted && (
+                            <span
+                              class="skill-tag text-purple"
+                              style={{ fontSize: "0.75rem", padding: "0.1rem 0.4rem", fontWeight: 700 }}
+                            >
+                              <i class="fa-solid fa-link"></i> Linked Job
+                            </span>
+                          )}
+                        </div>
 
-                      <a
-                        href={`/api/resumes/${res.id}/download?format=docx`}
-                        class="action-pill text-blue"
-                        style={{ textDecoration: "none" }}
-                        download
-                      >
-                        <i class="fa-solid fa-file-word"></i> DOCX
-                      </a>
+                        <div style={{ fontSize: "0.85rem", color: "var(--ink-muted)", marginTop: "0.25rem" }}>
+                          {res.job_id ? (
+                            <Link
+                              href={`/?job=${res.job_id}`}
+                              class="action-pill text-blue"
+                              style={{
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: "0.3rem",
+                                padding: "0.1rem 0.45rem",
+                                fontSize: "0.75rem",
+                                textDecoration: "none",
+                                marginRight: "0.5rem",
+                              }}
+                              title="Open Job in Dashboard"
+                            >
+                              <i class="fa-solid fa-briefcase"></i> Job #{res.job_id}
+                            </Link>
+                          ) : (
+                            <span style={{ marginRight: "0.5rem" }}>Job #{res.job_id}</span>
+                          )}
+                          <span>
+                            Generated {(res.created_at || "").slice(0, 16)} · Model:{" "}
+                            {res.model || "deepseek-chat"}
+                            {res.job_location ? ` · ${res.job_location}` : ""}
+                          </span>
+                        </div>
+                      </div>
 
-                      {res.pdf_path && (
+                      <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", flexWrap: "wrap" }}>
+                        {res.ats_score !== null && res.ats_score !== undefined && (
+                          <span
+                            class={`match-badge-lg ${res.ats_score >= 9 ? "text-green" : "text-yellow"}`}
+                            style={{
+                              padding: "0.25rem 0.6rem",
+                              borderRadius: "4px",
+                              backgroundColor:
+                                res.ats_score >= 9
+                                  ? "rgba(16, 185, 129, 0.15)"
+                                  : "rgba(245, 158, 11, 0.15)",
+                              border: `1px solid ${res.ats_score >= 9 ? "#10b981" : "#f59e0b"}`,
+                              fontSize: "0.85rem",
+                              fontWeight: 600,
+                            }}
+                          >
+                            <i class="fa-solid fa-shield-halved"></i> ATS: {res.ats_score}/10 (
+                            {res.ats_verdict || "evaluated"})
+                          </span>
+                        )}
+
+                        {res.job_id && (
+                          <Link
+                            href={`/?job=${res.job_id}`}
+                            class="action-pill text-blue"
+                            style={{ textDecoration: "none" }}
+                            title="Open and view this job posting in Dashboard"
+                          >
+                            <i class="fa-solid fa-briefcase"></i> View Job
+                          </Link>
+                        )}
+
                         <a
-                          href={`/api/resumes/${res.id}/download?format=pdf`}
-                          class="action-pill text-red"
+                          href={`/api/resumes/${res.id}/download?format=docx`}
+                          class="action-pill text-blue"
                           style={{ textDecoration: "none" }}
                           download
                         >
-                          <i class="fa-solid fa-file-pdf"></i> PDF
+                          <i class="fa-solid fa-file-word"></i> DOCX
                         </a>
-                      )}
+
+                        {res.pdf_path && (
+                          <a
+                            href={`/api/resumes/${res.id}/download?format=pdf`}
+                            class="action-pill text-red"
+                            style={{ textDecoration: "none" }}
+                            download
+                          >
+                            <i class="fa-solid fa-file-pdf"></i> PDF
+                          </a>
+                        )}
+                      </div>
                     </div>
+
+                    {res.summary && (
+                      <p style={{ marginTop: "0.75rem", fontSize: "0.9rem" }}>
+                        <strong>Summary:</strong> {res.summary}
+                      </p>
+                    )}
+
+                    {res.ats_feedback && (
+                      <div
+                        style={{
+                          marginTop: "0.5rem",
+                          padding: "0.5rem 0.75rem",
+                          borderRadius: "4px",
+                          backgroundColor: "var(--bg-screen-alt)",
+                          fontSize: "0.85rem",
+                          color: "var(--ink-secondary)",
+                        }}
+                      >
+                        <i class="fa-solid fa-comments"></i> <strong>ATS Screener Feedback:</strong>{" "}
+                        {res.ats_feedback}
+                      </div>
+                    )}
                   </div>
-
-                  {res.summary && (
-                    <p style={{ marginTop: "0.75rem", fontSize: "0.9rem" }}>
-                      <strong>Summary:</strong> {res.summary}
-                    </p>
-                  )}
-
-                  {res.ats_feedback && (
-                    <div
-                      style={{
-                        marginTop: "0.5rem",
-                        padding: "0.5rem 0.75rem",
-                        borderRadius: "4px",
-                        backgroundColor: "var(--bg-screen-alt)",
-                        fontSize: "0.85rem",
-                        color: "var(--ink-secondary)",
-                      }}
-                    >
-                      <i class="fa-solid fa-comments"></i> <strong>ATS Screener Feedback:</strong>{" "}
-                      {res.ats_feedback}
-                    </div>
-                  )}
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>

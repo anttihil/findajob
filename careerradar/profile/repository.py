@@ -323,20 +323,26 @@ def get_resume_by_id(
 
 
 def list_tailored_resumes(
-    limit: int = 50, conn: sqlite3.Connection | None = None
+    limit: int = 50,
+    job_id: int | None = None,
+    conn: sqlite3.Connection | None = None,
 ) -> list[dict[str, Any]]:
     """List recent tailored resumes with target job details."""
     connection, db, owned = _get_connection(conn)
     try:
+        where = "WHERE r.job_id = ?" if job_id is not None else ""
+        params: tuple[Any, ...] = (job_id, limit) if job_id is not None else (limit,)
         rows = connection.execute(
-            """
-            SELECT r.*, j.title as job_title, j.company as job_company, j.location as job_location
+            f"""
+            SELECT r.*, j.title as job_title, j.company as job_company,
+                   j.location as job_location
               FROM generated_resumes r
               LEFT JOIN jobs j ON r.job_id = j.id
+             {where}
              ORDER BY r.id DESC
              LIMIT ?
             """,
-            (limit,),
+            params,
         ).fetchall()
         results = []
         for row in rows:

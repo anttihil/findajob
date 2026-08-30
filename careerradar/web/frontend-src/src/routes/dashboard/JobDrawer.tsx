@@ -1,4 +1,5 @@
 import { useEffect, useState } from "preact/hooks";
+import { Link } from "wouter-preact";
 import type { GeneratedResumeRecord, JobContext, JobStatus } from "../../api/types";
 import { highlightTerms } from "../../lib/highlightTerms";
 import { DossierPanel } from "./DossierPanel";
@@ -125,20 +126,43 @@ export function JobDrawer({
                       display: "flex",
                       justifyContent: "space-between",
                       alignItems: "center",
+                      gap: "0.5rem",
+                      flexWrap: "wrap",
                     }}
                   >
                     <h4 style={{ margin: 0, color: "var(--accent-purple, #a78bfa)" }}>
                       <i class="fa-solid fa-file-waveform"></i> Tailored 1-Page Resume
                     </h4>
                     {!generating && (
-                      <button
-                        class="action-pill text-purple active"
-                        onClick={handleGenerateResume}
-                        style={{ fontSize: "0.85rem", padding: "0.3rem 0.8rem" }}
-                      >
-                        <i class="fa-solid fa-wand-magic-sparkles"></i>{" "}
-                        {resume ? "Regenerate" : "Generate Resume"}
-                      </button>
+                      <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
+                        {resume ? (
+                          <Link
+                            href={`/resumes?tab=tailored&job=${job.id}`}
+                            class="action-pill text-purple"
+                            style={{ textDecoration: "none", fontSize: "0.85rem", padding: "0.3rem 0.8rem" }}
+                            title="Open this tailored resume in the Resumes tab"
+                          >
+                            <i class="fa-solid fa-arrow-up-right-from-square"></i> Open in Resumes
+                          </Link>
+                        ) : (
+                          <Link
+                            href="/resumes?tab=tailored"
+                            class="action-pill"
+                            style={{ textDecoration: "none", fontSize: "0.85rem", padding: "0.3rem 0.8rem" }}
+                            title="View Resumes Library"
+                          >
+                            <i class="fa-solid fa-folder-open"></i> Resumes Library
+                          </Link>
+                        )}
+                        <button
+                          class="action-pill text-purple active"
+                          onClick={handleGenerateResume}
+                          style={{ fontSize: "0.85rem", padding: "0.3rem 0.8rem" }}
+                        >
+                          <i class="fa-solid fa-wand-magic-sparkles"></i>{" "}
+                          {resume ? "Regenerate" : "Generate Resume"}
+                        </button>
+                      </div>
                     )}
                   </div>
 
@@ -196,6 +220,14 @@ export function JobDrawer({
                             <i class="fa-solid fa-file-pdf"></i> PDF
                           </a>
                         )}
+                        <Link
+                          href={`/resumes?tab=tailored&job=${job.id}`}
+                          class="action-pill text-purple"
+                          style={{ textDecoration: "none", fontSize: "0.8rem" }}
+                          title="Open this tailored resume in the Resumes tab"
+                        >
+                          <i class="fa-solid fa-file-lines"></i> Open in Resumes Tab
+                        </Link>
                       </div>
 
                       {resume.summary && (

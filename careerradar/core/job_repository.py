@@ -138,8 +138,14 @@ def select_columns(
         f"v.{name} AS {name}"
         for name in (VERDICT_DETAIL_COLUMNS if detail else VERDICT_LIST_COLUMNS)
     ]
+    resume_columns = [
+        (
+            "(SELECT gr.id FROM generated_resumes gr "
+            "WHERE gr.job_id = jobs.id ORDER BY gr.id DESC LIMIT 1) AS tailored_resume_id"
+        )
+    ]
     columns_str = ",\n                   ".join(
-        job_columns + verdict_columns + [f"{LIVENESS_CASE} AS liveness"]
+        job_columns + verdict_columns + resume_columns + [f"{LIVENESS_CASE} AS liveness"]
     )
     return columns_str, cached_columns
 
