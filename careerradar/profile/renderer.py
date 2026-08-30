@@ -34,7 +34,7 @@ def _add_right_tab(paragraph: Any) -> None:
     pPr = paragraph._element.get_or_add_pPr()
     xml_str = (
         '<w:tabs xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
-        '<w:tab w:val="right" w:pos="9360"/>'
+        '<w:tab w:val="right" w:pos="10800"/>'
         "</w:tabs>"
     )
     tabs = parse_xml(xml_str)
@@ -69,12 +69,12 @@ def render_docx(
     tpl = template_path or _get_template_path()
     doc = docx.Document(tpl) if (tpl and os.path.exists(tpl)) else docx.Document()
 
-    # Ensure section margins: 0.5 in top/bottom, 1.0 in left/right
+    # Ensure section margins: 0.5 in top/bottom, 0.5 in left/right
     for section in doc.sections:
         section.top_margin = Inches(0.5)
         section.bottom_margin = Inches(0.5)
-        section.left_margin = Inches(1.0)
-        section.right_margin = Inches(1.0)
+        section.left_margin = Inches(0.5)
+        section.right_margin = Inches(0.5)
 
     # Clear body paragraphs while preserving styles, fontTable, settings
     body = doc._body._element
@@ -156,7 +156,7 @@ def render_docx(
                     bp.paragraph_format.space_before = Pt(0)
                 bp.paragraph_format.space_after = Pt(1.5)
                 bp.paragraph_format.line_spacing = 1.05
-                br = bp.add_run("•  " + bullet)
+                br = bp.add_run("•\t" + bullet)
                 br.font.size = Pt(10)
                 br.font.name = "Roboto"
 

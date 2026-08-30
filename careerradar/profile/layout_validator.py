@@ -8,10 +8,10 @@ from careerradar.profile.models import LayoutValidationResult, TailoredResumePay
 # 792 - 72 = 720pt printable height. Ceiling is 695pt to prevent page overflow.
 MAX_PAGE_POINTS = 695.0
 
-CHARS_PER_LINE_SUMMARY = 88
-CHARS_PER_LINE_BULLET = 82
-CHARS_PER_LINE_SKILL = 86
-CHARS_PER_LINE_EDU = 86
+CHARS_PER_LINE_SUMMARY = 102
+CHARS_PER_LINE_BULLET = 96
+CHARS_PER_LINE_SKILL = 100
+CHARS_PER_LINE_EDU = 100
 
 
 def estimate_visual_lines(text: str, chars_per_line: int) -> int:

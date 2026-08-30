@@ -3,7 +3,7 @@ from pathlib import Path
 
 import docx
 from docx.oxml.ns import qn
-from docx.shared import Pt
+from docx.shared import Inches, Pt
 
 from careerradar.profile.models import (
     ResumeEducation,
@@ -90,6 +90,13 @@ def test_render_docx_and_convert_pdf(tmp_path: Path):
     assert "EXPERIENCE" in text
     assert "SKILLS" in text
     assert "EDUCATION" in text
+
+    # Verify section margins: 0.5 in top, bottom, left, right
+    for section in doc.sections:
+        assert section.top_margin == Inches(0.5)
+        assert section.bottom_margin == Inches(0.5)
+        assert section.left_margin == Inches(0.5)
+        assert section.right_margin == Inches(0.5)
 
     # Verify main headers have page-wide bottom borders
     headers_with_border = []
