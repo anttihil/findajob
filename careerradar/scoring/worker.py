@@ -346,3 +346,66 @@ def run_scoring(limit: int | None = None) -> int:
         return 1
     finally:
         db.close()
+
+
+def score_job(
+    job_id: int,
+    db: Database | None = None,
+    model: str | None = None,
+) -> dict[str, Any]:
+    """Score a single job posting by ID against the active profile."""
+    loaded = load_active()
+    if loaded is None:
+        raise NoActiveProfile("No active profile. Build one first: careerradar profile build")
+    profile_version, _profile, summary = loaded
+
+    config = load_config()
+    scoring_config = config.get("scoring") or {}
+    model_name = model or scoring_config.get("model", DEFAULT_SCORING_MODEL)
+    fit_threshold = int(scoring_config.get("fit_threshold", 90))
+
+    owned = db is None
+    database = db or Database()
+    try:
+        job_res = database.query_jobs(job_id=job_id, detail=True)
+        jobs = job_res.get("jobs") or []
+        if not jobs:
+            raise ValueError(f"Job with id {job_id} not found.")
+        job = jobs[0]
+
+        taxonomy = load_taxonomy()
+        adapter = load_profile_adapter(db=database, taxonomy=taxonomy)
+        assert adapter is not None
+        scorer = _build_scorer(adapter, taxonomy, config)
+
+        system = build_system(summary, fit_threshold=fit_threshold)
+        phash = prompt_hash(summary, fit_threshold=fit_threshold)
+        hint = _skill_hint(scorer, job)
+
+        graph = build_graph()
+        final_state: dict[str, Any] = graph.invoke(
+            {
+                "system": system,
+                "posting": job,
+                "model": model_name,
+                "skill_hint": hint,
+                "profile": adapter,
+                "taxonomy": taxonomy,
+            }
+        )
+
+        verdict = final_state.get("verdict")
+        usage = final_state.get("usage")
+        cost = usage_cost(model_name, usage) if usage else 0.0
+
+        if verdict is None:
+            _record_failure(database, job_id, final_state.get("error"))
+            database.conn.commit()
+            raise RuntimeError(f"Scoring failed for job {job_id}: {final_state.get('error')}")
+
+        _persist(database, job, verdict, usage, cost, model_name, profile_version, phash)
+        database.conn.commit()
+        return verdict
+    finally:
+        if owned:
+            database.close()

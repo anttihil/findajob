@@ -59,6 +59,43 @@ def _cmd_profile(args: argparse.Namespace) -> Any:
     return run_profile_command(args)
 
 
+def _cmd_import(args: argparse.Namespace) -> int:
+    from careerradar.search.importer import import_and_process_job
+
+    url = args.url
+    score = not getattr(args, "no_score", False)
+    generate_resume = getattr(args, "resume", False)
+    model = getattr(args, "model", None)
+
+    print(f"Importing job from {url}...")
+    res = import_and_process_job(
+        url=url,
+        score=score,
+        generate_resume=generate_resume,
+        model=model,
+    )
+    job_id = res["job_id"]
+    job = res.get("job") or {}
+    print(f"Imported job {job_id}: {job.get('title')} @ {job.get('company')}")
+    if res.get("verdict"):
+        v = res["verdict"]
+        fit_str = "FIT" if v.get("fit") else "NO FIT"
+        reason = (
+            f" ({v.get('reason_type')}: {v.get('reason_description')})"
+            if v.get("reason_type")
+            else ""
+        )
+        print(f"  Scoring Verdict: {fit_str}{reason}")
+    if res.get("resume"):
+        r = res["resume"]
+        print("  Resume generated:")
+        print(f"    DOCX: {r.get('docx_path')}")
+        print(f"    PDF:  {r.get('pdf_path')}")
+        if r.get("ats_score") is not None:
+            print(f"    ATS Match Score: {r.get('ats_score')}/10 ({r.get('ats_verdict')})")
+    return 0
+
+
 def _cmd_resume(args: argparse.Namespace) -> int:
     sub = args.subcommand
     if sub == "generate":
@@ -301,6 +338,16 @@ def build_parser() -> argparse.ArgumentParser:
     res_batch.add_argument("--status", default="saved", help="status to match (default: saved)")
     res_batch.add_argument("--model", help="DeepSeek model to use for tailoring")
     res_batch.set_defaults(func=_cmd_resume)
+
+    # --- import ----------------------------------------------------------------------
+    imp = sub.add_parser(
+        "import", help="import a job from URL, score it, and optionally generate a resume"
+    )
+    imp.add_argument("url", help="URL of the job posting")
+    imp.add_argument("--no-score", action="store_true", help="skip scoring stage")
+    imp.add_argument("--resume", action="store_true", help="generate tailored resume after scoring")
+    imp.add_argument("--model", help="DeepSeek model to use for extraction/scoring/tailoring")
+    imp.set_defaults(func=_cmd_import)
 
     # --- target ----------------------------------------------------------------------
     tar = sub.add_parser("target", help="manage target roles, search queries, and capacity")

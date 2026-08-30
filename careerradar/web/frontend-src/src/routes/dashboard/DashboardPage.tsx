@@ -17,6 +17,7 @@ import { FilterSidebar } from "./FilterSidebar";
 import { JobDrawer } from "./JobDrawer";
 import { newJobsPendingCount } from "../../state/liveEvents";
 import { SearchTargetsWidget } from "../../components/SearchTargetsWidget";
+import { ImportJobModal } from "../../components/ImportJobModal";
 
 const SYNC_ERROR_ICONS: Record<string, string> = {
   error: "fa-circle-exclamation",
@@ -47,6 +48,7 @@ export function DashboardPage() {
   const [refreshKey, setRefreshKey] = useState(0);
   const [dismissedErrors, setDismissedErrors] = useState<unknown>(null);
   const [searchTerm, setSearchTerm] = useState(query.q);
+  const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const debounceTimerRef = useRef<number | null>(null);
 
   // Sync search input if URL changed externally (e.g. navigation or reset)
@@ -304,8 +306,8 @@ export function DashboardPage() {
           <div class="panel-section-box">
             <div class="panel-section-header">RECENT POSTS</div>
             <div class="panel-section-body">
-              <div class="feed-search-bar-wrap">
-                <div class="feed-search-input-box">
+              <div class="feed-search-bar-wrap" style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
+                <div class="feed-search-input-box" style={{ flex: 1 }}>
                   <i class="fa-solid fa-magnifying-glass search-icon"></i>
                   <input
                     type="text"
@@ -330,6 +332,15 @@ export function DashboardPage() {
                     </button>
                   )}
                 </div>
+                <button
+                  type="button"
+                  class="btn btn-primary"
+                  onClick={() => setIsImportModalOpen(true)}
+                  style={{ whiteSpace: "nowrap", display: "flex", alignItems: "center", gap: "6px" }}
+                  title="Import a job posting from any URL"
+                >
+                  <i class="fa-solid fa-plus"></i> Import URL
+                </button>
               </div>
 
               <div class="feed-header">
@@ -411,6 +422,15 @@ export function DashboardPage() {
         context={drawerContext}
         onClose={() => navigate(query.withoutJob())}
         onStatusChange={handleStatusChange}
+      />
+
+      <ImportJobModal
+        isOpen={isImportModalOpen}
+        onClose={() => setIsImportModalOpen(false)}
+        onJobImported={(jobId) => {
+          setRefreshKey((k) => k + 1);
+          navigate(query.withJob(jobId));
+        }}
       />
     </section>
   );

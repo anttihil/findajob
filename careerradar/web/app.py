@@ -936,6 +936,37 @@ def profile_copilot_chat(payload: ProfileChatPayload):
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
+class ImportJobRequest(BaseModel):
+    url: str
+    score: bool = True
+    generate_resume: bool = False
+    model: str | None = None
+
+
+@app.post("/api/jobs/import")
+def api_import_job(req: ImportJobRequest):
+    from careerradar.search.importer import import_and_process_job
+
+    if not req.url or not req.url.strip().startswith(("http://", "https://")):
+        raise HTTPException(status_code=400, detail="A valid http or https URL is required.")
+
+    db = get_db()
+    try:
+        res = import_and_process_job(
+            url=req.url.strip(),
+            score=req.score,
+            generate_resume=req.generate_resume,
+            model=req.model,
+            db=db,
+        )
+        return {"status": "ok", **res}
+    except Exception as exc:
+        logger.exception("Failed to import job from URL %s", req.url)
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    finally:
+        db.close()
+
+
 @app.post("/api/jobs/{job_id}/resume/generate")
 def generate_job_resume(job_id: int):
     from careerradar.profile.builder import build_resume_for_job
