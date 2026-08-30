@@ -22,13 +22,18 @@ def _cmd_score_retry(args: argparse.Namespace) -> Any:
     return run_retry(args.job_id)
 
 
-def _cmd_search(args: argparse.Namespace) -> Any:
+def _cmd_search(args: argparse.Namespace) -> int:
     from careerradar.search.runner import run_sync
 
-    return run_sync(
+    res = run_sync(
         dry_run=getattr(args, "dry_run", False),
         force=getattr(args, "force", False),
     )
+    if isinstance(res, dict):
+        if res.get("cells_planned") and not res.get("cells_succeeded"):
+            return 1
+        return 0
+    return 0 if res is None else int(bool(res))
 
 
 def _cmd_score(args: argparse.Namespace) -> Any:
