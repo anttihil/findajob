@@ -16,14 +16,14 @@ import os
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 PACKAGE_ROOT = os.path.join(REPO_ROOT, "careerradar")
-DATA_DIR = os.path.join(REPO_ROOT, "data")
+DATA_DIR = os.environ.get("CAREERRADAR_DATA_DIR") or os.path.join(REPO_ROOT, "data")
 
-DB_PATH = os.path.join(REPO_ROOT, "jobs.db")
+DB_PATH = os.environ.get("CAREERRADAR_DB_PATH") or os.path.join(REPO_ROOT, "jobs.db")
 # LangGraph checkpoints live in their own file: the interview graph writes a checkpoint per
 # turn, and that write volume has no business sharing a WAL with the posting corpus.
-GRAPH_DB_PATH = os.path.join(REPO_ROOT, "graphs.db")
+GRAPH_DB_PATH = os.environ.get("CAREERRADAR_GRAPH_DB_PATH") or os.path.join(REPO_ROOT, "graphs.db")
 
-CONFIG_PATH = os.path.join(REPO_ROOT, "config.yaml")
+CONFIG_PATH = os.environ.get("CAREERRADAR_CONFIG_PATH") or os.path.join(REPO_ROOT, "config.yaml")
 ENV_PATH = os.path.join(REPO_ROOT, ".env")
 # Overridable because importing the package is enough to open this file for append, so a
 # bare `pytest` used to write test records into the production log. tests/conftest.py points
@@ -34,7 +34,7 @@ STATUS_PATH = os.path.join(REPO_ROOT, "sync_status.json")
 ARCHIVE_DIR = os.path.join(REPO_ROOT, "raw_payloads")
 FRONTEND_DIR = os.path.join(PACKAGE_ROOT, "web", "frontend")
 TEMPLATES_DIR = os.path.join(REPO_ROOT, "templates")
-RESUMES_DIR = os.path.join(REPO_ROOT, "resumes")
+RESUMES_DIR = os.environ.get("CAREERRADAR_RESUMES_DIR") or os.path.join(REPO_ROOT, "resumes")
 GENERATED_RESUMES_DIR = os.path.join(RESUMES_DIR, "generated")
 
 # The pipeline stages serialize on this file. See core/pipeline_lock.py.

@@ -1,5 +1,7 @@
 import asyncio
+import base64
 import os
+import secrets
 import threading
 from collections.abc import Awaitable, Callable
 from contextlib import asynccontextmanager, suppress
@@ -75,49 +77,75 @@ app = FastAPI(title="Job Search Automation Dashboard", lifespan=lifespan)
 
 logger = get_logger()
 
-# Nothing else in this app authenticates anybody. PUT /api/jobs/{id}/status, POST /api/sync
-# (a 15-45 minute scrape) and POST /api/config (an arbitrary deep-merge rewrite of
-# config.yaml on disk) are all wide open, and the only thing that has ever protected them is
-# the 127.0.0.1 bind. Putting the dashboard on a tailnet removes that protection for every
-# device on the tailnet -- including ones belonging to other users the tailnet is shared
-# with -- so the bind stays, `tailscale serve` fronts it, and this gate checks who the proxy
-# says is calling.
-#
-# Tailscale Serve sets Tailscale-User-Login on each proxied request and strips any copy the
-# client tried to supply, so the header is trustworthy *provided* nothing but Serve can
-# reach the port. That is exactly what the loopback bind guarantees.
-#
-# Fail closed: with no owner configured, proxied requests are refused rather than waved
-# through. A request with no identity header at all did not come through Serve, so it is a
-# genuinely local caller -- the CLI, a health check, or a browser on the machine itself.
-#
-# Known gap: Serve does not populate identity headers for traffic from *tagged* devices, so
-# a tagged node would arrive here looking like a local caller and be let through. There are
-# no tagged devices on this tailnet today, and tags only exist when someone creates them
-# deliberately. Closing it properly means giving up the loopback TCP port and having Serve
-# proxy to a Unix socket instead (`tailscale serve unix:...` + `uvicorn --uds`), after which
-# nothing but Serve can reach the app and a missing header can be refused outright.
-OWNER_LOGIN = os.environ.get("CAREERRADAR_OWNER", "").strip()
 IDENTITY_HEADER = "tailscale-user-login"
 
-if not OWNER_LOGIN:
-    logger.warning(
-        "CAREERRADAR_OWNER is unset: every request arriving through `tailscale serve` will "
-        "be refused. Set it in .env to the tailnet login allowed to use the dashboard."
-    )
+
+def _is_request_authenticated(
+    request: Request, expected_password: str, expected_token: str, expected_user: str
+) -> bool:
+    """Validate Bearer tokens, API keys, or HTTP Basic Auth credentials."""
+    # Check X-API-Key header
+    api_key = request.headers.get("x-api-key", "").strip()
+    if api_key:
+        if expected_token and secrets.compare_digest(api_key, expected_token):
+            return True
+        if expected_password and secrets.compare_digest(api_key, expected_password):
+            return True
+
+    # Check Authorization header (Basic or Bearer)
+    auth_header = request.headers.get("authorization", "").strip()
+    if auth_header.startswith("Bearer "):
+        bearer = auth_header[7:].strip()
+        if expected_token and secrets.compare_digest(bearer, expected_token):
+            return True
+        if expected_password and secrets.compare_digest(bearer, expected_password):
+            return True
+
+    if auth_header.startswith("Basic "):
+        try:
+            encoded_creds = auth_header[6:].strip()
+            decoded = base64.b64decode(encoded_creds).decode("utf-8")
+            if ":" in decoded:
+                user, pwd = decoded.split(":", 1)
+                user_ok = (not expected_user) or secrets.compare_digest(user, expected_user)
+                pwd_ok = bool(expected_password) and secrets.compare_digest(pwd, expected_password)
+                token_ok = bool(expected_token) and secrets.compare_digest(pwd, expected_token)
+                if user_ok and (pwd_ok or token_ok):
+                    return True
+        except (ValueError, UnicodeDecodeError):
+            return False
+
+    return False
 
 
 @app.middleware("http")
-async def restrict_to_owner(
+async def auth_middleware(
     request: Request, call_next: Callable[[Request], Awaitable[FastAPIResponse]]
 ) -> FastAPIResponse:
+    owner_login = os.environ.get("CAREERRADAR_OWNER", "").strip()
+    auth_password = os.environ.get("CAREERRADAR_PASSWORD", "").strip()
+    auth_token = os.environ.get("CAREERRADAR_AUTH_TOKEN", "").strip()
+    auth_user = os.environ.get("CAREERRADAR_USER", "").strip()
+
+    # 1. Tailscale Serve identity header check (if request arrived through Tailscale)
     login = request.headers.get(IDENTITY_HEADER)
-    if login is None:
-        return await call_next(request)
-    if login == OWNER_LOGIN:
-        return await call_next(request)
-    logger.warning("Refused dashboard request from tailnet user %s", login)
-    return JSONResponse({"detail": "Not authorised for this dashboard."}, status_code=403)
+    if login is not None:
+        if owner_login and login == owner_login:
+            return await call_next(request)
+        logger.warning("Refused dashboard request from tailnet user %s", login)
+        return JSONResponse({"detail": "Not authorised for this dashboard."}, status_code=403)
+
+    # 2. Opt-in Basic Auth / Token gate (active only if password or token is configured)
+    if (auth_password or auth_token) and not _is_request_authenticated(
+        request, auth_password, auth_token, auth_user
+    ):
+        return JSONResponse(
+            {"detail": "Authentication required."},
+            status_code=401,
+            headers={"WWW-Authenticate": 'Basic realm="CareerRadar"'},
+        )
+
+    return await call_next(request)
 
 
 class _PooledDatabase(Database):

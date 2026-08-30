@@ -187,7 +187,8 @@ flowchart TD
 - [x] Standardize on `careerradar start` and remove obsolete commands from documentation.
 - [x] Fix `careerradar profile build [file]` argument parsing in `careerradar/cli.py`.
 - [x] Add `Makefile` for one-command install/build/start.
-- [ ] Add `Dockerfile` and `docker-compose.yml`.
-- [ ] Add optional Basic Auth / Bearer token gate in `careerradar/web/app.py`.
+- [x] Add `Dockerfile` and `docker-compose.yml`.
+- [x] Add optional Basic Auth / Bearer token gate in `careerradar/web/app.py`.
 - [x] Reorganize `README.md` with a clean 5-minute Quickstart.
 - [ ] Add `.github/ISSUE_TEMPLATE/` and `CONTRIBUTING.md`.
+

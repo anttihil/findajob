@@ -22,6 +22,8 @@ missing skill most often blocks a posting you otherwise match.
 
 ## Setup
 
+### Local
+
 ```bash
 # 1. Install dependencies and compile frontend
 make setup
@@ -36,6 +38,18 @@ uv run careerradar profile build examples/sample_resume.md
 
 # 4. Start dashboard and background scheduler
 make start                                   # or: uv run careerradar start --port 8010
+```
+
+### Docker
+
+```bash
+# 1. Configure environment
+cp .env.example .env                         # add DEEPSEEK_API_KEY
+
+# 2. Start via Docker Compose
+make docker-up                               # or: docker compose up -d
+
+# Dashboard is live at http://localhost:8010
 ```
 
 The frontend is built output, not something FastAPI generates at request time -- `careerradar start`

@@ -1,4 +1,4 @@
-.PHONY: setup build start test lint check
+.PHONY: setup build start test lint check docker-build docker-up docker-down
 
 setup:
 	uv sync
@@ -21,3 +21,14 @@ lint:
 	npm run typecheck
 
 check: lint test
+
+docker-build:
+	docker compose build
+
+docker-up:
+	touch jobs.db graphs.db
+	docker compose up -d
+
+docker-down:
+	docker compose down
+

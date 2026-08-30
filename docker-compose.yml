@@ -1,0 +1,15 @@
+services:
+  careerradar:
+    build: .
+    container_name: careerradar
+    ports:
+      - "8010:8010"
+    env_file:
+      - .env
+    volumes:
+      - ./data:/app/data
+      - ./jobs.db:/app/jobs.db
+      - ./graphs.db:/app/graphs.db
+      - ./config.yaml:/app/config.yaml
+      - ./resumes:/app/resumes
+    restart: unless-stopped
