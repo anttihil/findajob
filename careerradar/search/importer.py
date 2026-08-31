@@ -152,10 +152,9 @@ def extract_job_from_text(
     model: str | None = None,
 ) -> dict[str, Any]:
     """Use structured model output to parse job fields from raw page text."""
-    from careerradar.core.llm import DEFAULT_SCORING_MODEL, structured_model
+    from careerradar.core.llm import structured_model
 
-    model_name = model or DEFAULT_SCORING_MODEL
-    llm = structured_model(model_name)
+    llm = structured_model(model, role="scoring")
     chain = llm.with_structured_output(ExtractedJobPosting, method="function_calling", strict=True)
 
     truncated_text = text[:25000]
@@ -164,7 +163,7 @@ def extract_job_from_text(
         ("user", f"Source URL: {url}\n\nWebpage content:\n{truncated_text}"),
     ]
 
-    extracted: ExtractedJobPosting = chain.invoke(messages)  # type: ignore[assignment]
+    extracted: ExtractedJobPosting = chain.invoke(messages)
     return extracted.model_dump()
 
 

@@ -17,7 +17,7 @@ graphs would add a write per posting to buy a resumability the queue already pro
 
 from typing import Any, TypedDict
 
-from careerradar.core.llm import DEFAULT_SCORING_MODEL, structured_model
+from careerradar.core.llm import structured_model
 from careerradar.core.logger import get_logger
 from careerradar.profile.models import JobFitVerdict
 from careerradar.scoring.prompts import render_posting
@@ -74,8 +74,8 @@ def node_render(state: ScoreState) -> dict[str, Any]:
 
 
 def node_score(state: ScoreState) -> dict[str, Any]:
-    model_name = state.get("model", DEFAULT_SCORING_MODEL)
-    model = structured_model(model_name)
+    model_name = state.get("model") or None
+    model = structured_model(model_name, role="scoring")
     chain = model.with_structured_output(
         JobFitVerdict, method="function_calling", strict=True, include_raw=True
     )
@@ -89,9 +89,7 @@ def node_score(state: ScoreState) -> dict[str, Any]:
 
     attempts = state.get("attempts", 0) + 1
     try:
-        # `include_raw=True` makes this a dict at runtime; the stub only sees the
-        # non-`include_raw` overload's BaseModel return type.
-        result: dict[str, Any] = chain.invoke(messages)  # type: ignore[assignment]
+        result: dict[str, Any] = chain.invoke(messages)
     except Exception as exc:  # noqa: BLE001 - network, rate limit, 400
         logger.warning("Scoring call failed (attempt %d): %s", attempts, exc)
         return {"attempts": attempts, "error": str(exc), "verdict": None}

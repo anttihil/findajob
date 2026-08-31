@@ -94,8 +94,8 @@ describe("Bidirectional Job and Resume Links", () => {
       );
 
       const links = container.querySelectorAll<HTMLAnchorElement>('a[href*="/resumes?tab=tailored&job=42"]');
-      expect(links.length).toBeGreaterThanOrEqual(1);
-      expect(getAllByText(/Open in Resumes/i).length).toBeGreaterThanOrEqual(1);
+      expect(links.length).toBe(1);
+      expect(getAllByText(/View Resume/i).length).toBe(1);
     });
 
     it("renders Resumes Library link when no tailored resume exists yet", () => {
@@ -154,15 +154,15 @@ describe("Bidirectional Job and Resume Links", () => {
       const { getByText, container } = render(<ResumesPage />);
 
       await waitFor(() => {
-        expect(getByText("View Job")).toBeTruthy();
+        expect(container.textContent).toContain("Senior Backend Engineer");
       });
 
-      // Check for View Job link pointing to /?job=42
+      // Check for single job link pointing to /?job=42
       const jobLinks = container.querySelectorAll<HTMLAnchorElement>('a[href="/?job=42"]');
-      expect(jobLinks.length).toBeGreaterThanOrEqual(1);
+      expect(jobLinks.length).toBe(1);
 
       expect(container.textContent).toContain("Acme Corp");
-      expect(getByText("Job #42")).toBeTruthy();
+      expect(getByText(/Job #42/)).toBeTruthy();
     });
   });
 });

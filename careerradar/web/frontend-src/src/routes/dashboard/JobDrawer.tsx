@@ -115,9 +115,8 @@ export function JobDrawer({
                 <div
                   class="drawer-section"
                   style={{
-                    backgroundColor: "rgba(139, 92, 246, 0.05)",
-                    border: "1px solid rgba(139, 92, 246, 0.2)",
-                    borderRadius: "8px",
+                    backgroundColor: "var(--bg-screen-alt)",
+                    border: "1px solid var(--ink-primary)",
                     padding: "1rem",
                   }}
                 >
@@ -130,7 +129,7 @@ export function JobDrawer({
                       flexWrap: "wrap",
                     }}
                   >
-                    <h4 style={{ margin: 0, color: "var(--accent-purple, #a78bfa)" }}>
+                    <h4 style={{ margin: 0, borderBottom: "none", paddingBottom: 0, color: "var(--ink-primary)" }}>
                       <i class="fa-solid fa-file-waveform"></i> Tailored 1-Page Resume
                     </h4>
                     {!generating && (
@@ -138,11 +137,11 @@ export function JobDrawer({
                         {resume ? (
                           <Link
                             href={`/resumes?tab=tailored&job=${job.id}`}
-                            class="action-pill text-purple"
+                            class="action-pill"
                             style={{ textDecoration: "none", fontSize: "0.85rem", padding: "0.3rem 0.8rem" }}
                             title="Open this tailored resume in the Resumes tab"
                           >
-                            <i class="fa-solid fa-arrow-up-right-from-square"></i> Open in Resumes
+                            <i class="fa-solid fa-arrow-up-right-from-square"></i> View Resume
                           </Link>
                         ) : (
                           <Link
@@ -155,7 +154,7 @@ export function JobDrawer({
                           </Link>
                         )}
                         <button
-                          class="action-pill text-purple active"
+                          class="action-pill active"
                           onClick={handleGenerateResume}
                           style={{ fontSize: "0.85rem", padding: "0.3rem 0.8rem" }}
                         >
@@ -167,7 +166,7 @@ export function JobDrawer({
                   </div>
 
                   {generating && (
-                    <div style={{ marginTop: "0.75rem", color: "#a78bfa", fontSize: "0.9rem" }}>
+                    <div style={{ marginTop: "0.75rem", color: "var(--ink-secondary)", fontSize: "0.9rem" }}>
                       <i class="fa-solid fa-spinner fa-spin"></i> Generating tailored 1-page resume...
                     </div>
                   )}
@@ -190,10 +189,9 @@ export function JobDrawer({
                       >
                         {resume.ats_score !== null && resume.ats_score !== undefined && (
                           <span
-                            class={`match-badge-lg ${resume.ats_score >= 9 ? "text-green" : "text-yellow"}`}
+                            class="match-badge-lg"
                             style={{
                               padding: "0.2rem 0.5rem",
-                              borderRadius: "4px",
                               fontSize: "0.8rem",
                               fontWeight: 600,
                             }}
@@ -204,7 +202,7 @@ export function JobDrawer({
                         )}
                         <a
                           href={`/api/resumes/${resume.id}/download?format=docx`}
-                          class="action-pill text-blue"
+                          class="action-pill"
                           style={{ textDecoration: "none", fontSize: "0.8rem" }}
                           download
                         >
@@ -213,29 +211,22 @@ export function JobDrawer({
                         {resume.pdf_path && (
                           <a
                             href={`/api/resumes/${resume.id}/download?format=pdf`}
-                            class="action-pill text-red"
+                            class="action-pill"
                             style={{ textDecoration: "none", fontSize: "0.8rem" }}
                             download
                           >
                             <i class="fa-solid fa-file-pdf"></i> PDF
                           </a>
                         )}
-                        <Link
-                          href={`/resumes?tab=tailored&job=${job.id}`}
-                          class="action-pill text-purple"
-                          style={{ textDecoration: "none", fontSize: "0.8rem" }}
-                          title="Open this tailored resume in the Resumes tab"
-                        >
-                          <i class="fa-solid fa-file-lines"></i> Open in Resumes Tab
-                        </Link>
                       </div>
 
                       {resume.summary && (
                         <p
                           style={{
-                            margin: "0.5rem 0 0 0",
+                            margin: "0.75rem 0 0 0",
                             fontSize: "0.85rem",
-                            color: "#d1d5db",
+                            lineHeight: "1.5",
+                            color: "var(--ink-primary, #050505)",
                             fontStyle: "italic",
                           }}
                         >

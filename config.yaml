@@ -300,16 +300,20 @@ analytics:
     salary_lift: 0.10
 
 # ---------------------------------------------------------------------------------------
-# Agents
+# LLM Providers & Agents
 #
-# Three LLM agents with three different jobs. The big model is used where it runs a handful
-# of times; the small one where it runs once per posting. See docs/deepseek.md.
+# CareerRadar supports OS-level CLI providers (agy, claude, codex, opencode) using your
+# personal subscription sessions, as well as direct API keys (deepseek).
+# Set provider to 'auto' to automatically detect available authenticated CLI tools or API keys.
 # ---------------------------------------------------------------------------------------
+llm:
+  provider: auto
+  scoring_model: ""  # Blank uses provider default (or set custom model)
+  agent_model: ""    # Blank uses provider default (or set custom model)
+  timeout_seconds: 60
+
 profile:
-  # Built once, interactively, by interviewing the user. Worth the larger model: this one
-  # artifact decides how every posting is scored afterwards, and building it is a few calls
-  # rather than thousands.
-  model: deepseek-v4-pro
+  # Built once, interactively, by interviewing the user.
   max_interview_questions: 15
 
   # The documents the profile is built from. An explicit list, deliberately not a scan of
@@ -329,10 +333,7 @@ profile:
       optional: true
 
 scoring:
-  # One call per posting, so this is where the volume is. The profile sits in a cached
-  # prompt prefix, which brings a posting down to about $0.0006. Scoring the whole corpus
-  # therefore costs a few dollars, which is why every posting is scored rather than sampled.
-  model: deepseek-v4-flash
+  # Evaluates scraped postings against the active profile.
   concurrency: 16
   fit_threshold: 90
   # Pre-flight ceiling. If the estimated cost of the queue exceeds this, the run ABORTS
@@ -367,8 +368,7 @@ scoring:
 
 research:
   # Runs at most a few times a run, on companies behind postings that passed research_gate,
-  # and does live web search. Worth the larger model at this volume.
-  model: deepseek-v4-pro
+  # and does live web search.
   search_provider: tavily
   max_companies_per_run: 5
   # A company dossier is reused until it is this old, rather than rebuilt each time the

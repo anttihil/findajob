@@ -3,7 +3,7 @@
 from typing import Any
 
 from careerradar.core.database import Database
-from careerradar.core.llm import DEFAULT_AGENT_MODEL
+from careerradar.core.llm import get_model_for_role
 from careerradar.core.logger import get_logger
 from careerradar.profile.graph import ResumeState, build_resume_graph
 from careerradar.profile.models import Profile
@@ -17,7 +17,7 @@ __all__ = ["build_resume_for_job", "render_resume_plaintext"]
 
 def build_resume_for_job(
     job_id: int,
-    model: str = DEFAULT_AGENT_MODEL,
+    model: str | None = None,
     master_profile: Profile | None = None,
     db: Database | None = None,
 ) -> dict[str, Any]:
@@ -33,11 +33,12 @@ def build_resume_for_job(
 
         profile = master_profile or load_profile(database.conn)
         graph = build_resume_graph()
+        resolved_model = model or get_model_for_role("agent")
 
         initial_state: ResumeState = {
             "job": job,
             "master_profile": profile,
-            "model_name": model,
+            "model_name": resolved_model,
         }
 
         logger.info(

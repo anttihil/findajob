@@ -99,10 +99,9 @@ def _cmd_import(args: argparse.Namespace) -> int:
 def _cmd_resume(args: argparse.Namespace) -> int:
     sub = args.subcommand
     if sub == "generate":
-        from careerradar.core.llm import DEFAULT_AGENT_MODEL
         from careerradar.profile.builder import build_resume_for_job
 
-        model = getattr(args, "model", None) or DEFAULT_AGENT_MODEL
+        model = getattr(args, "model", None)
         res = build_resume_for_job(args.job_id, model=model)
         print(f"Generated resume for job {args.job_id}:")
         print(f"  DOCX: {res.get('docx_path')}")
@@ -128,7 +127,6 @@ def _cmd_resume(args: argparse.Namespace) -> int:
         return 0
     if sub == "batch":
         from careerradar.core.database import Database
-        from careerradar.core.llm import DEFAULT_AGENT_MODEL
         from careerradar.profile.builder import build_resume_for_job
 
         status = getattr(args, "status", "saved")
@@ -142,7 +140,7 @@ def _cmd_resume(args: argparse.Namespace) -> int:
                 print(f"Building resume for job {jid}: {j.get('title')} @ {j.get('company')}...")
                 build_resume_for_job(
                     jid,
-                    model=getattr(args, "model", None) or DEFAULT_AGENT_MODEL,
+                    model=getattr(args, "model", None),
                     db=db,
                 )
             return 0
@@ -247,6 +245,71 @@ def _cmd_status(args: argparse.Namespace) -> Any:
     return run_status(as_json=args.json)
 
 
+def _cmd_llm(args: argparse.Namespace) -> int:
+    import subprocess
+
+    from careerradar.core.llm import get_llm_provider, list_available_providers
+
+    sub = args.subcommand
+    if sub == "status":
+        providers = list_available_providers()
+        print(f"{'Provider':<12} {'Type':<8} {'Available':<12} {'Status'}")
+        print("-" * 80)
+        for p in providers:
+            avail_str = "YES" if p["available"] else "NO"
+            print(f"{p['name']:<12} {p['type']:<8} {avail_str:<12} {p['status']}")
+        print()
+        try:
+            active = get_llm_provider()
+            print(f"Active Provider: {active.name.upper()}")
+        except Exception as exc:  # noqa: BLE001
+            print(f"Active Provider: NONE ({exc})")
+        return 0
+
+    if sub == "auth":
+        target = getattr(args, "provider", None) or "claude"
+        if target == "agy":
+            return subprocess.run(["agy"], check=False).returncode
+        if target == "claude":
+            return subprocess.run(["claude", "auth", "login"], check=False).returncode
+        if target == "codex":
+            return subprocess.run(["codex", "login"], check=False).returncode
+        if target == "opencode":
+            return subprocess.run(["opencode", "providers", "login"], check=False).returncode
+        print(f"Interactive login not supported for provider '{target}'.")
+        return 1
+
+    if sub == "test":
+        from pydantic import BaseModel
+
+        class TestOutput(BaseModel):
+            message: str
+            answer: int
+
+        provider_name = getattr(args, "provider", None)
+        try:
+            prov = get_llm_provider(provider_name)
+            print(f"Testing provider '{prov.name}'...")
+            print("1. Text completion test...")
+            resp = prov.complete("Respond with the single word SUCCESS.")
+            print(f"   Output: {resp.content.strip()}")
+
+            print("2. Structured output test...")
+            structured = prov.complete_structured(
+                TestOutput,
+                "Return a JSON object with message='Hello CareerRadar' and answer=42.",
+                label="cli_test",
+            )
+            print(f"   Structured Output: {structured.model_dump()}")
+            print(f"Provider '{prov.name}' is operational!")
+            return 0
+        except Exception as exc:  # noqa: BLE001
+            print(f"Test failed: {exc}")
+            return 1
+
+    return 0
+
+
 def _cmd_start(args: argparse.Namespace) -> int:
     import uvicorn
 
@@ -327,7 +390,9 @@ def build_parser() -> argparse.ArgumentParser:
     res_sub = res.add_subparsers(dest="subcommand", required=True)
     res_gen = res_sub.add_parser("generate", help="generate tailored resume for a specific job")
     res_gen.add_argument("job_id", type=int, help="job posting database id")
-    res_gen.add_argument("--model", help="DeepSeek model to use for tailoring")
+    res_gen.add_argument(
+        "--model", help="Model to use for tailoring (or leave empty for provider default)"
+    )
     res_gen.set_defaults(func=_cmd_resume)
 
     res_list = res_sub.add_parser("list", help="list generated tailored resumes")
@@ -336,7 +401,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     res_batch = res_sub.add_parser("batch", help="batch generate resumes for jobs by status")
     res_batch.add_argument("--status", default="saved", help="status to match (default: saved)")
-    res_batch.add_argument("--model", help="DeepSeek model to use for tailoring")
+    res_batch.add_argument(
+        "--model", help="Model to use for tailoring (or leave empty for provider default)"
+    )
     res_batch.set_defaults(func=_cmd_resume)
 
     # --- import ----------------------------------------------------------------------
@@ -346,7 +413,7 @@ def build_parser() -> argparse.ArgumentParser:
     imp.add_argument("url", help="URL of the job posting")
     imp.add_argument("--no-score", action="store_true", help="skip scoring stage")
     imp.add_argument("--resume", action="store_true", help="generate tailored resume after scoring")
-    imp.add_argument("--model", help="DeepSeek model to use for extraction/scoring/tailoring")
+    imp.add_argument("--model", help="Model to use for extraction/scoring/tailoring")
     imp.set_defaults(func=_cmd_import)
 
     # --- target ----------------------------------------------------------------------
@@ -370,6 +437,28 @@ def build_parser() -> argparse.ArgumentParser:
 
     tar_sub.add_parser("status", help="show capacity status and matrix cycle guidance")
     tar.set_defaults(func=_cmd_target)
+
+    # --- llm -------------------------------------------------------------------------
+    llm_parser = sub.add_parser(
+        "llm", help="inspect LLM providers, test connections, and authenticate"
+    )
+    llm_sub = llm_parser.add_subparsers(dest="subcommand", required=True)
+    llm_sub.add_parser("status", help="list all LLM providers and availability status")
+
+    llm_auth = llm_sub.add_parser("auth", help="launch interactive login for a CLI provider")
+    llm_auth.add_argument(
+        "provider",
+        choices=["agy", "claude", "codex", "opencode"],
+        help="CLI provider to authenticate",
+    )
+
+    llm_test = llm_sub.add_parser(
+        "test", help="run a quick completion and structured test against a provider"
+    )
+    llm_test.add_argument(
+        "--provider", help="provider to test (e.g. agy, claude, codex, opencode, deepseek)"
+    )
+    llm_parser.set_defaults(func=_cmd_llm)
 
     # --- db / status -----------------------------------------------------------------
     d = sub.add_parser("migrate", help="apply pending schema migrations and seed cells")

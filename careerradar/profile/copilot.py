@@ -10,7 +10,7 @@ import io
 
 from pydantic import BaseModel, Field
 
-from careerradar.core.llm import DEFAULT_AGENT_MODEL, invoke_structured, structured_model
+from careerradar.core.llm import invoke_structured, structured_model
 from careerradar.core.logger import get_logger
 from careerradar.profile.models import Profile
 
@@ -66,67 +66,76 @@ Guidelines:
 
 def extract_profile_from_resume_text(
     resume_text: str,
-    model_name: str = DEFAULT_AGENT_MODEL,
+    model_name: str | None = None,
     existing_profile: Profile | None = None,
 ) -> Profile:
     """Extract a Profile from raw resume text."""
-    model = structured_model(model=model_name)
+    model = structured_model(model=model_name, role="agent")
 
     user_parts = [
-        "=== UPLOADED RESUME DOCUMENT ===",
-        resume_text,
+        "Please parse and extract the candidate profile from the following resume text:",
+        f"```text\n{resume_text[:25000]}\n```",
     ]
     if existing_profile and existing_profile.name:
         user_parts.append(
-            f"\n=== EXISTING PROFILE (PRESERVE/MERGE VALUABLE DETAILS) ===\n"
-            f"{existing_profile.model_dump_json(indent=2)}"
+            f"\nExisting Master Profile for context:\n{existing_profile.model_dump_json(indent=2)}"
         )
-
-    user_parts.append(
-        "\nExtract and construct the comprehensive candidate Profile from this resume text."
-    )
 
     messages = [
         ("system", RESUME_EXTRACTION_SYSTEM),
-        ("user", "\n".join(user_parts)),
+        ("user", "\n\n".join(user_parts)),
     ]
 
-    extracted: Profile = invoke_structured(
+    profile: Profile = invoke_structured(
         model=model,
         schema=Profile,
         messages=messages,
-        label="resume_extractor",
+        label="resume_extraction_copilot",
     )
-    return extracted
+    logger.info(
+        "Extracted profile for '%s': %d skill categories, %d roles, %d projects",
+        profile.name,
+        len(profile.skills),
+        len(profile.experience),
+        len(profile.projects),
+    )
+    return profile
 
 
 class CopilotChatResult(BaseModel):
+    """Result of an interactive copilot consultation turn."""
+
     reply: str = Field(
-        description="Conversational response in markdown (guidance, explanations, questions)."
+        default="",
+        description="Clear, helpful markdown response answering user questions or suggestions.",
+    )
+    response_markdown: str = Field(
+        default="",
+        description="Clear, helpful markdown response answering user questions or suggestions.",
     )
     updated_profile: Profile = Field(
-        description="The updated Profile incorporating requested modifications."
+        description="The candidate's updated profile incorporating any approved changes."
     )
     changes_made: list[str] = Field(
         default_factory=list,
-        description="Summary list of specific changes applied to the profile.",
+        description="Summary list of specific changes or additions made to the profile.",
     )
 
 
 COPILOT_CHAT_SYSTEM = """\
-You are CareerRadar's Profile Copilot — a technical career advisor and profile strategist.
-You collaborate with the user to perfect their Profile for scoring and resume generation.
+You are an expert Career Copilot and executive resume coach.
+You are helping the user refine, polish, and structure their Master Profile.
 
-The Profile is the single source of truth for:
-- 1-page tailored resume generation (executive summary, experience, projects, skills).
-- Job fit scoring (experience, skills, work eligibility, model guidance, dealbreakers).
+You have access to:
+1. The candidate's current Profile schema.
+2. The raw resume context if provided.
 
-Your responsibilities:
-1. Answer questions about the candidate's profile, positioning, and market readiness.
-2. When asked to add, remove, or modify sections, apply changes directly to `updated_profile`.
-3. Keep `executive_summary` focused as a recruiter-facing sales pitch for the resume header.
-4. Keep `model_guidance` focused on internal steering directives for AI scoring and tailoring.
-5. In `projects`, organize personal/open-source projects (with URLs and impact bullets).
+Instructions:
+1. When asked to add or edit information, update the Profile schema accordingly.
+2. If asked for feedback or suggestions, analyze the candidate's achievements and positioning.
+3. In `model_guidance`, store high-level directives that future resume runs should honor.
+4. In `executive_summary`, refine the short elevator pitch (2-3 sentences max).
+5. In `skills`, organize into crisp categories.
 6. In `dealbreakers`, capture hard non-negotiable rejection criteria.
 7. Keep bullet points punchy, impact-focused, and quantified where possible.
 8. Provide actionable, concise markdown responses.
@@ -137,10 +146,10 @@ def chat_with_copilot(
     messages: list[dict[str, str]],
     current_profile: Profile,
     resume_text: str | None = None,
-    model_name: str = DEFAULT_AGENT_MODEL,
+    model_name: str | None = None,
 ) -> CopilotChatResult:
     """Run an interactive turn with the Profile Copilot."""
-    model = structured_model(model=model_name)
+    model = structured_model(model=model_name, role="agent")
 
     context_blocks = [
         "=== CURRENT CANDIDATE PROFILE ===",
@@ -166,4 +175,8 @@ def chat_with_copilot(
         messages=formatted_messages,
         label="profile_copilot_chat",
     )
+    if not result.reply and result.response_markdown:
+        result.reply = result.response_markdown
+    elif not result.response_markdown and result.reply:
+        result.response_markdown = result.reply
     return result

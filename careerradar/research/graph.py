@@ -21,7 +21,6 @@ builder, because the query builder is never shown the posting.
 from typing import Any, TypedDict
 
 from careerradar.core.llm import (
-    DEFAULT_AGENT_MODEL,
     invoke_structured,
     structured_model,
 )
@@ -129,7 +128,7 @@ def node_gather_intel(state: ResearchState) -> dict[str, Any]:
         return {"intel": None}
 
     intel = invoke_structured(
-        structured_model(state.get("model", DEFAULT_AGENT_MODEL)),
+        structured_model(state.get("model"), role="agent"),
         CompanyIntel,
         [
             ("system", INTEL_SYSTEM),
@@ -169,7 +168,7 @@ def node_gather_contacts(state: ResearchState) -> dict[str, Any]:
         contacts: list[Contact] = Field(default_factory=list)
 
     found = invoke_structured(
-        structured_model(state.get("model", DEFAULT_AGENT_MODEL)),
+        structured_model(state.get("model"), role="agent"),
         Contacts,
         [
             ("system", CONTACTS_SYSTEM),
@@ -232,7 +231,7 @@ def node_synthesize(state: ResearchState) -> dict[str, Any]:
         else "<intel>(web search unavailable -- no company intel gathered)</intel>"
     )
     dossier = invoke_structured(
-        structured_model(state.get("model", DEFAULT_AGENT_MODEL)),
+        structured_model(state.get("model"), role="agent"),
         Dossier,
         [
             ("system", SYNTHESIZE_SYSTEM),

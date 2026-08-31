@@ -118,6 +118,12 @@ def load_config() -> dict[str, Any]:
         "scoring": {
             "max_posting_age_days": 3,
         },
+        "llm": {
+            "provider": "auto",
+            "scoring_model": "",
+            "agent_model": "",
+            "timeout_seconds": 60,
+        },
     }
 
     if not os.path.exists(CONFIG_PATH):

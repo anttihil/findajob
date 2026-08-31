@@ -851,13 +851,37 @@ def get_profile_vector_endpoint():
                     "evidence": rec.get("evidence", []),
                 }
             )
+    active_model = "deepseek-chat"
+    try:
+        from careerradar.core.llm import get_llm_provider
+
+        active_model = get_llm_provider().name
+    except Exception:  # noqa: BLE001
+        pass
+
     return {
         "version": DEFAULT_PROFILE_VERSION,
         "updated_at": row.get("updated_at") if row else None,
-        "model": "deepseek-chat",
+        "model": active_model,
         "profile": prof.model_dump(),
         "skills_vector": skills_vector,
         "summary_text": summary_text,
+    }
+
+
+@app.get("/api/llm/status")
+def get_llm_status():
+    from careerradar.core.llm import get_llm_provider, list_available_providers
+
+    providers = list_available_providers()
+    try:
+        active = get_llm_provider()
+        active_name = active.name
+    except Exception as exc:  # noqa: BLE001
+        active_name = f"error: {exc}"
+    return {
+        "active_provider": active_name,
+        "providers": providers,
     }
 
 

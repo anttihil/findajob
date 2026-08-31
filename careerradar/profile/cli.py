@@ -7,7 +7,7 @@ import textwrap
 from typing import Any
 
 from careerradar.core.config import load_config
-from careerradar.core.llm import DEFAULT_AGENT_MODEL
+from careerradar.core.llm import get_model_for_role
 from careerradar.core.logger import get_logger
 from careerradar.profile.copilot import extract_profile_from_resume_text, parse_resume_file
 from careerradar.profile.render import render_profile
@@ -73,7 +73,7 @@ def cmd_show(_args: argparse.Namespace) -> int:
 def cmd_build(args: argparse.Namespace) -> int:
     resume_file = getattr(args, "file", None)
     config = load_config()
-    model = config.get("profile", {}).get("model", DEFAULT_AGENT_MODEL)
+    model = config.get("profile", {}).get("model") or get_model_for_role("agent")
 
     if resume_file and os.path.exists(resume_file):
         with open(resume_file, "rb") as f:

@@ -2,7 +2,7 @@
 
 from typing import Any
 
-from careerradar.core.llm import DEFAULT_SCORING_MODEL, invoke_structured, structured_model
+from careerradar.core.llm import invoke_structured, structured_model
 from careerradar.core.logger import get_logger
 from careerradar.profile.models import ATSScreeningVerdict, TailoredResumePayload
 from careerradar.profile.prompts import (
@@ -17,7 +17,7 @@ logger = get_logger()
 def screen_resume(
     job: dict[str, Any],
     payload: TailoredResumePayload,
-    model_name: str = DEFAULT_SCORING_MODEL,
+    model_name: str | None = None,
 ) -> ATSScreeningVerdict:
     """Evaluate a rendered resume strictly against the target job posting.
 
@@ -39,7 +39,7 @@ Evaluate whether this resume meets the requirements to advance in the ATS / recr
         ("user", user_message),
     ]
 
-    model = structured_model(model=model_name)
+    model = structured_model(model=model_name, role="scoring")
     verdict: ATSScreeningVerdict = invoke_structured(
         model=model,
         schema=ATSScreeningVerdict,

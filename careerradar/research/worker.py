@@ -10,7 +10,7 @@ from typing import Any
 
 from careerradar.core.config import load_config
 from careerradar.core.database import Database
-from careerradar.core.llm import DEFAULT_AGENT_MODEL, MissingApiKey
+from careerradar.core.llm import MissingApiKey, get_model_for_role
 from careerradar.core.logger import get_logger
 from careerradar.profile.repository import load_active
 from careerradar.research import repository as research_repo
@@ -66,7 +66,7 @@ def run_research(company: str | None = None, limit: int | None = None) -> int:
     config = load_config()
     research_config = config.get("research") or {}
     scoring_config = config.get("scoring") or {}
-    model = research_config.get("model", DEFAULT_AGENT_MODEL)
+    model = research_config.get("model") or get_model_for_role("agent")
     gate = scoring_config.get("research_gate") or DEFAULT_RESEARCH_GATE
     refresh_days = research_config.get("refresh_days", 30)
     limit = limit or research_config.get("max_companies_per_run", 5)

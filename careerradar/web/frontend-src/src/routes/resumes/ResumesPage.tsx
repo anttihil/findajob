@@ -1157,25 +1157,8 @@ export function ResumesPage() {
 
                         <div style={{ fontSize: "0.85rem", color: "var(--ink-muted)", marginTop: "0.25rem" }}>
                           {res.job_id ? (
-                            <Link
-                              href={`/?job=${res.job_id}`}
-                              class="action-pill text-blue"
-                              style={{
-                                display: "inline-flex",
-                                alignItems: "center",
-                                gap: "0.3rem",
-                                padding: "0.1rem 0.45rem",
-                                fontSize: "0.75rem",
-                                textDecoration: "none",
-                                marginRight: "0.5rem",
-                              }}
-                              title="Open Job in Dashboard"
-                            >
-                              <i class="fa-solid fa-briefcase"></i> Job #{res.job_id}
-                            </Link>
-                          ) : (
                             <span style={{ marginRight: "0.5rem" }}>Job #{res.job_id}</span>
-                          )}
+                          ) : null}
                           <span>
                             Generated {(res.created_at || "").slice(0, 16)} · Model:{" "}
                             {res.model || "deepseek-chat"}
@@ -1203,17 +1186,6 @@ export function ResumesPage() {
                             <i class="fa-solid fa-shield-halved"></i> ATS: {res.ats_score}/10 (
                             {res.ats_verdict || "evaluated"})
                           </span>
-                        )}
-
-                        {res.job_id && (
-                          <Link
-                            href={`/?job=${res.job_id}`}
-                            class="action-pill text-blue"
-                            style={{ textDecoration: "none" }}
-                            title="Open and view this job posting in Dashboard"
-                          >
-                            <i class="fa-solid fa-briefcase"></i> View Job
-                          </Link>
                         )}
 
                         <a

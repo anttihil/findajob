@@ -8,8 +8,7 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 
 from careerradar.core.llm import (
-    DEFAULT_AGENT_MODEL,
-    DEFAULT_SCORING_MODEL,
+    get_model_for_role,
     invoke_structured,
     structured_model,
 )
@@ -32,15 +31,17 @@ from careerradar.profile.screener import screen_resume
 
 logger = get_logger()
 
-MAX_ATTEMPTS = 3
+MAX_ATTEMPTS = 2
 
 
 class ResumeState(TypedDict, total=False):
+    """Execution state for tailored resume generator graph."""
+
     job: dict[str, Any]
-    master_profile: Profile
-    model_name: str
+    master_profile: Profile | None
     attempts: int
     max_attempts: int
+    model_name: str | None
     feedback: str | None
     resume_payload: TailoredResumePayload | None
     layout_result: LayoutValidationResult | None
@@ -60,7 +61,7 @@ def node_prepare_context(state: ResumeState) -> dict[str, Any]:
         "master_profile": profile,
         "attempts": state.get("attempts", 0),
         "max_attempts": state.get("max_attempts", MAX_ATTEMPTS),
-        "model_name": state.get("model_name", DEFAULT_AGENT_MODEL),
+        "model_name": state.get("model_name") or get_model_for_role("agent"),
     }
 
 
@@ -68,7 +69,7 @@ def node_generate(state: ResumeState) -> dict[str, Any]:
     """Invoke Generator Agent to tailor the resume."""
     profile = state.get("master_profile") or load_profile()
     job = state.get("job") or {}
-    model_name = state.get("model_name", DEFAULT_AGENT_MODEL)
+    model_name = state.get("model_name") or get_model_for_role("agent")
     attempts = state.get("attempts", 0) + 1
 
     system_prompt = build_generator_system(profile)
@@ -79,22 +80,30 @@ def node_generate(state: ResumeState) -> dict[str, Any]:
         ("user", user_prompt),
     ]
 
-    model = structured_model(model=model_name)
-    payload: TailoredResumePayload = invoke_structured(
-        model=model,
-        schema=TailoredResumePayload,
-        messages=messages,
-        label="resume_generator",
-    )
-    logger.info("Generated resume payload for job id=%s (attempt %d)", job.get("id"), attempts)
-    return {"resume_payload": payload, "attempts": attempts}
+    try:
+        model = structured_model(model_name, role="agent")
+        payload = invoke_structured(
+            model,
+            TailoredResumePayload,
+            messages,
+            label=f"Resume generation for job {job.get('id', '')}",
+        )
+        return {
+            "resume_payload": payload,
+            "attempts": attempts,
+            "feedback": None,
+            "error": None,
+        }
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Resume generation call failed (attempt %d): %s", attempts, exc)
+        return {"resume_payload": None, "attempts": attempts, "error": str(exc)}
 
 
 def node_validate_layout(state: ResumeState) -> dict[str, Any]:
-    """Validate that the tailored resume fits the 1-page vertical budget."""
+    """Validate 1-page constraints against typography layout engine."""
     payload = state.get("resume_payload")
     if payload is None:
-        return {"layout_result": None, "feedback": "No resume payload produced."}
+        return {"layout_result": None}
 
     layout_res = validate_resume_layout(payload)
     if not layout_res.is_valid:
@@ -118,7 +127,7 @@ def node_screen_resume(state: ResumeState) -> dict[str, Any]:
     if payload is None:
         return {"ats_verdict": None}
 
-    ats_verdict = screen_resume(job, payload, model_name=DEFAULT_SCORING_MODEL)
+    ats_verdict = screen_resume(job, payload, model_name=get_model_for_role("scoring"))
     if not ats_verdict.passed and ats_verdict.score < 9:
         missing = ", ".join(ats_verdict.missing_signals)
         feedback = (
@@ -165,7 +174,7 @@ def node_save_resume(state: ResumeState) -> dict[str, Any]:
     ats_v = state.get("ats_verdict")
     resume_id = save_tailored_resume(
         job_id=int(job.get("id") or 0),
-        model=str(state.get("model_name") or DEFAULT_AGENT_MODEL),
+        model=str(state.get("model_name") or get_model_for_role("agent")),
         docx_path=docx_path,
         pdf_path=state.get("pdf_path"),
         resume=payload,

@@ -14,10 +14,10 @@ from typing import TYPE_CHECKING, Any
 from careerradar.core.config import load_config
 from careerradar.core.database import Database
 from careerradar.core.llm import (
-    DEFAULT_SCORING_MODEL,
     MissingApiKey,
     Spend,
     estimate_cost,
+    get_model_for_role,
     usage_cost,
 )
 from careerradar.core.logger import get_logger
@@ -177,7 +177,7 @@ def run_retry(job_id: int | None = None) -> int:
 def run_scoring(limit: int | None = None) -> int:
     config = load_config()
     scoring_config = config.get("scoring") or {}
-    model = scoring_config.get("model", DEFAULT_SCORING_MODEL)
+    model = scoring_config.get("model") or get_model_for_role("scoring")
     concurrency = int(scoring_config.get("concurrency", 8))
     max_usd = scoring_config.get("max_usd_per_run")
     fit_threshold = int(scoring_config.get("fit_threshold", 90))
@@ -361,7 +361,7 @@ def score_job(
 
     config = load_config()
     scoring_config = config.get("scoring") or {}
-    model_name = model or scoring_config.get("model", DEFAULT_SCORING_MODEL)
+    model_name = model or scoring_config.get("model") or get_model_for_role("scoring")
     fit_threshold = int(scoring_config.get("fit_threshold", 90))
 
     owned = db is None
