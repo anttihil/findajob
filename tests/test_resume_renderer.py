@@ -91,12 +91,12 @@ def test_render_docx_and_convert_pdf(tmp_path: Path):
     assert "SKILLS" in text
     assert "EDUCATION" in text
 
-    # Verify section margins: 1.0 in top, bottom, left, right
+    # Verify section margins: 0.75 in top, bottom, left, right
     for section in doc.sections:
-        assert section.top_margin == Inches(1.0)
-        assert section.bottom_margin == Inches(1.0)
-        assert section.left_margin == Inches(1.0)
-        assert section.right_margin == Inches(1.0)
+        assert section.top_margin == Inches(0.75)
+        assert section.bottom_margin == Inches(0.75)
+        assert section.left_margin == Inches(0.75)
+        assert section.right_margin == Inches(0.75)
 
     # Verify contact header and main headers have page-wide bottom borders
     headers_with_border = []

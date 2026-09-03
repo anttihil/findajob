@@ -34,7 +34,7 @@ def _add_right_tab(paragraph: Any) -> None:
     pPr = paragraph._element.get_or_add_pPr()
     xml_str = (
         '<w:tabs xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
-        '<w:tab w:val="right" w:pos="9360"/>'
+        '<w:tab w:val="right" w:pos="10080"/>'
         "</w:tabs>"
     )
     tabs = parse_xml(xml_str)
@@ -69,12 +69,12 @@ def render_docx(
     tpl = template_path or _get_template_path()
     doc = docx.Document(tpl) if (tpl and os.path.exists(tpl)) else docx.Document()
 
-    # Ensure section margins: 1.0 in all around
+    # Ensure section margins: 0.75 in all around
     for section in doc.sections:
-        section.top_margin = Inches(1.0)
-        section.bottom_margin = Inches(1.0)
-        section.left_margin = Inches(1.0)
-        section.right_margin = Inches(1.0)
+        section.top_margin = Inches(0.75)
+        section.bottom_margin = Inches(0.75)
+        section.left_margin = Inches(0.75)
+        section.right_margin = Inches(0.75)
 
     # Clear body paragraphs while preserving styles, fontTable, settings
     body = doc._body._element

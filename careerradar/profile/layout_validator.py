@@ -4,14 +4,14 @@ import math
 
 from careerradar.profile.models import LayoutValidationResult, TailoredResumePayload
 
-# Usable vertical printable height for Letter (11in = 792pt) with 1.0in top/bottom margins:
-# 792 - 144 = 648pt printable height. Ceiling is 635pt to prevent page overflow.
-MAX_PAGE_POINTS = 635.0
+# Usable vertical printable height for Letter (11in = 792pt) with 0.75in top/bottom margins:
+# 792 - 108 = 684pt printable height. Ceiling is 670pt to prevent page overflow.
+MAX_PAGE_POINTS = 670.0
 
-CHARS_PER_LINE_SUMMARY = 88
-CHARS_PER_LINE_BULLET = 82
-CHARS_PER_LINE_SKILL = 86
-CHARS_PER_LINE_EDU = 86
+CHARS_PER_LINE_SUMMARY = 95
+CHARS_PER_LINE_BULLET = 88
+CHARS_PER_LINE_SKILL = 93
+CHARS_PER_LINE_EDU = 93
 
 
 def estimate_visual_lines(text: str, chars_per_line: int) -> int:
