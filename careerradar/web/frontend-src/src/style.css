@@ -442,12 +442,16 @@ html, body {
 /* Search Bar */
 .feed-search-bar-wrap {
   margin-bottom: 14px;
+  display: flex;
+  gap: 8px;
+  align-items: center;
 }
 
 .feed-search-input-box {
   position: relative;
   display: flex;
   align-items: center;
+  flex: 1;
   width: 100%;
 }
 
@@ -1938,30 +1942,156 @@ html, body {
 }
 
 /* General Buttons */
-.primary-btn, .save-btn, .primary-btn-lg {
-  background-color: var(--bg-inverse);
-  color: var(--ink-inverse);
-  border: 1px solid var(--ink-primary);
-  padding: 10px 18px;
+.btn,
+.primary-btn,
+.save-btn,
+.primary-btn-lg {
   font-family: var(--font-mono);
   font-size: 13px;
   font-weight: 800;
+  line-height: 1.25;
+  padding: 9px 16px;
+  border: 1px solid var(--ink-primary);
+  border-radius: 0;
   cursor: pointer;
   box-shadow: 2px 2px 0px var(--ink-primary);
   text-decoration: none;
   display: inline-flex;
   align-items: center;
-  gap: 10px;
+  justify-content: center;
+  gap: 6px;
+  white-space: nowrap;
+  user-select: none;
+  vertical-align: middle;
+  transition: none;
+  background-color: var(--bg-screen-alt);
+  color: var(--ink-primary);
 }
 
-.primary-btn:hover, .save-btn:hover, .primary-btn-lg:hover {
+.btn:active:not(:disabled),
+.primary-btn:active:not(:disabled),
+.save-btn:active:not(:disabled),
+.primary-btn-lg:active:not(:disabled) {
+  transform: translate(1px, 1px);
+  box-shadow: 1px 1px 0px var(--ink-primary);
+}
+
+.btn:disabled,
+.btn[disabled],
+.primary-btn:disabled,
+.primary-btn[disabled],
+.save-btn:disabled,
+.save-btn[disabled],
+.primary-btn-lg:disabled,
+.primary-btn-lg[disabled] {
+  opacity: 0.45;
+  cursor: not-allowed;
+  box-shadow: none;
+  transform: none !important;
+}
+
+/* Primary Button Variant */
+.btn-primary,
+.primary-btn,
+.save-btn,
+.primary-btn-lg {
+  background-color: var(--bg-inverse);
+  color: var(--ink-inverse);
+  border-color: var(--ink-primary);
+}
+
+.btn-primary:hover:not(:disabled),
+.primary-btn:hover:not(:disabled),
+.save-btn:hover:not(:disabled),
+.primary-btn-lg:hover:not(:disabled) {
   background-color: var(--bg-screen);
   color: var(--ink-primary);
 }
 
-.primary-btn:active, .save-btn:active, .primary-btn-lg:active {
+.btn-primary:active:not(:disabled),
+.primary-btn:active:not(:disabled),
+.save-btn:active:not(:disabled),
+.primary-btn-lg:active:not(:disabled) {
+  background-color: var(--bg-screen);
+  color: var(--ink-primary);
   transform: translate(1px, 1px);
   box-shadow: 1px 1px 0px var(--ink-primary);
+}
+
+/* Secondary & Outline Variants */
+.btn-secondary,
+.btn-outline {
+  background-color: var(--bg-screen-alt);
+  color: var(--ink-primary);
+  border-color: var(--ink-primary);
+}
+
+.btn-secondary:hover:not(:disabled),
+.btn-outline:hover:not(:disabled) {
+  background-color: var(--bg-inverse);
+  color: var(--ink-inverse);
+}
+
+.btn-secondary:active:not(:disabled),
+.btn-outline:active:not(:disabled) {
+  background-color: var(--bg-inverse);
+  color: var(--ink-inverse);
+  transform: translate(1px, 1px);
+  box-shadow: 1px 1px 0px var(--ink-primary);
+}
+
+/* Button Sizes */
+.btn-lg,
+.primary-btn-lg {
+  padding: 10px 18px;
+  font-size: 13.5px;
+  gap: 8px;
+}
+
+.btn-sm {
+  padding: 5px 10px;
+  font-size: 12px;
+  font-weight: 700;
+  gap: 5px;
+  box-shadow: 1px 1px 0px var(--ink-primary);
+}
+
+.btn-sm:active:not(:disabled) {
+  transform: translate(1px, 1px);
+  box-shadow: none;
+}
+
+.btn-xs {
+  padding: 2px 6px;
+  font-size: 11px;
+  font-weight: 700;
+  gap: 4px;
+  box-shadow: 1px 1px 0px var(--ink-primary);
+}
+
+.btn-xs:active:not(:disabled) {
+  transform: translate(1px, 1px);
+  box-shadow: none;
+}
+
+/* Red / Danger modifiers & Status Colors */
+.text-red {
+  color: #b91c1c;
+}
+
+.text-green {
+  color: #166534;
+}
+
+.btn-outline.text-red {
+  color: #b91c1c;
+  border-color: #b91c1c;
+}
+
+.btn-outline.text-red:hover:not(:disabled) {
+  background-color: #b91c1c;
+  color: #ffffff;
+  border-color: #b91c1c;
 }
 
 /* Error Banner */
@@ -2583,12 +2713,6 @@ html, body {
   align-items: center;
   justify-content: flex-end;
   gap: 5px;
-}
-
-.btn-xs {
-  padding: 2px 6px;
-  font-size: 11px;
-  font-family: var(--font-mono);
 }
 
 .location-presets-box {

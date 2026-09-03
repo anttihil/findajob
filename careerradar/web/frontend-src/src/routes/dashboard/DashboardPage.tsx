@@ -305,8 +305,8 @@ export function DashboardPage() {
           <div class="panel-section-box">
             <div class="panel-section-header">RECENT POSTS</div>
             <div class="panel-section-body">
-              <div class="feed-search-bar-wrap" style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
-                <div class="feed-search-input-box" style={{ flex: 1 }}>
+              <div class="feed-search-bar-wrap">
+                <div class="feed-search-input-box">
                   <i class="fa-solid fa-magnifying-glass search-icon"></i>
                   <input
                     type="text"
@@ -342,7 +342,6 @@ export function DashboardPage() {
                       },
                     })
                   }
-                  style={{ whiteSpace: "nowrap", display: "flex", alignItems: "center", gap: "6px" }}
                   title="Import a job posting from any URL"
                 >
                   <i class="fa-solid fa-plus"></i> Import URL
