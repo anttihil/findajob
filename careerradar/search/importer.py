@@ -4,13 +4,14 @@ Fetches job posting HTML, strips markup, extracts structured fields via LLM,
 persists to the jobs database, and coordinates optional scoring and resume tailoring.
 """
 
-import html
+import json
 import re
+import urllib.error
 import urllib.parse
 import urllib.request
-from html.parser import HTMLParser
 from typing import Any
 
+from bs4 import BeautifulSoup
 from pydantic import BaseModel, Field
 
 from careerradar.core.database import Database
@@ -25,74 +26,96 @@ into the 'description' field.
 If salary information or location is available, extract it accurately.
 """
 
+BLOCK_TAGS = {
+    "title",
+    "p",
+    "div",
+    "h1",
+    "h2",
+    "h3",
+    "h4",
+    "h5",
+    "h6",
+    "li",
+    "tr",
+    "section",
+    "article",
+    "header",
+    "footer",
+    "main",
+    "blockquote",
+    "aside",
+    "nav",
+    "hr",
+    "table",
+}
 
-class _HTMLTextExtractor(HTMLParser):
-    def __init__(self) -> None:
-        super().__init__()
-        self._pieces: list[str] = []
-        self._ignore_tags = {"script", "style", "head", "meta", "noscript", "svg"}
-        self._current_ignored = 0
-
-    def handle_starttag(
-        self,
-        tag: str,
-        attrs: list[tuple[str, str | None]],  # noqa: ARG002
-    ) -> None:
-        if tag.lower() in self._ignore_tags:
-            self._current_ignored += 1
-        elif tag.lower() in {
-            "p",
-            "div",
-            "br",
-            "li",
-            "h1",
-            "h2",
-            "h3",
-            "h4",
-            "h5",
-            "h6",
-            "tr",
-            "section",
-            "article",
-        }:
-            self._pieces.append("\n")
-
-    def handle_endtag(self, tag: str) -> None:
-        if tag.lower() in self._ignore_tags and self._current_ignored > 0:
-            self._current_ignored -= 1
-        elif tag.lower() in {
-            "p",
-            "div",
-            "li",
-            "h1",
-            "h2",
-            "h3",
-            "h4",
-            "h5",
-            "h6",
-            "tr",
-            "section",
-            "article",
-        }:
-            self._pieces.append("\n")
-
-    def handle_data(self, data: str) -> None:
-        if self._current_ignored == 0:
-            self._pieces.append(data)
-
-    def get_text(self) -> str:
-        raw_text = "".join(self._pieces)
-        unescaped = html.unescape(raw_text)
-        lines = [re.sub(r"[ \t]+", " ", line).strip() for line in unescaped.splitlines()]
-        cleaned = "\n".join(lines)
-        return re.sub(r"\n{3,}", "\n\n", cleaned).strip()
+NON_CONTENT_TAGS = {"script", "style", "noscript", "svg", "canvas", "template"}
 
 
 def clean_html_to_text(html_content: str) -> str:
     """Strip scripts, styles, and markup from HTML while preserving readable text."""
-    extractor = _HTMLTextExtractor()
-    extractor.feed(html_content)
-    return extractor.get_text()
+    soup = BeautifulSoup(html_content, "html.parser")
+
+    # Extract structured schema.org JobPosting data from JSON-LD if present
+    json_ld_pieces: list[str] = []
+    for script_tag in soup.find_all("script", type="application/ld+json"):
+        script_content = script_tag.get_text().strip()
+        if script_content:
+            try:
+                data = json.loads(script_content)
+                items = (
+                    data["@graph"]
+                    if isinstance(data, dict) and "@graph" in data
+                    else data
+                )
+                items = items if isinstance(items, list) else [items]
+                for item in items:
+                    if isinstance(item, dict) and str(item.get("@type", "")).endswith("JobPosting"):
+                        title = item.get("title", "")
+                        desc = item.get("description", "")
+                        if "<" in desc and ">" in desc:
+                            desc = BeautifulSoup(desc, "html.parser").get_text(
+                                separator="\n", strip=True
+                            )
+                        hiring_org = item.get("hiringOrganization", {})
+                        company = (
+                            hiring_org.get("name", "") if isinstance(hiring_org, dict) else ""
+                        )
+                        parts = [
+                            p
+                            for p in [
+                                title and f"Job Title: {title}",
+                                company and f"Company: {company}",
+                                desc,
+                            ]
+                            if p
+                        ]
+                        if parts:
+                            json_ld_pieces.append("\n".join(parts))
+            except Exception:  # noqa: BLE001
+                pass
+
+    for tag in soup(NON_CONTENT_TAGS):
+        tag.decompose()
+
+    for br in soup.find_all("br"):
+        br.replace_with("\n")
+
+    for block in soup.find_all(BLOCK_TAGS):
+        block.append("\n")
+
+    raw_text = soup.get_text()
+    lines = [re.sub(r"[ \t]+", " ", line).strip() for line in raw_text.splitlines()]
+    cleaned = "\n".join(lines)
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned).strip()
+
+    if json_ld_pieces:
+        ld_text = "\n\n".join(json_ld_pieces).strip()
+        if ld_text and ld_text not in cleaned:
+            cleaned = f"{cleaned}\n\n{ld_text}".strip() if cleaned else ld_text
+
+    return cleaned
 
 
 def fetch_url_text(url: str, timeout: int = 15) -> str:
@@ -110,8 +133,18 @@ def fetch_url_text(url: str, timeout: int = 15) -> str:
         },
     )
     with urllib.request.urlopen(req, timeout=timeout) as resp:
-        charset = resp.headers.get_content_charset() or "utf-8"
         raw_bytes = resp.read()
+        content_encoding = resp.headers.get("Content-Encoding", "").lower()
+        if "gzip" in content_encoding:
+            import gzip
+
+            raw_bytes = gzip.decompress(raw_bytes)
+        elif "deflate" in content_encoding:
+            import zlib
+
+            raw_bytes = zlib.decompress(raw_bytes)
+
+        charset = resp.headers.get_content_charset() or "utf-8"
         try:
             content = raw_bytes.decode(charset, errors="replace")
         except LookupError:
@@ -177,7 +210,16 @@ def import_job_from_url(
     from careerradar.search.normalizer import normalize_row
     from careerradar.search.repository import upsert_posting
 
-    text = html_text if html_text is not None else fetch_url_text(url)
+    if html_text is not None:
+        text = html_text
+    else:
+        try:
+            text = fetch_url_text(url)
+        except urllib.error.HTTPError as exc:
+            raise ValueError(f"HTTP {exc.code} {exc.reason} when fetching {url}") from exc
+        except urllib.error.URLError as exc:
+            raise ValueError(f"Network error when fetching {url}: {exc.reason}") from exc
+
     if not text or len(text.strip()) < 50:
         raise ValueError(f"Could not extract sufficient text from {url}")
 

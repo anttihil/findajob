@@ -984,6 +984,9 @@ def api_import_job(req: ImportJobRequest):
             db=db,
         )
         return {"status": "ok", **res}
+    except ValueError as exc:
+        logger.warning("Failed to import job from URL %s: %s", req.url, exc)
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
         logger.exception("Failed to import job from URL %s", req.url)
         raise HTTPException(status_code=500, detail=str(exc)) from exc

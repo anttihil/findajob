@@ -58,6 +58,55 @@ def test_clean_html_to_text():
     assert "Python 3.10+" in text
 
 
+def test_clean_html_to_text_with_meta_tags():
+    html_sample = """
+    <!DOCTYPE html>
+    <html lang="en">
+      <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta property="og:title" content="Software Engineer">
+        <link rel="canonical" href="https://example.com/jobs/1">
+        <title>Software Engineer at Acme</title>
+        <script>var x = 1;</script>
+      </head>
+      <body>
+        <div>About the role: We are looking for an engineer.</div>
+      </body>
+    </html>
+    """
+    text = clean_html_to_text(html_sample)
+    assert "Software Engineer at Acme" in text
+    assert "About the role: We are looking for an engineer." in text
+    assert "var x = 1" not in text
+
+
+def test_clean_html_to_text_json_ld():
+    html_sample = """
+    <!DOCTYPE html>
+    <html>
+      <head>
+        <script type="application/ld+json">
+        {
+          "@context": "https://schema.org",
+          "@type": "JobPosting",
+          "title": "Principal Architect",
+          "hiringOrganization": {"@type": "Organization", "name": "GlobalTech"},
+          "description": "<p>Design distributed multi-cloud services.</p>"
+        }
+        </script>
+      </head>
+      <body>
+        <div id="root"></div>
+      </body>
+    </html>
+    """
+    text = clean_html_to_text(html_sample)
+    assert "Job Title: Principal Architect" in text
+    assert "Company: GlobalTech" in text
+    assert "Design distributed multi-cloud services." in text
+
+
 @patch("urllib.request.urlopen")
 def test_fetch_url_text(mock_urlopen: MagicMock):
     mock_resp = MagicMock()
@@ -71,6 +120,25 @@ def test_fetch_url_text(mock_urlopen: MagicMock):
     text = fetch_url_text("https://example.com/jobs/123")
     assert "Staff Engineer" in text
     assert "Great job at TechCorp" in text
+
+
+@patch("urllib.request.urlopen")
+def test_fetch_url_text_gzip(mock_urlopen: MagicMock):
+    import gzip
+
+    raw_html = b"<html><body><h1>Platform Engineer</h1><p>Compressed content</p></body></html>"
+    compressed = gzip.compress(raw_html)
+
+    mock_resp = MagicMock()
+    mock_resp.read.return_value = compressed
+    mock_resp.headers.get.return_value = "gzip"
+    mock_resp.headers.get_content_charset.return_value = "utf-8"
+    mock_resp.__enter__.return_value = mock_resp
+    mock_urlopen.return_value = mock_resp
+
+    text = fetch_url_text("https://example.com/jobs/gzip-test")
+    assert "Platform Engineer" in text
+    assert "Compressed content" in text
 
 
 @patch("careerradar.core.llm.structured_model")
@@ -244,6 +312,36 @@ def test_api_import_job(mock_process: MagicMock):
     assert data["status"] == "ok"
     assert data["job_id"] == 99
     assert data["job"]["title"] == "AI Engineer"
+
+
+@patch("careerradar.search.importer.import_and_process_job")
+def test_api_import_job_value_error(mock_process: MagicMock):
+    mock_process.side_effect = ValueError("Could not extract sufficient text from https://example.com/job/bad")
+
+    client = TestClient(app)
+    resp = client.post(
+        "/api/jobs/import",
+        json={"url": "https://example.com/job/bad", "score": True, "generate_resume": False},
+    )
+    assert resp.status_code == 400
+    data = resp.json()
+    assert "Could not extract sufficient text" in data["detail"]
+
+
+@patch("careerradar.search.importer.fetch_url_text")
+def test_import_job_from_url_network_error(mock_fetch: MagicMock, temp_db: Database):
+    import urllib.error
+
+    mock_fetch.side_effect = urllib.error.HTTPError(
+        url="https://example.com/job/404",
+        code=404,
+        msg="Not Found",
+        hdrs={},  # type: ignore[arg-type]
+        fp=None,
+    )
+
+    with pytest.raises(ValueError, match="HTTP 404 Not Found"):
+        import_job_from_url(url="https://example.com/job/404", db=temp_db)
 
 
 def test_cli_import_parser():
