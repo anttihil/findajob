@@ -288,4 +288,3 @@ def test_graph_screens_even_when_layout_fails_max_attempts(
     assert kwargs["ats_feedback"] == "Emphasize distributed systems."
 
     conn.close()
-
