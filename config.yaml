@@ -335,7 +335,7 @@ profile:
 scoring:
   # Evaluates scraped postings against the active profile.
   concurrency: 16
-  fit_threshold: 90
+  fit_threshold: 70
   # Pre-flight ceiling. If the estimated cost of the queue exceeds this, the run ABORTS
   # instead of scoring part of it. A budget that quietly drops the tail produces a pass that
   # looks complete, and every coverage figure downstream then inherits that.

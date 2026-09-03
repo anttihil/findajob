@@ -180,7 +180,7 @@ def run_scoring(limit: int | None = None) -> int:
     model = scoring_config.get("model") or get_model_for_role("scoring")
     concurrency = int(scoring_config.get("concurrency", 8))
     max_usd = scoring_config.get("max_usd_per_run")
-    fit_threshold = int(scoring_config.get("fit_threshold", 90))
+    fit_threshold = int(scoring_config.get("fit_threshold", 70))
 
     loaded = load_active()
     if loaded is None:
