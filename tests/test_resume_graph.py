@@ -98,6 +98,16 @@ def test_graph_routing_helpers():
     }
     assert _route_after_layout(state_overflow) == "generate"
 
+    # Layout invalid & attempts >= max -> screen_resume (never bypass screener)
+    state_overflow_exhausted: ResumeState = {
+        "layout_result": LayoutValidationResult(
+            is_valid=False, estimated_points=750.0, violations=["Too long"]
+        ),
+        "attempts": 3,
+        "max_attempts": 3,
+    }
+    assert _route_after_layout(state_overflow_exhausted) == "screen_resume"
+
     # ATS passed -> render_artifacts
     state_ats_passed: ResumeState = {
         "ats_verdict": ATSScreeningVerdict(
@@ -198,3 +208,84 @@ def test_full_graph_execution(
     assert final_state["pdf_path"] == "/tmp/test_resume.pdf"
     assert final_state["ats_verdict"].passed is True
     conn.close()
+
+
+@patch("careerradar.profile.graph.structured_model")
+@patch("careerradar.profile.graph.render_docx")
+@patch("careerradar.profile.graph.convert_to_pdf")
+@patch("careerradar.profile.graph.screen_resume")
+@patch("careerradar.profile.graph.invoke_structured")
+@patch("careerradar.profile.graph.save_tailored_resume")
+@patch("careerradar.profile.graph.validate_resume_layout")
+def test_graph_screens_even_when_layout_fails_max_attempts(
+    mock_validate_layout: MagicMock,
+    mock_save: MagicMock,
+    mock_invoke: MagicMock,
+    mock_screen: MagicMock,
+    mock_pdf: MagicMock,
+    mock_docx: MagicMock,
+    mock_model: MagicMock,
+):
+    mock_model.return_value = MagicMock()
+    mock_docx.return_value = "/tmp/test_resume.docx"
+    mock_pdf.return_value = "/tmp/test_resume.pdf"
+    mock_save.return_value = 102
+
+    mock_validate_layout.return_value = LayoutValidationResult(
+        is_valid=False, estimated_points=700.0, violations=["Height exceeds 1 page ceiling"]
+    )
+
+    payload = TailoredResumePayload(
+        name="Jane Doe",
+        contact_line_1="San Francisco, CA | jane@example.com",
+        contact_line_2="github.com/janedoe",
+        summary="Senior full-stack engineer.",
+        experience=[],
+        skills=[],
+        education=[],
+    )
+
+    verdict = ATSScreeningVerdict(
+        passed=False,
+        score=7,
+        strengths=["Solid background"],
+        missing_signals=["Distributed systems"],
+        actionable_feedback="Emphasize distributed systems.",
+    )
+
+    mock_invoke.return_value = payload
+    mock_screen.return_value = verdict
+
+    conn = sqlite3.connect(":memory:")
+    conn.row_factory = sqlite3.Row
+    migrate(conn)
+
+    graph = build_resume_graph()
+    initial_state: ResumeState = {
+        "job": {
+            "id": 42,
+            "title": "Software Engineer",
+            "company": "Anthropic",
+            "description": "Build LLM applications.",
+        },
+        "master_profile": Profile(name="Jane Doe"),
+        "max_attempts": 2,
+    }
+
+    final_state = graph.invoke(initial_state)
+    # Ensure screener was invoked and verdict is recorded despite layout failures
+    assert mock_screen.call_count == 1
+    assert final_state["saved_id"] == 102
+    assert final_state["ats_verdict"] is not None
+    assert final_state["ats_verdict"].score == 7
+    assert final_state["ats_verdict"].actionable_feedback == "Emphasize distributed systems."
+
+    # Verify save_tailored_resume was passed ats_score and ats_feedback
+    mock_save.assert_called_once()
+    _, kwargs = mock_save.call_args
+    assert kwargs["ats_score"] == 7
+    assert kwargs["ats_verdict"] == "flagged"
+    assert kwargs["ats_feedback"] == "Emphasize distributed systems."
+
+    conn.close()
+

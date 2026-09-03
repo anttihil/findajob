@@ -192,7 +192,8 @@ def _route_after_layout(state: ResumeState) -> str:
     if layout_res and not layout_res.is_valid:
         if state.get("attempts", 0) < state.get("max_attempts", MAX_ATTEMPTS):
             return "generate"
-        return "render_artifacts"
+        # When layout retries are exhausted, proceed to screener so ATS score/feedback are captured
+        return "screen_resume"
     return "screen_resume"
 
 
@@ -226,7 +227,6 @@ def build_resume_graph() -> CompiledStateGraph[Any, Any, Any, Any]:
         {
             "generate": "generate",
             "screen_resume": "screen_resume",
-            "render_artifacts": "render_artifacts",
         },
     )
 
