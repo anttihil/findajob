@@ -1,7 +1,6 @@
 """Antigravity CLI (agy) LLM provider."""
 
 import json
-import os
 import shutil
 from typing import Any, TypeVar
 
@@ -32,14 +31,6 @@ class AGYCLIProvider(BaseCLIProvider):
         path = shutil.which("agy")
         if not path:
             return False, "Binary 'agy' not found in PATH."
-
-        auth_path = os.path.expanduser("~/.gemini/oauth_creds.json")
-        if not os.path.exists(auth_path):
-            return (
-                False,
-                "agy is installed but credentials not found. Run 'agy' to authenticate.",
-            )
-
         return True, f"Found authenticated agy at {path}"
 
     def complete(

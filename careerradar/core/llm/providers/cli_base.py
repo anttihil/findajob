@@ -1,6 +1,7 @@
 """Base class for CLI-piped LLM providers."""
 
 import json
+import os
 import re
 import subprocess
 from typing import Any, TypeVar
@@ -13,6 +14,11 @@ from careerradar.core.llm.base import (
     StructuredOutputError,
 )
 from careerradar.core.logger import get_logger
+
+# Ensure standard user bin is in PATH for non-interactive shells and background services
+_user_bin = os.path.expanduser("~/.local/bin")
+if os.path.isdir(_user_bin) and _user_bin not in os.environ.get("PATH", "").split(os.path.pathsep):
+    os.environ["PATH"] = f"{os.environ.get('PATH', '')}{os.path.pathsep}{_user_bin}"
 
 T = TypeVar("T", bound=BaseModel)
 logger = get_logger()

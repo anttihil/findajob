@@ -16,6 +16,9 @@ Group=careerradar
 
 WorkingDirectory=/opt/careerradar
 
+# Ensure user-installed CLI binaries (agy, claude, codex) are discovered in PATH
+Environment="PATH=/home/careerradar/.local/bin:/usr/local/bin:/usr/bin:/bin"
+
 # Invokes the unified entry point: serves FastAPI dashboard and runs asyncio background scheduler
 ExecStart=/opt/careerradar/.venv/bin/careerradar start --host 127.0.0.1 --port 8010
 

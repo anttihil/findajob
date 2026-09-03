@@ -30,7 +30,7 @@ make setup
 make build
 
 # 2. Configure environment
-cp .env.example .env                         # add DEEPSEEK_API_KEY
+cp .env.example .env                         # add DEEPSEEK_API_KEY (optional if using agy, claude, etc.)
 
 # 3. Initialize schema and ingest resume profile
 uv run careerradar migrate
@@ -44,7 +44,7 @@ make start                                   # or: uv run careerradar start --po
 
 ```bash
 # 1. Configure environment
-cp .env.example .env                         # add DEEPSEEK_API_KEY
+cp .env.example .env                         # add DEEPSEEK_API_KEY (required for Docker)
 
 # 2. Start via Docker Compose
 make docker-up                               # or: docker compose up -d
@@ -67,7 +67,7 @@ numpy to 1.26.3 and has no cp313 wheel.
 
 | variable | needed for |
 |---|---|
-| `DEEPSEEK_API_KEY` | **required** — profile, scoring, research |
+| `DEEPSEEK_API_KEY` | profile, scoring, research — **required** for direct API / Docker; **optional** if an authenticated CLI (`agy`, `claude`, `codex`, `opencode`) is available |
 | `TAVILY_API_KEY` | company intel and contacts. Without it, research still finds other openings from the corpus and says plainly that no web research happened |
 | `SCRAPER_PROXIES` | optional rotating pool. With it, LinkedIn becomes a description census instead of titles only |
 | `CAREERRADAR_OWNER` | the tailnet login allowed to reach the dashboard |
