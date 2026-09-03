@@ -16,6 +16,7 @@ test:
 
 lint:
 	uv run ruff check .
+	uv run ruff format --check .
 	uv run pyright
 	npm run lint
 	npm run typecheck

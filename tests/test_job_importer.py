@@ -316,7 +316,9 @@ def test_api_import_job(mock_process: MagicMock):
 
 @patch("careerradar.search.importer.import_and_process_job")
 def test_api_import_job_value_error(mock_process: MagicMock):
-    mock_process.side_effect = ValueError("Could not extract sufficient text from https://example.com/job/bad")
+    mock_process.side_effect = ValueError(
+        "Could not extract sufficient text from https://example.com/job/bad"
+    )
 
     client = TestClient(app)
     resp = client.post(

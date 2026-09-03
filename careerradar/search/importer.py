@@ -64,11 +64,7 @@ def clean_html_to_text(html_content: str) -> str:
         if script_content:
             try:
                 data = json.loads(script_content)
-                items = (
-                    data["@graph"]
-                    if isinstance(data, dict) and "@graph" in data
-                    else data
-                )
+                items = data["@graph"] if isinstance(data, dict) and "@graph" in data else data
                 items = items if isinstance(items, list) else [items]
                 for item in items:
                     if isinstance(item, dict) and str(item.get("@type", "")).endswith("JobPosting"):
@@ -79,9 +75,7 @@ def clean_html_to_text(html_content: str) -> str:
                                 separator="\n", strip=True
                             )
                         hiring_org = item.get("hiringOrganization", {})
-                        company = (
-                            hiring_org.get("name", "") if isinstance(hiring_org, dict) else ""
-                        )
+                        company = hiring_org.get("name", "") if isinstance(hiring_org, dict) else ""
                         parts = [
                             p
                             for p in [
