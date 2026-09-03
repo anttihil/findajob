@@ -17,7 +17,7 @@ import { FilterSidebar } from "./FilterSidebar";
 import { JobDrawer } from "./JobDrawer";
 import { newJobsPendingCount } from "../../state/liveEvents";
 import { SearchTargetsWidget } from "../../components/SearchTargetsWidget";
-import { ImportJobModal } from "../../components/ImportJobModal";
+import { openImportModal } from "../../state/modal";
 
 const SYNC_ERROR_ICONS: Record<string, string> = {
   error: "fa-circle-exclamation",
@@ -48,7 +48,6 @@ export function DashboardPage() {
   const [refreshKey, setRefreshKey] = useState(0);
   const [dismissedErrors, setDismissedErrors] = useState<unknown>(null);
   const [searchTerm, setSearchTerm] = useState(query.q);
-  const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const debounceTimerRef = useRef<number | null>(null);
 
   // Sync search input if URL changed externally (e.g. navigation or reset)
@@ -335,7 +334,14 @@ export function DashboardPage() {
                 <button
                   type="button"
                   class="btn btn-primary"
-                  onClick={() => setIsImportModalOpen(true)}
+                  onClick={() =>
+                    openImportModal({
+                      onJobImported: (jobId) => {
+                        setRefreshKey((k) => k + 1);
+                        navigate(query.withJob(jobId));
+                      },
+                    })
+                  }
                   style={{ whiteSpace: "nowrap", display: "flex", alignItems: "center", gap: "6px" }}
                   title="Import a job posting from any URL"
                 >
@@ -422,15 +428,6 @@ export function DashboardPage() {
         context={drawerContext}
         onClose={() => navigate(query.withoutJob())}
         onStatusChange={handleStatusChange}
-      />
-
-      <ImportJobModal
-        isOpen={isImportModalOpen}
-        onClose={() => setIsImportModalOpen(false)}
-        onJobImported={(jobId) => {
-          setRefreshKey((k) => k + 1);
-          navigate(query.withJob(jobId));
-        }}
       />
     </section>
   );

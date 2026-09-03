@@ -761,7 +761,7 @@ html, body {
   border-color: var(--bg-inverse);
 }
 
-.form-select, .form-select-sm, .form-textarea {
+.form-input, .form-select, .form-select-sm, .form-textarea {
   border: 1px solid var(--ink-primary);
   background-color: var(--bg-screen-alt);
   color: var(--ink-primary);
@@ -770,9 +770,10 @@ html, body {
   font-size: 13px;
   outline: none;
   width: 100%;
+  box-sizing: border-box;
 }
 
-.form-select:focus, .form-textarea:focus {
+.form-input:focus, .form-select:focus, .form-textarea:focus {
   background-color: var(--bg-screen);
 }
 
@@ -2853,7 +2854,8 @@ html, body {
   margin-bottom: 6px;
 }
 
-.retro-modal-overlay {
+.retro-modal-overlay,
+.modal-overlay {
   position: fixed;
   top: 0;
   left: 0;
@@ -2867,7 +2869,8 @@ html, body {
   padding: 16px;
 }
 
-.retro-modal-box {
+.retro-modal-box,
+.modal-content {
   background-color: var(--bg-screen);
   border: 3px solid var(--ink-primary);
   box-shadow: 6px 6px 0px #000;

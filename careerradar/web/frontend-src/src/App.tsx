@@ -2,6 +2,7 @@ import { useEffect, useState } from "preact/hooks";
 import { Redirect, Route, Switch, useLocation } from "wouter-preact";
 import { Sidebar } from "./components/Sidebar";
 import { ErrorBanner } from "./components/ErrorBanner";
+import { ModalHost } from "./components/ModalHost";
 import { DashboardPage } from "./routes/dashboard/DashboardPage";
 import { MarketPage } from "./routes/market/MarketPage";
 import { SkillsPage } from "./routes/skills/SkillsPage";
@@ -85,6 +86,9 @@ export function App() {
             </Switch>
           </main>
         </div>
+
+        {/* Central Modals */}
+        <ModalHost />
 
         {/* Bottom Global Status Bar */}
         <footer class="global-status-bar">

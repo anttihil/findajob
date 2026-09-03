@@ -48,40 +48,47 @@ export function ImportJobModal({ isOpen, onClose, onJobImported }: ImportJobModa
   };
 
   return (
-    <div class="modal-overlay active" onClick={onClose}>
+    <div
+      class="retro-modal-overlay modal-overlay"
+      onClick={onClose}
+      onKeyDown={(e) => {
+        if (e.key === "Escape") {
+          onClose();
+        }
+      }}
+      tabIndex={-1}
+    >
       <div
-        class="modal-content glass-card"
-        style={{ maxWidth: "540px", width: "90%", padding: "1.5rem" }}
+        class="retro-modal-box modal-content"
         onClick={(e) => e.stopPropagation()}
       >
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem" }}>
-          <h3 style={{ margin: 0, fontSize: "1.2rem" }}>
+        <div class="retro-modal-header">
+          <h3>
             <i class="fa-solid fa-link text-gold" style={{ marginRight: "8px" }}></i>
             Import Job from URL
           </h3>
           <button
             type="button"
-            class="close-drawer-btn"
+            class="close-modal-btn"
             onClick={onClose}
             aria-label="Close"
-            style={{ position: "static" }}
           >
             <i class="fa-solid fa-xmark"></i>
           </button>
         </div>
 
-        <form onSubmit={handleSubmit}>
-          <p style={{ fontSize: "0.875rem", color: "var(--color-text-muted)", marginBottom: "1rem" }}>
+        <form onSubmit={handleSubmit} class="retro-modal-body">
+          <p style={{ fontSize: "0.875rem", color: "var(--ink-muted)", marginBottom: "1rem" }}>
             Paste a link to any job posting (LinkedIn, Greenhouse, Lever, Ashby, Indeed, company site).
           </p>
 
-          <div style={{ marginBottom: "1.25rem" }}>
-            <label style={{ display: "block", fontSize: "0.8rem", fontWeight: 600, marginBottom: "0.4rem" }}>
+          <div class="form-group mb-3" style={{ marginBottom: "1.25rem" }}>
+            <label class="form-label" style={{ display: "block", marginBottom: "0.4rem" }}>
               JOB POSTING URL
             </label>
             <input
               type="url"
-              class="feed-search-input"
+              class="form-input feed-search-input"
               style={{ width: "100%", boxSizing: "border-box" }}
               placeholder="https://..."
               value={url}
@@ -120,7 +127,7 @@ export function ImportJobModal({ isOpen, onClose, onJobImported }: ImportJobModa
             </div>
           )}
 
-          <div style={{ display: "flex", justifyContent: "flex-end", gap: "0.75rem" }}>
+          <div class="retro-modal-footer">
             <button
               type="button"
               class="btn btn-secondary"
