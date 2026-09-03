@@ -78,7 +78,11 @@ class ModelAdapter:
         return resp.content
 
 
-def get_model_for_role(role: str = "scoring", override: str | None = None) -> str:
+def get_model_for_role(
+    role: str = "scoring",
+    override: str | None = None,
+    provider: BaseLLMProvider | str | None = None,
+) -> str:
     """Resolve the appropriate model name for a pipeline role ('scoring' or 'agent')."""
     if override:
         return override
@@ -90,10 +94,19 @@ def get_model_for_role(role: str = "scoring", override: str | None = None) -> st
     custom = llm_cfg.get(key)
     if custom:
         return str(custom)
-    provider = get_llm_provider()
-    if role == "scoring":
-        return getattr(provider, "default_scoring_model", provider.default_model)
-    return getattr(provider, "default_agent_model", provider.default_model)
+    try:
+        if isinstance(provider, BaseLLMProvider):
+            prov = provider
+        elif isinstance(provider, str):
+            prov = get_llm_provider(provider)
+        else:
+            prov = get_llm_provider()
+
+        if role == "scoring":
+            return getattr(prov, "default_scoring_model", prov.default_model)
+        return getattr(prov, "default_agent_model", prov.default_model)
+    except LLMUnavailableError:
+        return "deepseek-chat"
 
 
 def structured_model(
@@ -106,7 +119,7 @@ def structured_model(
 ) -> Any:
     """Build a structured model adapter for schema-enforced output."""
     prov = get_llm_provider(provider)
-    resolved_model = model or get_model_for_role(role=role)
+    resolved_model = model or get_model_for_role(role=role, provider=prov)
     if prov.name == "deepseek":
         from langchain_deepseek import ChatDeepSeek
 

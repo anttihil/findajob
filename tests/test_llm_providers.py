@@ -160,6 +160,38 @@ class FactoryAndRegistryTests(unittest.TestCase):
         provider = get_llm_provider()
         self.assertEqual(provider.name, "codex")
 
+    def test_get_model_for_role_override(self) -> None:
+        from careerradar.core.llm import get_model_for_role
+
+        self.assertEqual(get_model_for_role("scoring", override="custom-model"), "custom-model")
+        self.assertEqual(get_model_for_role("agent", override="custom-agent"), "custom-agent")
+
+    def test_get_model_for_role_fallback_when_unavailable(self) -> None:
+        from careerradar.core.llm import LLMUnavailableError, get_model_for_role
+
+        with mock.patch(
+            "careerradar.core.llm.get_llm_provider",
+            side_effect=LLMUnavailableError("none"),
+        ):
+            self.assertEqual(get_model_for_role("scoring"), "deepseek-chat")
+            self.assertEqual(get_model_for_role("agent"), "deepseek-chat")
+
+    def test_get_model_for_role_with_provider(self) -> None:
+        from careerradar.core.llm import get_model_for_role
+
+        self.assertEqual(get_model_for_role("scoring", provider="agy"), "gemini-3.7-flash-high")
+        self.assertEqual(get_model_for_role("agent", provider="agy"), "gemini-3.7-flash-high")
+
+    def test_no_provider_available_raises(self) -> None:
+        from careerradar.core.llm import LLMUnavailableError
+
+        with (
+            mock.patch.dict(os.environ, {"LLM_PROVIDER": "auto"}, clear=True),
+            mock.patch("shutil.which", return_value=None),
+        ):
+            with self.assertRaises(LLMUnavailableError):
+                get_llm_provider()
+
 
 class AdapterTests(unittest.TestCase):
     def test_model_adapter_with_structured_output(self) -> None:
