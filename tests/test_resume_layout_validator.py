@@ -121,3 +121,60 @@ def test_overflow_detection():
     assert res.is_valid is False
     assert len(res.violations) > 0
     assert res.estimated_points > 670.0
+
+
+def test_missing_bullets_detection():
+    # Construct a payload with an empty experience section
+    payload = TailoredResumePayload(
+        name="No Bullets Candidate",
+        contact_line_1="Location | Email | Phone",
+        contact_line_2="GitHub | LinkedIn",
+        summary="Concise summary for testing.",
+        experience=[],
+        skills=[ResumeSkillCategory(category="Languages", skills="Python")],
+        education=[ResumeEducation(institution="University", degree="BS")],
+    )
+
+    res = validate_resume_layout(payload)
+    assert res.is_valid is False
+    assert any("Experience section is empty" in v for v in res.violations)
+
+
+def test_resume_role_bullets_coercion():
+    # Coerce flat bullets into subsections
+    raw_data = {
+        "title": "Software Engineer",
+        "company": "Acme Corp",
+        "dates": "2020 - Present",
+        "bullets": ["Engineered core infrastructure.", "Optimized database queries."],
+    }
+    role = ResumeRole.model_validate(raw_data)
+    assert len(role.subsections) == 1
+    assert role.subsections[0].heading is None
+    assert len(role.subsections[0].bullets) == 2
+
+    # Coerce string subsections into ResumeSubsection
+    raw_data_strings = {
+        "title": "Software Engineer",
+        "company": "Acme Corp",
+        "dates": "2020 - Present",
+        "subsections": ["First bullet point.", "Second bullet point."],
+    }
+    role2 = ResumeRole.model_validate(raw_data_strings)
+    assert len(role2.subsections) == 1
+    assert role2.subsections[0].bullets == ["First bullet point.", "Second bullet point."]
+
+
+def test_resume_role_empty_subsections_rejected():
+    import pytest
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError):
+        ResumeRole.model_validate(
+            {
+                "title": "Software Engineer",
+                "company": "Acme Corp",
+                "dates": "2020 - Present",
+                "subsections": [],
+            }
+        )

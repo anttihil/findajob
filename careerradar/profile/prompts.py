@@ -20,8 +20,11 @@ CRITICAL RULES:
 2. 1-PAGE LAYOUT CONSTRAINTS:
    - Summary: Exactly 2 to 3 sentences (200-320 characters) focusing on key differentiators.
    - Experience:
-     - For major roles with multiple distinct projects, you may provide 1-2 optional project
+     - Every role MUST include accomplishment bullet points in `subsections`.
+     - For major roles with multiple distinct projects, you may provide 1-2 project
        subheadings with 2-3 high-impact bullets each.
+     - For roles without distinct projects, provide a single subsection with heading=null and
+       2-3 bullets.
      - Each bullet must be 100 to 160 characters (action verb + what was built/solved +
        quantified impact/technologies).
      - Total bullets across the entire resume must be between 10 and 13 bullets.

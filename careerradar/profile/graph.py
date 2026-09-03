@@ -108,11 +108,18 @@ def node_validate_layout(state: ResumeState) -> dict[str, Any]:
     layout_res = validate_resume_layout(payload)
     if not layout_res.is_valid:
         violations_str = "\n- ".join(layout_res.violations)
-        feedback = (
-            f"LAYOUT OVERFLOW: The resume is {layout_res.estimated_points:.1f} pt "
-            f"(ceiling is {layout_res.max_points:.1f} pt).\nViolations:\n- {violations_str}\n"
-            f"Please shorten or condense bullets and summary so it fits strictly on 1 page."
-        )
+        if layout_res.estimated_points > layout_res.max_points:
+            feedback = (
+                f"LAYOUT OVERFLOW: The resume is {layout_res.estimated_points:.1f} pt "
+                f"(ceiling is {layout_res.max_points:.1f} pt).\nViolations:\n- {violations_str}\n"
+                f"Please shorten or condense bullets and summary so it fits strictly on 1 page."
+            )
+        else:
+            feedback = (
+                f"LAYOUT VALIDATION FAILED:\nViolations:\n- {violations_str}\n"
+                f"Please provide high-impact accomplishment bullets for every role "
+                f"(10-13 total bullets) while keeping the resume strictly on 1 page."
+            )
         logger.warning("Resume layout validation failed: %s", feedback)
         return {"layout_result": layout_res, "feedback": feedback}
 

@@ -213,7 +213,34 @@ class ResumeRole(BaseModel):
     title: str = Field(description="Job title, e.g. 'Software Engineer'")
     company: str = Field(description="Organization or company name")
     dates: str = Field(description="Date range, e.g. 'Jan 2025 - present'")
-    subsections: list[ResumeSubsection] = Field(default_factory=list)
+    subsections: list[ResumeSubsection] = Field(
+        min_length=1,
+        description=(
+            "Subsections containing bullet points. Every role must have at least one subsection. "
+            "If there are no distinct project headings, use a single subsection with heading=None."
+        ),
+    )
+
+    @model_validator(mode="before")
+    @classmethod
+    def _coerce_subsections(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            # If flat bullets provided at role level, wrap into a subsection
+            if (
+                "bullets" in data
+                and isinstance(data["bullets"], list)
+                and not data.get("subsections")
+            ):
+                data["subsections"] = [{"heading": None, "bullets": data["bullets"]}]
+            # If subsections is a list of strings instead of dicts/ResumeSubsection
+            elif (
+                "subsections" in data
+                and isinstance(data["subsections"], list)
+                and data["subsections"]
+                and all(isinstance(b, str) for b in data["subsections"])
+            ):
+                data["subsections"] = [{"heading": None, "bullets": data["subsections"]}]
+        return data
 
 
 class ResumeSkillCategory(BaseModel):

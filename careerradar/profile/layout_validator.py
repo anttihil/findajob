@@ -52,10 +52,14 @@ def calculate_resume_points(payload: TailoredResumePayload) -> tuple[float, list
 
     # 4. Experience Section
     total_bullets = 0
+    if not payload.experience:
+        violations.append("Experience section is empty (at least one role is required).")
+
     for r_idx, role in enumerate(payload.experience, 1):
         # Role title + dates line: 16pt for 1st role (4pt before), 22pt for subsequent (10pt before)
         total_pts += 22.0 if r_idx > 1 else 16.0
 
+        role_bullets = 0
         for s_idx, sub in enumerate(role.subsections, 1):
             if sub.heading and sub.heading.strip():
                 # Subheading line: 14pt for 1st sub (2pt before), 22pt for subsequent (10pt before)
@@ -63,6 +67,7 @@ def calculate_resume_points(payload: TailoredResumePayload) -> tuple[float, list
 
             for b_idx, bullet in enumerate(sub.bullets, 1):
                 total_bullets += 1
+                role_bullets += 1
                 b_len = len(bullet.strip())
                 if b_len > 180:
                     violations.append(
@@ -79,7 +84,14 @@ def calculate_resume_points(payload: TailoredResumePayload) -> tuple[float, list
                 # 11.5pt per line + 1.5pt space after
                 total_pts += (b_lines * 11.5) + 1.5
 
-    if total_bullets > 14:
+        if role_bullets == 0:
+            violations.append(
+                f"Role {r_idx} ({role.title} at {role.company}) has no bullet points."
+            )
+
+    if payload.experience and total_bullets == 0:
+        violations.append("Resume contains no bullet points.")
+    elif total_bullets > 14:
         violations.append(
             f"Total bullet count ({total_bullets}) exceeds recommended 1-page maximum (11-13)."
         )
