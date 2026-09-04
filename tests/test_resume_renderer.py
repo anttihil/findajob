@@ -60,7 +60,7 @@ def test_render_typst_and_compile_pdf(tmp_path: Path):
     content = Path(out_file).read_text(encoding="utf-8")
     assert "Jane Doe" in content
     assert "#grid(" in content
-    assert "row-gutter: 2pt," in content
+    assert "row-gutter: 3pt," in content
     assert "Acme Cloud Systems" in content
     assert "EXPERIENCE" in content
     assert "SKILLS" in content

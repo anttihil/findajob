@@ -57,14 +57,14 @@ def generate_typst_source(payload: TailoredResumePayload) -> str:
         "    width: 100%,",
         '    stroke: (bottom: 1pt + rgb("#000000")),',
         "    inset: (bottom: 2pt),",
-        "    above: 10pt,",
+        "    above: 14pt,",
         "    below: 10pt,",
         '  )[#text(11pt, weight: "bold")[#upper(title)]]',
         "}",
         "",
         "// --- Header ---",
         "#grid(",
-        "  row-gutter: 2pt,",
+        "  row-gutter: 3pt,",
         f'  text(20pt, weight: "bold")[{escape_typst(payload.name)}],',
         f"  text()[{escape_typst(payload.contact_line_1)}],",
     ]
@@ -94,7 +94,7 @@ def generate_typst_source(payload: TailoredResumePayload) -> str:
                 "#grid(",
                 "  columns: (1fr, auto),",
                 f"  [*{escape_typst(role.title)}*, {escape_typst(role.company)}],",
-                f'  text(9pt, fill: rgb("#000000"))[{escape_typst(role.dates)}],',
+                f'  text(11pt, fill: rgb("#000000"))[{escape_typst(role.dates)}],',
                 ")",
             ]
         )
@@ -103,7 +103,7 @@ def generate_typst_source(payload: TailoredResumePayload) -> str:
                 lines.extend(
                     [
                         "#v(1pt)",
-                        f'#text(weight: "bold")[{escape_typst(sub.heading)}]',
+                        f'#text(style: "italic")[{escape_typst(sub.heading)}]',
                     ]
                 )
             lines.append("#v(1pt)")
