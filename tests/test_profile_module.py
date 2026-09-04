@@ -229,6 +229,21 @@ class AdapterTests(unittest.TestCase):
         self.assertTrue(len(evidence) > 0)
         self.assertIn("Python", evidence[0])
 
+    def test_by_category_preserves_profile_categories(self) -> None:
+        grouped = self.adapter.by_category()
+        self.assertIn("Languages", grouped)
+        self.assertIn("Infra", grouped)
+        lang_keys = [s["key"] for s in grouped["Languages"]]
+        self.assertIn("python", lang_keys)
+        self.assertIn("typescript", lang_keys)
+
+    def test_adapter_works_without_taxonomy(self) -> None:
+        adapter = ProfileAdapter(self.profile, taxonomy=None)
+        self.assertTrue(adapter.has("python"))
+        grouped = adapter.by_category()
+        self.assertIn("Languages", grouped)
+        self.assertIn("Infra", grouped)
+
 
 class StoreTests(unittest.TestCase):
     """Round-trip against a real migrated database with single profile table."""

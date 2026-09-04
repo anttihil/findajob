@@ -307,7 +307,7 @@ analytics:
 # Set provider to 'auto' to automatically detect available authenticated CLI tools or API keys.
 # ---------------------------------------------------------------------------------------
 llm:
-  provider: auto
+  provider: deepseek
   scoring_model: ""  # Blank uses provider default (or set custom model)
   agent_model: ""    # Blank uses provider default (or set custom model)
   timeout_seconds: 60
@@ -336,6 +336,7 @@ scoring:
   # Evaluates scraped postings against the active profile.
   concurrency: 16
   fit_threshold: 70
+  include_skill_hint: false  # Default to false to eliminate prompt bias
   # Pre-flight ceiling. If the estimated cost of the queue exceeds this, the run ABORTS
   # instead of scoring part of it. A budget that quietly drops the tail produces a pass that
   # looks complete, and every coverage figure downstream then inherits that.

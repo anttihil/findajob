@@ -36,6 +36,7 @@ class ProfileAdapter:
                     "label": clean,
                     "evidence": [f"{cat.category}: {clean}"],
                     "recency": None,
+                    "category": cat.category,
                 }
 
         self.skills = skills_map
@@ -55,12 +56,13 @@ class ProfileAdapter:
         return record["evidence"] if record else []
 
     def by_category(self) -> dict[str, list[dict[str, Any]]]:
-        """Group skills by taxonomy category for dashboard display."""
+        """Group skills by category for dashboard display."""
         grouped: dict[str, list[dict[str, Any]]] = {}
         for key, record in self.skills.items():
-            category = "other"
-            if self.taxonomy is not None:
-                category = self.taxonomy.category(key) or "other"
+            category = record.get("category")
+            if not category and self.taxonomy is not None:
+                category = self.taxonomy.category(key)
+            category = category or "other"
             grouped.setdefault(category, []).append(
                 {"key": key, "label": record["label"], "level": record["level"]}
             )

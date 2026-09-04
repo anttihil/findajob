@@ -135,13 +135,24 @@ def _persist(
     )
 
 
-def _skill_hint(scorer: "JobScorer | None", job: dict[str, Any]) -> str:
+def _skill_hint(
+    scorer: "JobScorer | None",
+    job: dict[str, Any],
+    config: dict[str, Any] | None = None,
+) -> str:
     """The extractor's read on one posting, rendered for the prompt.
 
     Returns "" when there is nothing to say. An empty hint block would still cost tokens
     and would teach the model that the absence of a signal means the absence of a
     requirement.
     """
+    if config is None:
+        try:
+            config = load_config()
+        except Exception:  # noqa: BLE001
+            config = {}
+    if not (config.get("scoring") or {}).get("include_skill_hint", False):
+        return ""
     if scorer is None:
         return ""
     try:
@@ -181,6 +192,7 @@ def run_scoring(limit: int | None = None) -> int:
     concurrency = int(scoring_config.get("concurrency", 8))
     max_usd = scoring_config.get("max_usd_per_run")
     fit_threshold = int(scoring_config.get("fit_threshold", 70))
+    include_skill_hint = bool(scoring_config.get("include_skill_hint", False))
 
     loaded = load_active()
     if loaded is None:
@@ -194,7 +206,7 @@ def run_scoring(limit: int | None = None) -> int:
         taxonomy = load_taxonomy()
         adapter = load_profile_adapter(db=db, taxonomy=taxonomy)
         assert adapter is not None
-        scorer = _build_scorer(adapter, taxonomy, config)
+        scorer = _build_scorer(adapter, taxonomy, config) if include_skill_hint else None
         if not jobs:
             print("Nothing to score. The backlog is drained.")
             return 0
@@ -202,7 +214,7 @@ def run_scoring(limit: int | None = None) -> int:
         system = build_system(summary, fit_threshold=fit_threshold)
         phash = prompt_hash(summary, fit_threshold=fit_threshold)
         system_tokens = int(len(system) / CHARS_PER_TOKEN)
-        hints = {job["id"]: _skill_hint(scorer, job) for job in jobs}
+        hints = {job["id"]: _skill_hint(scorer, job, config=config) for job in jobs}
         posting_tokens = sum(
             int(len(render_posting(j, skill_hint=hints[j["id"]])) / CHARS_PER_TOKEN) for j in jobs
         )

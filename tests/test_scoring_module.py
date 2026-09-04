@@ -86,6 +86,47 @@ class PromptLayoutTests(unittest.TestCase):
         self.assertTrue(rendered.endswith("</taxonomy_signal>"))
         self.assertIn("</posting>\n<taxonomy_signal", rendered)
 
+    def test_skill_hint_disabled_by_config(self) -> None:
+        from careerradar.scoring.worker import _skill_hint
+
+        mock_scorer = mock.Mock()
+        mock_scorer.score.return_value = {
+            "matched_skills": ["python"],
+            "missing_skills": ["kubernetes"],
+        }
+        hint = _skill_hint(
+            mock_scorer,
+            posting(),
+            config={"scoring": {"include_skill_hint": False}},
+        )
+        self.assertEqual(hint, "")
+        mock_scorer.score.assert_not_called()
+
+    def test_skill_hint_enabled_by_config(self) -> None:
+        from careerradar.scoring.worker import _skill_hint
+
+        mock_scorer = mock.Mock()
+        mock_scorer.score.return_value = {
+            "matched_skills": ["python"],
+            "missing_skills": ["kubernetes"],
+        }
+        mock_scorer.taxonomy.label.side_effect = lambda k: k.title()
+        hint = _skill_hint(
+            mock_scorer,
+            posting(),
+            config={"scoring": {"include_skill_hint": True}},
+        )
+        self.assertIn("<taxonomy_signal", hint)
+        self.assertIn("candidate profile has: Python", hint)
+        self.assertIn("posting asks, not on profile: Kubernetes", hint)
+        mock_scorer.score.assert_called_once()
+
+    def test_skill_hint_scorer_none(self) -> None:
+        from careerradar.scoring.worker import _skill_hint
+
+        hint = _skill_hint(None, posting(), config={"scoring": {"include_skill_hint": True}})
+        self.assertEqual(hint, "")
+
 
 class CostTests(unittest.TestCase):
     def test_cached_input_is_charged_at_the_cache_rate(self) -> None:
