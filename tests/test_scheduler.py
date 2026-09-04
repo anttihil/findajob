@@ -44,9 +44,118 @@ from careerradar.search.scheduler import (
     update_ewma,
     with_location_weights,
 )
-from careerradar.taxonomy.roles import RoleTaxonomy, load_roles
+from careerradar.taxonomy.roles import RoleTaxonomy
 
 NOW = datetime(2026, 7, 29, 12, 0, tzinfo=timezone.utc)
+
+SCHEDULER_TEST_TAXONOMY_SPEC = {
+    "families": {
+        "ai_engineer": {
+            "label": "AI Engineer",
+            "aliases": [r"ai engineer", r"machine learning engineer"],
+            "query_terms": ["AI Engineer", "Machine Learning Engineer"],
+            "enabled": True,
+        },
+        "platform_engineer": {
+            "label": "Platform Engineer",
+            "aliases": [r"platform engineer", r"infrastructure engineer"],
+            "query_terms": ["Platform Engineer"],
+            "enabled": True,
+        },
+        "devrel": {
+            "label": "Developer Relations",
+            "aliases": [r"devrel", r"developer advocate"],
+            "query_terms": ["Developer Relations"],
+            "enabled": True,
+        },
+    },
+    "locations": [
+        {
+            "id": "us_remote",
+            "label": "United States (remote)",
+            "search_label": "Remote",
+            "country": "US",
+            "indeed_country": "usa",
+            "is_remote": True,
+            "access": "remote",
+            "weight": 1.0,
+            "distance": 50,
+            "enabled": True,
+        },
+        {
+            "id": "us_nat",
+            "label": "United States (onsite, nationwide)",
+            "search_label": "United States",
+            "country": "US",
+            "indeed_country": "usa",
+            "is_remote": False,
+            "access": "relocation",
+            "weight": 0.3,
+            "distance": 50,
+            "enabled": True,
+        },
+        {
+            "id": "los_angeles",
+            "label": "Los Angeles, CA",
+            "search_label": "Los Angeles, CA",
+            "country": "US",
+            "indeed_country": "usa",
+            "is_remote": False,
+            "access": "commutable",
+            "weight": 1.0,
+            "distance": 50,
+            "enabled": True,
+        },
+        {
+            "id": "helsinki",
+            "label": "Helsinki, Finland",
+            "search_label": "Helsinki",
+            "country": "FI",
+            "indeed_country": "finland",
+            "is_remote": False,
+            "access": "relocation",
+            "weight": 0.5,
+            "distance": 50,
+            "enabled": True,
+        },
+        {
+            "id": "stockholm",
+            "label": "Stockholm, Sweden",
+            "search_label": "Stockholm",
+            "country": "SE",
+            "indeed_country": "sweden",
+            "is_remote": False,
+            "access": "relocation",
+            "weight": 0.5,
+            "distance": 50,
+            "enabled": True,
+        },
+        {
+            "id": "oslo",
+            "label": "Oslo, Norway",
+            "search_label": "Oslo",
+            "country": "NO",
+            "indeed_country": "norway",
+            "is_remote": False,
+            "access": "relocation",
+            "weight": 0.5,
+            "distance": 50,
+            "enabled": True,
+        },
+        {
+            "id": "copenhagen",
+            "label": "Copenhagen, Denmark",
+            "search_label": "Copenhagen",
+            "country": "DK",
+            "indeed_country": "denmark",
+            "is_remote": False,
+            "access": "relocation",
+            "weight": 0.5,
+            "distance": 50,
+            "enabled": True,
+        },
+    ],
+}
 
 CONFIG = {
     "page_size": {"indeed": 15, "linkedin": 25},
@@ -86,7 +195,7 @@ CONFIG = {
 
 def make_cells(source: str = "indeed", roles: RoleTaxonomy | None = None) -> list[CellState]:
     """Build the real cell matrix for one source."""
-    roles = roles or load_roles()
+    roles = roles or RoleTaxonomy(spec_dict=SCHEDULER_TEST_TAXONOMY_SPEC)
     cells: list[CellState] = []
     for index, spec in enumerate(roles.cell_specs(sources=(source,)), start=1):
         cells.append(
@@ -324,7 +433,7 @@ class AdaptiveHoursOldTests(unittest.TestCase):
 
 class BudgetTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.roles = load_roles()
+        self.roles = RoleTaxonomy(spec_dict=SCHEDULER_TEST_TAXONOMY_SPEC)
 
     def test_respects_searches_per_run(self) -> None:
         cells = make_cells("indeed", self.roles)
@@ -404,7 +513,7 @@ class BudgetTests(unittest.TestCase):
 
 class StalenessFloorTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.roles = load_roles()
+        self.roles = RoleTaxonomy(spec_dict=SCHEDULER_TEST_TAXONOMY_SPEC)
 
     def test_overdue_core_cell_is_forced_into_the_run(self) -> None:
         cells = make_cells("indeed", self.roles)
@@ -413,7 +522,11 @@ class StalenessFloorTests(unittest.TestCase):
             cell.last_success_at = NOW.isoformat()
             cell.total_scrapes = 10
             cell.ewma_new_per_scrape = 20.0
-        overdue = cells[-1]
+        overdue = [
+            c
+            for c in cells
+            if CONFIG.get("locations", {}).get(c.location_id, {}).get("weight", 1.0) >= 1.0
+        ][-1]
         overdue.last_success_at = (NOW - timedelta(days=5)).isoformat()
 
         tasks = select_cells(cells, CONFIG, self.roles, "indeed", NOW)
@@ -479,7 +592,7 @@ class LocationWeightWiringTests(unittest.TestCase):
     """
 
     def setUp(self) -> None:
-        self.roles = load_roles()
+        self.roles = RoleTaxonomy(spec_dict=SCHEDULER_TEST_TAXONOMY_SPEC)
 
     def test_weights_are_populated_from_target_locations(self) -> None:
         merged = with_location_weights({"cadence_hours": 24}, self.roles)
@@ -522,7 +635,7 @@ class StarvationDeadlineTests(unittest.TestCase):
     """The explicit coverage guarantee under uniform cadence."""
 
     def setUp(self) -> None:
-        self.roles = load_roles()
+        self.roles = RoleTaxonomy(spec_dict=SCHEDULER_TEST_TAXONOMY_SPEC)
         self.config = dict(CONFIG, starvation_multiple=4)
 
     def _cell(self, hours_stale: float, **kwargs: Any) -> CellState:
@@ -583,7 +696,7 @@ class EventualCoverageSimulationTests(unittest.TestCase):
     """Simulate many runs and assert the rotation actually covers the matrix."""
 
     def setUp(self) -> None:
-        self.roles = load_roles()
+        self.roles = RoleTaxonomy(spec_dict=SCHEDULER_TEST_TAXONOMY_SPEC)
 
     def _simulate(
         self,

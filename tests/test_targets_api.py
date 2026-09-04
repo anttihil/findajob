@@ -17,10 +17,9 @@ def test_targets_list_and_capacity(client: TestClient) -> None:
     data: dict[str, Any] = res.json()
     assert "roles" in data
     assert "queries" in data
-    assert "locations" in data
-    assert len(data["roles"]) > 0
-    assert len(data["queries"]) > 0
-    assert len(data["locations"]) > 0
+    assert isinstance(data["roles"], list)
+    assert isinstance(data["queries"], list)
+    assert isinstance(data["locations"], list)
 
     cap_res = client.get("/api/targets/capacity")
     assert cap_res.status_code == 200

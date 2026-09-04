@@ -64,16 +64,17 @@ DEFAULT_SENIORITY_PATTERNS = [
     ),
 ]
 
-DEFAULT_EXCLUSIONS = [
-    r"sales representative|account executive|recruiter|nurse|driver|warehouse|custodian|cashier",
-]
+DEFAULT_EXCLUSIONS: list[str] = []
 
 DEFAULT_WEAK_PATTERNS = [
     re.compile(r"\bengineers?\b", re.IGNORECASE),
     re.compile(r"\bdevelopers?\b", re.IGNORECASE),
     re.compile(r"\bprogrammers?\b", re.IGNORECASE),
     re.compile(r"\bcoders?\b", re.IGNORECASE),
+    re.compile(r"utvecklare", re.IGNORECASE),
+    re.compile(r"ingenj[öo]r", re.IGNORECASE),
 ]
+
 
 META_REGEX_TOKENS = (r"\b", "(", ")", "?", "*", "+", "|", "[", "]", "^", "$", "\\", "{", "}")
 
@@ -185,7 +186,7 @@ class Location:
         self.id: str = spec["id"]
         self.label: str = spec["label"]
         self.search_label: str = spec.get("search_label", spec["label"])
-        self.country: str = spec["country"]
+        self.country: str = spec.get("country", "")
         self.is_remote = bool(spec.get("is_remote", False))
         self.weight = float(spec.get("weight", 1.0))
         self.indeed_country: str = spec.get("indeed_country", "usa")

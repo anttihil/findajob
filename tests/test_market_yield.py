@@ -58,6 +58,22 @@ def test_market_yield_api(client: TestClient) -> None:
 
 
 def test_market_yield_api_filters(client: TestClient) -> None:
+    # Ensure test location exists
+    client.post(
+        "/api/targets/locations",
+        json={
+            "id": "us_remote",
+            "label": "United States (remote)",
+            "search_label": "Remote",
+            "country": "US",
+            "is_remote": True,
+            "access": "remote",
+            "weight": 1.0,
+            "distance": 50,
+            "enabled": True,
+        },
+    )
+
     # Filter by source
     res_indeed = client.get("/api/market/yield?source=indeed")
     assert res_indeed.status_code == 200

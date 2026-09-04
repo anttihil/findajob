@@ -29,8 +29,50 @@ from careerradar.search.keyword_score import (
     skill_coverage,
     title_family_fit,
 )
-from careerradar.taxonomy.roles import load_roles
+from careerradar.taxonomy.roles import RoleTaxonomy
 from careerradar.taxonomy.skills import Taxonomy, load_taxonomy
+
+SCORING_TEST_TAXONOMY_SPEC = {
+    "families": {
+        "ai_engineer": {
+            "label": "AI Engineer",
+            "aliases": [r"ai engineer", r"machine learning engineer"],
+            "query_terms": ["AI Engineer"],
+            "resume": "ai_engineer.md",
+            "enabled": True,
+        },
+        "platform_engineer": {
+            "label": "Platform Engineer",
+            "aliases": [r"platform engineer", r"infrastructure engineer"],
+            "query_terms": ["Platform Engineer"],
+            "resume": "platform_devops_engineer.md",
+            "enabled": True,
+        },
+        "software_engineer": {
+            "label": "Software Engineer",
+            "aliases": [r"software engineer", r"software developer"],
+            "query_terms": ["Software Engineer"],
+            "resume": "software_engineer.md",
+            "enabled": True,
+        },
+        "data_engineer": {
+            "label": "Data Engineer",
+            "aliases": [r"data engineer"],
+            "query_terms": ["Data Engineer"],
+            "resume": "data_engineer.md",
+            "enabled": True,
+        },
+    },
+    "locations": [
+        {
+            "id": "us_remote",
+            "label": "United States (remote)",
+            "access": "remote",
+            "weight": 1.0,
+            "enabled": True,
+        },
+    ],
+}
 
 
 def make_profile(
@@ -122,7 +164,7 @@ class CoverageTests(unittest.TestCase):
 class ComponentTests(unittest.TestCase):
     def setUp(self) -> None:
         self.tax = load_taxonomy()
-        self.roles = load_roles()
+        self.roles = RoleTaxonomy(spec_dict=SCORING_TEST_TAXONOMY_SPEC)
         self.profile = make_profile(["python"], self.tax)
 
     def test_seniority_fit_prefers_mid_and_senior(self) -> None:
@@ -185,7 +227,7 @@ class ImpliesTests(unittest.TestCase):
 class ScorerTests(unittest.TestCase):
     def setUp(self) -> None:
         self.tax = load_taxonomy()
-        self.roles = load_roles()
+        self.roles = RoleTaxonomy(spec_dict=SCORING_TEST_TAXONOMY_SPEC)
         self.profile = make_profile(
             [
                 "python",
