@@ -136,7 +136,6 @@ def test_graph_routing_helpers():
 
 
 @patch("careerradar.profile.graph.structured_model")
-@patch("careerradar.profile.graph.render_docx")
 @patch("careerradar.profile.graph.render_typst")
 @patch("careerradar.profile.graph.compile_typst_to_pdf")
 @patch("careerradar.profile.graph.screen_resume")
@@ -148,11 +147,9 @@ def test_full_graph_execution(
     mock_screen: MagicMock,
     mock_pdf: MagicMock,
     mock_typst: MagicMock,
-    mock_docx: MagicMock,
     mock_model: MagicMock,
 ):
     mock_model.return_value = MagicMock()
-    mock_docx.return_value = "/tmp/test_resume.docx"
     mock_typst.return_value = "/tmp/test_resume.typ"
     mock_pdf.return_value = "/tmp/test_resume.pdf"
     mock_save.return_value = 101
@@ -207,14 +204,13 @@ def test_full_graph_execution(
 
     final_state = graph.invoke(initial_state)
     assert final_state["saved_id"] == 101
-    assert final_state["docx_path"] is not None
+    assert final_state["typst_path"] is not None
     assert final_state["pdf_path"] == "/tmp/test_resume.pdf"
     assert final_state["ats_verdict"].passed is True
     conn.close()
 
 
 @patch("careerradar.profile.graph.structured_model")
-@patch("careerradar.profile.graph.render_docx")
 @patch("careerradar.profile.graph.render_typst")
 @patch("careerradar.profile.graph.compile_typst_to_pdf")
 @patch("careerradar.profile.graph.screen_resume")
@@ -228,11 +224,9 @@ def test_graph_screens_even_when_layout_fails_max_attempts(
     mock_screen: MagicMock,
     mock_pdf: MagicMock,
     mock_typst: MagicMock,
-    mock_docx: MagicMock,
     mock_model: MagicMock,
 ):
     mock_model.return_value = MagicMock()
-    mock_docx.return_value = "/tmp/test_resume.docx"
     mock_typst.return_value = "/tmp/test_resume.typ"
     mock_pdf.return_value = "/tmp/test_resume.pdf"
     mock_save.return_value = 102

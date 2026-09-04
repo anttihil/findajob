@@ -91,8 +91,6 @@ def _cmd_import(args: argparse.Namespace) -> int:
         print("  Resume generated:")
         if r.get("typst_path"):
             print(f"    Typst: {r.get('typst_path')}")
-        if r.get("docx_path"):
-            print(f"    DOCX:  {r.get('docx_path')}")
         print(f"    PDF:   {r.get('pdf_path')}")
         if r.get("ats_score") is not None:
             print(f"    ATS Match Score: {r.get('ats_score')}/10 ({r.get('ats_verdict')})")
@@ -109,8 +107,6 @@ def _cmd_resume(args: argparse.Namespace) -> int:
         print(f"Generated resume for job {args.job_id}:")
         if res.get("typst_path"):
             print(f"  Typst: {res.get('typst_path')}")
-        if res.get("docx_path"):
-            print(f"  DOCX:  {res.get('docx_path')}")
         print(f"  PDF:   {res.get('pdf_path')}")
         if res.get("ats_score") is not None:
             print(f"  ATS Match Score: {res.get('ats_score')}/10 ({res.get('ats_verdict')})")
@@ -125,7 +121,7 @@ def _cmd_resume(args: argparse.Namespace) -> int:
             return 0
         for r in resumes:
             score_str = f"{r.get('ats_score')}/10" if r.get("ats_score") is not None else "N/A"
-            source_file = r.get("typst_path") or r.get("docx_path")
+            source_file = r.get("typst_path")
             print(
                 f"[{r.get('id')}] Job {r.get('job_id')} ({r.get('job_title')} @ "
                 f"{r.get('job_company')}): ATS: {score_str} ({r.get('ats_verdict')}) - "
@@ -347,7 +343,7 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("profile", help="build or inspect the candidate profile")
     psub = p.add_subparsers(dest="subcommand", required=True)
     pb = psub.add_parser("build", help="run the document ingest + interview wizard")
-    pb.add_argument("file", nargs="?", help="optional path to resume document (pdf, docx, md, txt)")
+    pb.add_argument("file", nargs="?", help="optional path to resume document (pdf, md, txt)")
     pb.add_argument("--resume", action="store_true", help="continue an interview left unfinished")
     pb.add_argument(
         "--force", action="store_true", help="rebuild even if the corpus has not changed"

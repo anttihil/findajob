@@ -57,7 +57,7 @@ def build_resume_for_job(
 
         return {
             "job_id": job_id,
-            "docx_path": final_state.get("docx_path"),
+            "typst_path": final_state.get("typst_path"),
             "pdf_path": final_state.get("pdf_path"),
             "resume": final_state.get("resume_payload"),
             "ats_verdict": final_state.get("ats_verdict"),

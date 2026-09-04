@@ -12,7 +12,7 @@ describe("ResumeDropzone", () => {
     const { getByText } = render(<ResumeDropzone onUploadSuccess={onUploadSuccess} />);
 
     expect(
-      getByText("Drop updated resume here (.PDF, .DOCX, .TXT, .MD)")
+      getByText("Drop updated resume here (.PDF, .TXT, .MD)")
     ).toBeTruthy();
   });
 

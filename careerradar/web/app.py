@@ -1037,7 +1037,7 @@ class ResumeSourceUpdate(BaseModel):
 
 
 @app.get("/api/resumes/{resume_id}/download")
-def download_resume(resume_id: int, format: str = Query("pdf", pattern="^(pdf|typst|docx)$")):
+def download_resume(resume_id: int, format: str = Query("pdf", pattern="^(pdf|typst)$")):
     from pathlib import Path
 
     from careerradar.core.paths import GENERATED_RESUMES_DIR
@@ -1051,7 +1051,7 @@ def download_resume(resume_id: int, format: str = Query("pdf", pattern="^(pdf|ty
         if not record:
             raise HTTPException(status_code=404, detail="Resume record not found")
 
-        raw_source_path = record.get("typst_path") or record.get("docx_path")
+        raw_source_path = record.get("typst_path")
         stem = Path(raw_source_path or f"resume_{resume_id}").stem
 
         if format == "pdf":
@@ -1059,16 +1059,13 @@ def download_resume(resume_id: int, format: str = Query("pdf", pattern="^(pdf|ty
             if (not file_path or not os.path.exists(file_path)) and record.get("typst_path"):
                 file_path = compile_typst_to_pdf(record["typst_path"], GENERATED_RESUMES_DIR)
             media_type = "application/pdf"
-        elif format == "typst":
+        else:
             file_path = record.get("typst_path")
             if (not file_path or not os.path.exists(file_path)) and record.get("resume"):
                 payload = TailoredResumePayload.model_validate(record["resume"])
                 file_path = os.path.join(GENERATED_RESUMES_DIR, f"{stem}.typ")
                 render_typst(payload, file_path)
             media_type = "text/plain; charset=utf-8"
-        else:
-            file_path = record.get("docx_path")
-            media_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 
         if not file_path or not os.path.exists(file_path):
             raise HTTPException(status_code=404, detail=f"{format.upper()} file not found on disk")
@@ -1100,7 +1097,7 @@ def get_resume_source(resume_id: int):
         elif record.get("resume"):
             payload = TailoredResumePayload.model_validate(record["resume"])
             source = generate_typst_source(payload)
-            stem = Path(record.get("docx_path") or f"resume_{resume_id}").stem
+            stem = f"resume_{resume_id}"
             typst_path = os.path.join(GENERATED_RESUMES_DIR, f"{stem}.typ")
             render_typst(payload, typst_path)
         else:
@@ -1134,7 +1131,7 @@ def update_resume_source(resume_id: int, req: ResumeSourceUpdate):
 
         typst_path = record.get("typst_path")
         if not typst_path:
-            stem = Path(record.get("docx_path") or f"resume_{resume_id}").stem
+            stem = f"resume_{resume_id}"
             typst_path = os.path.join(GENERATED_RESUMES_DIR, f"{stem}.typ")
 
         Path(typst_path).parent.mkdir(parents=True, exist_ok=True)

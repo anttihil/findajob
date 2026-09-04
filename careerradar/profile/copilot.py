@@ -1,7 +1,7 @@
 """AI Copilot and resume parsing engine for the unified Profile.
 
 Supports:
-1. Parsing uploaded resume files (.pdf, .docx, .txt, .md).
+1. Parsing uploaded resume files (.pdf, .txt, .md).
 2. LLM-based extraction into structured Profile.
 3. Interactive Copilot chat to refine, question, rewrite, and update the Profile.
 """
@@ -18,7 +18,7 @@ logger = get_logger()
 
 
 def parse_resume_file(content: bytes, filename: str) -> str:
-    """Extract raw text from PDF, DOCX, TXT, or MD bytes."""
+    """Extract raw text from PDF, TXT, or MD bytes."""
     fname_lower = filename.lower()
     if fname_lower.endswith(".pdf"):
         from pypdf import PdfReader
@@ -28,16 +28,10 @@ def parse_resume_file(content: bytes, filename: str) -> str:
         return "\n\n".join(pages_text).strip()
 
     if fname_lower.endswith(".docx"):
-        import docx
-
-        doc = docx.Document(io.BytesIO(content))
-        paragraphs = [p.text for p in doc.paragraphs if p.text.strip()]
-        for table in doc.tables:
-            for row in table.rows:
-                row_text = " | ".join(cell.text.strip() for cell in row.cells if cell.text.strip())
-                if row_text:
-                    paragraphs.append(row_text)
-        return "\n\n".join(paragraphs).strip()
+        raise ValueError(
+            "DOCX format is no longer supported. "
+            "Please upload your resume as a PDF, TXT, or Markdown file."
+        )
 
     # Plain text / Markdown
     try:

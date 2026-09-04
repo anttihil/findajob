@@ -63,7 +63,7 @@ def test_generate_resume_endpoint(mock_build: MagicMock):
     mock_build.return_value = {
         "id": 1,
         "job_id": 5,
-        "docx_path": "/tmp/resume.docx",
+        "typst_path": "/tmp/resume.typ",
         "pdf_path": "/tmp/resume.pdf",
         "ats_score": 9,
         "ats_verdict": "passed",
@@ -159,7 +159,6 @@ def test_download_resume_typst_format(mock_get_resume: MagicMock, tmp_path: obje
         "job_id": 42,
         "typst_path": str(typst_file),
         "pdf_path": None,
-        "docx_path": None,
     }
 
     client = TestClient(app)
@@ -167,6 +166,10 @@ def test_download_resume_typst_format(mock_get_resume: MagicMock, tmp_path: obje
     assert resp.status_code == 200
     assert resp.headers["content-type"].startswith("text/plain")
     assert b"// Test typst content" in resp.content
+
+    # DOCX format is removed and must return 422 validation error
+    resp_docx = client.get("/api/resumes/1/download?format=docx")
+    assert resp_docx.status_code == 422
 
 
 @patch("careerradar.profile.repository.update_resume_artifacts")

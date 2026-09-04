@@ -81,7 +81,7 @@ def cmd_build(args: argparse.Namespace) -> int:
         text = parse_resume_file(content, os.path.basename(resume_file))
     else:
         # Check standard default file paths
-        candidates = ["resume.pdf", "resume.docx", "resume.md", "resume.txt"]
+        candidates = ["resume.pdf", "resume.md", "resume.txt"]
         text = ""
         for c in candidates:
             if os.path.exists(c):

@@ -27,7 +27,6 @@ from careerradar.profile.prompts import (
 )
 from careerradar.profile.renderer import (
     compile_typst_to_pdf,
-    render_docx,
     render_typst,
     verify_page_count,
 )
@@ -52,7 +51,6 @@ class ResumeState(TypedDict, total=False):
     layout_result: LayoutValidationResult | None
     ats_verdict: ATSScreeningVerdict | None
     typst_path: str | None
-    docx_path: str | None
     pdf_path: str | None
     saved_id: int | None
     error: str | None
@@ -142,31 +140,27 @@ def node_screen_resume(state: ResumeState) -> dict[str, Any]:
 
 
 def node_render_artifacts(state: ResumeState) -> dict[str, Any]:
-    """Render output Typst, DOCX, and PDF files and verify 1-page PDF count."""
+    """Render output Typst source and compile 1-page PDF."""
     payload = state.get("resume_payload")
     job = state.get("job") or {}
     if payload is None:
-        return {"typst_path": None, "docx_path": None, "pdf_path": None}
+        return {"typst_path": None, "pdf_path": None}
 
     job_id = job.get("id", 0)
     company = re.sub(r"[^a-zA-Z0-9_-]", "_", str(job.get("company", "company")).lower())[:20]
     title = re.sub(r"[^a-zA-Z0-9_-]", "_", str(job.get("title", "role")).lower())[:20]
     filename_base = f"resume_job_{job_id}_{company}_{title}"
     typst_path = os.path.join(GENERATED_RESUMES_DIR, f"{filename_base}.typ")
-    docx_path = os.path.join(GENERATED_RESUMES_DIR, f"{filename_base}.docx")
 
     # Render Typst source and compile directly to 1-page PDF
     render_typst(payload, typst_path)
     pdf_path = compile_typst_to_pdf(typst_path, GENERATED_RESUMES_DIR)
 
-    # Also render DOCX for backwards compatibility
-    render_docx(payload, docx_path)
-
     if pdf_path:
         pages = verify_page_count(pdf_path)
         logger.info("Rendered PDF page count: %d", pages)
 
-    return {"typst_path": typst_path, "docx_path": docx_path, "pdf_path": pdf_path}
+    return {"typst_path": typst_path, "pdf_path": pdf_path}
 
 
 def node_save_resume(state: ResumeState) -> dict[str, Any]:
@@ -174,15 +168,14 @@ def node_save_resume(state: ResumeState) -> dict[str, Any]:
     payload = state.get("resume_payload")
     job = state.get("job") or {}
     typst_path = state.get("typst_path")
-    docx_path = state.get("docx_path")
-    if payload is None or (not typst_path and not docx_path):
+    if payload is None or not typst_path:
         return {"saved_id": None}
 
     ats_v = state.get("ats_verdict")
     resume_id = save_tailored_resume(
         job_id=int(job.get("id") or 0),
         model=str(state.get("model_name") or get_model_for_role("agent")),
-        docx_path=docx_path or "",
+        docx_path="",
         pdf_path=state.get("pdf_path"),
         resume=payload,
         summary=payload.summary,

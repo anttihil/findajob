@@ -89,7 +89,7 @@ export function ResumeDropzone({ onUploadSuccess, disabled }: ResumeDropzoneProp
         <input
           ref={fileInputRef}
           type="file"
-          accept=".pdf,.docx,.txt,.md"
+          accept=".pdf,.txt,.md"
           style={{ display: "none" }}
           onChange={handleFileChange}
           disabled={disabled || isUploading}
@@ -103,7 +103,7 @@ export function ResumeDropzone({ onUploadSuccess, disabled }: ResumeDropzoneProp
             <strong>
               {isUploading
                 ? "Parsing resume..."
-                : "Drop updated resume here (.PDF, .DOCX, .TXT, .MD)"}
+                : "Drop updated resume here (.PDF, .TXT, .MD)"}
             </strong>
             <span class="dropzone-hint">
               {isUploading
