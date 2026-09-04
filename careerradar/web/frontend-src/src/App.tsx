@@ -21,13 +21,6 @@ function formatRetroDate(d: Date): string {
   return `${mm}-${dd}-${yy}  ${hh}:${min}:${ss}`;
 }
 
-function formatUptime(seconds: number): string {
-  const h = String(Math.floor(seconds / 3600)).padStart(2, "0");
-  const m = String(Math.floor((seconds % 3600) / 60)).padStart(2, "0");
-  const s = String(seconds % 60).padStart(2, "0");
-  return `${h}:${m}:${s}`;
-}
-
 const PAGE_SUBTITLES: Record<string, string> = {
   "/": "Job Dashboard",
   "/market": "Market Supply",
