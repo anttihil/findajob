@@ -94,7 +94,7 @@ def generate_typst_source(payload: TailoredResumePayload) -> str:
                 "#grid(",
                 "  columns: (1fr, auto),",
                 f"  [*{escape_typst(role.title)}*, {escape_typst(role.company)}],",
-                f'  text(11pt, fill: rgb("#000000"))[{escape_typst(role.dates)}],',
+                f"  text()[{escape_typst(role.dates)}],",
                 ")",
             ]
         )
@@ -102,11 +102,9 @@ def generate_typst_source(payload: TailoredResumePayload) -> str:
             if sub.heading and sub.heading.strip():
                 lines.extend(
                     [
-                        "#v(1pt)",
                         f'#text(style: "italic")[{escape_typst(sub.heading)}]',
                     ]
                 )
-            lines.append("#v(1pt)")
             lines.append("#list(")
             lines.append("  tight: true,")
             for bullet in sub.bullets:
