@@ -29,25 +29,23 @@ function formatUptime(seconds: number): string {
 }
 
 const PAGE_SUBTITLES: Record<string, string> = {
-  "/": "Job Intelligence Dashboard",
-  "/market": "Market Supply & Role Flow",
+  "/": "Job Dashboard",
+  "/market": "Market Supply",
   "/skills": "Skill Gap Analysis",
   "/observability": "Model Observability & Token Inspector",
   "/resumes": "Resumes & Skill Profiles",
-  "/settings": "Radar Settings & Configuration",
+  "/settings": "Settings & Configuration",
 };
 
 export function App() {
   const [location] = useLocation();
   const [clock, setClock] = useState(() => formatRetroDate(new Date()));
-  const [uptimeSeconds, setUptimeSeconds] = useState(8027); // Realistic initial uptime
 
   useEffect(() => {
     initLiveEvents();
 
     const timer = setInterval(() => {
       setClock(formatRetroDate(new Date()));
-      setUptimeSeconds((prev) => prev + 1);
     }, 1000);
 
     return () => clearInterval(timer);
@@ -62,7 +60,7 @@ export function App() {
         <header class="system-header-bar">
           <div class="system-title">
             <strong>CAREERRADAR</strong> -{" "}
-            {PAGE_SUBTITLES[location] ?? "Job Intelligence Dashboard"}
+            {PAGE_SUBTITLES[location] ?? "Job Dashboard"}
           </div>
           <div class="system-clock">{clock}</div>
         </header>
@@ -89,12 +87,6 @@ export function App() {
 
         {/* Central Modals */}
         <ModalHost />
-
-        {/* Bottom Global Status Bar */}
-        <footer class="global-status-bar">
-          <div class="status-left">CONNECTED TO CAREERRADAR</div>
-          <div class="status-center">UPTIME: {formatUptime(uptimeSeconds)}</div>
-        </footer>
       </div>
     </div>
   );
