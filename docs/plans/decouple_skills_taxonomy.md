@@ -87,27 +87,44 @@ flowchart TD
 
 ---
 
-### Phase 3: Generalize Market & Gap Analytics
+### Phase 3: Generalize Market & Gap Analytics (Completed)
 
 **Goal:** Remove dependence of `job_skills` and market reporting on a 1,000-line hardcoded regex file.
 
-1. **Option A (Target-Driven Extraction):**
-   * Instead of a global 172-skill taxonomy, drive extraction based on the candidate's active `target_roles` and profile skills.
-   * Only extract and track skills relevant to the user's career domain.
-2. **Option B (Zero-Shot / Embedding Extraction):**
-   * Use a lightweight zero-shot model or local embedding model (e.g., `FastEmbed` / `bge-small-en`) to extract technical terms or match job description vectors against candidate profile vectors.
-3. **Migrate Hard Blocker Patterns:**
-   * Move the `blockers:` section from `skills.yaml` into explicit candidate dealbreakers in `profile.dealbreakers_json` or a streamlined configuration block.
+1. **Target-Driven & Open-Vocabulary Extraction (Implemented):**
+   * Extended `Taxonomy` with `Taxonomy.from_profile(profile, domain_skills=...)` and `enrich_from_profile(profile)` to derive vocabulary directly from the candidate's active profile and target domain.
+   * `Skill` now compiles boundary-safe alternation using `(?<!\w)...(?!\w)` to properly match non-alphanumeric tokens (`C++`, `C#`, `.NET`, `A/B testing`) and open-vocabulary skills without manual regex authoring.
+   * `Taxonomy.clone()` ensures cached base taxonomies remain immutable when enriched per-profile.
+2. **Decouple Market Analytics & Gap Analysis (Implemented):**
+   * `GapAnalysis`, `MarketAnalytics`, and `JobScorer` now accept `taxonomy: Taxonomy | None = None`.
+   * Open-vocabulary skills not in `skills.yaml` cleanly resolve label, category, and effort from `profile.skills` or clean fallback.
+   * `market_repo.skill_exists` added to verify skills directly in the database.
+   * `/api/skills/{skill}` now supports any skill in the candidate's profile or observed in market postings, eliminating false 404s for non-YAML skills.
+3. **Migrate Hard Blocker Patterns (Implemented):**
+   * Decoupled `blockers:` from `skills.yaml` into `careerradar/taxonomy/blockers.py` (`DEFAULT_BLOCKERS`, `Blocker`, and `BlockerExtractor`).
+   * Supports custom blocker overrides from `config.yaml` and dynamic candidate dealbreakers from `profile.dealbreakers` / `profile.dealbreakers_json`.
+   * `Taxonomy.extract_blockers()` and `runner.py` leverage the decoupled blocker extractor with full backward compatibility.
 
 ---
 
-### Phase 4: Deprecate and Retire `data/skills.yaml`
+### Phase 4: Deprecate and Retire `data/skills.yaml` (Completed)
 
 **Goal:** Clean removal of the legacy scaffold.
 
-1. Retire `careerradar/search/keyword_score.py` (`JobScorer`).
-2. Deprecate `jobs.taxonomy_hash` or re-point it to track `profile_version` and `prompt_hash`.
-3. Safely remove `data/skills.yaml` and simplify `careerradar/taxonomy/`.
+1. **Retire `careerradar/search/keyword_score.py` (`JobScorer`):**
+   * Marked `keyword_score.py` and `JobScorer` as deprecated and retired with runtime `DeprecationWarning`.
+   * Updated `runner.py` to decouple scraping from mandatory keyword scoring (`scorer: JobScorer | None`), cleanly defaulting to `match_score: 0` without requiring deterministic scoring.
+   * `scoring/worker.py` no longer invokes `JobScorer` when `include_skill_hint` is disabled.
+
+2. **Deprecate `jobs.taxonomy_hash` & Re-point Provenance:**
+   * Deprecated `jobs.taxonomy_hash` in favor of tracking evaluation provenance via `profile_version` and `prompt_hash` in `job_verdicts`.
+   * Updated `status.py` output to reflect that `jobs.taxonomy_hash` is deprecated and show `skills` hash dynamically.
+   * `runner.py` now writes `tax_hash` only if taxonomy has skills.
+
+3. **Safely Remove `data/skills.yaml` & Simplify `careerradar/taxonomy/`:**
+   * Removed `data/skills.yaml` from the repository entirely.
+   * Updated `careerradar/taxonomy/skills.py` (`Taxonomy` and `load_taxonomy()`) to operate as an open-vocabulary engine that dynamically populates from candidate profiles or runs cleanly empty with default blockers.
+   * Unit tests updated to run with decoupled test fixtures, preserving 100% test coverage across all taxonomy regex, extraction, blocker, and scoring functionality.
 
 ---
 

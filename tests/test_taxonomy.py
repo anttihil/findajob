@@ -17,22 +17,238 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from careerradar.taxonomy.skills import load_taxonomy
+from careerradar.taxonomy.skills import Taxonomy, load_taxonomy
+
+TEST_TAXONOMY_SPEC = {
+    "version": 1,
+    "categories": [
+        "language",
+        "language_human",
+        "frontend",
+        "backend",
+        "database",
+        "cloud",
+        "infrastructure",
+        "devops",
+        "ai_ml",
+        "data",
+        "tool",
+        "other",
+    ],
+    "skills": {
+        "golang": {
+            "label": "Go",
+            "category": "language",
+            "aliases": ["golang", "go lang"],
+            "strict_aliases": ["go"],
+            "context": [
+                "golang",
+                "goroutine",
+                "goroutines",
+                "grpc",
+                "gin framework",
+                "python",
+                "gofmt",
+                "microservices",
+            ],
+        },
+        "r_lang": {
+            "label": "R",
+            "category": "language",
+            "aliases": ["r_lang"],
+            "strict_aliases": ["r"],
+            "context": ["statistical", "modelling", "tidyverse", "ggplot"],
+        },
+        "ray": {
+            "label": "Ray",
+            "category": "ai_ml",
+            "strict_aliases": ["ray"],
+            "context": ["serve", "anyscale", "distributed training"],
+        },
+        "spark": {
+            "label": "Spark",
+            "category": "data",
+            "aliases": ["apache spark", "pyspark"],
+            "strict_aliases": ["spark"],
+            "context": ["apache spark", "pyspark", "etl", "data pipelines"],
+        },
+        "uv_tool": {
+            "label": "uv",
+            "category": "tool",
+            "strict_aliases": ["uv"],
+            "context": ["python", "packager", "pyproject.toml", "dependency management"],
+        },
+        "shell": {
+            "label": "Shell",
+            "category": "language",
+            "strict_aliases": ["shell"],
+            "context": ["scripting", "linux", "automation"],
+        },
+        "csharp": {
+            "label": "C#",
+            "category": "language",
+            "match": "literal",
+            "pattern": r"(?<![\w#])c#(?!\w)|\bc\s?sharp\b",
+        },
+        "cplusplus": {
+            "label": "C++",
+            "category": "language",
+            "match": "literal",
+            "pattern": r"(?<![\w+])c\+\+(?![\w+])|\bcpp\b",
+        },
+        "dotnet": {
+            "label": ".NET",
+            "category": "backend",
+            "match": "literal",
+            "pattern": r"(?<![\w.])\.net\b|\bdotnet\b|\basp\.net\b",
+        },
+        "finnish": {
+            "label": "Finnish",
+            "category": "language_human",
+            "aliases": ["finnish"],
+            "user_level": 3,
+        },
+        "english": {
+            "label": "English",
+            "category": "language_human",
+            "aliases": ["english"],
+            "user_level": 3,
+        },
+        "swedish": {
+            "label": "Swedish",
+            "category": "language_human",
+            "aliases": ["swedish"],
+            "user_level": 0,
+        },
+        "react": {
+            "label": "React",
+            "category": "frontend",
+            "aliases": ["React", "ReactJS", "react.js"],
+        },
+        "postgresql": {
+            "label": "PostgreSQL",
+            "category": "database",
+            "aliases": ["PostgreSQL", "postgres"],
+        },
+        "vllm": {
+            "label": "vLLM",
+            "category": "ai_ml",
+            "aliases": ["vLLM"],
+        },
+        "nginx": {
+            "label": "nginx",
+            "category": "infrastructure",
+            "aliases": ["nginx"],
+        },
+        "aws": {
+            "label": "AWS",
+            "category": "cloud",
+            "aliases": ["aws"],
+        },
+        "ec2": {
+            "label": "EC2",
+            "category": "cloud",
+            "aliases": ["ec2"],
+        },
+        "s3": {
+            "label": "S3",
+            "category": "cloud",
+            "aliases": ["s3"],
+        },
+        "iam": {
+            "label": "IAM",
+            "category": "cloud",
+            "aliases": ["iam"],
+        },
+        "vpc": {
+            "label": "VPC",
+            "category": "cloud",
+            "aliases": ["vpc"],
+        },
+        "terraform": {
+            "label": "Terraform",
+            "category": "infrastructure",
+            "aliases": ["terraform"],
+        },
+        "ansible": {
+            "label": "Ansible",
+            "category": "infrastructure",
+            "aliases": ["ansible"],
+        },
+        "docker": {
+            "label": "Docker",
+            "category": "infrastructure",
+            "aliases": ["docker"],
+        },
+        "kubernetes": {
+            "label": "Kubernetes",
+            "category": "infrastructure",
+            "aliases": ["kubernetes", "eks", "gke"],
+        },
+        "ci_cd": {
+            "label": "CI/CD",
+            "category": "devops",
+            "aliases": ["ci/cd", "ci cd"],
+        },
+        "github_actions": {
+            "label": "GitHub Actions",
+            "category": "devops",
+            "aliases": ["github actions"],
+        },
+        "python": {
+            "label": "Python",
+            "category": "language",
+            "aliases": ["python"],
+        },
+        "prometheus": {
+            "label": "Prometheus",
+            "category": "infrastructure",
+            "aliases": ["prometheus"],
+        },
+        "grafana": {
+            "label": "Grafana",
+            "category": "infrastructure",
+            "aliases": ["grafana"],
+        },
+        "kafka": {
+            "label": "Kafka",
+            "category": "data",
+            "aliases": ["kafka"],
+        },
+        "gcp": {
+            "label": "GCP",
+            "category": "cloud",
+            "aliases": ["gcp", "google cloud", "gke"],
+        },
+    },
+}
 
 
 class TaxonomyIntegrityTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.tax = load_taxonomy()
+        self.tax = Taxonomy(data=TEST_TAXONOMY_SPEC)
+
+    def test_default_taxonomy_is_open_vocabulary_and_empty_without_yaml(self) -> None:
+        tax = Taxonomy()
+        self.assertEqual(len(tax), 0)
+        self.assertEqual(tax.validate(), [])
+        self.assertGreater(len(tax.blockers), 0)
+
+    def test_load_taxonomy_returns_instance_without_yaml(self) -> None:
+        tax = load_taxonomy()
+        self.assertIsNotNone(tax)
+        self.assertEqual(tax.validate(), [])
 
     def test_validates_clean(self) -> None:
         problems = self.tax.validate()
         self.assertEqual(problems, [], f"taxonomy problems: {problems}")
 
     def test_has_meaningful_size(self) -> None:
-        self.assertGreater(len(self.tax), 100)
+        self.assertGreater(len(self.tax), 20)
 
     def test_hash_is_stable_and_content_derived(self) -> None:
-        self.assertEqual(self.tax.hash, load_taxonomy().hash)
+        tax2 = Taxonomy(data=TEST_TAXONOMY_SPEC)
+        self.assertEqual(self.tax.hash, tax2.hash)
         self.assertEqual(len(self.tax.hash), 16)
 
     def test_every_skill_has_a_known_category(self) -> None:
@@ -50,7 +266,7 @@ class LiteralMatchTests(unittest.TestCase):
     """Tokens that word-boundary matching cannot express."""
 
     def setUp(self) -> None:
-        self.tax = load_taxonomy()
+        self.tax = Taxonomy(data=TEST_TAXONOMY_SPEC)
 
     def _found(self, text: str) -> set[str]:
         return set(self.tax.extract(text))
@@ -81,7 +297,7 @@ class FalsePositiveGauntletTests(unittest.TestCase):
     """Phrases lifted from the shape of real job ads that must NOT produce a match."""
 
     def setUp(self) -> None:
-        self.tax = load_taxonomy()
+        self.tax = Taxonomy(data=TEST_TAXONOMY_SPEC)
 
     def _found(self, text: str) -> set[str]:
         return set(self.tax.extract(text))
@@ -176,7 +392,7 @@ class FalsePositiveGauntletTests(unittest.TestCase):
 
 class ExtractionTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.tax = load_taxonomy()
+        self.tax = Taxonomy(data=TEST_TAXONOMY_SPEC)
 
     def test_in_title_flag_is_set(self) -> None:
         found = self.tax.extract(
@@ -235,7 +451,7 @@ class ExtractionTests(unittest.TestCase):
 
 class BlockerTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.tax = load_taxonomy()
+        self.tax = Taxonomy(data=TEST_TAXONOMY_SPEC)
 
     def test_eu_work_authorization_detected(self) -> None:
         found = self.tax.extract_blockers(
@@ -261,7 +477,7 @@ class BlockerTests(unittest.TestCase):
 
 class CanonicalizationTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.tax = load_taxonomy()
+        self.tax = Taxonomy(data=TEST_TAXONOMY_SPEC)
 
     def test_resume_surfaces_map_to_canonical_keys(self) -> None:
         keys = self.tax.canonicalize(["ReactJS", "PostgreSQL", "vLLM", "nginx"])

@@ -189,15 +189,21 @@ def get_db() -> "_PooledDatabase":
 
 def analytics_context(
     db: Database,  # noqa: ARG001 - endpoint dependency signature
-) -> tuple[dict[str, Any], "Taxonomy", "RoleTaxonomy", "ProfileAdapter"]:
+) -> tuple[dict[str, Any], "Taxonomy | None", "RoleTaxonomy", "ProfileAdapter"]:
     """Shared objects for the analytics endpoints."""
     config = load_config()
-    taxonomy = load_taxonomy()
+    taxonomy: Taxonomy | None = None
+    try:
+        taxonomy = load_taxonomy()
+    except Exception:  # noqa: BLE001
+        taxonomy = None
     roles = load_roles()
     profile = load_profile(taxonomy=taxonomy)
     # `required` defaults to True, so load_profile raises NoActiveProfile rather than
     # returning None -- this is here only to narrow the type for callers.
     assert profile is not None
+    if taxonomy is not None:
+        taxonomy.enrich_from_profile(profile)
     return config, taxonomy, roles, profile
 
 
@@ -788,10 +794,17 @@ def skills_gap(
 def skill_detail(
     skill: str, window_days: int = Query(90, ge=1, le=365), limit: int = Query(40, ge=1, le=200)
 ):
+    from careerradar.market import repository as market_repo
+
     db = get_db()
     try:
         config, taxonomy, roles, profile = analytics_context(db)
-        if skill not in taxonomy:
+        is_known = (
+            (taxonomy is not None and skill in taxonomy)
+            or profile.has(skill)
+            or market_repo.skill_exists(db.conn, skill)
+        )
+        if not is_known:
             raise HTTPException(status_code=404, detail=f"Unknown skill: {skill}")
         return GapAnalysis(db, config, roles, taxonomy, profile).skill_detail(
             skill, window_days=window_days, limit=limit

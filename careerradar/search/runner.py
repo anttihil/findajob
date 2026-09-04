@@ -100,8 +100,8 @@ def run_sync(
     scraper_config = with_location_weights(scraper_config, roles)
 
     for label, problems in (
-        ("skills.yaml", taxonomy.validate()),
-        ("target_roles", roles.validate()),
+        ("skills_taxonomy", taxonomy.validate() if taxonomy else []),
+        ("target_roles", roles.validate() if roles else []),
     ):
         if problems:
             logger.error(f"{label} is invalid; aborting:")
@@ -117,7 +117,13 @@ def run_sync(
         add_sync_error("Profile", str(exc))
         return None
     assert profile is not None, "load_profile(required=True) never returns None"
-    logger.info(f"Profile: v{profile.version}, {len(profile)} skills (taxonomy {taxonomy.hash})")
+    if taxonomy is not None:
+        taxonomy.enrich_from_profile(profile)
+        logger.info(
+            f"Profile: v{profile.version}, {len(profile)} skills (taxonomy {taxonomy.hash})"
+        )
+    else:
+        logger.info(f"Profile: v{profile.version}, {len(profile)} skills (no taxonomy)")
 
     if not dry_run:
         if is_sync_running() and not force:
@@ -158,7 +164,7 @@ def run_sync(
         if not dry_run:
             run_id = db.start_sync_run(
                 mode,
-                taxonomy_hash=taxonomy.hash,
+                taxonomy_hash=taxonomy.hash if (taxonomy and taxonomy.skills) else None,
                 plan_hash=plan_hash(roles, config),
             )
 
@@ -307,7 +313,7 @@ def _scrape_one(
     circuit: SourceCircuit,
     task: "ScrapeTask",
     run_id: int | None,
-    scorer: JobScorer,
+    scorer: JobScorer | None,
     taxonomy: "Taxonomy",
     roles: "RoleTaxonomy",
     config: dict[str, Any],
@@ -398,11 +404,29 @@ def _scrape_one(
         if posting.get("role_family"):
             on_topic += 1
 
-        result = scorer.score(posting)
-        posting["match_score"] = result["score"]
-        posting["matched_skills"] = result["matched_skills"]
-        posting["matched_count"] = result["matched_count"]
-        posting["required_count"] = result["required_count"]
+        if scorer is not None:
+            result = scorer.score(posting)
+            posting["match_score"] = result["score"]
+            posting["matched_skills"] = result["matched_skills"]
+            posting["matched_count"] = result["matched_count"]
+            posting["required_count"] = result["required_count"]
+        else:
+            skills = posting.get("skills") or {}
+            posting["match_score"] = 0
+            posting["matched_skills"] = []
+            posting["matched_count"] = 0
+            posting["required_count"] = len(skills)
+            result = {
+                "score": 0,
+                "components": {},
+                "weights": {},
+                "matched_skills": [],
+                "missing_skills": [],
+                "matched_count": 0,
+                "required_count": len(skills),
+                "coverage_ratio": None,
+                "resume_match": roles.resume_for(posting.get("role_family")) if roles else None,
+            }
         posting["scorer_version"] = SCORER_VERSION
         posting["pipeline_state"] = "new"
         stored.append((posting, result))
@@ -410,7 +434,8 @@ def _scrape_one(
         if dry_run:
             continue
 
-        job_id, is_new = db.upsert_posting(posting, run_id=run_id, taxonomy_hash=taxonomy.hash)
+        tax_hash = taxonomy.hash if (taxonomy is not None and taxonomy.skills) else None
+        job_id, is_new = db.upsert_posting(posting, run_id=run_id, taxonomy_hash=tax_hash)
         assert job_id is not None, "upsert_posting always inserts or finds a row"
         if is_new:
             new_count += 1
@@ -572,8 +597,10 @@ def _report_coverage(db: Database, scraper_config: dict[str, Any]) -> None:
 SCORER_VERSION = 1
 
 
-def _warn_if_taxonomy_moved(db: Database, taxonomy: "Taxonomy") -> None:
-    """Say so when stored postings were scored under a different skills.yaml."""
+def _warn_if_taxonomy_moved(db: Database, taxonomy: "Taxonomy | None") -> None:
+    """Say so when stored postings were scored under a different skills taxonomy."""
+    if taxonomy is None or not taxonomy.skills:
+        return
     stale = search_repo.count_stale_taxonomy(db.conn, taxonomy.hash)
     old_scorer = search_repo.count_old_scorer(db.conn, SCORER_VERSION)
     if stale or old_scorer:

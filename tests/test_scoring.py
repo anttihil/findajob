@@ -30,7 +30,7 @@ from careerradar.search.keyword_score import (
     title_family_fit,
 )
 from careerradar.taxonomy.roles import RoleTaxonomy
-from careerradar.taxonomy.skills import Taxonomy, load_taxonomy
+from careerradar.taxonomy.skills import Taxonomy
 
 SCORING_TEST_TAXONOMY_SPEC = {
     "families": {
@@ -75,6 +75,58 @@ SCORING_TEST_TAXONOMY_SPEC = {
 }
 
 
+SCORING_TEST_SKILLS_SPEC: dict[str, Any] = {
+    "version": 1,
+    "categories": [
+        "language",
+        "frontend",
+        "backend",
+        "database",
+        "cloud",
+        "infrastructure",
+        "data",
+        "ai_ml",
+    ],
+    "skills": {
+        "python": {"label": "Python", "category": "language", "aliases": ["python"]},
+        "docker": {"label": "Docker", "category": "infrastructure", "aliases": ["docker"]},
+        "terraform": {
+            "label": "Terraform",
+            "category": "infrastructure",
+            "aliases": ["terraform"],
+        },
+        "aws": {"label": "AWS", "category": "cloud", "aliases": ["aws"]},
+        "postgresql": {
+            "label": "PostgreSQL",
+            "category": "database",
+            "aliases": ["postgresql"],
+        },
+        "react": {"label": "React", "category": "frontend", "aliases": ["react"]},
+        "typescript": {
+            "label": "TypeScript",
+            "category": "frontend",
+            "aliases": ["typescript"],
+        },
+        "kubernetes": {
+            "label": "Kubernetes",
+            "category": "infrastructure",
+            "aliases": ["kubernetes"],
+        },
+        "kafka": {"label": "Kafka", "category": "data", "aliases": ["kafka"]},
+        "snowflake": {"label": "Snowflake", "category": "data", "aliases": ["snowflake"]},
+        "spark": {"label": "Spark", "category": "data", "aliases": ["spark"]},
+        "scala": {"label": "Scala", "category": "language", "aliases": ["scala"]},
+        "llm_apps": {"label": "LLM Apps", "category": "ai_ml", "aliases": ["llm_apps"]},
+        "claude_api": {
+            "label": "Claude API",
+            "category": "ai_ml",
+            "aliases": ["claude_api"],
+            "implies": ["llm_apps"],
+        },
+    },
+}
+
+
 def make_profile(
     skills: list[str] | dict[str, Any] | set[str], taxonomy: Taxonomy
 ) -> ProfileAdapter:
@@ -94,7 +146,7 @@ def make_profile(
 
 class CoverageTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.tax = load_taxonomy()
+        self.tax = Taxonomy(data=SCORING_TEST_SKILLS_SPEC)
         self.profile = make_profile(
             ["python", "docker", "terraform"],
             self.tax,
@@ -163,7 +215,7 @@ class CoverageTests(unittest.TestCase):
 
 class ComponentTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.tax = load_taxonomy()
+        self.tax = Taxonomy(data=SCORING_TEST_SKILLS_SPEC)
         self.roles = RoleTaxonomy(spec_dict=SCORING_TEST_TAXONOMY_SPEC)
         self.profile = make_profile(["python"], self.tax)
 
@@ -187,7 +239,7 @@ class CoverageRatioTests(unittest.TestCase):
     """The ratio must be able to say "unknown", which the smoothed score cannot."""
 
     def setUp(self) -> None:
-        self.tax = load_taxonomy()
+        self.tax = Taxonomy(data=SCORING_TEST_SKILLS_SPEC)
         self.profile = make_profile(["python"], self.tax)
 
     def test_a_posting_naming_nothing_recognised_has_unknown_coverage(self) -> None:
@@ -204,7 +256,7 @@ class ImpliesTests(unittest.TestCase):
     """A posting asking for `llm_apps` should see evidence of `claude_api`."""
 
     def setUp(self) -> None:
-        self.tax = load_taxonomy()
+        self.tax = Taxonomy(data=SCORING_TEST_SKILLS_SPEC)
         self.profile = make_profile(["claude_api"], self.tax)
 
     def test_a_child_skill_evidences_its_parent(self) -> None:
@@ -226,7 +278,7 @@ class ImpliesTests(unittest.TestCase):
 
 class ScorerTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.tax = load_taxonomy()
+        self.tax = Taxonomy(data=SCORING_TEST_SKILLS_SPEC)
         self.roles = RoleTaxonomy(spec_dict=SCORING_TEST_TAXONOMY_SPEC)
         self.profile = make_profile(
             [
@@ -414,6 +466,14 @@ class ScorerTests(unittest.TestCase):
         # rather than silently reintroducing a weight nothing reads.
         self.assertNotIn("bm25", scorer.weights)
         self.assertEqual(scorer.weights["skill_coverage"], 1.0)
+
+    def test_job_scorer_emits_deprecation_warning(self) -> None:
+        import warnings
+
+        with warnings.catch_warnings(record=True) as recorded:
+            warnings.simplefilter("always")
+            JobScorer(self.profile, self.roles, self.tax)
+            self.assertTrue(any(issubclass(w.category, DeprecationWarning) for w in recorded))
 
 
 if __name__ == "__main__":

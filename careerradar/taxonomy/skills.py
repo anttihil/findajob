@@ -62,20 +62,27 @@ class Skill:
         self.user_level = spec.get("user_level")
 
         match_mode = spec.get("match", "word")
+        if not self.aliases and not self.strict_aliases and match_mode != "literal":
+            aliases = [self.label]
+            if "_" in self.key:
+                aliases.append(self.key.replace("_", " "))
+            self.aliases = aliases
+
         if match_mode == "literal":
             pattern = spec.get("pattern")
             if not pattern:
                 raise ValueError(f"skill '{key}': match: literal requires a pattern")
             self._regex = re.compile(pattern, re.IGNORECASE)
         elif self.aliases:
-            self._regex = re.compile(
-                r"\b(?:{})\b".format(
-                    "|".join(
-                        re.escape(a.strip()) for a in sorted(self.aliases, key=len, reverse=True)
-                    )
-                ),
-                re.IGNORECASE,
-            )
+            # Build boundary-safe alternation: (?<!\w) and (?!\w) ensure tokens like
+            # C++, C#, .NET match without requiring manual regex pattern authoring.
+            patterns = []
+            for a in sorted(self.aliases, key=len, reverse=True):
+                clean_a = a.strip()
+                if not clean_a:
+                    continue
+                patterns.append(rf"(?<!\w){re.escape(clean_a)}(?!\w)")
+            self._regex = re.compile("|".join(patterns), re.IGNORECASE) if patterns else None
         else:
             self._regex = None
 
@@ -143,49 +150,146 @@ class Skill:
         return f"<Skill {self.key}>"
 
 
-class Blocker:
-    __slots__ = ("_regex", "key", "label")
-
-    def __init__(self, key: str, spec: dict[str, Any]) -> None:
-        self.key = key
-        self.label = spec.get("label", key)
-        patterns = spec.get("patterns", [])
-        if not patterns:
-            raise ValueError(f"blocker '{key}': needs at least one pattern")
-        self._regex = re.compile("|".join(f"(?:{p})" for p in patterns), re.IGNORECASE)
-
-    def search(self, text: str) -> bool:
-        return bool(self._regex.search(text))
+from careerradar.taxonomy.blockers import DEFAULT_BLOCKERS, Blocker  # noqa: E402
 
 
 class Taxonomy:
-    def __init__(self, path: str | None = None) -> None:
-        self.path = path or SKILLS_PATH
-        with open(self.path, encoding="utf-8") as handle:
-            raw = handle.read()
-        data = yaml.safe_load(raw)
+    def __init__(
+        self,
+        path: str | None = None,
+        data: dict[str, Any] | None = None,
+        profile: Any = None,
+    ) -> None:
+        self.path = path
+        raw = ""
+        loaded_data: dict[str, Any] = {}
+        if data is not None:
+            loaded_data = data
+            raw = yaml.dump(data) if yaml else str(sorted(data.items()))
+        elif self.path and os.path.exists(self.path):
+            with open(self.path, encoding="utf-8") as handle:
+                raw = handle.read()
+            parsed = yaml.safe_load(raw)
+            if isinstance(parsed, dict):
+                loaded_data = parsed
+        else:
+            loaded_data = {}
 
-        self.version = data.get("version", 0)
-        self.categories = data.get("categories", [])
+        self.version = loaded_data.get("version", 0)
+        self.categories = list(loaded_data.get("categories", []))
         self.skills: dict[str, Skill] = {}
-        for key, spec in (data.get("skills") or {}).items():
+        for key, spec in (loaded_data.get("skills") or {}).items():
             self.skills[key] = Skill(key, spec or {})
+
         self.blockers: dict[str, Blocker] = {}
-        for key, spec in (data.get("blockers") or {}).items():
-            self.blockers[key] = Blocker(key, spec or {})
+        raw_blockers = loaded_data.get("blockers")
+        if raw_blockers:
+            for key, spec in raw_blockers.items():
+                self.blockers[key] = Blocker(key, spec or {})
+        else:
+            for key, spec in DEFAULT_BLOCKERS.items():
+                self.blockers[key] = Blocker(key, spec or {})
 
-        # Hash the file contents, not the parsed structure: any edit that could change what
-        # a run would measure must change the hash, so trend queries can refuse to compare
-        # figures produced under different taxonomies.
-        self.hash = hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
-
-        # Inverted once at load: coverage asks "what evidences this parent?", which is the
-        # opposite direction from how the edges are declared.
+        self.hash = ""
         self._implied_by: dict[str, set[str]] = {}
+        self._closure_cache: dict[Any, frozenset[str]] = {}
+        self._recompute_structures(raw)
+
+        if profile is not None:
+            self.enrich_from_profile(profile)
+
+    def _recompute_structures(self, raw: str = "") -> None:
+        if raw:
+            self.hash = hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
+        else:
+            content = f"v{self.version}:" + ",".join(sorted(self.skills.keys()))
+            self.hash = hashlib.sha256(content.encode("utf-8")).hexdigest()[:16]
+
+        self._implied_by = {}
         for key, skill in self.skills.items():
             for parent in skill.implies:
                 self._implied_by.setdefault(parent, set()).add(key)
-        self._closure_cache: dict[Any, frozenset[str]] = {}
+        self._closure_cache = {}
+
+    def clone(self) -> "Taxonomy":
+        """Return an independent copy that can be enriched without mutating the cached base."""
+        tax = Taxonomy(path=None, data={})
+        tax.version = self.version
+        tax.categories = list(self.categories)
+        tax.skills = dict(self.skills)
+        tax.blockers = dict(self.blockers)
+        tax.hash = self.hash
+        tax._implied_by = {k: set(v) for k, v in self._implied_by.items()}
+        tax._closure_cache = dict(self._closure_cache)
+        return tax
+
+    def enrich_from_profile(self, profile: Any) -> None:
+        """Add open-vocabulary candidate profile skills to this taxonomy."""
+        skills_to_add: dict[str, dict[str, Any]] = {}
+        if hasattr(profile, "skills"):
+            if isinstance(profile.skills, dict):
+                for k, rec in profile.skills.items():
+                    label = rec.get("label", k)
+                    if k in self.skills or self.canonicalize([label]):
+                        continue
+                    skills_to_add[k] = {
+                        "label": label,
+                        "category": rec.get("category", "other"),
+                        "aliases": [label, k.replace("_", " ")],
+                    }
+            elif isinstance(profile.skills, list):
+                for cat in profile.skills:
+                    c_name = getattr(cat, "category", "other")
+                    c_skills = getattr(cat, "skills", [])
+                    for s in c_skills:
+                        clean = s.strip()
+                        if not clean:
+                            continue
+                        if self.canonicalize([clean]):
+                            continue
+                        k = re.sub(r"[^a-z0-9_]+", "_", clean.lower()).strip("_")
+                        if k in self.skills:
+                            continue
+                        skills_to_add[k] = {
+                            "label": clean,
+                            "category": c_name,
+                            "aliases": [clean, k.replace("_", " ")],
+                        }
+
+        changed = False
+        for k, spec in skills_to_add.items():
+            if k not in self.skills:
+                self.skills[k] = Skill(k, spec)
+                cat = spec.get("category", "other")
+                if cat not in self.categories:
+                    self.categories.append(cat)
+                changed = True
+
+        if changed:
+            self._recompute_structures()
+
+    @classmethod
+    def from_profile(
+        cls,
+        profile: Any,
+        domain_skills: dict[str, Any] | None = None,
+        base_taxonomy: "Taxonomy | None" = None,
+    ) -> "Taxonomy":
+        """Build target-driven taxonomy directly from candidate profile and domain skills."""
+        tax = cls(path=None, data={})
+        if base_taxonomy is not None:
+            tax.version = base_taxonomy.version
+            tax.categories = list(base_taxonomy.categories)
+            tax.skills = dict(base_taxonomy.skills)
+            tax.blockers = dict(base_taxonomy.blockers)
+        if domain_skills:
+            for k, spec in domain_skills.items():
+                tax.skills[k] = Skill(k, spec or {})
+                cat = (spec or {}).get("category", "other")
+                if cat not in tax.categories:
+                    tax.categories.append(cat)
+        tax.enrich_from_profile(profile)
+        return tax
 
     # -- lookup ------------------------------------------------------------------------
     def __len__(self) -> int:
@@ -349,18 +453,38 @@ class Taxonomy:
 _CACHE: dict[tuple[str, float], "Taxonomy"] = {}
 
 
-def load_taxonomy(path: str | None = None) -> "Taxonomy":
-    """Load and cache a taxonomy, keyed by path and mtime so edits are picked up."""
+def load_taxonomy(path: str | None = None, profile: Any = None) -> "Taxonomy":
+    """Load and cache a taxonomy.
+
+    If path is provided and exists, loads the YAML file.
+    Otherwise returns an open-vocabulary taxonomy (optionally enriched from profile).
+    """
     resolved = path or SKILLS_PATH
-    try:
-        stamp = os.path.getmtime(resolved)
-    except OSError:
-        stamp = 0
+    stamp = 0
+    if os.path.exists(resolved):
+        try:
+            stamp = os.path.getmtime(resolved)
+        except OSError:
+            stamp = 0
     cache_key = (resolved, stamp)
     if cache_key not in _CACHE:
         _CACHE.clear()
-        _CACHE[cache_key] = Taxonomy(resolved)
-    return _CACHE[cache_key]
+        _CACHE[cache_key] = Taxonomy(path=resolved if os.path.exists(resolved) else None)
+    tax = _CACHE[cache_key]
+    if profile is not None:
+        tax = tax.clone()
+        tax.enrich_from_profile(profile)
+    elif not tax.skills:
+        try:
+            from careerradar.profile.repository import load_profile as repo_load_profile
+
+            active_p = repo_load_profile()
+            if active_p and active_p.skills:
+                tax = tax.clone()
+                tax.enrich_from_profile(active_p)
+        except Exception:  # noqa: BLE001
+            pass
+    return tax
 
 
 if __name__ == "__main__":

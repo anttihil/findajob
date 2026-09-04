@@ -1,28 +1,19 @@
-"""Deterministic requirement coverage.
+"""Deterministic requirement coverage. [DEPRECATED / RETIRED]
 
-What this measures is narrow and worth stating precisely: of the skills this posting names
-that our taxonomy recognises, how many can the candidate evidence. It is not a fit score
-and it does not rank the dashboard -- `scoring/` does that, with a model that can read the
-posting. Coverage feeds three things instead: the skill hint in the scoring prompt, the
-gap analytics in `market/`, and a coarse tiebreak.
-
-Two corrections from what this file used to be.
-
-BM25 is gone. It carried 25% of the weight and its query was `profile_tokens()` -- a bag of
-the candidate's skill labels, byte-identical for every posting in the corpus. So it asked
-"how much rare vocabulary does this posting share with a fixed word list", which is a
-noisier restatement of the coverage component it sat next to, computed on raw tokens
-instead of canonical keys. Nothing validated it, and a posting matching four generic terms
-(linux, python, shell, tech_writing) scored the same 70 as one matching eighteen.
-
-The result is no longer presented as a percent. It never was one: the coverage prior, an
-unspecified seniority and an unmapped role family together put ~23 points on the floor, so
-the observed range across 5,932 postings was 15-80. `coverage_ratio` reports matched over
-required with its denominator, and is None -- not 1.0 -- when the posting named nothing we
-recognise.
+This module and `JobScorer` are retired as part of Phase 4 of the taxonomy decoupling.
+Candidate-job fit scoring is handled by the LLM-agentic pipeline in `careerradar/scoring/`.
+Retained for backwards compatibility.
 """
 
+import warnings
 from typing import TYPE_CHECKING, Any
+
+warnings.warn(
+    "careerradar.search.keyword_score is deprecated and retired in Phase 4. "
+    "Use the LLM scoring pipeline for fit evaluation.",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
 if TYPE_CHECKING:
     from careerradar.profile.adapter import ProfileAdapter
@@ -140,15 +131,24 @@ def seniority_fit(seniority: str | None) -> float:
 
 
 class JobScorer:
-    """Scores postings against the user profile. Deterministic and explainable."""
+    """[DEPRECATED / RETIRED] Scores postings against the user profile.
+
+    Retired in Phase 4. Candidate-job fit evaluation is performed by the LLM agentic
+    scoring pipeline.
+    """
 
     def __init__(
         self,
         profile: "ProfileAdapter",
         roles: "RoleTaxonomy",
-        taxonomy: "Taxonomy",
+        taxonomy: "Taxonomy | None" = None,
         weights: dict[str, float] | None = None,
     ) -> None:
+        warnings.warn(
+            "JobScorer is retired and deprecated. Use the LLM scoring pipeline instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         self.profile = profile
         self.roles = roles
         self.taxonomy = taxonomy
@@ -167,7 +167,10 @@ class JobScorer:
 
         required = posting.get("skills")
         if required is None:
-            required = self.taxonomy.extract(description, title=title)
+            if self.taxonomy is not None:
+                required = self.taxonomy.extract(description, title=title)
+            else:
+                required = {}
 
         coverage, matched, missing, ratio = skill_coverage(
             required, self.profile, taxonomy=self.taxonomy

@@ -126,11 +126,10 @@ The result is versioned and append-only. Every verdict records the `profile_vers
 produced it, so rebuilding your profile does not rewrite history — it lets you re-score and
 compare.
 
-**Skill keys are canonicalized against `data/skills.yaml` on the way in.** The model names
-skills the way a person would ("ReactJS", "D3.js"); the keyword layer looks them up by
-canonical key (`react`, `d3`). Left alone that mismatch is silent and expensive — a profile
-saying `reactjs` at level 3 answers `level("react") == 0`, so every React requirement scores
-as a gap. The first real build produced exactly this for 4 of 28 skills.
+**Skills are open-vocabulary and profile-driven.** The candidate profile defines skills directly
+across any discipline or industry without requiring static taxonomy file maintenance. The model
+reasons over candidate evidence and posting requirements directly during scoring rather than
+relying on brittle keyword checklist matching.
 
 ## Running
 
@@ -222,13 +221,11 @@ and every coverage figure downstream inherits the shortfall.
 
 Target roles, query terms, and search locations are stored in SQLite (`target_roles`, `target_queries`, `target_locations` tables) and managed directly via the Web Dashboard or CLI (`careerradar target`). The search matrix holds the cross-product of enabled queries across enabled locations. The scheduler rotates through these cells as a request-budget control, with cycle times tracking within the analysis window.
 
-`data/skills.yaml` is the shared vocabulary: 172 canonical skills with aliases. The profile
-and scraped descriptions both map onto these keys, which is what makes a match mean the same
-thing on both sides.
+Skills are open-vocabulary, derived dynamically from the candidate's active profile and
+target domain, allowing CareerRadar to generalize cleanly across any discipline.
 
-Editing taxonomy definitions changes what a run measures, so `taxonomy_hash` and `plan_hash` are
-recorded on every run and every stats row, and trend queries refuse to compare across a
-change.
+Scoring verdicts record the `profile_version` and `prompt_hash` to track provenance across
+profile revisions and prompt iterations.
 
 ## The scoring agent answers questions; it does not produce a score
 
@@ -360,9 +357,9 @@ loopback TCP port and have Serve proxy to a Unix socket (`tailscale serve unix:.
 ```
 careerradar/
 ├── core/       config, db, migrations, logging, paths, LLM construction + cost
-├── taxonomy/   skills.yaml loader & SQLite target taxonomy -- the shared vocabulary
+├── taxonomy/   open-vocabulary matcher & SQLite target taxonomy -- the shared vocabulary
 ├── profile/    document ingest, interview graph, canonicalization, versioned store
-├── search/     scheduler, sources, circuit breaker, proxies, normalizer, keyword score
+├── search/     scheduler, sources, circuit breaker, proxies, normalizer
 ├── scoring/    prompts, per-posting graph, queue worker
 ├── research/   company dossier graph, search tools, queue worker
 ├── market/     supply analytics, skill-gap analysis
@@ -370,7 +367,6 @@ careerradar/
 │   ├── frontend-src/   Preact + TypeScript dashboard (Vite), source of truth
 │   └── frontend/dist/  built output `npm run build` produces, gitignored
 └── cli.py
-data/           skills.yaml
 deploy/         systemd units, logrotate snippet for app.log
 docs/           deepseek.md -- the API constraints the scoring design rests on
                 operations.md -- status, the JSON API over ssh, read-only snapshots, logs

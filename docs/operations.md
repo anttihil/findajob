@@ -152,12 +152,8 @@ uv run careerradar status               # confirm the pipeline still reads healt
 
 ## Deploying a taxonomy change
  
-Editing `data/skills.yaml` is automatically applied on restart or via:
- 
-```bash
-careerradar migrate
-```
- 
+Skills are open-vocabulary and derived dynamically from the candidate's active profile and target domain.
+
 Target roles, queries, and locations are managed directly in SQLite via the web dashboard or CLI:
  
 ```bash

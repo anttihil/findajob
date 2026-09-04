@@ -120,7 +120,7 @@ class MarketAnalytics:
         db: "Database",
         config: dict[str, Any] | None,
         roles: "RoleTaxonomy",
-        taxonomy: "Taxonomy",
+        taxonomy: "Taxonomy | None" = None,
         profile: "ProfileAdapter | None" = None,
     ) -> None:
         self.db = db
@@ -412,7 +412,7 @@ class MarketAnalytics:
                 "generated_at": datetime.now(timezone.utc).isoformat(),
                 "window_days": window_days,
                 "exclude_agencies": self.analytics_config.get("exclude_agencies", True),
-                "taxonomy_hash": self.taxonomy.hash,
+                "taxonomy_hash": self.taxonomy.hash if self.taxonomy else None,
                 "roles_hash": self.roles.hash,
             },
         }
@@ -427,7 +427,7 @@ class MarketAnalytics:
             "total_rows": total,
             "suppressed_rows": total - published,
             "exclude_agencies": self.analytics_config.get("exclude_agencies", True),
-            "taxonomy_hash": self.taxonomy.hash,
+            "taxonomy_hash": self.taxonomy.hash if self.taxonomy else None,
             "roles_hash": self.roles.hash,
         }
 

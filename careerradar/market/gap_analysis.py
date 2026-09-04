@@ -80,15 +80,34 @@ class GapAnalysis:
         db: "Database",
         config: dict[str, Any] | None,
         roles: "RoleTaxonomy",
-        taxonomy: "Taxonomy",
-        profile: "ProfileAdapter",
+        taxonomy: "Taxonomy | None" = None,
+        profile: "ProfileAdapter | None" = None,
     ) -> None:
         self.db = db
         self.config = config or {}
         self.analytics_config = self.config.get("analytics", {}) or {}
         self.roles = roles
         self.taxonomy = taxonomy
-        self.profile = profile
+        self.profile = profile or self._empty_profile()
+
+    def _empty_profile(self) -> Any:
+        class _StubProfile:
+            def __init__(self) -> None:
+                self.skills: dict[str, Any] = {}
+
+            def has(self, key: str) -> bool:  # noqa: ARG002
+                return False
+
+            def level(self, key: str) -> int:  # noqa: ARG002
+                return 0
+
+            def keys(self) -> set[str]:
+                return set()
+
+            def evidence(self, key: str) -> list[str]:  # noqa: ARG002
+                return []
+
+        return _StubProfile()
 
     # -- corpus loading ---------------------------------------------------------------
     def _load_corpus(
@@ -221,7 +240,7 @@ class GapAnalysis:
                 "missing_weight": diagnostics["missing_weight"],
                 "strata_used": diagnostics["strata_used"],
                 "strata_available": diagnostics["strata_available"],
-                "taxonomy_hash": self.taxonomy.hash,
+                "taxonomy_hash": self.taxonomy.hash if self.taxonomy else None,
                 "roles_hash": self.roles.hash,
                 "window_below_minimum": window_days
                 < self.analytics_config.get("min_window_days", 30),
@@ -373,14 +392,24 @@ class GapAnalysis:
                 suppressed = SUPPRESS_COMPANY_CONCENTRATION
 
             user_has = self.profile.has(skill)
-            skill_meta = self.taxonomy.get(skill)
+            skill_meta = self.taxonomy.get(skill) if self.taxonomy else None
             effort = skill_meta.effort if skill_meta else "medium"
+
+            if self.taxonomy and skill in self.taxonomy:
+                label = self.taxonomy.label(skill)
+                category = self.taxonomy.category(skill)
+            elif self.profile.has(skill):
+                label = self.profile.skills[skill]["label"]
+                category = self.profile.skills[skill].get("category") or "other"
+            else:
+                label = skill.replace("_", " ").title()
+                category = "other"
 
             rows.append(
                 {
                     "skill": skill,
-                    "label": self.taxonomy.label(skill),
-                    "category": self.taxonomy.category(skill),
+                    "label": label,
+                    "category": category,
                     "user_has": user_has,
                     "user_level": self.profile.level(skill),
                     "effort": effort,
@@ -480,7 +509,7 @@ class GapAnalysis:
                 "n_eff": 0.0,
                 "cold_start": True,
                 "suppressed_reason": reason,
-                "taxonomy_hash": self.taxonomy.hash,
+                "taxonomy_hash": self.taxonomy.hash if self.taxonomy else None,
             },
         }
 
@@ -506,24 +535,44 @@ class GapAnalysis:
             window_start=window_start.isoformat(),
         )
 
+        if self.taxonomy and skill in self.taxonomy:
+            label = self.taxonomy.label(skill)
+            category = self.taxonomy.category(skill)
+        elif self.profile.has(skill):
+            label = self.profile.skills[skill]["label"]
+            category = self.profile.skills[skill].get("category") or "other"
+        else:
+            label = skill.replace("_", " ").title()
+            category = "other"
+
+        cooccurring_items = []
+        for r in cooccurring:
+            c_skill = r["skill"]
+            if self.taxonomy and c_skill in self.taxonomy:
+                c_label = self.taxonomy.label(c_skill)
+            elif self.profile.has(c_skill):
+                c_label = self.profile.skills[c_skill]["label"]
+            else:
+                c_label = c_skill.replace("_", " ").title()
+            cooccurring_items.append(
+                {
+                    "skill": c_skill,
+                    "label": c_label,
+                    "n": r["n"],
+                    "user_has": self.profile.has(c_skill),
+                }
+            )
+
         return {
             "skill": skill,
-            "label": self.taxonomy.label(skill),
-            "category": self.taxonomy.category(skill),
+            "label": label,
+            "category": category,
             "user_has": self.profile.has(skill),
             "user_level": self.profile.level(skill),
             "evidence": self.profile.evidence(skill),
             "window_days": window_days,
             "postings": postings,
-            "cooccurring": [
-                {
-                    "skill": r["skill"],
-                    "label": self.taxonomy.label(r["skill"]),
-                    "n": r["n"],
-                    "user_has": self.profile.has(r["skill"]),
-                }
-                for r in cooccurring
-            ],
+            "cooccurring": cooccurring_items,
             "by_role_family": [
                 {
                     "role_family": r["role_family"],

@@ -200,3 +200,9 @@ def get_skill_by_family(
          GROUP BY j.role_family ORDER BY n DESC
     """
     return conn.execute(query, (skill, window_start)).fetchall()
+
+
+def skill_exists(conn: sqlite3.Connection, skill: str) -> bool:
+    """Return True if the skill has any occurrences in the job_skills table."""
+    row = conn.execute("SELECT 1 FROM job_skills WHERE skill = ? LIMIT 1", (skill,)).fetchone()
+    return row is not None

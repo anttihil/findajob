@@ -125,16 +125,11 @@ def render(report: dict[str, Any]) -> str:
 
     taxonomy = report["taxonomy"]
     out += ["", "TAXONOMY"]
-    out.append(f"  skills.yaml {taxonomy['skills_hash']}   roles {taxonomy['roles_hash']}")
+    out.append(f"  skills {taxonomy['skills_hash']}   roles {taxonomy['roles_hash']}")
     for stored_hash, count in taxonomy["stored"][:3]:
         mark = "" if stored_hash == taxonomy["skills_hash"] else "  (stale)"
         out.append(f"  {count:>6} postings classified under {stored_hash}{mark}")
-    # Worth stating plainly, because the column name invites the wrong reading: jobs
-    # record which SKILLS taxonomy classified them and nothing about which target roles did.
-    # A role-pattern edit is therefore invisible here, and `--rescore-only` does not
-    # re-derive role_family either, so pattern edits only ever reach postings scraped after
-    # the edit landed.
-    out.append("  jobs.taxonomy_hash tracks skills.yaml only; role taxonomy drift is not recorded")
+    out.append("  jobs.taxonomy_hash is deprecated (tracks profile_version and prompt_hash)")
     return "\n".join(out)
 
 
