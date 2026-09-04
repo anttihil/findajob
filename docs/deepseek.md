@@ -13,7 +13,7 @@ So LangChain's `with_structured_output(..., method="json_schema")` **cannot work
 DeepSeek**, with or without `strict=True`. Use `method="function_calling"` — but see the
 next section, and read section 3 before you trust the schema.
 
-`response_format: {"type": "json_object"}` *is* supported (plain JSON mode, no schema
+`response_format: {"type": "json_object"}` _is_ supported (plain JSON mode, no schema
 enforcement). That is the fallback if function calling ever regresses.
 
 ## 2. Forced `tool_choice` requires thinking mode OFF
@@ -27,10 +27,10 @@ output compiles to — is rejected while thinking is on:
 
 Two levers turn thinking off; both were verified to return 200 with a forced tool choice:
 
-| lever | how | notes |
-|---|---|---|
-| `reasoning_effort="none"` | first-class constructor arg on `ChatDeepSeek` | **preferred** — no `model_kwargs` warning |
-| `thinking={"type":"disabled"}` | via `extra_body` | works, but LangChain warns about passing it through `model_kwargs` |
+| lever                          | how                                           | notes                                                              |
+| ------------------------------ | --------------------------------------------- | ------------------------------------------------------------------ |
+| `reasoning_effort="none"`      | first-class constructor arg on `ChatDeepSeek` | **preferred** — no `model_kwargs` warning                          |
+| `thinking={"type":"disabled"}` | via `extra_body`                              | works, but LangChain warns about passing it through `model_kwargs` |
 
 Rejected spellings (still 400): `reasoning_effort="minimal"`, `enable_thinking=false`.
 
@@ -38,7 +38,7 @@ Rejected spellings (still 400): `reasoning_effort="minimal"`, `enable_thinking=f
 
 - **scoring** needs a forced tool call, so it disables thinking
   (`reasoning_effort="none"`) and uses `method="function_calling", strict=True`.
-- **research** wants thinking on, so it must use `tool_choice="auto"` — which *is*
+- **research** wants thinking on, so it must use `tool_choice="auto"` — which _is_
   accepted in thinking mode — rather than forcing a tool.
 
 ## 3. `strict=True` does not validate the arguments
@@ -49,11 +49,11 @@ guarantee the arguments match the schema, and DeepSeek does not check them.
 
 Measured over one run of the scoring agent (386 rejected calls, 2026-08-14/15):
 
-| what the schema said | what arrived |
-|---|---|
-| `Literal["met", "partial", "unmet"]` | `"blocked"`, 126 times |
-| 8 required fields | absent, the object ended early, 37 times |
-| a property named `requirement` | a property named `question`, 46 times |
+| what the schema said                 | what arrived                             |
+| ------------------------------------ | ---------------------------------------- |
+| `Literal["met", "partial", "unmet"]` | `"blocked"`, 126 times                   |
+| 8 required fields                    | absent, the object ended early, 37 times |
+| a property named `requirement`       | a property named `question`, 46 times    |
 
 So every constraint in a Pydantic model is a **post-hoc** check here, paid for with a
 completed call. Design accordingly:
@@ -69,11 +69,11 @@ completed call. Design accordingly:
 
 No headers, no opt-in. Repeated prompt prefixes bill at the cache-hit rate:
 
-| | $/MTok |
-|---|---|
-| input, cache hit | $0.0028 |
-| input, cache miss | $0.14 |
-| output | $0.28 |
+|                   | $/MTok  |
+| ----------------- | ------- |
+| input, cache hit  | $0.0028 |
+| input, cache miss | $0.14   |
+| output            | $0.28   |
 
 Measured hits land on 64-token boundaries (768, 1408, 1664, 1920 observed), so the cached
 span is quantised — a prefix a few tokens shy of a boundary loses that block.
@@ -98,10 +98,10 @@ is leaking into the prefix.
 default of 1.0. Measured by scoring the same 12 postings twice through the identical
 prompt (2026-08-11):
 
-| | mean abs. difference | max | identical |
-|---|---|---|---|
-| temperature unset (1.0) | 5.7 points | 15 | 5/12 |
-| `temperature=0` | 0.0 points | 0 | 12/12 |
+|                         | mean abs. difference | max | identical |
+| ----------------------- | -------------------- | --- | --------- |
+| temperature unset (1.0) | 5.7 points           | 15  | 5/12      |
+| `temperature=0`         | 0.0 points           | 0   | 12/12     |
 
 Fit bands are 20 points wide, so a ~6-point spread makes the band a posting lands in
 partly a draw, and makes re-scoring a corpus produce churn that reads as a changed
@@ -119,9 +119,7 @@ Two consequences worth keeping in mind when reading a distribution:
   calibration note about the top band moved the highest-scoring group by +1.1 points,
   well inside the noise it was competing with. Fix the sampling before rewriting a rubric.
 
-**Temperature 0 is not full determinism.** The 12/12 figure above is a small sample. Re-running
-`evals/metamorphic.py` over the same 10 postings moves one or two ordinals between runs, so
-treat repeated identical output as likely rather than guaranteed.
+**Temperature 0 is not full determinism.** The 12/12 figure above is a small sample.
 
 Check pipeline state with `careerradar status` or view metrics in the dashboard.
 
@@ -129,11 +127,11 @@ Check pipeline state with `careerradar status` or view metrics in the dashboard.
 
 Means per call over the scored corpus in `prod_jobs.db`:
 
-| | tokens |
-|---|---|
-| prompt, total | ~6,045 |
+|                              | tokens                                          |
+| ---------------------------- | ----------------------------------------------- |
+| prompt, total                | ~6,045                                          |
 | prompt, cached (warm prefix) | ~4,884 (the system+profile block, 81% of input) |
-| completion | ~1,392 |
+| completion                   | ~1,392                                          |
 
 Budget **~$0.00057/posting**, plus ~4% for retried attempts.
 
