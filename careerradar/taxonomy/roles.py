@@ -265,27 +265,26 @@ class RoleTaxonomy:
         if target_conn is not None:
             try:
                 db_roles = taxonomy_repo.get_target_roles(target_conn)
-                if db_roles:
-                    for order, r in enumerate(db_roles):
-                        key = r["key"]
-                        queries = [
-                            q["query"]
-                            for q in taxonomy_repo.get_target_queries(
-                                target_conn, role_key=key, enabled_only=True
-                            )
-                        ]
-                        spec = {
-                            "label": r["label"],
-                            "resume": r.get("resume"),
-                            "aliases": r.get("aliases") or [],
-                            "query_terms": queries,
-                            "enabled": bool(r.get("enabled", 1)),
-                        }
-                        self.families[key] = RoleFamily(key, spec, order)
+                for order, r in enumerate(db_roles):
+                    key = r["key"]
+                    queries = [
+                        q["query"]
+                        for q in taxonomy_repo.get_target_queries(
+                            target_conn, role_key=key, enabled_only=True
+                        )
+                    ]
+                    spec = {
+                        "label": r["label"],
+                        "resume": r.get("resume"),
+                        "aliases": r.get("aliases") or [],
+                        "query_terms": queries,
+                        "enabled": bool(r.get("enabled", 1)),
+                    }
+                    self.families[key] = RoleFamily(key, spec, order)
 
-                    db_locs = taxonomy_repo.get_target_locations(target_conn)
-                    for loc in db_locs:
-                        self.locations[loc["id"]] = Location(loc)
+                db_locs = taxonomy_repo.get_target_locations(target_conn)
+                for loc in db_locs:
+                    self.locations[loc["id"]] = Location(loc)
             except sqlite3.Error:
                 pass
             finally:
