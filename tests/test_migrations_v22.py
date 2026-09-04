@@ -59,7 +59,7 @@ def test_migration_v22_drops_legacy_tables_and_columns():
     applied = migrate(conn)
     assert applied >= 1
     assert current_version(conn) == SCHEMA_VERSION
-    assert current_version(conn) == 22
+    assert current_version(conn) >= 22
 
     # Verify legacy tables are gone
     tables_after = {

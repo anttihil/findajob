@@ -13,7 +13,7 @@ from careerradar.core.logger import get_logger
 
 logger = get_logger()
 
-SCHEMA_VERSION = 22
+SCHEMA_VERSION = 23
 
 
 def _v1_baseline(cursor: sqlite3.Cursor) -> None:
@@ -1748,6 +1748,13 @@ def _v22_drop_legacy_tables_and_columns(cursor: sqlite3.Cursor) -> None:
     cursor.execute("DROP INDEX IF EXISTS idx_profiles_one_active")
 
 
+def _v23_add_typst_path_to_generated_resumes(cursor: sqlite3.Cursor) -> None:
+    """Add typst_path column to generated_resumes table."""
+    existing_cols = {row[1] for row in cursor.execute("PRAGMA table_info(generated_resumes)")}
+    if "typst_path" not in existing_cols:
+        cursor.execute("ALTER TABLE generated_resumes ADD COLUMN typst_path TEXT")
+
+
 MIGRATIONS: list[tuple[int, str, Callable[[sqlite3.Cursor], None]]] = [
     (1, "baseline jobs table", _v1_baseline),
     (2, "market analytics: cells, observations, skills, stats", _v2_analytics),
@@ -1806,6 +1813,11 @@ MIGRATIONS: list[tuple[int, str, Callable[[sqlite3.Cursor], None]]] = [
         22,
         "drop legacy tables (profiles, role/skill market stats, job_blockers) and columns",
         _v22_drop_legacy_tables_and_columns,
+    ),
+    (
+        23,
+        "add typst_path to generated_resumes table",
+        _v23_add_typst_path_to_generated_resumes,
     ),
 ]
 

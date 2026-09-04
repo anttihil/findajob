@@ -25,7 +25,12 @@ from careerradar.profile.prompts import (
     build_generator_system,
     render_generator_user,
 )
-from careerradar.profile.renderer import convert_to_pdf, render_docx, verify_page_count
+from careerradar.profile.renderer import (
+    compile_typst_to_pdf,
+    render_docx,
+    render_typst,
+    verify_page_count,
+)
 from careerradar.profile.repository import load_profile, save_tailored_resume
 from careerradar.profile.screener import screen_resume
 
@@ -46,6 +51,7 @@ class ResumeState(TypedDict, total=False):
     resume_payload: TailoredResumePayload | None
     layout_result: LayoutValidationResult | None
     ats_verdict: ATSScreeningVerdict | None
+    typst_path: str | None
     docx_path: str | None
     pdf_path: str | None
     saved_id: int | None
@@ -66,36 +72,30 @@ def node_prepare_context(state: ResumeState) -> dict[str, Any]:
 
 
 def node_generate(state: ResumeState) -> dict[str, Any]:
-    """Invoke Generator Agent to tailor the resume."""
-    profile = state.get("master_profile") or load_profile()
+    """Invoke LLM to generate tailored resume payload using cached prefix architecture."""
+    profile = state.get("master_profile")
     job = state.get("job") or {}
-    model_name = state.get("model_name") or get_model_for_role("agent")
+    feedback = state.get("feedback")
     attempts = state.get("attempts", 0) + 1
+    model_name = state.get("model_name") or get_model_for_role("agent")
+
+    if profile is None:
+        return {"error": "Missing master profile ground truth", "attempts": attempts}
 
     system_prompt = build_generator_system(profile)
-    user_prompt = render_generator_user(job, feedback=state.get("feedback"))
-
-    messages = [
-        ("system", system_prompt),
-        ("user", user_prompt),
-    ]
+    user_prompt = render_generator_user(job, feedback=feedback)
 
     try:
         model = structured_model(model_name, role="agent")
         payload = invoke_structured(
             model,
             TailoredResumePayload,
-            messages,
+            [("system", system_prompt), ("user", user_prompt)],
             label=f"Resume generation for job {job.get('id', '')}",
         )
-        return {
-            "resume_payload": payload,
-            "attempts": attempts,
-            "feedback": None,
-            "error": None,
-        }
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("Resume generation call failed (attempt %d): %s", attempts, exc)
+        return {"resume_payload": payload, "attempts": attempts, "error": None}
+    except Exception as exc:
+        logger.exception("Failed generating tailored resume on attempt %d: %s", attempts, exc)
         return {"resume_payload": None, "attempts": attempts, "error": str(exc)}
 
 
@@ -108,18 +108,11 @@ def node_validate_layout(state: ResumeState) -> dict[str, Any]:
     layout_res = validate_resume_layout(payload)
     if not layout_res.is_valid:
         violations_str = "\n- ".join(layout_res.violations)
-        if layout_res.estimated_points > layout_res.max_points:
-            feedback = (
-                f"LAYOUT OVERFLOW: The resume is {layout_res.estimated_points:.1f} pt "
-                f"(ceiling is {layout_res.max_points:.1f} pt).\nViolations:\n- {violations_str}\n"
-                f"Please shorten or condense bullets and summary so it fits strictly on 1 page."
-            )
-        else:
-            feedback = (
-                f"LAYOUT VALIDATION FAILED:\nViolations:\n- {violations_str}\n"
-                f"Please provide high-impact accomplishment bullets for every role "
-                f"(10-13 total bullets) while keeping the resume strictly on 1 page."
-            )
+        feedback = (
+            f"LAYOUT OVERFLOW: The resume is {layout_res.estimated_points:.1f} pt "
+            f"(ceiling is {layout_res.max_points:.1f} pt).\nViolations:\n- {violations_str}\n"
+            f"Please shorten or condense bullets and summary so it fits strictly on 1 page."
+        )
         logger.warning("Resume layout validation failed: %s", feedback)
         return {"layout_result": layout_res, "feedback": feedback}
 
@@ -149,46 +142,54 @@ def node_screen_resume(state: ResumeState) -> dict[str, Any]:
 
 
 def node_render_artifacts(state: ResumeState) -> dict[str, Any]:
-    """Render output DOCX and PDF files and verify 1-page PDF count."""
+    """Render output Typst, DOCX, and PDF files and verify 1-page PDF count."""
     payload = state.get("resume_payload")
     job = state.get("job") or {}
     if payload is None:
-        return {"docx_path": None, "pdf_path": None}
+        return {"typst_path": None, "docx_path": None, "pdf_path": None}
 
     job_id = job.get("id", 0)
     company = re.sub(r"[^a-zA-Z0-9_-]", "_", str(job.get("company", "company")).lower())[:20]
     title = re.sub(r"[^a-zA-Z0-9_-]", "_", str(job.get("title", "role")).lower())[:20]
-    filename = f"resume_job_{job_id}_{company}_{title}.docx"
-    docx_path = os.path.join(GENERATED_RESUMES_DIR, filename)
+    filename_base = f"resume_job_{job_id}_{company}_{title}"
+    typst_path = os.path.join(GENERATED_RESUMES_DIR, f"{filename_base}.typ")
+    docx_path = os.path.join(GENERATED_RESUMES_DIR, f"{filename_base}.docx")
 
+    # Render Typst source and compile directly to 1-page PDF
+    render_typst(payload, typst_path)
+    pdf_path = compile_typst_to_pdf(typst_path, GENERATED_RESUMES_DIR)
+
+    # Also render DOCX for backwards compatibility
     render_docx(payload, docx_path)
-    pdf_path = convert_to_pdf(docx_path, GENERATED_RESUMES_DIR)
+
     if pdf_path:
         pages = verify_page_count(pdf_path)
         logger.info("Rendered PDF page count: %d", pages)
 
-    return {"docx_path": docx_path, "pdf_path": pdf_path}
+    return {"typst_path": typst_path, "docx_path": docx_path, "pdf_path": pdf_path}
 
 
 def node_save_resume(state: ResumeState) -> dict[str, Any]:
     """Persist generated resume record in database."""
     payload = state.get("resume_payload")
     job = state.get("job") or {}
+    typst_path = state.get("typst_path")
     docx_path = state.get("docx_path")
-    if payload is None or not docx_path:
+    if payload is None or (not typst_path and not docx_path):
         return {"saved_id": None}
 
     ats_v = state.get("ats_verdict")
     resume_id = save_tailored_resume(
         job_id=int(job.get("id") or 0),
         model=str(state.get("model_name") or get_model_for_role("agent")),
-        docx_path=docx_path,
+        docx_path=docx_path or "",
         pdf_path=state.get("pdf_path"),
         resume=payload,
         summary=payload.summary,
         ats_score=ats_v.score if ats_v else None,
         ats_verdict="passed" if (ats_v and ats_v.passed) else "flagged",
         ats_feedback=ats_v.actionable_feedback if ats_v else None,
+        typst_path=typst_path,
     )
     logger.info("Saved generated resume record id=%d for job id=%s", resume_id, job.get("id"))
     return {"saved_id": resume_id}

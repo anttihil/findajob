@@ -116,7 +116,7 @@ export function ImportJobModal({ isOpen, onClose, onJobImported }: ImportJobModa
                 onChange={(e) => setGenerateResume((e.target as HTMLInputElement).checked)}
                 disabled={loading}
               />
-              Generate tailored 1-page resume (DOCX + PDF)
+              Generate tailored 1-page resume (PDF + Typst)
             </label>
           </div>
 

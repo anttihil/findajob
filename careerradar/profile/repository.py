@@ -229,27 +229,29 @@ def list_versions(_conn: sqlite3.Connection | None = None) -> list[dict[str, Any
 def save_tailored_resume(
     job_id: int,
     model: str,
-    docx_path: str,
-    pdf_path: str | None,
-    resume: TailoredResumePayload,
-    summary: str,
+    docx_path: str = "",
+    pdf_path: str | None = None,
+    resume: TailoredResumePayload | None = None,
+    summary: str = "",
     ats_score: int | None = None,
     ats_verdict: str | None = None,
     ats_feedback: str | None = None,
     status: str = "generated",
+    typst_path: str | None = None,
     conn: sqlite3.Connection | None = None,
 ) -> int:
     """Save a generated tailored resume record linked to a job."""
     connection, db, owned = _get_connection(conn)
     try:
+        resume_json = resume.model_dump_json() if resume else "{}"
         cur = connection.execute(
             """
             INSERT INTO generated_resumes (
                 job_id, model, created_at, docx_path, pdf_path, resume_json,
-                summary, ats_score, ats_verdict, ats_feedback, status
+                summary, ats_score, ats_verdict, ats_feedback, status, typst_path
             ) VALUES (
                 ?, ?, strftime('%Y-%m-%dT%H:%M:%SZ', 'now'), ?, ?, ?,
-                ?, ?, ?, ?, ?
+                ?, ?, ?, ?, ?, ?
             )
             """,
             (
@@ -257,12 +259,13 @@ def save_tailored_resume(
                 model,
                 docx_path,
                 pdf_path,
-                resume.model_dump_json(),
+                resume_json,
                 summary,
                 ats_score,
                 ats_verdict,
                 ats_feedback,
                 status,
+                typst_path,
             ),
         )
         if owned:
@@ -325,6 +328,26 @@ def get_resume_by_id(
             except json.JSONDecodeError:
                 res["resume"] = {}
         return res
+    finally:
+        if owned and db:
+            db.close()
+
+
+def update_resume_artifacts(
+    resume_id: int,
+    typst_path: str,
+    pdf_path: str | None,
+    conn: sqlite3.Connection | None = None,
+) -> None:
+    """Update artifact paths for an existing generated resume record."""
+    connection, db, owned = _get_connection(conn)
+    try:
+        connection.execute(
+            "UPDATE generated_resumes SET typst_path = ?, pdf_path = ? WHERE id = ?",
+            (typst_path, pdf_path, resume_id),
+        )
+        if owned:
+            connection.commit()
     finally:
         if owned and db:
             db.close()

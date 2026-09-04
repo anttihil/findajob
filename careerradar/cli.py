@@ -89,8 +89,11 @@ def _cmd_import(args: argparse.Namespace) -> int:
     if res.get("resume"):
         r = res["resume"]
         print("  Resume generated:")
-        print(f"    DOCX: {r.get('docx_path')}")
-        print(f"    PDF:  {r.get('pdf_path')}")
+        if r.get("typst_path"):
+            print(f"    Typst: {r.get('typst_path')}")
+        if r.get("docx_path"):
+            print(f"    DOCX:  {r.get('docx_path')}")
+        print(f"    PDF:   {r.get('pdf_path')}")
         if r.get("ats_score") is not None:
             print(f"    ATS Match Score: {r.get('ats_score')}/10 ({r.get('ats_verdict')})")
     return 0
@@ -104,8 +107,11 @@ def _cmd_resume(args: argparse.Namespace) -> int:
         model = getattr(args, "model", None)
         res = build_resume_for_job(args.job_id, model=model)
         print(f"Generated resume for job {args.job_id}:")
-        print(f"  DOCX: {res.get('docx_path')}")
-        print(f"  PDF:  {res.get('pdf_path')}")
+        if res.get("typst_path"):
+            print(f"  Typst: {res.get('typst_path')}")
+        if res.get("docx_path"):
+            print(f"  DOCX:  {res.get('docx_path')}")
+        print(f"  PDF:   {res.get('pdf_path')}")
         if res.get("ats_score") is not None:
             print(f"  ATS Match Score: {res.get('ats_score')}/10 ({res.get('ats_verdict')})")
         return 0
@@ -119,10 +125,11 @@ def _cmd_resume(args: argparse.Namespace) -> int:
             return 0
         for r in resumes:
             score_str = f"{r.get('ats_score')}/10" if r.get("ats_score") is not None else "N/A"
+            source_file = r.get("typst_path") or r.get("docx_path")
             print(
                 f"[{r.get('id')}] Job {r.get('job_id')} ({r.get('job_title')} @ "
                 f"{r.get('job_company')}): ATS: {score_str} ({r.get('ats_verdict')}) - "
-                f"{r.get('docx_path')}"
+                f"{source_file}"
             )
         return 0
     if sub == "batch":

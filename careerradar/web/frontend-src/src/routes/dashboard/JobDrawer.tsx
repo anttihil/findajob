@@ -200,14 +200,6 @@ export function JobDrawer({
                             {resume.ats_verdict || "evaluated"})
                           </span>
                         )}
-                        <a
-                          href={`/api/resumes/${resume.id}/download?format=docx`}
-                          class="action-pill"
-                          style={{ textDecoration: "none", fontSize: "0.8rem" }}
-                          download
-                        >
-                          <i class="fa-solid fa-file-word"></i> DOCX
-                        </a>
                         {resume.pdf_path && (
                           <a
                             href={`/api/resumes/${resume.id}/download?format=pdf`}
@@ -216,6 +208,17 @@ export function JobDrawer({
                             download
                           >
                             <i class="fa-solid fa-file-pdf"></i> PDF
+                          </a>
+                        )}
+                        {(resume.typst_path || resume.resume) && (
+                          <a
+                            href={`/api/resumes/${resume.id}/download?format=typst`}
+                            class="action-pill"
+                            style={{ textDecoration: "none", fontSize: "0.8rem" }}
+                            download
+                            title="Download Typst markup source"
+                          >
+                            <i class="fa-solid fa-code"></i> Typst
                           </a>
                         )}
                       </div>

@@ -144,3 +144,62 @@ def test_upload_resume_empty_content(mock_parse: MagicMock):
     assert resp.status_code == 400
     data = resp.json()
     assert "Uploaded file contained no readable text." in data["detail"]
+
+
+@patch("careerradar.profile.repository.get_resume_by_id")
+def test_download_resume_typst_format(mock_get_resume: MagicMock, tmp_path: object):
+    from pathlib import Path
+
+    p = Path(str(tmp_path))
+    typst_file = p / "resume_test.typ"
+    typst_file.write_text("// Test typst content", encoding="utf-8")
+
+    mock_get_resume.return_value = {
+        "id": 1,
+        "job_id": 42,
+        "typst_path": str(typst_file),
+        "pdf_path": None,
+        "docx_path": None,
+    }
+
+    client = TestClient(app)
+    resp = client.get("/api/resumes/1/download?format=typst")
+    assert resp.status_code == 200
+    assert resp.headers["content-type"].startswith("text/plain")
+    assert b"// Test typst content" in resp.content
+
+
+@patch("careerradar.profile.repository.update_resume_artifacts")
+@patch("careerradar.profile.repository.get_resume_by_id")
+def test_get_and_update_resume_source(
+    mock_get_resume: MagicMock, mock_update_artifacts: MagicMock, tmp_path: object
+):
+    from pathlib import Path
+
+    p = Path(str(tmp_path))
+    typst_file = p / "resume_editable.typ"
+    typst_file.write_text("= Original Typst", encoding="utf-8")
+
+    mock_get_resume.return_value = {
+        "id": 2,
+        "job_id": 42,
+        "typst_path": str(typst_file),
+        "pdf_path": None,
+    }
+
+    client = TestClient(app)
+
+    # 1. GET source
+    resp_get = client.get("/api/resumes/2/source")
+    assert resp_get.status_code == 200
+    assert resp_get.json()["typst_source"] == "= Original Typst"
+
+    # 2. PUT source
+    updated_markup = "= Updated Header\n- New achievement bullet"
+    resp_put = client.put("/api/resumes/2/source", json={"typst_source": updated_markup})
+    assert resp_put.status_code == 200
+    data = resp_put.json()
+    assert data["status"] == "ok"
+    assert data["page_count"] == 1
+    assert typst_file.read_text(encoding="utf-8") == updated_markup
+    mock_update_artifacts.assert_called_once()

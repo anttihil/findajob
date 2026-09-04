@@ -1032,8 +1032,17 @@ def get_generated_resumes(limit: int = 50, offset: int = 0, job_id: int | None =
         db.close()
 
 
+class ResumeSourceUpdate(BaseModel):
+    typst_source: str
+
+
 @app.get("/api/resumes/{resume_id}/download")
-def download_resume(resume_id: int, format: str = Query("docx", pattern="^(docx|pdf)$")):
+def download_resume(resume_id: int, format: str = Query("pdf", pattern="^(pdf|typst|docx)$")):
+    from pathlib import Path
+
+    from careerradar.core.paths import GENERATED_RESUMES_DIR
+    from careerradar.profile.models import TailoredResumePayload
+    from careerradar.profile.renderer import compile_typst_to_pdf, render_typst
     from careerradar.profile.repository import get_resume_by_id
 
     db = get_db()
@@ -1042,17 +1051,107 @@ def download_resume(resume_id: int, format: str = Query("docx", pattern="^(docx|
         if not record:
             raise HTTPException(status_code=404, detail="Resume record not found")
 
-        file_path = record.get("pdf_path") if format == "pdf" else record.get("docx_path")
+        raw_source_path = record.get("typst_path") or record.get("docx_path")
+        stem = Path(raw_source_path or f"resume_{resume_id}").stem
+
+        if format == "pdf":
+            file_path = record.get("pdf_path")
+            if (not file_path or not os.path.exists(file_path)) and record.get("typst_path"):
+                file_path = compile_typst_to_pdf(record["typst_path"], GENERATED_RESUMES_DIR)
+            media_type = "application/pdf"
+        elif format == "typst":
+            file_path = record.get("typst_path")
+            if (not file_path or not os.path.exists(file_path)) and record.get("resume"):
+                payload = TailoredResumePayload.model_validate(record["resume"])
+                file_path = os.path.join(GENERATED_RESUMES_DIR, f"{stem}.typ")
+                render_typst(payload, file_path)
+            media_type = "text/plain; charset=utf-8"
+        else:
+            file_path = record.get("docx_path")
+            media_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+
         if not file_path or not os.path.exists(file_path):
             raise HTTPException(status_code=404, detail=f"{format.upper()} file not found on disk")
 
-        media_type = (
-            "application/pdf"
-            if format == "pdf"
-            else "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-        )
         filename = os.path.basename(file_path)
         return FileResponse(file_path, media_type=media_type, filename=filename)
+    finally:
+        db.close()
+
+
+@app.get("/api/resumes/{resume_id}/source")
+def get_resume_source(resume_id: int):
+    from pathlib import Path
+
+    from careerradar.core.paths import GENERATED_RESUMES_DIR
+    from careerradar.profile.models import TailoredResumePayload
+    from careerradar.profile.renderer import generate_typst_source, render_typst, verify_page_count
+    from careerradar.profile.repository import get_resume_by_id
+
+    db = get_db()
+    try:
+        record = get_resume_by_id(resume_id, db.conn)
+        if not record:
+            raise HTTPException(status_code=404, detail="Resume record not found")
+
+        typst_path = record.get("typst_path")
+        if typst_path and os.path.exists(typst_path):
+            source = Path(typst_path).read_text(encoding="utf-8")
+        elif record.get("resume"):
+            payload = TailoredResumePayload.model_validate(record["resume"])
+            source = generate_typst_source(payload)
+            stem = Path(record.get("docx_path") or f"resume_{resume_id}").stem
+            typst_path = os.path.join(GENERATED_RESUMES_DIR, f"{stem}.typ")
+            render_typst(payload, typst_path)
+        else:
+            raise HTTPException(status_code=404, detail="No source data found for resume")
+
+        pdf_path = record.get("pdf_path")
+        pages = verify_page_count(pdf_path) if (pdf_path and os.path.exists(pdf_path)) else 1
+        return {
+            "resume_id": resume_id,
+            "typst_source": source,
+            "typst_path": typst_path,
+            "page_count": pages,
+        }
+    finally:
+        db.close()
+
+
+@app.put("/api/resumes/{resume_id}/source")
+def update_resume_source(resume_id: int, req: ResumeSourceUpdate):
+    from pathlib import Path
+
+    from careerradar.core.paths import GENERATED_RESUMES_DIR
+    from careerradar.profile.renderer import compile_typst_to_pdf, verify_page_count
+    from careerradar.profile.repository import get_resume_by_id, update_resume_artifacts
+
+    db = get_db()
+    try:
+        record = get_resume_by_id(resume_id, db.conn)
+        if not record:
+            raise HTTPException(status_code=404, detail="Resume record not found")
+
+        typst_path = record.get("typst_path")
+        if not typst_path:
+            stem = Path(record.get("docx_path") or f"resume_{resume_id}").stem
+            typst_path = os.path.join(GENERATED_RESUMES_DIR, f"{stem}.typ")
+
+        Path(typst_path).parent.mkdir(parents=True, exist_ok=True)
+        Path(typst_path).write_text(req.typst_source, encoding="utf-8")
+
+        pdf_path = compile_typst_to_pdf(typst_path)
+        pages = verify_page_count(pdf_path) if pdf_path else 0
+
+        update_resume_artifacts(resume_id, typst_path, pdf_path, conn=db.conn)
+
+        return {
+            "status": "ok",
+            "resume_id": resume_id,
+            "typst_path": typst_path,
+            "pdf_path": pdf_path,
+            "page_count": pages,
+        }
     finally:
         db.close()
 

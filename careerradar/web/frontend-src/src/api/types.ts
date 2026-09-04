@@ -178,6 +178,7 @@ export interface GeneratedResumeRecord {
   profile_version?: number;
   model?: string;
   created_at: string;
+  typst_path?: string;
   docx_path?: string;
   pdf_path?: string;
   resume?: Record<string, unknown>;

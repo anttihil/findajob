@@ -1188,15 +1188,6 @@ export function ResumesPage() {
                           </span>
                         )}
 
-                        <a
-                          href={`/api/resumes/${res.id}/download?format=docx`}
-                          class="action-pill text-blue"
-                          style={{ textDecoration: "none" }}
-                          download
-                        >
-                          <i class="fa-solid fa-file-word"></i> DOCX
-                        </a>
-
                         {res.pdf_path && (
                           <a
                             href={`/api/resumes/${res.id}/download?format=pdf`}
@@ -1205,6 +1196,18 @@ export function ResumesPage() {
                             download
                           >
                             <i class="fa-solid fa-file-pdf"></i> PDF
+                          </a>
+                        )}
+
+                        {(res.typst_path || res.resume) && (
+                          <a
+                            href={`/api/resumes/${res.id}/download?format=typst`}
+                            class="action-pill"
+                            style={{ textDecoration: "none" }}
+                            download
+                            title="Download Typst markup source"
+                          >
+                            <i class="fa-solid fa-code"></i> Typst
                           </a>
                         )}
                       </div>
