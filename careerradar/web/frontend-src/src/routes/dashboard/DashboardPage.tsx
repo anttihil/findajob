@@ -179,7 +179,6 @@ export function DashboardPage() {
       })
       .catch(() => {});
 
-
     setJobsPage((prev) => {
       if (!prev) return prev;
       if (newStatus !== query.status) {
@@ -261,7 +260,6 @@ export function DashboardPage() {
         </Link>
       </div>
 
-
       {showSyncErrors && currentSyncErrors && (
         <div class="sync-error-banner glass-card mt-4">
           <div class="banner-title">
@@ -296,7 +294,9 @@ export function DashboardPage() {
       )}
 
       {/* Search Matrix & Target Queries / Locations Widget */}
-      <SearchTargetsWidget onTargetsChanged={() => setRefreshKey((k) => k + 1)} />
+      <SearchTargetsWidget
+        onTargetsChanged={() => setRefreshKey((k) => k + 1)}
+      />
 
       {/* Main Content Grid: Recent Posts (Left) & Connections/Filters (Right) */}
       <div class="feed-layout mt-4">
@@ -367,8 +367,8 @@ export function DashboardPage() {
                 >
                   <div class="banner-title">
                     <span>
-                      <i class="fa-solid fa-bolt text-gold"></i> New updates scored
-                      in background. Click to refresh feed.
+                      <i class="fa-solid fa-bolt text-gold"></i> New updates
+                      scored in background. Click to refresh feed.
                     </span>
                     <button type="button" class="btn btn-sm btn-primary">
                       Refresh
@@ -384,8 +384,8 @@ export function DashboardPage() {
                     <i class="fa-solid fa-binoculars"></i>
                     <h3>No matching jobs found</h3>
                     <p>
-                      Try adjusting your filters, triggering a new database sync, or
-                      relaxing your match threshold.
+                      Try adjusting your filters, triggering a new database
+                      sync, or relaxing your match threshold.
                     </p>
                   </div>
                 )}
@@ -413,16 +413,6 @@ export function DashboardPage() {
         </div>
       </div>
 
-      {/* System Message Box (NETLINK 1983 Style) */}
-      <div class="retro-system-message-box mt-4">
-        <div class="system-message-header">SYSTEM MESSAGE</div>
-        <div class="system-message-body">
-          NETLINK will be undergoing scheduled maintenance on 04-25-83 from 01:00 to 03:00 EST.
-          <br />
-          During this time, the network may be unavailable. Thank you.
-        </div>
-      </div>
-
       <JobDrawer
         context={drawerContext}
         onClose={() => navigate(query.withoutJob())}
@@ -431,4 +421,3 @@ export function DashboardPage() {
     </section>
   );
 }
-
