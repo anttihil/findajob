@@ -1,4 +1,4 @@
-"""Expose a Profile through the interface the keyword and gap analysis layer speaks."""
+"""Expose a Profile through the dictionary interface needed for UI components."""
 
 import re
 from typing import TYPE_CHECKING, Any
@@ -7,17 +7,16 @@ from careerradar.profile.models import Profile
 
 if TYPE_CHECKING:
     from careerradar.core.database import Database
-    from careerradar.taxonomy.skills import Taxonomy
 
 
 class ProfileAdapter:
-    """A Profile wearing the UserProfile query interface."""
+    """A Profile wearing the query interface for dashboard and API representation."""
 
     def __init__(
         self,
         profile: Profile,
         version: int | None = 1,
-        taxonomy: "Taxonomy | None" = None,
+        taxonomy: Any = None,
     ) -> None:
         self.profile = profile
         self.version = version
@@ -59,10 +58,7 @@ class ProfileAdapter:
         """Group skills by category for dashboard display."""
         grouped: dict[str, list[dict[str, Any]]] = {}
         for key, record in self.skills.items():
-            category = record.get("category")
-            if not category and self.taxonomy is not None:
-                category = self.taxonomy.category(key)
-            category = category or "other"
+            category = record.get("category") or "other"
             grouped.setdefault(category, []).append(
                 {"key": key, "label": record["label"], "level": record["level"]}
             )
@@ -100,10 +96,10 @@ class NoActiveProfile(RuntimeError):
 
 def load_profile_adapter(
     db: "Database | None" = None,
-    taxonomy: "Taxonomy | None" = None,
+    taxonomy: Any = None,
     required: bool = True,
 ) -> ProfileAdapter | None:
-    """Load the singleton Profile as a ProfileAdapter for deterministic keyword scoring."""
+    """Load the singleton Profile as a ProfileAdapter."""
     from careerradar.profile.repository import load_profile as repo_load_profile
 
     profile = repo_load_profile(conn=db.conn if db else None)

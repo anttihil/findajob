@@ -12,78 +12,9 @@ from fastapi.testclient import TestClient
 
 from careerradar.market.gap_analysis import GapAnalysis
 from careerradar.profile.adapter import ProfileAdapter
-from careerradar.profile.models import MasterSkillCategory, Profile, RoleTargeting
-from careerradar.search.keyword_score import JobScorer
-from careerradar.taxonomy.blockers import (
-    BlockerExtractor,
-    load_blocker_extractor,
-)
+from careerradar.profile.models import MasterSkillCategory, Profile
 from careerradar.taxonomy.skills import Skill, Taxonomy
 from careerradar.web.app import app
-
-
-class BlockerDecouplingTests(unittest.TestCase):
-    def test_default_blocker_patterns(self) -> None:
-        extractor = BlockerExtractor()
-        self.assertIn(
-            "eu_work_authorization",
-            extractor.extract("Applicants must hold EU work authorization."),
-        )
-        self.assertIn(
-            "us_work_authorization",
-            extractor.extract("Position is open to US citizens only. No visa sponsorship."),
-        )
-        self.assertIn(
-            "security_clearance",
-            extractor.extract("Active TS/SCI security clearance required."),
-        )
-        self.assertIn(
-            "local_language",
-            extractor.extract("Flytande svenska är ett krav för tjänsten."),
-        )
-        self.assertEqual(extractor.extract("Standard software engineer job description."), [])
-
-    def test_custom_and_candidate_dealbreakers(self) -> None:
-        custom_blockers = {
-            "no_night_shifts": {
-                "label": "No night shifts",
-                "patterns": [r"\bnight shifts?\b"],
-            }
-        }
-        dealbreakers = ["24-hour on-call rotation", "drug testing required"]
-        extractor = BlockerExtractor(blockers=custom_blockers, dealbreakers=dealbreakers)
-
-        # Standard still present
-        self.assertIn("security_clearance", extractor.extract("Secret security clearance needed."))
-        # Custom present
-        self.assertIn("no_night_shifts", extractor.extract("Must be available for night shifts."))
-        # Dealbreaker present
-        self.assertIn(
-            "dealbreaker_0",
-            extractor.extract("Requires participation in 24-hour on-call rotation."),
-        )
-        self.assertIn(
-            "dealbreaker_1",
-            extractor.extract("Mandatory drug testing required prior to employment."),
-        )
-
-    def test_load_blocker_extractor_from_profile_and_config(self) -> None:
-        profile = Profile(
-            name="Alice",
-            targeting=RoleTargeting(dealbreakers=["mandatory weekend travel"]),
-            dealbreakers=["mandatory weekend travel"],
-        )
-        config = {
-            "blockers": {
-                "relocation": {
-                    "label": "Relocation required",
-                    "patterns": [r"\bmust relocate to\b"],
-                }
-            }
-        }
-        extractor = load_blocker_extractor(config=config, profile=profile)
-        self.assertIn("relocation", extractor.extract("Candidate must relocate to Denver."))
-        self.assertIn("dealbreaker_0", extractor.extract("Requires mandatory weekend travel."))
 
 
 class TargetDrivenTaxonomyTests(unittest.TestCase):
@@ -91,22 +22,6 @@ class TargetDrivenTaxonomyTests(unittest.TestCase):
         tax = Taxonomy(path="/nonexistent/path/skills.yaml", data={})
         self.assertEqual(len(tax), 0)
         self.assertEqual(tax.categories, [])
-        self.assertTrue(len(tax.blockers) > 0)
-        self.assertEqual(tax.extract("Just some text"), {})
-
-    def test_open_vocabulary_pattern_compilation(self) -> None:
-        skill_cpp = Skill("cplusplus", {"label": "C++", "category": "Languages"})
-        self.assertTrue(skill_cpp.search("Proficient in C++ and Python."))
-        self.assertFalse(skill_cpp.search("C++11 standard."))
-
-        skill_dotnet = Skill("dotnet", {"label": ".NET", "category": "Frameworks"})
-        self.assertTrue(skill_dotnet.search("Services built on .NET Core."))
-
-        skill_csharp = Skill("csharp", {"label": "C#", "category": "Languages"})
-        self.assertTrue(skill_csharp.search("C# Developer position."))
-
-        skill_ab = Skill("ab_testing", {"label": "A/B Testing", "category": "Analytics"})
-        self.assertTrue(skill_ab.search("Experience with A/B testing and experimentation."))
 
     def test_taxonomy_from_profile_across_industries(self) -> None:
         # Non-tech industry: Healthcare / Nursing
@@ -130,16 +45,8 @@ class TargetDrivenTaxonomyTests(unittest.TestCase):
         self.assertIn("icu_care", tax.skills)
         self.assertIn("ventilator_support", tax.skills)
         self.assertIn("bls", tax.skills)
-
-        posting_text = (
-            "We are seeking an ICU Nurse skilled in Patient Triage and Ventilator Support. "
-            "BLS certification required."
-        )
-        found = tax.extract(posting_text, title="Staff ICU Nurse")
-        self.assertIn("patient_triage", found)
-        self.assertIn("ventilator_support", found)
-        self.assertIn("bls", found)
-        self.assertNotIn("icu_care", found)
+        self.assertEqual(tax.label("patient_triage"), "Patient Triage")
+        self.assertEqual(tax.category("icu_care"), "Clinical")
 
     def test_taxonomy_clone_isolation(self) -> None:
         tax = Taxonomy(path=None, data={"skills": {"python": {"label": "Python"}}})
@@ -222,31 +129,6 @@ class DecoupledGapAnalysisTests(unittest.TestCase):
         self.assertEqual(kafka_row["label"], "Kafka")
         self.assertEqual(kafka_row["category"], "other")
         self.assertFalse(kafka_row["user_has"])
-
-
-class DecoupledJobScorerTests(unittest.TestCase):
-    def test_job_scorer_works_without_taxonomy(self) -> None:
-        profile = Profile(
-            name="Alice",
-            skills=[MasterSkillCategory(category="Engineering", skills=["Python", "Docker"])],
-        )
-        adapter = ProfileAdapter(profile, taxonomy=None)
-        mock_roles = mock.Mock()
-        mock_roles.get.return_value = mock.Mock(enabled=True)
-        mock_roles.resume_for.return_value = "default"
-
-        scorer = JobScorer(profile=adapter, roles=mock_roles, taxonomy=None)
-        posting = {
-            "title": "Senior Software Engineer",
-            "description": "Python and Docker needed",
-            "skills": {"python": {"in_title": False}, "docker": {"in_title": False}},
-            "role_family": "backend",
-            "seniority": "senior",
-        }
-        res = scorer.score(posting)
-        self.assertIn("score", res)
-        self.assertEqual(res["matched_skills"], ["docker", "python"])
-        self.assertEqual(res["missing_skills"], [])
 
 
 class ApiSkillDetailOpenVocabularyTests(unittest.TestCase):

@@ -1,6 +1,5 @@
 """Prompts and formatting helpers for the Resume Builder and ATS Screener."""
 
-import json
 from typing import Any
 
 from careerradar.profile.models import Profile, TailoredResumePayload
@@ -74,28 +73,28 @@ def render_generator_user(job: dict[str, Any], feedback: str | None = None) -> s
 
 def render_job_context(job: dict[str, Any]) -> str:
     """Render the target job posting into prompt context."""
-    title = job.get("title") or "Software Engineer"
-    company = job.get("company") or "Unknown Company"
+    title = job.get("title") or "Role"
+    company = job.get("company") or "Company"
     location = job.get("location") or job.get("country") or ""
-    role_family = job.get("role_family") or ""
-    seniority = job.get("seniority") or ""
-    matched_skills = job.get("matched_skills") or []
-    if isinstance(matched_skills, str):
-        try:
-            matched_skills = json.loads(matched_skills)
-        except (json.JSONDecodeError, TypeError):
-            matched_skills = [matched_skills]
     desc = job.get("description") or "No description provided."
 
     parts = [
         f"TARGET JOB: {title}",
         f"COMPANY: {company}",
         f"LOCATION: {location}",
-        f"ROLE FAMILY: {role_family} | SENIORITY: {seniority}",
-        f"MATCHED SKILLS: {', '.join(matched_skills)}",
-        "\n--- JOB DESCRIPTION ---",
-        desc,
     ]
+    if job.get("is_remote"):
+        parts.append("REMOTE: Yes")
+    if job.get("matched_skills"):
+        matched = job["matched_skills"]
+        if isinstance(matched, list):
+            parts.append(f"MATCHED SKILLS: {', '.join(str(s) for s in matched)}")
+    parts.extend(
+        [
+            "\n--- JOB DESCRIPTION ---",
+            desc,
+        ]
+    )
     return "\n".join(parts)
 
 

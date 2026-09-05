@@ -59,22 +59,14 @@ def _run(outcomes: list[str]) -> tuple[dict[str, Any], list[str], list[str]]:
     )
     db = mock.MagicMock()
     db.get_cells.return_value = [cell]
-    taxonomy = mock.MagicMock()
-    taxonomy.validate.return_value = []
     roles = mock.MagicMock()
     roles.validate.return_value = []
     roles.locations = {}
-    profile = mock.MagicMock()
-    profile.__len__.return_value = 34
 
     with (
         mock.patch.object(runner, "Database", return_value=db),
         mock.patch.object(runner, "load_config", return_value=CONFIG),
-        mock.patch.object(runner, "load_taxonomy", return_value=taxonomy),
         mock.patch.object(runner, "load_roles", return_value=roles),
-        mock.patch.object(runner, "load_profile", return_value=profile),
-        mock.patch.object(runner, "JobScorer"),
-        mock.patch.object(runner, "_warn_if_taxonomy_moved"),
         mock.patch.object(
             runner, "select_cells", return_value=[_task(i) for i in range(len(outcomes))]
         ),

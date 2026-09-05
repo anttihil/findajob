@@ -6,7 +6,6 @@ from typing import Any
 
 from careerradar.core.config import load_config
 from careerradar.profile.models import DEFAULT_PROFILE_VERSION, VERDICT_SCHEMA_VERSION
-from careerradar.taxonomy.roles import SENIORITY_UNSPECIFIED
 
 MAX_SCORING_FAILURES = 3
 
@@ -24,7 +23,7 @@ def _seniority_clause() -> str:
     if not levels:
         return ""
     quoted = ", ".join("'" + level.replace("'", "''") + "'" for level in levels)
-    return f"AND COALESCE(j.seniority, '{SENIORITY_UNSPECIFIED}') NOT IN ({quoted})"
+    return f"AND (j.seniority IS NULL OR j.seniority NOT IN ({quoted}))"
 
 
 def _age_clause() -> str:

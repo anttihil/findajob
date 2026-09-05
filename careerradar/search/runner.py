@@ -1,9 +1,6 @@
-"""Scrape, normalize, score, and store job postings.
+"""Scrape, normalize, and store job postings.
 
-Replaces the previous Gmail-IMAP pipeline, which read UNSEEN inbox mail (mutating the
-mailbox, making each run non-idempotent) and produced zero rows.
-
-    careerradar search run [--dry-run]
+careerradar search run [--dry-run]
 """
 
 from datetime import datetime, timezone
@@ -20,14 +17,11 @@ from careerradar.core.status_manager import (
     load_sync_status,
     set_sync_progress,
 )
-from careerradar.profile.adapter import NoActiveProfile, load_profile
-from careerradar.search import repository as search_repo
 from careerradar.search.guard import (
     ERROR_TRANSIENT,
     SourceCircuit,
     SourceTripped,
 )
-from careerradar.search.keyword_score import JobScorer
 from careerradar.search.normalizer import normalize_rows
 from careerradar.search.proxies import apply_proxy_budgets, is_rotating, load_proxies, pin_for
 from careerradar.search.scheduler import (
@@ -38,14 +32,12 @@ from careerradar.search.scheduler import (
     with_location_weights,
 )
 from careerradar.taxonomy.roles import load_roles
-from careerradar.taxonomy.skills import load_taxonomy
 
 if TYPE_CHECKING:
     from careerradar.search.scheduler import ScrapeTask
     from careerradar.search.sources.base import BaseJobSource
     from careerradar.search.sources.jobspy_source import JobSpySource
     from careerradar.taxonomy.roles import RoleTaxonomy
-    from careerradar.taxonomy.skills import Taxonomy
 
 logger = get_logger()
 
@@ -55,18 +47,14 @@ logger = get_logger()
 LOST_CELLS_PARTIAL = 0.2
 
 
-def plan_hash(roles: "RoleTaxonomy", config: dict[str, Any]) -> str:
-    """Identify the scrape plan, so trend queries can refuse to cross plan changes.
-
-    Widening the role catalog or the location set changes what the corpus samples; a trend
-    computed across such a change measures the plan, not the market.
-    """
+def plan_hash(roles: "RoleTaxonomy | None", config: dict[str, Any]) -> str:
+    """Identify the scrape plan, so trend queries can refuse to cross plan changes."""
     import hashlib
 
     scraper = config.get("scraper", {})
     payload = "|".join(
         [
-            roles.hash,
+            roles.hash if roles else "default",
             ",".join(sorted(k for k, v in (scraper.get("sources") or {}).items() if v)),
             str(scraper.get("cadence_hours", 24)),
             str(sorted((scraper.get("budgets") or {}).keys())),
@@ -87,7 +75,6 @@ def run_sync(
     logger.info("=" * 60)
 
     config = load_config()
-    taxonomy = load_taxonomy()
     roles = load_roles()
 
     # Proxies raise the LinkedIn budget substantially, so they are resolved before the
@@ -99,31 +86,14 @@ def run_sync(
 
     scraper_config = with_location_weights(scraper_config, roles)
 
-    for label, problems in (
-        ("skills_taxonomy", taxonomy.validate() if taxonomy else []),
-        ("target_roles", roles.validate() if roles else []),
-    ):
+    if roles:
+        problems = roles.validate()
         if problems:
-            logger.error(f"{label} is invalid; aborting:")
+            logger.error("target_roles is invalid; aborting:")
             for problem in problems:
                 logger.error(f"  - {problem}")
-            add_sync_error("Config", f"{label}: {problems[0]}")
+            add_sync_error("Config", f"target_roles: {problems[0]}")
             return None
-
-    try:
-        profile = load_profile(taxonomy=taxonomy)
-    except NoActiveProfile as exc:
-        logger.error(str(exc))
-        add_sync_error("Profile", str(exc))
-        return None
-    assert profile is not None, "load_profile(required=True) never returns None"
-    if taxonomy is not None:
-        taxonomy.enrich_from_profile(profile)
-        logger.info(
-            f"Profile: v{profile.version}, {len(profile)} skills (taxonomy {taxonomy.hash})"
-        )
-    else:
-        logger.info(f"Profile: v{profile.version}, {len(profile)} skills (no taxonomy)")
 
     if not dry_run:
         if is_sync_running() and not force:
@@ -154,17 +124,9 @@ def run_sync(
     circuits: dict[str, SourceCircuit] = {}
 
     try:
-        scorer = JobScorer(
-            profile,
-            roles,
-            taxonomy,
-            weights=(config.get("matching") or {}).get("weights"),
-        )
-
         if not dry_run:
             run_id = db.start_sync_run(
                 mode,
-                taxonomy_hash=taxonomy.hash if (taxonomy and taxonomy.skills) else None,
                 plan_hash=plan_hash(roles, config),
             )
 
@@ -178,7 +140,6 @@ def run_sync(
         if not dry_run:
             # Before scraping, so a run that dies partway still leaves the archive bounded.
             prune_archives(ARCHIVE_DIR, scraper_config.get("archive_retention_days", 14))
-        _warn_if_taxonomy_moved(db, taxonomy)
 
         for source in enabled:
             circuit = SourceCircuit(
@@ -201,7 +162,7 @@ def run_sync(
 
             cells = db.get_cells(source=source)
             if not cells:
-                logger.warning(f"[{source}] no cells seeded. Run: uv run careerradar migrate")
+                logger.warning(f"[{source}] no cells seeded. Run: careerradar search seed-cells")
                 continue
 
             tasks = select_cells(cells, scraper_config, roles, source)
@@ -226,9 +187,6 @@ def run_sync(
                     circuit,
                     task,
                     run_id,
-                    scorer,
-                    taxonomy,
-                    roles,
                     config,
                     dry_run,
                 )
@@ -254,8 +212,7 @@ def run_sync(
             if empty or errored:
                 logger.warning(
                     f"[{source}] {empty + errored} of {len(tasks)} planned cells returned no "
-                    f"postings ({empty} empty, {errored} error); they contribute nothing to "
-                    "the description census the skill analytics read"
+                    f"postings ({empty} empty, {errored} error)."
                 )
 
             circuit.note_clean_run()
@@ -298,7 +255,6 @@ def run_sync(
             set_sync_progress(
                 False,
                 totals["postings_fetched"],
-                totals["postings_fetched"],
                 totals["postings_new"],
             )
 
@@ -313,13 +269,10 @@ def _scrape_one(
     circuit: SourceCircuit,
     task: "ScrapeTask",
     run_id: int | None,
-    scorer: JobScorer | None,
-    taxonomy: "Taxonomy",
-    roles: "RoleTaxonomy",
     config: dict[str, Any],
     dry_run: bool,
 ) -> str:
-    """Scrape, normalize, score, and store one cell. Returns ok|empty|error|tripped."""
+    """Scrape, normalize, and store one cell without regex NLP. Returns ok|empty|error|tripped."""
     global _LAST_CELL_STATS
     _LAST_CELL_STATS = {}
 
@@ -366,76 +319,27 @@ def _scrape_one(
     )
     saturated = 1 if is_saturated(stats["returned"], task.results_wanted) else 0
 
-    if task.desc_selection == "census" and stats["returned"] and not stats["with_full_description"]:
-        logger.warning(
-            f"[{task.source}] {task.query!r} in {task.location_id}: {stats['returned']} "
-            "postings returned, none with a description -- the description fetch is failing, "
-            "and this cell contributes nothing to skill demand"
-        )
-
     new_count = 0
     duplicates = 0
     stored = []
-    on_topic = 0
 
     for posting in postings:
-        if taxonomy is not None and posting.get("description_quality") == "full":
-            posting["skills"] = taxonomy.extract(posting["description"], title=posting["title"])
-            posting["blockers"] = taxonomy.extract_blockers(posting["description"])
-        else:
-            posting["skills"] = {}
-            posting["blockers"] = []
-
-        if roles is not None:
-            family, seniority = roles.classify(posting["title"])
-            posting["role_family"] = family
-            posting["seniority"] = seniority
-            posting["access"] = roles.classify_access(
-                city=posting.get("city"),
-                region=posting.get("region"),
-                location_text=posting.get("location"),
-                is_remote=posting.get("is_remote"),
-            )
-        else:
-            posting["role_family"] = None
-            posting["seniority"] = None
-            posting["access"] = None
-
-        if posting.get("role_family"):
-            on_topic += 1
-
-        if scorer is not None:
-            result = scorer.score(posting)
-            posting["match_score"] = result["score"]
-            posting["matched_skills"] = result["matched_skills"]
-            posting["matched_count"] = result["matched_count"]
-            posting["required_count"] = result["required_count"]
-        else:
-            skills = posting.get("skills") or {}
-            posting["match_score"] = 0
-            posting["matched_skills"] = []
-            posting["matched_count"] = 0
-            posting["required_count"] = len(skills)
-            result = {
-                "score": 0,
-                "components": {},
-                "weights": {},
-                "matched_skills": [],
-                "missing_skills": [],
-                "matched_count": 0,
-                "required_count": len(skills),
-                "coverage_ratio": None,
-                "resume_match": roles.resume_for(posting.get("role_family")) if roles else None,
-            }
-        posting["scorer_version"] = SCORER_VERSION
+        posting["skills"] = {}
+        posting["blockers"] = []
+        posting["role_family"] = task.role_family
+        posting["seniority"] = None
+        posting["access"] = "remote" if posting.get("is_remote") else "unspecified"
+        posting["match_score"] = None
+        posting["matched_skills"] = []
+        posting["matched_count"] = 0
+        posting["required_count"] = 0
         posting["pipeline_state"] = "new"
-        stored.append((posting, result))
+        stored.append(posting)
 
         if dry_run:
             continue
 
-        tax_hash = taxonomy.hash if (taxonomy is not None and taxonomy.skills) else None
-        job_id, is_new = db.upsert_posting(posting, run_id=run_id, taxonomy_hash=tax_hash)
+        job_id, is_new = db.upsert_posting(posting, run_id=run_id)
         assert job_id is not None, "upsert_posting always inserts or finds a row"
         if is_new:
             new_count += 1
@@ -443,9 +347,8 @@ def _scrape_one(
             if canonical:
                 db.mark_duplicate(job_id, canonical)
                 duplicates += 1
-        db.replace_job_skills(job_id, posting.get("skills") or {})
 
-    stats["on_topic"] = on_topic
+    stats["on_topic"] = len(postings)
 
     if dry_run:
         _print_dry_run(task, stats, stored, saturated)
@@ -484,7 +387,7 @@ def _scrape_one(
         "postings_fetched": stats["returned"],
         "postings_new": new_count,
         "duplicates_merged": duplicates,
-        "off_topic": stats["usable"] - stats["on_topic"],
+        "off_topic": 0,
     }
     return "ok" if stats["returned"] else "empty"
 
@@ -538,7 +441,7 @@ def _record_failure(
 def _print_dry_run(
     task: "ScrapeTask",
     stats: dict[str, Any],
-    stored: list[tuple[dict[str, Any], dict[str, Any]]],
+    stored: list[dict[str, Any]],
     saturated: int,
 ) -> None:
     """Show what would be written, without writing it."""
@@ -549,33 +452,20 @@ def _print_dry_run(
     )
     print(
         f"  returned={stats['returned']}/{task.results_wanted} "
-        f"on_topic={stats['on_topic']} full_desc={stats['with_full_description']} "
+        f"full_desc={stats['with_full_description']} "
         f"with_salary={stats['with_salary']} saturated={bool(saturated)}"
     )
-    print(f"  desc_selection={task.desc_selection}  (census feeds skill analytics; top_k does not)")
 
-    for posting, result in sorted(stored, key=lambda p: -p[1]["score"])[:6]:
-        family = posting.get("role_family") or "(unclassified — excluded from analytics)"
-        print(f"\n  [{result['score']:3}] {posting['title'][:62]}")
+    for posting in stored[:6]:
+        print(f"\n  {posting['title'][:62]}")
         print(f"        {posting['company'][:40]:42} {posting['location'][:28]}")
-        print(
-            f"        family={family} seniority={posting.get('seniority')} "
-            f"remote={posting.get('is_remote')}"
-        )
+        print(f"        family={posting.get('role_family')} remote={posting.get('is_remote')}")
         if posting.get("salary_annual_usd"):
             print(
                 f"        salary=${posting['salary_annual_usd']:,.0f}/yr "
                 f"({posting.get('salary_currency')} "
                 f"{posting.get('salary_interval')})"
             )
-        components = ", ".join(f"{k}={v:.2f}" for k, v in result["components"].items())
-        print(f"        {components}")
-        if result["matched_skills"]:
-            print(f"        have:    {', '.join(result['matched_skills'][:10])}")
-        if result["missing_skills"]:
-            print(f"        MISSING: {', '.join(result['missing_skills'][:10])}")
-        if posting.get("blockers"):
-            print(f"        blockers: {', '.join(posting['blockers'])}")
 
 
 def _report_coverage(db: Database, scraper_config: dict[str, Any]) -> None:
@@ -592,20 +482,3 @@ def _report_coverage(db: Database, scraper_config: dict[str, Any]) -> None:
         f"are suppressed this window.",
         severity="warning",
     )
-
-
-SCORER_VERSION = 1
-
-
-def _warn_if_taxonomy_moved(db: Database, taxonomy: "Taxonomy | None") -> None:
-    """Say so when stored postings were scored under a different skills taxonomy."""
-    if taxonomy is None or not taxonomy.skills:
-        return
-    stale = search_repo.count_stale_taxonomy(db.conn, taxonomy.hash)
-    old_scorer = search_repo.count_old_scorer(db.conn, SCORER_VERSION)
-    if stale or old_scorer:
-        logger.warning(
-            "%s posting(s) scored under an older taxonomy and %s under an older scorer.",
-            f"{stale:,}",
-            f"{old_scorer:,}",
-        )

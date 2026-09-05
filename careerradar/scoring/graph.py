@@ -1,18 +1,8 @@
 """The per-posting scoring graph.
 
-    render -> score -> validate --ok--> done
-                 ^         |
-                 +- retry -+   (bounded)
-
-Small on purpose. The retry edge is the reason it is a graph at all: DeepSeek V4 is
-documented to occasionally fall back into reasoning mode and return prose where a tool
-call was required (langchainjs#10954). `structured_model()` disables thinking, which
-prevents the common case, but a bounded validate-and-retry is what keeps one bad response
-from costing a posting its verdict.
-
-Deliberately **not** checkpointed. Durability for scoring lives in `jobs.pipeline_state`:
-a posting that fails stays `new` and the next run picks it up. Checkpointing single-call
-graphs would add a write per posting to buy a resumability the queue already provides.
+render -> score -> validate --ok--> done
+             ^         |
+             +- retry -+   (bounded)
 """
 
 from typing import Any, TypedDict
@@ -32,9 +22,6 @@ RETRY_NUDGE = (
 )
 
 
-# A generic nudge against a semantic failure just buys the same failure again: the model
-# did call the tool, and telling it otherwise is a description it cannot act on. When the
-# schema rejected a well-formed answer, say which rule it broke.
 def semantic_nudge(reason: str) -> str:
     return f"Your previous verdict was rejected: {reason}\nReturn the verdict again, corrected."
 
@@ -42,33 +29,19 @@ def semantic_nudge(reason: str) -> str:
 class ScoreState(TypedDict, total=False):
     system: str
     posting: dict[str, Any]
-    # The deterministic extractor's read on this posting, already rendered. Built by the
-    # worker, which owns the DB and the scorer; the graph must not open a connection.
-    skill_hint: str
     rendered: str
     verdict: dict[str, Any] | None
-    # Tokens summed over every attempt on this posting, not just the one that produced
-    # the verdict. A retry is a billed call: keeping only the last attempt's counts made
-    # the whole retry volume free in the run total and in `job_verdicts.cost_usd`.
     usage: dict[str, int] | None
     attempts: int
     error: str | None
-    # Whether the last failure was the model answering the schema and being rejected,
-    # rather than not answering at all. Decides which nudge the retry carries. Must be
-    # declared here: LangGraph drops keys a node returns that the state does not name.
     semantic: bool
     model: str
-    # Set by the worker so the auditor can check blockers against what the candidate
-    # actually has, and strengths against what the posting actually mentions.
     profile: Any
-    taxonomy: Any
 
 
 def node_render(state: ScoreState) -> dict[str, Any]:
     return {
-        "rendered": render_posting(
-            state.get("posting") or {}, skill_hint=state.get("skill_hint") or ""
-        ),
+        "rendered": render_posting(state.get("posting") or {}),
         "attempts": 0,
     }
 
@@ -103,24 +76,8 @@ def node_score(state: ScoreState) -> dict[str, Any]:
     usage = _add(state.get("usage"), token_usage(raw) if raw is not None else None)
 
     if parse_error is not None or parsed is None:
-        # A cross-field validator in FitAssessment raising surfaces here too, not just a
-        # malformed tool call: LangChain catches it and reports it as a parsing error.
-        # Those are the semantic rejections, and they deserve a nudge that names the rule.
-        #
-        # When there is no parse error either, LangChain has nothing to say and this used
-        # to log the bare string `None` -- 9 failures in one backlog run that named no
-        # cause at all. `no_tool_call_reason` reads the response while it is still in
-        # hand and separates prose-instead-of-a-tool-call from a truncation, which have
-        # different fixes: retry versus a smaller ask.
         reason = parse_error if parse_error is not None else no_tool_call_reason(raw)
 
-        # `no_tool_call_reason` only gets to speak when pydantic has nothing to say, so a
-        # truncation that happened to leave valid JSON was reported as a pile of missing
-        # required fields -- indistinguishable from a model that simply skipped them. That
-        # was 36 of the 71 rejections in the last production run, and the two have
-        # opposite fixes: a higher output ceiling, or a shorter ask. `finish_reason` is
-        # the only thing that separates them, so it is read here regardless of who won the
-        # race to explain the failure.
         metadata = getattr(raw, "response_metadata", None) or {}
         truncated = ""
         if metadata.get("finish_reason") == "length":
@@ -162,30 +119,16 @@ def _is_semantic(parse_error: Any) -> bool:
 
 
 def _rule_from(parse_error: Any) -> str:
-    """The rule a Pydantic error names, without the input dump around it.
-
-    A model-level `ValueError` says the rule in one sentence, so that sentence is the
-    whole answer. A field error does not: pydantic prints the path, the message, a repr
-    of the input and a docs URL, and the previous version returned all four verbatim for
-    anything that was not a `Value error, `. That went straight into the retry prompt,
-    where 200 characters of `input_value={'role_summary': 'A Linux...` push the one line
-    that matters out of the model's attention.
-
-    Field errors keep `path: message`. The path is the load-bearing half -- knowing that
-    `requirement_assessments.6.status` is wrong is what makes the message actionable.
-    """
+    """The rule a Pydantic error names, without the input dump around it."""
     text = str(parse_error)
     marker = "Value error, "
     if marker in text:
-        # `.split(" [type=")` because the sentence drags the dump along on this path too:
-        # `... is not actionable. [type=value_error, input_value={'role_summary': "Azure
-        # c...research_worthy': False}, input_type=dict]`.
         return text.split(marker, 1)[1].split("\n")[0].split(" [type=")[0].strip()
 
     rules: list[str] = []
     field = ""
     for line in text.split("\n")[1:]:
-        if line.startswith("    "):  # the "For further information visit ..." line
+        if line.startswith("    "):
             continue
         if not line.startswith(" "):
             field = line.strip()

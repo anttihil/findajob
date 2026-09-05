@@ -90,15 +90,11 @@ class RunSpendTests(unittest.TestCase):
         os.unlink(self.tmp.name)
 
     def run_scoring(self, states: dict[int, dict[str, Any]]) -> str:
-        adapter = mock.MagicMock()
         out = io.StringIO()
         with (
             mock.patch.object(worker, "Database", return_value=_Db(self.conn)),
             mock.patch.object(worker, "load_config", return_value=CONFIG),
             mock.patch.object(worker, "load_active", return_value=(1, {}, "summary")),
-            mock.patch.object(worker, "load_taxonomy", return_value=mock.MagicMock()),
-            mock.patch.object(worker, "load_profile_adapter", return_value=adapter),
-            mock.patch.object(worker, "_build_scorer", return_value=None),
             mock.patch.object(worker, "build_system", return_value="SYSTEM RULES"),
             mock.patch.object(worker, "build_graph", return_value=_Graph(states)),
             redirect_stdout(out),

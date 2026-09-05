@@ -9,7 +9,7 @@ process.
 import sqlite3
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from careerradar.core.config import load_config
 from careerradar.core.database import Database
@@ -21,21 +21,15 @@ from careerradar.core.llm import (
     usage_cost,
 )
 from careerradar.core.logger import get_logger
-from careerradar.profile.adapter import NoActiveProfile, ProfileAdapter, load_profile_adapter
+from careerradar.profile.adapter import NoActiveProfile
 from careerradar.profile.repository import load_active
 from careerradar.scoring import repository as scoring_repo
 from careerradar.scoring.graph import build_graph
 from careerradar.scoring.prompts import (
     build_system,
-    format_matched,
     prompt_hash,
     render_posting,
-    render_skill_hint,
 )
-from careerradar.taxonomy.skills import Taxonomy, load_taxonomy
-
-if TYPE_CHECKING:
-    from careerradar.search.keyword_score import JobScorer
 
 logger = get_logger()
 
@@ -51,30 +45,6 @@ _age_clause = scoring_repo._age_clause
 _live_clause = scoring_repo._live_clause
 _ELIGIBLE = scoring_repo._ELIGIBLE
 _NO_VERDICT = scoring_repo._NO_VERDICT
-
-
-def _build_scorer(
-    adapter: ProfileAdapter, taxonomy: Taxonomy, config: dict[str, Any]
-) -> "JobScorer | None":
-    """The deterministic scorer, used here only to produce the prompt's skill hint.
-
-    Its number is not consulted. What the scoring agent gets is the extracted requirement
-    list split into evidenced and not, which is the part of the keyword layer that was
-    always worth having -- an anchor so the model does not re-derive the requirements from
-    scratch and quietly miss one.
-    """
-    try:
-        from careerradar.search.keyword_score import JobScorer
-        from careerradar.taxonomy.roles import load_roles
-
-        return JobScorer(
-            adapter, load_roles(), taxonomy, weights=(config.get("matching") or {}).get("weights")
-        )
-    except Exception:
-        logger.warning(
-            "Deterministic scorer unavailable; scoring without a skill hint", exc_info=True
-        )
-        return None
 
 
 def _now() -> str:
@@ -135,45 +105,8 @@ def _persist(
     )
 
 
-def _skill_hint(
-    scorer: "JobScorer | None",
-    job: dict[str, Any],
-    config: dict[str, Any] | None = None,
-) -> str:
-    """The extractor's read on one posting, rendered for the prompt.
-
-    Returns "" when there is nothing to say. An empty hint block would still cost tokens
-    and would teach the model that the absence of a signal means the absence of a
-    requirement.
-    """
-    if config is None:
-        try:
-            config = load_config()
-        except Exception:  # noqa: BLE001
-            config = {}
-    if not (config.get("scoring") or {}).get("include_skill_hint", False):
-        return ""
-    if scorer is None:
-        return ""
-    try:
-        result = scorer.score(job)
-    except Exception:  # a scorer failure must not cost the posting its verdict
-        logger.debug("Skill hint unavailable for job %s", job.get("id"), exc_info=True)
-        return ""
-    tax = scorer.taxonomy
-    matched = [tax.label(key) if tax is not None else key for key in result["matched_skills"]]
-    missing = [tax.label(key) if tax is not None else key for key in result["missing_skills"]]
-    return render_skill_hint(matched=format_matched(matched), missing=missing)
-
-
 def run_retry(job_id: int | None = None) -> int:
-    """Clear the failure counter so quarantined postings are offered again.
-
-    The counter records that the last MAX_SCORING_FAILURES runs failed, which is evidence
-    about the pipeline as it was then -- not a property of the posting. Fix the prompt, fix
-    a validator, add a language the extractor could not handle, and the same posting may
-    score fine. Without this the quarantine is permanent and every such fix is invisible.
-    """
+    """Clear the failure counter so quarantined postings are offered again."""
     db = Database()
     try:
         cleared_count = scoring_repo.reset_scoring_failures(db.conn, job_id=job_id)
@@ -193,7 +126,6 @@ def run_scoring(limit: int | None = None) -> int:
     concurrency = int(scoring_config.get("concurrency", 8))
     max_usd = scoring_config.get("max_usd_per_run")
     fit_threshold = int(scoring_config.get("fit_threshold", 70))
-    include_skill_hint = bool(scoring_config.get("include_skill_hint", False))
 
     loaded = load_active()
     if loaded is None:
@@ -204,10 +136,6 @@ def run_scoring(limit: int | None = None) -> int:
     db = Database()
     try:
         jobs = _select(db, limit, profile_version)
-        taxonomy = load_taxonomy()
-        adapter = load_profile_adapter(db=db, taxonomy=taxonomy)
-        assert adapter is not None
-        scorer = _build_scorer(adapter, taxonomy, config) if include_skill_hint else None
         if not jobs:
             print("Nothing to score. The backlog is drained.")
             return 0
@@ -215,10 +143,7 @@ def run_scoring(limit: int | None = None) -> int:
         system = build_system(summary, fit_threshold=fit_threshold)
         phash = prompt_hash(summary, fit_threshold=fit_threshold)
         system_tokens = int(len(system) / CHARS_PER_TOKEN)
-        hints = {job["id"]: _skill_hint(scorer, job, config=config) for job in jobs}
-        posting_tokens = sum(
-            int(len(render_posting(j, skill_hint=hints[j["id"]])) / CHARS_PER_TOKEN) for j in jobs
-        )
+        posting_tokens = sum(int(len(render_posting(j)) / CHARS_PER_TOKEN) for j in jobs)
 
         estimate = (
             estimate_cost(model, system_tokens, 0)
@@ -257,9 +182,6 @@ def run_scoring(limit: int | None = None) -> int:
                     "system": system,
                     "posting": job,
                     "model": model,
-                    "skill_hint": hints.get(job["id"], ""),
-                    "profile": adapter,
-                    "taxonomy": taxonomy,
                 }
             )
 
@@ -375,7 +297,7 @@ def score_job(
     config = load_config()
     scoring_config = config.get("scoring") or {}
     model_name = model or scoring_config.get("model") or get_model_for_role("scoring")
-    fit_threshold = int(scoring_config.get("fit_threshold", 90))
+    fit_threshold = int(scoring_config.get("fit_threshold", 70))
 
     owned = db is None
     database = db or Database()
@@ -386,14 +308,8 @@ def score_job(
             raise ValueError(f"Job with id {job_id} not found.")
         job = jobs[0]
 
-        taxonomy = load_taxonomy()
-        adapter = load_profile_adapter(db=database, taxonomy=taxonomy)
-        assert adapter is not None
-        scorer = _build_scorer(adapter, taxonomy, config)
-
         system = build_system(summary, fit_threshold=fit_threshold)
         phash = prompt_hash(summary, fit_threshold=fit_threshold)
-        hint = _skill_hint(scorer, job)
 
         graph = build_graph()
         final_state: dict[str, Any] = graph.invoke(
@@ -401,9 +317,6 @@ def score_job(
                 "system": system,
                 "posting": job,
                 "model": model_name,
-                "skill_hint": hint,
-                "profile": adapter,
-                "taxonomy": taxonomy,
             }
         )
 

@@ -20,7 +20,6 @@ from careerradar.scoring.prompts import (
     build_system,
     prompt_hash,
     render_posting,
-    render_skill_hint,
 )
 from careerradar.scoring.worker import EXPECTED_COMPLETION_TOKENS
 
@@ -79,53 +78,6 @@ class PromptLayoutTests(unittest.TestCase):
         huge = posting(description="x" * (MAX_DESCRIPTION_CHARS + 500))
         rendered = render_posting(huge)
         self.assertNotIn("x" * (MAX_DESCRIPTION_CHARS + 1), rendered)
-
-    def test_skill_hint_is_outside_posting_tag(self) -> None:
-        hint = render_skill_hint(matched=["Python"], missing=["Kubernetes"])
-        rendered = render_posting(posting(), skill_hint=hint)
-        self.assertTrue(rendered.endswith("</taxonomy_signal>"))
-        self.assertIn("</posting>\n<taxonomy_signal", rendered)
-
-    def test_skill_hint_disabled_by_config(self) -> None:
-        from careerradar.scoring.worker import _skill_hint
-
-        mock_scorer = mock.Mock()
-        mock_scorer.score.return_value = {
-            "matched_skills": ["python"],
-            "missing_skills": ["kubernetes"],
-        }
-        hint = _skill_hint(
-            mock_scorer,
-            posting(),
-            config={"scoring": {"include_skill_hint": False}},
-        )
-        self.assertEqual(hint, "")
-        mock_scorer.score.assert_not_called()
-
-    def test_skill_hint_enabled_by_config(self) -> None:
-        from careerradar.scoring.worker import _skill_hint
-
-        mock_scorer = mock.Mock()
-        mock_scorer.score.return_value = {
-            "matched_skills": ["python"],
-            "missing_skills": ["kubernetes"],
-        }
-        mock_scorer.taxonomy.label.side_effect = lambda k: k.title()
-        hint = _skill_hint(
-            mock_scorer,
-            posting(),
-            config={"scoring": {"include_skill_hint": True}},
-        )
-        self.assertIn("<taxonomy_signal", hint)
-        self.assertIn("candidate profile has: Python", hint)
-        self.assertIn("posting asks, not on profile: Kubernetes", hint)
-        mock_scorer.score.assert_called_once()
-
-    def test_skill_hint_scorer_none(self) -> None:
-        from careerradar.scoring.worker import _skill_hint
-
-        hint = _skill_hint(None, posting(), config={"scoring": {"include_skill_hint": True}})
-        self.assertEqual(hint, "")
 
 
 class CostTests(unittest.TestCase):
