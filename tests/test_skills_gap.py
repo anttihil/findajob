@@ -1,11 +1,15 @@
 import os
 import sys
 import unittest
+from unittest import mock
 
 from fastapi.testclient import TestClient
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from careerradar.market.gap_analysis import GapAnalysis
+from careerradar.profile.adapter import ProfileAdapter
+from careerradar.profile.models import MasterSkillCategory, Profile
 from careerradar.web.app import app
 
 
@@ -23,3 +27,86 @@ class SkillsGapApiTests(unittest.TestCase):
         self.assertIn("dead_weight", data["views"])
         self.assertIn("suppressed", data["views"])
         self.assertIn("provenance", data)
+
+    def test_unknown_skill_returns_404(self) -> None:
+        resp = self.client.get("/api/skills/definitely_nonexistent_skill_xyz_123")
+        self.assertEqual(resp.status_code, 404)
+
+
+class GapAnalysisWithoutTaxonomyTests(unittest.TestCase):
+    def test_gap_analysis_without_taxonomy(self) -> None:
+        profile = Profile(
+            name="Candidate",
+            skills=[
+                MasterSkillCategory(
+                    category="Backend",
+                    skills=["Go", "Kubernetes", "FastAPI"],
+                )
+            ],
+        )
+        adapter = ProfileAdapter(profile, taxonomy=None)
+        mock_db = mock.Mock()
+        mock_db.conn = mock.Mock()
+        mock_roles = mock.Mock()
+        mock_roles.hash = "roles123"
+
+        gap = GapAnalysis(
+            db=mock_db,
+            config={},
+            roles=mock_roles,
+            taxonomy=None,
+            profile=adapter,
+        )
+
+        empty = gap._empty_result(window_days=90, mode="observed", reason="no_eligible_postings")
+        self.assertIsNone(empty["provenance"]["taxonomy_hash"])
+
+        # Score rows without taxonomy
+        stats = {
+            "fastapi": {
+                "total_weight": 10.0,
+                "good_fit_weight": 5.0,
+                "weighted_count": 8.0,
+                "raw_count": 8,
+                "weights": [1.0] * 8,
+                "companies": {"Acme": 5, "Beta": 3},
+                "in_title": 2,
+                "blocking_weight": 0.0,
+                "familiar_share_sum": 4.0,
+                "familiar_share_n": 4,
+                "salaries": [],
+                "baseline_salary": 120000,
+            },
+            "kafka": {
+                "total_weight": 10.0,
+                "good_fit_weight": 5.0,
+                "weighted_count": 6.0,
+                "raw_count": 6,
+                "weights": [1.0] * 6,
+                "companies": {"Acme": 4, "Gamma": 2},
+                "in_title": 0,
+                "blocking_weight": 3.0,
+                "familiar_share_sum": 3.0,
+                "familiar_share_n": 3,
+                "salaries": [],
+                "baseline_salary": 120000,
+            },
+        }
+
+        diagnostics = {"missing_weight": 0.0}
+        rows = gap._score_rows(stats, n_eff_total=10.0, diagnostics=diagnostics)
+        self.assertEqual(len(rows), 2)
+
+        fastapi_row = next(r for r in rows if r["skill"] == "fastapi")
+        self.assertEqual(fastapi_row["label"], "FastAPI")
+        self.assertEqual(fastapi_row["category"], "Backend")
+        self.assertTrue(fastapi_row["user_has"])
+
+        kafka_row = next(r for r in rows if r["skill"] == "kafka")
+        self.assertEqual(kafka_row["label"], "Kafka")
+        self.assertEqual(kafka_row["category"], "other")
+        self.assertFalse(kafka_row["user_has"])
+
+
+if __name__ == "__main__":
+    unittest.main()
