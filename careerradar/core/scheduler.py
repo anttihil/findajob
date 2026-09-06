@@ -1,7 +1,7 @@
 """Asyncio-based pipeline scheduler with subprocess worker isolation.
 
 Replaces systemd timers with a cross-platform, config-driven scheduling engine.
-Executes pipeline stages (search, score, research) as isolated CLI subprocesses to
+Executes pipeline stages (search, score) as isolated CLI subprocesses to
 guarantee complete OS memory reclamation and fault isolation.
 """
 
@@ -14,7 +14,6 @@ from datetime import datetime, time, timedelta, timezone
 from typing import Any
 
 from careerradar.core.config import load_config
-from careerradar.core.database import Database
 from careerradar.core.logger import get_logger
 from careerradar.core.paths import DB_PATH
 
@@ -42,7 +41,6 @@ class PipelineScheduler:
         self._stage_locks: dict[str, asyncio.Lock] = {
             "search": asyncio.Lock(),
             "score": asyncio.Lock(),
-            "research": asyncio.Lock(),
         }
         self._next_runs: dict[str, datetime] = {}
         self._last_runs: dict[str, dict[str, Any]] = {}
@@ -83,7 +81,6 @@ class PipelineScheduler:
         # 2. Main scheduling loops for stages
         self._tasks.append(asyncio.create_task(self._schedule_loop_daily("search")))
         self._tasks.append(asyncio.create_task(self._schedule_loop_interval("score")))
-        self._tasks.append(asyncio.create_task(self._schedule_loop_daily("research")))
 
     async def stop(self) -> None:
         """Stops the scheduler and terminates any active worker subprocess."""
@@ -191,7 +188,7 @@ class PipelineScheduler:
         return min(candidates)
 
     async def _schedule_loop_daily(self, stage: str) -> None:
-        """Loop for stages scheduled on fixed daily times (search, research)."""
+        """Loop for stages scheduled on fixed daily times (search)."""
         while self._running:
             try:
                 config = load_config().get("scheduler", {}).get(stage, {})
@@ -266,7 +263,7 @@ class PipelineScheduler:
         async with stage_lock:
             config = load_config().get("scheduler", {})
             stage_config = config.get(stage, {})
-            timeout_min = stage_config.get("timeout_minutes", 90 if stage != "research" else 45)
+            timeout_min = stage_config.get("timeout_minutes", 90)
             timeout_sec = timeout_min * 60
 
             started_at = _now()
@@ -355,16 +352,17 @@ class PipelineScheduler:
 
                 # Event-driven chaining
                 chaining = config.get("chaining", {})
-                if returncode == 0:
-                    if stage == "search" and chaining.get("search_triggers_score", True):
-                        logger.info(
-                            "Search succeeded; triggering immediate Score (pipeline chaining)..."
-                        )
-                        task = asyncio.create_task(self._run_stage("score", manual=False))
-                        self._bg_tasks.add(task)
-                        task.add_done_callback(self._bg_tasks.discard)
-                    elif stage == "score" and chaining.get("score_triggers_research", True):
-                        self._trigger_research_if_needed()
+                if (
+                    returncode == 0
+                    and stage == "search"
+                    and chaining.get("search_triggers_score", True)
+                ):
+                    logger.info(
+                        "Search succeeded; triggering immediate Score (pipeline chaining)..."
+                    )
+                    task = asyncio.create_task(self._run_stage("score", manual=False))
+                    self._bg_tasks.add(task)
+                    task.add_done_callback(self._bg_tasks.discard)
 
                 return returncode == 0
             except Exception as e:  # noqa: BLE001
@@ -380,37 +378,6 @@ class PipelineScheduler:
                 self._active_stage = None
                 self._active_proc = None
                 self._active_started_at = None
-
-    def _trigger_research_if_needed(self) -> None:
-        """Triggers research if qualified un-researched companies exist."""
-        try:
-            db = Database()
-            try:
-                candidates = db.conn.execute("""
-                    SELECT COUNT(*) FROM (
-                        SELECT j.company
-                          FROM jobs j
-                          JOIN job_verdicts v ON v.job_id = j.id
-                          LEFT JOIN company_dossiers d ON d.company = j.company
-                         WHERE v.fit = 1
-                           AND j.company IS NOT NULL
-                           AND (d.researched_at IS NULL
-                                OR unixepoch('now') - unixepoch(d.researched_at) > 30 * 86400)
-                         GROUP BY j.company
-                         LIMIT 1
-                    )
-                """).fetchone()[0]
-                if candidates > 0:
-                    logger.info(
-                        "Scoring found high-fit candidates needing company research; chaining..."
-                    )
-                    task = asyncio.create_task(self._run_stage("research", manual=False))
-                    self._bg_tasks.add(task)
-                    task.add_done_callback(self._bg_tasks.discard)
-            finally:
-                db.close()
-        except Exception as e:  # noqa: BLE001
-            logger.debug("Check for research candidates failed: %s", e)
 
 
 # Global singleton instance

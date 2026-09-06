@@ -1,14 +1,13 @@
 """careerradar -- one entry point for every stage of the pipeline.
 
-The pipeline is four stages that talk to each other only through `jobs.pipeline_state`:
+The pipeline is three stages that talk to each other only through `jobs.pipeline_state`:
 
     search    scrape boards, write postings as state='new'
     score     drain 'new', write a verdict, mark 'scored'
-    research  drain high-scoring 'scored' companies, write a dossier, mark 'researched'
     start     serve the dashboard and run the background scheduler
 
 `start` runs the FastAPI dashboard and background asyncio scheduler, which runs
-stages in isolated worker subprocesses and automatically chains search -> score -> research.
+stages in isolated worker subprocesses and automatically chains search -> score.
 """
 
 import argparse
@@ -40,15 +39,6 @@ def _cmd_score(args: argparse.Namespace) -> Any:
     from careerradar.scoring.worker import run_scoring
 
     return run_scoring(
-        limit=getattr(args, "limit", None),
-    )
-
-
-def _cmd_research(args: argparse.Namespace) -> Any:
-    from careerradar.research.worker import run_research
-
-    return run_research(
-        company=getattr(args, "company", None),
         limit=getattr(args, "limit", None),
     )
 
@@ -379,14 +369,6 @@ def build_parser() -> argparse.ArgumentParser:
         "--job-id", type=int, help="clear one posting; defaults to every quarantined posting"
     )
     scy.set_defaults(func=_cmd_score_retry, stage="score")
-
-    # --- research --------------------------------------------------------------------
-    r = sub.add_parser("research", help="build company dossiers for strong matches")
-    rsub = r.add_subparsers(dest="subcommand", required=True)
-    rr = rsub.add_parser("run", help="research companies behind high-scoring postings")
-    rr.add_argument("--company", help="research one named company, ignoring the queue")
-    rr.add_argument("--limit", type=int, help="cap the number of companies researched")
-    rr.set_defaults(func=_cmd_research, stage="research")
 
     # --- resume ----------------------------------------------------------------------
     res = sub.add_parser("resume", help="tailor, validate, and generate 1-page resumes")

@@ -37,7 +37,6 @@ def _report(**overrides: Any) -> dict[str, Any]:
             "oldest_unscored": (now - timedelta(days=3)).isoformat(),
             "oldest_unscored_days": 3.0,
         },
-        "research": {"last_run": None, "hours_since": None, "status": None, "dossiers": 0},
         "coverage": [
             {"source": "linkedin", "postings": 1000, "scored": 670, "share": 0.67},
             {"source": "indeed", "postings": 1000, "scored": 660, "share": 0.66},

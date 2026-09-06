@@ -60,7 +60,7 @@ export async function deleteJSON<T = { success: boolean }>(url: string): Promise
   return res.json() as Promise<T>;
 }
 
-// A 404 that is a legitimate answer rather than a fault -- "this company has no dossier".
+// A 404 that is a legitimate answer rather than a fault -- the resource is simply absent.
 // Callers that use this are saying the absence is expected; anything else still surfaces.
 export async function getJSONOrNull<T>(url: string): Promise<T | null> {
   try {

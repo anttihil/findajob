@@ -1091,13 +1091,6 @@ html, body {
   font-style: italic;
 }
 
-/* Dossier Panel */
-.dossier-facts {
-  font-weight: 700;
-  font-size: 13.5px;
-  margin-bottom: 10px;
-}
-
 .verdict-h5 {
   font-size: 12px;
   font-weight: 800;
@@ -1110,17 +1103,6 @@ html, body {
   padding-left: 20px;
   font-size: 13px;
   line-height: 1.55;
-}
-
-.dossier-sources {
-  font-size: 12px;
-  color: var(--ink-muted);
-  margin-top: 10px;
-}
-
-.dossier-sources a {
-  color: var(--ink-primary);
-  text-decoration: underline;
 }
 
 /* ==========================================================================

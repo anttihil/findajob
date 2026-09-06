@@ -31,7 +31,7 @@ def deep_merge(base: dict[str, Any], incoming: dict[str, Any]) -> dict[str, Any]
     The old defaults merge only descended two levels, so a config.yaml that specified
     `scraper.budgets.linkedin.searches_per_run` and nothing else inherited *no* other
     linkedin budget key -- the third level was copied wholesale or not at all. That is
-    exactly the shape the new `scoring:` and `research:` blocks have.
+    exactly the shape the new `scoring:` block has.
     """
     result = dict(base)
     for key, value in incoming.items():
@@ -105,14 +105,8 @@ def load_config() -> dict[str, Any]:
                 "jitter_minutes": 3,
                 "timeout_minutes": 90,
             },
-            "research": {
-                "schedule": ["20:30"],
-                "jitter_minutes": 20,
-                "timeout_minutes": 45,
-            },
             "chaining": {
                 "search_triggers_score": True,
-                "score_triggers_research": True,
             },
         },
         "scoring": {

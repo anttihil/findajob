@@ -94,16 +94,6 @@ def collect_status_report(
         "oldest_unscored_days": (hours_since(oldest_new, now) or 0) / 24.0,
     }
 
-    research = conn.execute(
-        "SELECT started_at, status, companies FROM research_runs ORDER BY id DESC LIMIT 1"
-    ).fetchone()
-    report["research"] = {
-        "last_run": research["started_at"] if research else None,
-        "hours_since": hours_since(research["started_at"], now) if research else None,
-        "status": research["status"] if research else None,
-        "dossiers": conn.execute("SELECT COUNT(*) FROM company_dossiers").fetchone()[0],
-    }
-
     # -- verdict coverage, by source ---------------------------------------------------
     report["coverage"] = [
         {

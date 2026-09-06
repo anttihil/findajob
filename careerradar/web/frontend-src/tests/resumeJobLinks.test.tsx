@@ -84,7 +84,6 @@ describe("Bidirectional Job and Resume Links", () => {
 
       const context: JobContext = {
         job: mockJob({ id: 42 }),
-        dossier: null,
         resume,
         next_job_id: null,
       };
@@ -101,7 +100,6 @@ describe("Bidirectional Job and Resume Links", () => {
     it("renders Resumes Library link when no tailored resume exists yet", () => {
       const context: JobContext = {
         job: mockJob({ id: 42 }),
-        dossier: null,
         resume: null,
         next_job_id: null,
       };

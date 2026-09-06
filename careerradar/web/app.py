@@ -174,7 +174,7 @@ class _PooledDatabase(Database):
 # not a module global, and not a pool that would have to hand connections back.
 #
 # The long-running writers do not come through here: `run_sync` builds its own `Database`
-# (`search/runner.py`), as do the scoring and research workers, so a 45-minute scrape
+# (`search/runner.py`), as does the scoring worker, so a 45-minute scrape
 # cannot pin a connection the dashboard is trying to read on.
 _thread_state = threading.local()
 
@@ -295,7 +295,7 @@ def get_jobs(
     fit: bool | None = None,
     reason_type: str | None = None,
     liveness: str | None = Query(None, pattern="^(live|stale|likely_closed|unknown)?$"),
-    pipeline_state: str | None = Query(None, pattern="^(new|scored|researched)?$"),
+    pipeline_state: str | None = Query(None, pattern="^(new|scored)?$"),
     date_posted: str | None = Query(None, pattern="^(24h|3d|7d|14d|30d)?$"),
     q: str | None = None,
     limit: int = Query(200, ge=1, le=1000),
@@ -1166,37 +1166,6 @@ def update_resume_source(resume_id: int, req: ResumeSourceUpdate):
         db.close()
 
 
-# --- Company dossiers ------------------------------------------------------------------
-
-
-def dossier_for(db: Database, company: str | None) -> dict[str, Any] | None:
-    """The deep-research dossier for one company, or None.
-
-    Factored out so the drawer renders the dossier from the same read the JSON endpoint
-    serves. The drawer used to fetch this itself and swallow every failure in a bare
-    `catch`, which meant "no dossier" and "the request broke" looked identical.
-    """
-    if not company:
-        return None
-
-    from careerradar.research import repository as research_repo
-
-    return research_repo.get_dossier_by_company(db.conn, company)
-
-
-@app.get("/api/companies/{company}/dossier")
-def get_company_dossier(company: str):
-    """The deep-research dossier for one company, keyed on its normalized name."""
-    db = get_db()
-    try:
-        record = dossier_for(db, company)
-        if record is None:
-            raise HTTPException(status_code=404, detail="No dossier for this company")
-        return record
-    finally:
-        db.close()
-
-
 # --- Config ----------------------------------------------------------------------------
 
 
@@ -1249,7 +1218,7 @@ def get_scheduler_status():
 async def trigger_scheduler_stage(stage: str, background_tasks: BackgroundTasks):
     from careerradar.core.scheduler import scheduler
 
-    if stage not in ["search", "score", "research"]:
+    if stage not in ["search", "score"]:
         raise HTTPException(status_code=400, detail=f"Invalid stage: {stage}")
     status = scheduler.get_status()
     if status.get("active_stage") == stage:
@@ -1337,7 +1306,7 @@ def drawer_context(
     reading, not of the posting. It is what the drawer's status buttons advance to.
     """
     if job_id is None:
-        return {"job": None, "dossier": None, "requirement_rows": [], "next_job_id": None}
+        return {"job": None, "requirement_rows": [], "next_job_id": None}
 
     # Fetched by id rather than searched for in the page above: the posting a link
     # points at need not be on the page the link was rendered from, and after a status
@@ -1345,7 +1314,7 @@ def drawer_context(
     match = db.query_jobs(job_id=job_id, status=None, limit=1)["jobs"]
     job = match[0] if match else None
     if job is None:
-        return {"job": None, "dossier": None, "requirement_rows": [], "next_job_id": None}
+        return {"job": None, "requirement_rows": [], "next_job_id": None}
 
     ids = db.job_ids_for(**query.as_db_kwargs())
     try:
@@ -1361,7 +1330,6 @@ def drawer_context(
 
     return {
         "job": job,
-        "dossier": dossier_for(db, job.get("company")),
         "resume": get_latest_tailored_resume(job["id"], db.conn),
         "requirement_rows": [],
         "next_job_id": next_job_id,

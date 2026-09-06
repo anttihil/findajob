@@ -1,6 +1,6 @@
 """One writing stage at a time.
 
-Pipeline stages (`search`, `score`, `research`, `migrate`) write to SQLite in WAL mode.
+Pipeline stages (`search`, `score`, `migrate`) write to SQLite in WAL mode.
 Even in WAL mode, SQLite admits only one active writer at a time. To prevent sustained
 write contention from exceeding SQLite's busy timeout and throwing `database is locked`,
 all writing stages serialize on an exclusive flock managed centrally in `careerradar.cli`.

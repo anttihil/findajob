@@ -2,7 +2,6 @@ import { useEffect, useState } from "preact/hooks";
 import { Link } from "wouter-preact";
 import type { GeneratedResumeRecord, JobContext, JobStatus } from "../../api/types";
 import { highlightTerms } from "../../lib/highlightTerms";
-import { DossierPanel } from "./DossierPanel";
 import { VerdictPanel } from "./VerdictPanel";
 
 // Ported from `partials/job_drawer.html` + the permanent drawer chrome in `base.html`. The
@@ -18,7 +17,6 @@ export function JobDrawer({
   onStatusChange: (jobId: number, status: JobStatus) => void;
 }) {
   const job = context?.job ?? null;
-  const dossier = context?.dossier ?? null;
 
   const [resume, setResume] = useState<GeneratedResumeRecord | null>(null);
   const [generating, setGenerating] = useState(false);
@@ -246,15 +244,6 @@ export function JobDrawer({
                     <VerdictPanel job={job} />
                   </div>
                 </div>
-
-                {dossier && (
-                  <div class="drawer-section">
-                    <h4>Company Dossier</h4>
-                    <div>
-                      <DossierPanel dossier={dossier} />
-                    </div>
-                  </div>
-                )}
 
                 <div class="drawer-section">
                   <h4>Keyword Overlap</h4>

@@ -363,20 +363,6 @@ scoring:
   # Maximum age (in days) of postings to score with LLM. Postings older than this are skipped
   # to preserve budget for fresh, actionable opportunities.
   max_posting_age_days: 3
-  # Which postings earn an expensive deep-research pass.
-  research_gate:
-    fit: true
-
-research:
-  # Runs at most a few times a run, on companies behind postings that passed research_gate,
-  # and does live web search.
-  search_provider: tavily
-  max_companies_per_run: 5
-  # A company dossier is reused until it is this old, rather than rebuilt each time the
-  # company appears. Company facts move over months, and re-researching the same company is
-  # pure cost.
-  refresh_days: 30
-  max_usd_per_run: 2.00
 
 # ---------------------------------------------------------------------------------------
 # Scheduler
@@ -395,11 +381,6 @@ scheduler:
     interval_minutes: 30
     jitter_minutes: 3
     timeout_minutes: 90
-  research:
-    schedule: ["20:30"]
-    jitter_minutes: 20
-    timeout_minutes: 45
   chaining:
     search_triggers_score: true
-    score_triggers_research: true
 

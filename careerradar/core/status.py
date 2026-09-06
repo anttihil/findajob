@@ -76,14 +76,6 @@ def render(report: dict[str, Any]) -> str:
     if score["hours_since"] is None or score["hours_since"] > 24 * STALL_MULTIPLE:
         out.append("  ! scoring looks stalled -- check: systemctl status careerradar")
 
-    research = report["research"]
-    out += ["", "RESEARCH"]
-    if research["last_run"] is None:
-        out.append("  never run")
-    else:
-        out.append(f"  last run {research['hours_since']:.1f}h ago ({research['status']})")
-    out.append(f"  {research['dossiers']} dossiers stored")
-
     out += ["", "VERDICT COVERAGE  (every hit rate in this project is a ratio over these)"]
     shares = []
     for row in report["coverage"]:

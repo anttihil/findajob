@@ -79,7 +79,6 @@ class TestStagesTakeTheLock(unittest.TestCase):
         self.assertEqual(self._stage(["search", "run"]), "search")
         self.assertEqual(self._stage(["score", "run"]), "score")
         self.assertEqual(self._stage(["score", "retry"]), "score")
-        self.assertEqual(self._stage(["research", "run"]), "research")
         self.assertEqual(self._stage(["migrate"]), "migrate")
 
     def test_read_only_commands_are_not(self) -> None:

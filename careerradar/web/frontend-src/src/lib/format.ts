@@ -13,15 +13,6 @@ export function shortDate(value: string | null | undefined): string {
   return `${MONTHS[date.getUTCMonth()]} ${date.getUTCDate()}`;
 }
 
-/** Bare host for a dossier source link, matching `new URL(u).hostname`. */
-export function hostname(url: string): string {
-  try {
-    return new URL(url).hostname || url;
-  } catch {
-    return url;
-  }
-}
-
 /** "45m ago" / "3.2h ago" / "1.5d ago" / "never". Ported from `frontend/js/features/pipeline.js`. */
 export function ago(hours: number | null | undefined): string {
   if (hours === null || hours === undefined) return "never";

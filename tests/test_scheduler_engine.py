@@ -51,11 +51,7 @@ class SchedulerEngineTests(unittest.IsolatedAsyncioTestCase):
         mock_proc.stderr = None
         mock_proc.wait = mock.AsyncMock(return_value=0)
 
-        mock_cfg = {
-            "scheduler": {
-                "chaining": {"search_triggers_score": False, "score_triggers_research": False}
-            }
-        }
+        mock_cfg = {"scheduler": {"chaining": {"search_triggers_score": False}}}
 
         with (
             mock.patch("asyncio.create_subprocess_exec", return_value=mock_proc),
@@ -130,11 +126,7 @@ class SchedulerEngineTests(unittest.IsolatedAsyncioTestCase):
         mock_proc.stderr = None
         mock_proc.wait = mock.AsyncMock(return_value=0)
 
-        mock_cfg = {
-            "scheduler": {
-                "chaining": {"search_triggers_score": True, "score_triggers_research": False}
-            }
-        }
+        mock_cfg = {"scheduler": {"chaining": {"search_triggers_score": True}}}
 
         with (
             mock.patch("asyncio.create_subprocess_exec", return_value=mock_proc),

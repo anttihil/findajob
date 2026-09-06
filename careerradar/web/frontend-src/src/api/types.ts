@@ -5,7 +5,7 @@
 // response models.
 
 export type Liveness = "live" | "stale" | "likely_closed" | "unknown";
-export type PipelineState = "new" | "scored" | "researched";
+export type PipelineState = "new" | "scored";
 export type JobStatus = "unread" | "saved" | "applied" | "rejected";
 export type Access = "commutable" | "remote" | "relocation";
 
@@ -59,24 +59,9 @@ export interface JobsPage {
   has_more: boolean;
 }
 
-export interface Dossier {
-  intel: {
-    summary?: string;
-    size?: string;
-    stage?: string;
-    funding?: string;
-    concerns?: string[];
-    application_angle?: string;
-  } | null;
-  contacts: { name: string; role?: string; public_url?: string; relevance?: string }[];
-  nearby_jobs: { url?: string; title: string; company: string; source: string }[];
-  sources: string[];
-}
-
 // GET /api/jobs/{id}/context
 export interface JobContext {
   job: Job | null;
-  dossier: Dossier | null;
   resume?: GeneratedResumeRecord | null;
   requirement_rows?: unknown[];
   next_job_id: number | null;

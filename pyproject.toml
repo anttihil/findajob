@@ -1,7 +1,7 @@
 [project]
 name = "careerradar"
 version = "0.1.0"
-description = "Agentic job search: scrapes job boards by role family and location, scores postings against an LLM-built profile, and researches the companies behind the good ones"
+description = "Agentic job search: scrapes job boards by query and location, scores postings against an LLM-built profile, and tailors a resume for the good ones"
 readme = "README.md"
 license = { text = "MIT" }
 requires-python = ">=3.10"
@@ -15,7 +15,6 @@ dependencies = [
     "langchain-deepseek>=1.1.0",
     "langgraph-checkpoint-sqlite>=3.1.1",
     "pypdf>=6.15.0",
-    "langchain-tavily>=0.2.18",
     "python-multipart>=0.0.32",
     "beautifulsoup4>=4.12.0",
     "typst>=0.15.0",
