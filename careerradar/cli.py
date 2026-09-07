@@ -35,6 +35,12 @@ def _cmd_search(args: argparse.Namespace) -> int:
     return 0 if res is None else int(bool(res))
 
 
+def _cmd_search_seed(args: argparse.Namespace) -> int:
+    from careerradar.search.seed import seed_cells
+
+    return seed_cells(prune=getattr(args, "prune", False))
+
+
 def _cmd_score(args: argparse.Namespace) -> Any:
     from careerradar.scoring.worker import run_scoring
 
@@ -142,6 +148,20 @@ def _cmd_resume(args: argparse.Namespace) -> int:
     return 0
 
 
+def _reseed_cells() -> None:
+    """Recompile scrape_cells after a search-target edit.
+
+    scrape_cells is a materialized copy of the queries x locations matrix, so an edit to
+    the plan does not reach the scraper until the matrix is rebuilt. The dashboard does
+    this on every mutation; the CLI has to do it too, or the next run scrapes the old plan.
+    """
+    from careerradar.search.seed import seed_cells
+    from careerradar.taxonomy import roles as roles_mod
+
+    roles_mod._CACHE.clear()
+    seed_cells(prune=True)
+
+
 def _cmd_target(args: argparse.Namespace) -> int:
     import sqlite3
 
@@ -177,17 +197,20 @@ def _cmd_target(args: argparse.Namespace) -> int:
             for query in queries:
                 target_repo.add_query(conn, query_term=query)
             print(f"Added {len(queries)} search queries.")
+            _reseed_cells()
             return 0
 
         if sub == "toggle":
             enabled = not getattr(args, "disable", False)
             target_repo.toggle_query(conn, query_id=args.id, enabled=enabled)
             print(f"Search query {args.id} is now {'ACTIVE' if enabled else 'PAUSED'}.")
+            _reseed_cells()
             return 0
 
         if sub == "delete":
             target_repo.delete_query(conn, query_id=args.id)
             print(f"Deleted search query {args.id}.")
+            _reseed_cells()
             return 0
 
         if sub == "status":
@@ -348,6 +371,14 @@ def build_parser() -> argparse.ArgumentParser:
     sr.add_argument("--force", action="store_true", help="ignore the sync lock")
     sr.set_defaults(func=_cmd_search, stage="search")
 
+    ssd = ssub.add_parser(
+        "seed-cells", help="rebuild the scrape matrix from the search queries and locations"
+    )
+    ssd.add_argument(
+        "--prune", action="store_true", help="disable cells that are no longer in the matrix"
+    )
+    ssd.set_defaults(func=_cmd_search_seed)
+
     # --- score -----------------------------------------------------------------------
     sco = sub.add_parser("score", help="score postings against the profile")
     scosub = sco.add_subparsers(dest="subcommand", required=True)
@@ -395,7 +426,10 @@ def build_parser() -> argparse.ArgumentParser:
     imp.set_defaults(func=_cmd_import)
 
     # --- target ----------------------------------------------------------------------
-    tar = sub.add_parser("target", help="manage search queries, locations, and capacity")
+    tar = sub.add_parser(
+        "target",
+        help="manage search queries and check capacity (edit locations in the dashboard)",
+    )
     tar_sub = tar.add_subparsers(dest="subcommand", required=True)
 
     tar_sub.add_parser("list", help="list the configured search queries and locations")

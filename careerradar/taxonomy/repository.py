@@ -65,7 +65,10 @@ def update_query(
     """Update the text and/or the enabled state of a search query."""
     updates: list[str] = []
     params: list[Any] = []
+    old_term: str | None = None
     if query_term is not None:
+        row = conn.execute("SELECT query FROM search_queries WHERE id = ?", (query_id,)).fetchone()
+        old_term = row[0] if row else None
         updates.append("query = ?")
         params.append(query_term)
     if enabled is not None:
@@ -75,6 +78,12 @@ def update_query(
         return
     params.append(query_id)
     conn.execute(f"UPDATE search_queries SET {', '.join(updates)} WHERE id = ?", params)
+    # The query text is part of the scrape cell's identity, so a rename that touched only
+    # this table would leave seed_cells to build a second set of cells and disable the
+    # first -- silently stranding that query's whole scrape history, EWMA and quality
+    # samples. Carry the cells across in the same transaction instead.
+    if old_term is not None and old_term != query_term:
+        conn.execute("UPDATE scrape_cells SET query = ? WHERE query = ?", (query_term, old_term))
     conn.commit()
 
 

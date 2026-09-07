@@ -77,12 +77,10 @@ ignore = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-# Test doubles and eval harnesses mirror real signatures, so they take arguments they
-# deliberately never read.
+# Test doubles mirror real signatures, so they take arguments they deliberately never read.
 # `tempfile.NamedTemporaryFile(delete=False)` + `.close()` is how these tests get a temp
 # database path, so the handle is meant to outlive a `with` block.
 "tests/*" = ["ARG001", "ARG002", "SIM115", "SIM117"]
-"evals/*" = ["ARG001", "ARG002"]
 # `Depends(...)` in a parameter default is the FastAPI dependency-injection idiom.
 "careerradar/web/app.py" = ["B008"]
 
@@ -90,7 +88,7 @@ ignore = [
 known-first-party = ["careerradar"]
 
 [tool.pyright]
-include = ["careerradar", "tests", "evals"]
+include = ["careerradar", "tests"]
 venvPath = "."
 venv = ".venv"
 pythonVersion = "3.10"
