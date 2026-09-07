@@ -10,12 +10,16 @@ import type {
 
 export function ObservabilityPage() {
   const [stats, setStats] = useState<ObservabilityStats | null>(null);
-  const [verdictsData, setVerdictsData] = useState<ObservabilityVerdictsResponse | null>(null);
+  const [verdictsData, setVerdictsData] =
+    useState<ObservabilityVerdictsResponse | null>(null);
   const [loadingVerdicts, setLoadingVerdicts] = useState(false);
 
   // Scoring prompt inspection state
-  const [promptData, setPromptData] = useState<ObservabilityPromptResponse | null>(null);
-  const [promptViewMode, setPromptViewMode] = useState<"system" | "profile" | "rules">("system");
+  const [promptData, setPromptData] =
+    useState<ObservabilityPromptResponse | null>(null);
+  const [promptViewMode, setPromptViewMode] = useState<
+    "system" | "profile" | "rules"
+  >("system");
   const [promptExpanded, setPromptExpanded] = useState(false);
   const [copiedPrompt, setCopiedPrompt] = useState(false);
 
@@ -32,7 +36,7 @@ export function ObservabilityPage() {
   useEffect(() => {
     let cancelled = false;
     guard("Loading observability stats", () =>
-      getJSON<ObservabilityStats>("/api/observability/stats")
+      getJSON<ObservabilityStats>("/api/observability/stats"),
     ).then((data) => {
       if (!cancelled && data) {
         setStats(data);
@@ -40,7 +44,7 @@ export function ObservabilityPage() {
     });
 
     guard("Loading scoring prompt prefix", () =>
-      getJSON<ObservabilityPromptResponse>("/api/observability/prompt")
+      getJSON<ObservabilityPromptResponse>("/api/observability/prompt"),
     ).then((data) => {
       if (!cancelled && data) {
         setPromptData(data);
@@ -66,7 +70,9 @@ export function ObservabilityPage() {
     params.set("offset", offset.toString());
 
     guard("Loading model verdicts", () =>
-      getJSON<ObservabilityVerdictsResponse>(`/api/observability/verdicts?${params.toString()}`)
+      getJSON<ObservabilityVerdictsResponse>(
+        `/api/observability/verdicts?${params.toString()}`,
+      ),
     ).then((data) => {
       if (!cancelled) {
         setVerdictsData(data ?? null);
@@ -116,8 +122,8 @@ export function ObservabilityPage() {
     promptViewMode === "system"
       ? promptData?.system_prompt || ""
       : promptViewMode === "profile"
-      ? promptData?.summary_text || ""
-      : promptData?.rules || "";
+        ? promptData?.summary_text || ""
+        : promptData?.rules || "";
 
   const totalVerdicts = verdictsData?.total ?? 0;
   const items = verdictsData?.items ?? [];
@@ -137,11 +143,14 @@ export function ObservabilityPage() {
             <span class="stat-label">Output Tokens</span>
             <h3>{stats ? stats.total_tokens_out.toLocaleString() : "..."}</h3>
             <div class="obs-card-sub">
-              <span>Avg: <strong>{stats?.avg_tokens_out ?? 0}</strong> tok/job</span>
+              <span>
+                Avg: <strong>{stats?.avg_tokens_out ?? 0}</strong> tok/job
+              </span>
               <span class="obs-sub-tag">Expected: ~60</span>
             </div>
             <div class="obs-card-range">
-              Min: {stats?.min_tokens_out ?? 0} · Max: {stats?.max_tokens_out ?? 0}
+              Min: {stats?.min_tokens_out ?? 0} · Max:{" "}
+              {stats?.max_tokens_out ?? 0}
             </div>
           </div>
         </div>
@@ -157,10 +166,21 @@ export function ObservabilityPage() {
               {stats ? `${(stats.cache_hit_rate * 100).toFixed(1)}%` : "..."}
             </h3>
             <div class="obs-card-sub">
-              <span>Cached: <strong>{stats ? (stats.total_tokens_cached / 1_000_000).toFixed(2) : 0}M</strong> in</span>
+              <span>
+                Cached:{" "}
+                <strong>
+                  {stats
+                    ? (stats.total_tokens_cached / 1_000_000).toFixed(2)
+                    : 0}
+                  M
+                </strong>{" "}
+                in
+              </span>
             </div>
             <div class="obs-card-range">
-              Total In: {stats ? (stats.total_tokens_in / 1_000_000).toFixed(2) : 0}M tokens
+              Total In:{" "}
+              {stats ? (stats.total_tokens_in / 1_000_000).toFixed(2) : 0}M
+              tokens
             </div>
           </div>
         </div>
@@ -174,7 +194,10 @@ export function ObservabilityPage() {
             <span class="stat-label">Model Spend (USD)</span>
             <h3>${stats ? stats.total_cost_usd.toFixed(4) : "..."}</h3>
             <div class="obs-card-sub">
-              <span>Avg/verdict: <strong>${stats ? stats.avg_cost_usd.toFixed(6) : 0}</strong></span>
+              <span>
+                Avg/verdict:{" "}
+                <strong>${stats ? stats.avg_cost_usd.toFixed(6) : 0}</strong>
+              </span>
             </div>
             <div class="obs-card-range">
               ~${stats ? (stats.avg_cost_usd * 1000).toFixed(3) : 0} / 1k jobs
@@ -191,8 +214,12 @@ export function ObservabilityPage() {
             <span class="stat-label">Scored Postings</span>
             <h3>{stats ? stats.total_verdicts.toLocaleString() : "..."}</h3>
             <div class="obs-card-sub">
-              <span class="text-green">Fit: <strong>{stats?.fit_count.toLocaleString() ?? 0}</strong></span>
-              <span class="text-muted">({stats ? (stats.fit_rate * 100).toFixed(1) : 0}%)</span>
+              <span class="text-green">
+                Fit: <strong>{stats?.fit_count.toLocaleString() ?? 0}</strong>
+              </span>
+              <span class="text-muted">
+                ({stats ? (stats.fit_rate * 100).toFixed(1) : 0}%)
+              </span>
             </div>
             <div class="obs-card-range">
               No Fit: {stats?.no_fit_count.toLocaleString() ?? 0}
@@ -207,9 +234,12 @@ export function ObservabilityPage() {
         <div class="glass-card obs-panel">
           <div class="obs-panel-header">
             <h4>
-              <i class="fa-solid fa-chart-pie text-purple"></i> Verdict Reason Distribution
+              <i class="fa-solid fa-chart-pie text-purple"></i> Verdict Reason
+              Distribution
             </h4>
-            <span class="obs-panel-hint">Click a category to filter inspection table</span>
+            <span class="obs-panel-hint">
+              Click a category to filter inspection table
+            </span>
           </div>
 
           <div class="obs-reasons-list">
@@ -222,12 +252,15 @@ export function ObservabilityPage() {
                 <div
                   key={r.reason_type}
                   class={`obs-reason-row ${isSelected ? "is-selected" : ""}`}
-                  onClick={() => handleFilterReason(isSelected ? "all" : r.reason_type)}
+                  onClick={() =>
+                    handleFilterReason(isSelected ? "all" : r.reason_type)
+                  }
                 >
                   <div class="obs-reason-meta">
                     <span class="obs-reason-badge">{r.reason_type}</span>
                     <span class="obs-reason-count">
-                      {r.count.toLocaleString()} ({(r.percentage * 100).toFixed(1)}%)
+                      {r.count.toLocaleString()} (
+                      {(r.percentage * 100).toFixed(1)}%)
                     </span>
                     <span class="obs-reason-tokens">
                       avg {r.avg_tokens_out} tok out
@@ -249,29 +282,12 @@ export function ObservabilityPage() {
         <div class="glass-card obs-panel">
           <div class="obs-panel-header">
             <h4>
-              <i class="fa-solid fa-gauge-high text-blue"></i> Token Accounting & Diagnostics
+              <i class="fa-solid fa-gauge-high text-blue"></i> Token Accounting
+              & Diagnostics
             </h4>
           </div>
 
           <div class="obs-diagnostics-content">
-            <div class="obs-info-callout">
-              <div class="obs-callout-icon">
-                <i class="fa-solid fa-circle-info"></i>
-              </div>
-              <div class="obs-callout-body">
-                <strong>Why actual tokens (~158) exceed expected (~60):</strong>
-                <p>
-                  1. <strong>Function Schema Overhead:</strong> Forced tool calls require JSON wrapper syntax, tool name (<code>JobFitVerdict</code>), and parameter keys (~35–45 tokens).
-                </p>
-                <p>
-                  2. <strong>Reason Description:</strong> Natural 1–2 sentence explanations average 40–70 tokens.
-                </p>
-                <p>
-                  3. <strong>Retry Accumulation:</strong> Postings that hit parse errors or prose fallbacks retry up to 3 times; all attempts are summed to reflect exact billed cost.
-                </p>
-              </div>
-            </div>
-
             {/* Model Comparison Table */}
             {stats && stats.models.length > 0 && (
               <div class="obs-models-table-wrap">
@@ -318,11 +334,20 @@ export function ObservabilityPage() {
           }}
         >
           <div>
-            <h4 style={{ margin: 0, display: "flex", alignItems: "center", gap: "0.5rem" }}>
-              <i class="fa-solid fa-code text-blue"></i> Active Scoring Prompt & Cached System Prefix
+            <h4
+              style={{
+                margin: 0,
+                display: "flex",
+                alignItems: "center",
+                gap: "0.5rem",
+              }}
+            >
+              <i class="fa-solid fa-code text-blue"></i> Active Scoring Prompt &
+              Cached System Prefix
             </h4>
             <span class="obs-panel-hint">
-              Byte-identical prompt prefix cached on DeepSeek/LLM. Paid once, then read from cache.
+              Byte-identical prompt prefix cached on DeepSeek/LLM. Paid once,
+              then read from cache.
             </span>
           </div>
 
@@ -345,7 +370,9 @@ export function ObservabilityPage() {
               onClick={() => setPromptExpanded(!promptExpanded)}
               style={{ fontSize: "0.8rem", padding: "0.25rem 0.6rem" }}
             >
-              <i class={`fa-solid ${promptExpanded ? "fa-chevron-up" : "fa-chevron-down"}`}></i>{" "}
+              <i
+                class={`fa-solid ${promptExpanded ? "fa-chevron-up" : "fa-chevron-down"}`}
+              ></i>{" "}
               {promptExpanded ? "Collapse" : "Inspect Prompt"}
             </button>
           </div>
@@ -370,8 +397,8 @@ export function ObservabilityPage() {
                   onClick={() => setPromptViewMode("system")}
                   style={{ fontSize: "0.8rem", padding: "0.25rem 0.6rem" }}
                 >
-                  <i class="fa-solid fa-layer-group"></i> Full Cached System Prompt (
-                  {displayedPromptText.length} chars)
+                  <i class="fa-solid fa-layer-group"></i> Full Cached System
+                  Prompt ({displayedPromptText.length} chars)
                 </button>
                 <button
                   class={`action-pill ${promptViewMode === "profile" ? "active" : ""}`}
@@ -395,7 +422,9 @@ export function ObservabilityPage() {
                 disabled={!displayedPromptText}
                 style={{ fontSize: "0.8rem", padding: "0.25rem 0.6rem" }}
               >
-                <i class={`fa-solid ${copiedPrompt ? "fa-check text-green" : "fa-copy"}`}></i>{" "}
+                <i
+                  class={`fa-solid ${copiedPrompt ? "fa-check text-green" : "fa-copy"}`}
+                ></i>{" "}
                 {copiedPrompt ? "Copied!" : "Copy Text"}
               </button>
             </div>
@@ -426,10 +455,12 @@ export function ObservabilityPage() {
         <div class="obs-explorer-header">
           <div class="obs-explorer-title">
             <h3>
-              <i class="fa-solid fa-magnifying-glass-chart text-purple"></i> Model Output & Token Inspector
+              <i class="fa-solid fa-magnifying-glass-chart text-purple"></i>{" "}
+              Model Output & Token Inspector
             </h3>
             <span class="obs-explorer-subtitle">
-              Inspect raw model verdicts, generated explanations, and output token distributions
+              Inspect raw model verdicts, generated explanations, and output
+              token distributions
             </span>
           </div>
 
@@ -442,7 +473,9 @@ export function ObservabilityPage() {
                 class="obs-search-input"
                 placeholder="Search job title, company, or reasoning text..."
                 value={searchTerm}
-                onInput={(e) => setSearchTerm((e.target as HTMLInputElement).value)}
+                onInput={(e) =>
+                  setSearchTerm((e.target as HTMLInputElement).value)
+                }
               />
               {searchTerm && (
                 <button
@@ -496,9 +529,13 @@ export function ObservabilityPage() {
             <select
               class="obs-select"
               value={reasonFilter}
-              onChange={(e) => handleFilterReason((e.target as HTMLSelectElement).value)}
+              onChange={(e) =>
+                handleFilterReason((e.target as HTMLSelectElement).value)
+              }
             >
-              <option value="all">All Reasons ({stats?.reasons.length ?? 0})</option>
+              <option value="all">
+                All Reasons ({stats?.reasons.length ?? 0})
+              </option>
               {stats?.reasons.map((r) => (
                 <option key={r.reason_type} value={r.reason_type}>
                   {r.reason_type} ({r.count})
@@ -513,10 +550,16 @@ export function ObservabilityPage() {
             <select
               class="obs-select"
               value={sortOrder}
-              onChange={(e) => handleSortChange((e.target as HTMLSelectElement).value)}
+              onChange={(e) =>
+                handleSortChange((e.target as HTMLSelectElement).value)
+              }
             >
-              <option value="tokens_out_desc">Outlier Tokens (Highest First)</option>
-              <option value="tokens_out_asc">Fewest Tokens (Lowest First)</option>
+              <option value="tokens_out_desc">
+                Outlier Tokens (Highest First)
+              </option>
+              <option value="tokens_out_asc">
+                Fewest Tokens (Lowest First)
+              </option>
               <option value="cost_desc">Highest Cost</option>
               <option value="date_desc">Most Recent Verdict</option>
               <option value="date_asc">Oldest Verdict</option>
@@ -529,7 +572,9 @@ export function ObservabilityPage() {
             <select
               class="obs-select obs-select-sm"
               value={limit}
-              onChange={(e) => handleLimitChange(Number((e.target as HTMLSelectElement).value))}
+              onChange={(e) =>
+                handleLimitChange(Number((e.target as HTMLSelectElement).value))
+              }
             >
               <option value="10">10</option>
               <option value="20">20</option>
@@ -542,7 +587,8 @@ export function ObservabilityPage() {
         <div class="obs-verdicts-container">
           {loadingVerdicts && (
             <div class="obs-loading-state">
-              <i class="fa-solid fa-circle-notch fa-spin text-purple"></i> Loading model inspection records...
+              <i class="fa-solid fa-circle-notch fa-spin text-purple"></i>{" "}
+              Loading model inspection records...
             </div>
           )}
 
@@ -550,7 +596,9 @@ export function ObservabilityPage() {
             <div class="obs-empty-state">
               <i class="fa-solid fa-inbox"></i>
               <h4>No matching verdicts found</h4>
-              <p>Try adjusting your search query, fit filter, or reason category.</p>
+              <p>
+                Try adjusting your search query, fit filter, or reason category.
+              </p>
             </div>
           )}
 
@@ -562,8 +610,8 @@ export function ObservabilityPage() {
               const tokenClass = isOutlier
                 ? "token-tag-outlier"
                 : isElevated
-                ? "token-tag-elevated"
-                : "token-tag-normal";
+                  ? "token-tag-elevated"
+                  : "token-tag-normal";
 
               const cacheRate =
                 item.tokens_in > 0
@@ -582,7 +630,8 @@ export function ObservabilityPage() {
                             rel="noopener noreferrer"
                             class="obs-job-title-link"
                           >
-                            {item.title} <i class="fa-solid fa-arrow-up-right-from-square obs-link-icon"></i>
+                            {item.title}{" "}
+                            <i class="fa-solid fa-arrow-up-right-from-square obs-link-icon"></i>
                           </a>
                         ) : (
                           <span class="obs-job-title">{item.title}</span>
@@ -594,15 +643,20 @@ export function ObservabilityPage() {
                       </div>
                       <div class="obs-verdict-meta-row">
                         <span class="obs-meta-item">Job ID #{item.job_id}</span>
-                        <span class="obs-meta-item">Model: <code>{item.model}</code></span>
+                        <span class="obs-meta-item">
+                          Model: <code>{item.model}</code>
+                        </span>
                         {item.created_at && (
                           <span class="obs-meta-item">
-                            {new Date(item.created_at).toLocaleDateString("en-US", {
-                              month: "short",
-                              day: "numeric",
-                              hour: "2-digit",
-                              minute: "2-digit",
-                            })}
+                            {new Date(item.created_at).toLocaleDateString(
+                              "en-US",
+                              {
+                                month: "short",
+                                day: "numeric",
+                                hour: "2-digit",
+                                minute: "2-digit",
+                              },
+                            )}
                           </span>
                         )}
                       </div>
@@ -633,7 +687,9 @@ export function ObservabilityPage() {
                     </div>
                     <p class="obs-explanation-text">
                       {item.reason_description || (
-                        <span class="text-muted italic">(No explanation recorded)</span>
+                        <span class="text-muted italic">
+                          (No explanation recorded)
+                        </span>
                       )}
                     </p>
                   </div>
@@ -643,18 +699,23 @@ export function ObservabilityPage() {
                     <div class="obs-token-pills">
                       <span class={`obs-token-pill ${tokenClass}`}>
                         <i class="fa-solid fa-arrow-right-from-bracket"></i>{" "}
-                        <strong>{item.tokens_out.toLocaleString()}</strong> output tokens
-                        {isOutlier && <span class="obs-pill-badge">Outlier / Retry</span>}
+                        <strong>{item.tokens_out.toLocaleString()}</strong>{" "}
+                        output tokens
+                        {isOutlier && (
+                          <span class="obs-pill-badge">Outlier / Retry</span>
+                        )}
                       </span>
                       <span class="obs-token-pill pill-prompt">
                         <i class="fa-solid fa-arrow-right-to-bracket"></i>{" "}
                         {item.tokens_in.toLocaleString()} prompt in (
-                        {item.tokens_cached.toLocaleString()} cached, {cacheRate}%)
+                        {item.tokens_cached.toLocaleString()} cached,{" "}
+                        {cacheRate}%)
                       </span>
                     </div>
 
                     <div class="obs-cost-tag">
-                      <i class="fa-solid fa-coins"></i> ${item.cost_usd.toFixed(6)}
+                      <i class="fa-solid fa-coins"></i> $
+                      {item.cost_usd.toFixed(6)}
                     </div>
                   </div>
                 </div>
@@ -673,7 +734,8 @@ export function ObservabilityPage() {
               <i class="fa-solid fa-chevron-left"></i> Previous
             </button>
             <span class="results-count">
-              {currentStart}–{currentEnd} of {totalVerdicts.toLocaleString()} verdicts
+              {currentStart}–{currentEnd} of {totalVerdicts.toLocaleString()}{" "}
+              verdicts
             </span>
             <button
               class="text-btn"
