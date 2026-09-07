@@ -8,24 +8,20 @@ chart: it measures how often a skill the user lacks appears in postings they *ot
 match well. Kubernetes being popular is not actionable; Kubernetes being the one thing
 standing between the user and 40% of the roles they'd otherwise be a strong fit for is.
 
-Every estimate is post-stratified against a declared reference mix (see analytics.py) and
-its confidence interval uses Kish n_eff rather than raw n. Every suppressed figure carries a
-reason rather than silently vanishing.
+Estimates are plain unweighted counts over the eligible corpus. Every suppressed figure
+carries a reason rather than silently vanishing.
 """
 
 import json
+import statistics
 from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING, Any
 
 from careerradar.market import repository as market_repo
 from careerradar.market.analytics import (
     SUPPRESS_COMPANY_CONCENTRATION,
-    SUPPRESS_COVERAGE_INCOMPLETE,
     SUPPRESS_SMALL_SAMPLE,
     SUPPRESS_TOO_FEW_COMPANIES,
-    build_stratum_weights,
-    kish_n_eff,
-    weighted_median,
     wilson_interval,
 )
 
@@ -140,118 +136,49 @@ class GapAnalysis:
         skills_by_job = market_repo.load_job_skills_chunked(self.db.conn, ids)
         return postings, skills_by_job
 
-    def _cell_locations(self) -> dict[int, str]:
-        return market_repo.get_cell_locations(self.db.conn)
-
     # -- main entry point --------------------------------------------------------------
     def analyse(
         self,
         window_days: int = 90,
         location_id: str | None = None,
         role_family: str | None = None,
-        weighting_mode: str | None = None,
     ) -> dict[str, Any]:
         postings, skills_by_job = self._load_corpus(window_days, location_id, role_family)
-        mode = weighting_mode or self.analytics_config.get("weighting_mode", "interest")
 
         if not postings:
-            return self._empty_result(window_days, mode, "no_eligible_postings")
+            return self._empty_result(window_days, "no_eligible_postings")
 
-        cell_locations = self._cell_locations()
-        reference_mix = self.analytics_config.get("reference_mix") or {}
-
-        # Stratum = (role_family, location). Rotation changes which strata are sampled, so
-        # weights rake the observed mix toward the declared one.
-        stratum_of = {}
-        stratum_counts = {}
-        for posting in postings:
-            cell_id = posting.get("scrape_cell_id")
-            location = (cell_locations.get(cell_id) if cell_id is not None else None) or "unknown"
-            key = f"{posting.get('role_family')}|{location}"
-            stratum_of[posting["id"]] = key
-            stratum_counts[key] = stratum_counts.get(key, 0) + 1
-
-        if mode == "observed":
-            weights_by_stratum = dict.fromkeys(stratum_counts, 1.0)
-            diagnostics = {
-                "strata_used": len(stratum_counts),
-                "strata_available": len(stratum_counts),
-                "n_used": len(postings),
-                "missing_weight": 0.0,
-            }
-        else:
-            weights_by_stratum, diagnostics = build_stratum_weights(
-                stratum_counts,
-                reference_mix,
-                min_stratum_n=self.analytics_config.get("min_stratum_n", 10),
-            )
-
-        weight_of = {p["id"]: weights_by_stratum.get(stratum_of[p["id"]], 0.0) for p in postings}
-        active = [p for p in postings if weight_of[p["id"]] > 0]
-
-        # Until the rotation has covered enough of the target mix, post-stratification
-        # discards most of the corpus and every skill gets suppressed as
-        # coverage_incomplete -- technically correct but an empty tab, which is how a
-        # feature gets abandoned before it has data. So fall back to unweighted and label
-        # it loudly. As more cells are scraped this reverts to the weighted estimate on its
-        # own, and the fallback_reason disappears from the payload.
-        fallback_reason = None
-        max_missing = self.analytics_config.get("max_missing_weight", 0.30)
-        if mode != "observed" and (not active or diagnostics["missing_weight"] > max_missing):
-            fallback_reason = (
-                f"target mix only {(1 - diagnostics['missing_weight']) * 100:.0f}% "
-                f"covered ({diagnostics['strata_used']} of "
-                f"{diagnostics['strata_available']} strata) — showing UNWEIGHTED figures, "
-                f"which reflect the scrape rotation rather than the market"
-            )
-            active = postings
-            weight_of = {p["id"]: 1.0 for p in postings}
-            diagnostics = dict(diagnostics, missing_weight=0.0, weighting_fallback=True)
-
-        total_weight = sum(weight_of[p["id"]] for p in active)
-        n_eff_total = kish_n_eff([weight_of[p["id"]] for p in active])
-
-        good_fit = [p for p in active if _is_good_fit(p)]
-        good_fit_weight = sum(weight_of[p["id"]] for p in good_fit)
-
-        stats = self._per_skill_stats(
-            active, good_fit, skills_by_job, weight_of, total_weight, good_fit_weight
-        )
-        rows = self._score_rows(stats, n_eff_total, diagnostics)
+        good_fit = [p for p in postings if _is_good_fit(p)]
+        stats = self._per_skill_stats(postings, good_fit, skills_by_job)
+        rows = self._score_rows(stats)
 
         return {
             "window_days": window_days,
             "location_id": location_id,
             "role_family": role_family,
-            "weighting_mode": mode,
-            "weighting_effective": "observed" if fallback_reason else mode,
-            "weighting_fallback_reason": fallback_reason,
             "rows": rows,
             "views": self._views(rows),
             "provenance": {
                 "generated_at": datetime.now(timezone.utc).isoformat(),
-                "n_postings": len(active),
-                "n_eff": round(n_eff_total, 1),
+                "n_postings": len(postings),
                 "n_good_fit": len(good_fit),
                 "good_fit_criterion": (
                     f"coverage >= {GOOD_FIT_COVERAGE} over >= "
                     f"{GOOD_FIT_MIN_REQUIREMENTS} recognised requirements"
                 ),
-                "missing_weight": diagnostics["missing_weight"],
-                "strata_used": diagnostics["strata_used"],
-                "strata_available": diagnostics["strata_available"],
                 "taxonomy_hash": self.taxonomy.hash if self.taxonomy else None,
                 "roles_hash": self.roles.hash,
                 "window_below_minimum": window_days
                 < self.analytics_config.get("min_window_days", 30),
-                # Post-stratification cannot fix within-stratum selection bias: if a cell
-                # saturated and the board ranks larger employers first, demand inside that
-                # stratum skews toward big-company stacks. Surfaced, not corrected.
+                # Counts reflect what the rotation scraped, not the market. A cell that
+                # saturated on a board that ranks larger employers first skews demand
+                # toward big-company stacks. Surfaced, not corrected.
                 "residual_bias_note": (
-                    "Within-stratum selection bias is not corrected. Check "
+                    "Counts reflect the scrape rotation, not the market. Check "
                     "saturated_share and max_company_share per skill."
                 ),
-                "cold_start": n_eff_total < self.analytics_config.get("min_n_eff_for_scope", 20),
+                "cold_start": len(postings)
+                < self.analytics_config.get("min_postings_for_scope", 20),
             },
         }
 
@@ -260,9 +187,6 @@ class GapAnalysis:
         active: list[dict[str, Any]],
         good_fit: list[dict[str, Any]],
         skills_by_job: dict[int, dict[str, bool]],
-        weight_of: dict[int, float],
-        total_weight: float,
-        good_fit_weight: float,
     ) -> dict[str, dict[str, Any]]:
         stats: dict[str, dict[str, Any]] = {}
 
@@ -270,13 +194,11 @@ class GapAnalysis:
             return stats.setdefault(
                 skill,
                 {
-                    "weighted_count": 0.0,
                     "raw_count": 0,
-                    "weights": [],
                     "companies": {},
                     "in_title": 0,
                     "saturated": 0,
-                    "blocking_weight": 0.0,
+                    "blocking_count": 0,
                     "salaries": [],
                     "cooccurring": {},
                     "familiar_share_sum": 0.0,
@@ -288,20 +210,17 @@ class GapAnalysis:
 
         for posting in active:
             job_skills = skills_by_job.get(posting["id"], {})
-            weight = weight_of[posting["id"]]
             company = posting.get("company_normalized") or "?"
             salary = posting.get("salary_annual_usd")
 
             for skill, in_title in job_skills.items():
                 entry = record(skill)
-                entry["weighted_count"] += weight
                 entry["raw_count"] += 1
-                entry["weights"].append(weight)
                 entry["companies"][company] = entry["companies"].get(company, 0) + 1
                 if in_title:
                     entry["in_title"] += 1
                 if salary:
-                    entry["salaries"].append((salary, weight))
+                    entry["salaries"].append(salary)
 
                 # Adjacency = when this skill appears, how much of the REST of that
                 # posting's stack does the user already know? Averaged over postings, this
@@ -325,27 +244,20 @@ class GapAnalysis:
         # blocking_gap: among postings the user already matches well, how often does this
         # missing skill appear? This is the "what should I learn next" signal.
         for posting in good_fit:
-            weight = weight_of[posting["id"]]
             for skill in skills_by_job.get(posting["id"], {}):
                 if skill not in user_skills:
-                    record(skill)["blocking_weight"] += weight
+                    record(skill)["blocking_count"] += 1
 
-        baseline_salary = weighted_median(
-            [(salary, weight_of[p["id"]]) for p in active if (salary := p.get("salary_annual_usd"))]
-        )
+        salaries = [s for p in active if (s := p.get("salary_annual_usd"))]
+        baseline_salary = statistics.median(salaries) if salaries else None
 
         for entry in stats.values():
-            entry["total_weight"] = total_weight
-            entry["good_fit_weight"] = good_fit_weight
+            entry["n_active"] = len(active)
+            entry["n_good_fit"] = len(good_fit)
             entry["baseline_salary"] = baseline_salary
         return stats
 
-    def _score_rows(
-        self,
-        stats: dict[str, dict[str, Any]],
-        n_eff_total: float,  # noqa: ARG002 - kept for signature parity with the other row scorers
-        diagnostics: dict[str, Any],
-    ) -> list[dict[str, Any]]:
+    def _score_rows(self, stats: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
         min_postings = self.analytics_config.get("min_postings_for_skill", 20)
         min_companies = self.analytics_config.get("min_companies_for_skill", 3)
         max_company_share = self.analytics_config.get("max_company_share", 0.40)
@@ -354,10 +266,9 @@ class GapAnalysis:
 
         rows = []
         for skill, entry in stats.items():
-            total_weight = entry["total_weight"] or 1.0
-            demand = entry["weighted_count"] / total_weight
-            n_eff = kish_n_eff(entry["weights"])
-            _, ci_low, ci_high = wilson_interval(demand * max(n_eff, 1), max(n_eff, 1))
+            n = entry["raw_count"]
+            demand = n / (entry["n_active"] or 1)
+            _, ci_low, ci_high = wilson_interval(n, entry["n_active"] or 1)
 
             company_total = sum(entry["companies"].values()) or 1
             top_company_share = (
@@ -365,9 +276,7 @@ class GapAnalysis:
             )
 
             blocking_gap = (
-                entry["blocking_weight"] / entry["good_fit_weight"]
-                if entry["good_fit_weight"]
-                else 0.0
+                entry["blocking_count"] / entry["n_good_fit"] if entry["n_good_fit"] else 0.0
             )
             adjacency = (
                 entry["familiar_share_sum"] / entry["familiar_share_n"]
@@ -377,14 +286,12 @@ class GapAnalysis:
 
             salary_lift = None
             if len(entry["salaries"]) >= min_salary_samples and entry["baseline_salary"]:
-                skill_median = weighted_median(entry["salaries"])
+                skill_median = statistics.median(entry["salaries"])
                 if skill_median:
                     salary_lift = skill_median / entry["baseline_salary"]
 
             suppressed = None
-            if diagnostics["missing_weight"] > 0.30:
-                suppressed = SUPPRESS_COVERAGE_INCOMPLETE
-            elif entry["raw_count"] < min_postings:
+            if n < min_postings:
                 suppressed = SUPPRESS_SMALL_SAMPLE
             elif len(entry["companies"]) < min_companies:
                 suppressed = SUPPRESS_TOO_FEW_COMPANIES
@@ -420,8 +327,7 @@ class GapAnalysis:
                     "adjacency": round(adjacency, 4),
                     "salary_lift": round(salary_lift, 3) if salary_lift else None,
                     "priority": None,
-                    "n_raw": entry["raw_count"],
-                    "n_eff": round(n_eff, 1),
+                    "n_raw": n,
                     "n_companies": len(entry["companies"]),
                     "max_company_share": round(top_company_share, 3),
                     "in_title_count": entry["in_title"],
@@ -492,10 +398,9 @@ class GapAnalysis:
             ],
         }
 
-    def _empty_result(self, window_days: int, mode: str, reason: str) -> dict[str, Any]:
+    def _empty_result(self, window_days: int, reason: str) -> dict[str, Any]:
         return {
             "window_days": window_days,
-            "weighting_mode": mode,
             "rows": [],
             "views": {
                 "validated_strengths": [],
@@ -506,7 +411,6 @@ class GapAnalysis:
             "provenance": {
                 "generated_at": datetime.now(timezone.utc).isoformat(),
                 "n_postings": 0,
-                "n_eff": 0.0,
                 "cold_start": True,
                 "suppressed_reason": reason,
                 "taxonomy_hash": self.taxonomy.hash if self.taxonomy else None,

@@ -766,7 +766,6 @@ def skills_gap(
     window_days: int = Query(90, ge=1, le=365),
     location: str | None = None,
     role_family: str | None = None,
-    weighting: str | None = Query(None, pattern="^(interest|estimated_supply|observed)$"),
 ):
     db = get_db()
     try:
@@ -775,7 +774,6 @@ def skills_gap(
             window_days=window_days,
             location_id=location,
             role_family=role_family,
-            weighting_mode=weighting,
         )
     finally:
         db.close()

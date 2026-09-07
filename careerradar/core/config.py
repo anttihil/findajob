@@ -90,7 +90,6 @@ def load_config() -> dict[str, Any]:
             "min_window_days": 30,
             "min_postings_for_skill": 20,
             "exclude_agencies": True,
-            "weighting_mode": "interest",
         },
         "scheduler": {
             "enabled": True,

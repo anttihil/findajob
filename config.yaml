@@ -247,7 +247,7 @@ analytics:
   min_postings_for_skill: 20
   min_companies_for_skill: 3
   max_company_share: 0.40 # one employer dominating a skill is not market demand
-  min_n_eff_for_scope: 20
+  min_postings_for_scope: 20
   # Fraction of the analysis window a cell's scrapes must actually cover.
   min_coverage_fraction: 0.50
   # How many separate scrapes of a cell are required. Keep this at 1. The scheduler rotates
@@ -258,37 +258,6 @@ analytics:
   min_salary_samples: 12
 
   exclude_agencies: true
-
-  # Skill demand is reweighted to this mix of role family and location before it is
-  # reported. The weights are DECLARED here rather than taken from what was scraped, so the
-  # numbers stay stable while the rotation moves around. Weighting by the observed sample
-  # instead would make every metric drift with the scrape schedule and make trends
-  # meaningless.
-  #
-  #   interest         -- "of the jobs I would actually consider, X% require this"
-  #   estimated_supply -- "of what the market is hiring for, X% require this"
-  #   observed         -- diagnostic ONLY; reflects the scrape rotation, not the market
-  weighting_mode: interest
-  reference_mix:
-    ai_engineer|us_remote: 0.13
-    ai_engineer|los_angeles: 0.07
-    fullstack_engineer|us_remote: 0.11
-    fullstack_engineer|los_angeles: 0.06
-    platform_engineer|us_remote: 0.10
-    platform_engineer|los_angeles: 0.05
-    devops_engineer|us_remote: 0.07
-    backend_engineer|us_remote: 0.06
-    ai_engineer|helsinki: 0.05
-    fullstack_engineer|helsinki: 0.04
-    platform_engineer|helsinki: 0.04
-    ai_engineer|stockholm: 0.05
-    fullstack_engineer|stockholm: 0.04
-    platform_engineer|stockholm: 0.04
-    fullstack_engineer|oslo: 0.02
-    fullstack_engineer|copenhagen: 0.02
-    academic_technology|us_remote: 0.02
-    tpm|us_remote: 0.02
-    product_manager|us_remote: 0.01
 
   # How skills are ranked in the gap report. blocking_gap leads on purpose: "this skill is
   # what stands between me and jobs I otherwise match" is more useful than "this skill is

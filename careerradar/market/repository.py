@@ -148,13 +148,6 @@ def load_job_skills_chunked(
     return skills_by_job
 
 
-def get_cell_locations(conn: sqlite3.Connection) -> dict[int, str]:
-    return {
-        row["id"]: row["location_id"]
-        for row in conn.execute("SELECT id, location_id FROM scrape_cells")
-    }
-
-
 def get_skill_drilldown_postings(
     conn: sqlite3.Connection, skill: str, window_start: str, limit: int = 40
 ) -> list[dict[str, Any]]:

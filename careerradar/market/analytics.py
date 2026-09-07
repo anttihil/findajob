@@ -1,9 +1,8 @@
 """Market analytics: search query yield estimation and skill-demand statistics.
 
 Provides query yield tracking for (source, query, location) search tuples,
-evaluating posting volume vs scoring agent strong fits, and statistical
-methods (Wilson score intervals, Kish effective sample sizes, stratum weighting)
-used by skills gap analysis.
+evaluating posting volume vs scoring agent strong fits, and the Wilson score
+interval used by skills gap analysis.
 """
 
 import math
@@ -23,7 +22,6 @@ SUPPRESS_TOO_FEW_OBSERVATIONS = "too_few_observations"
 SUPPRESS_SMALL_SAMPLE = "small_sample"
 SUPPRESS_TOO_FEW_COMPANIES = "too_few_companies"
 SUPPRESS_COMPANY_CONCENTRATION = "company_concentration"
-SUPPRESS_COVERAGE_INCOMPLETE = "coverage_incomplete"
 
 
 # =========================================================================================
@@ -44,69 +42,6 @@ def wilson_interval(successes: float, total: float, z: float = 1.96) -> tuple[fl
         / denominator
     )
     return proportion, max(0.0, centre - margin), min(1.0, centre + margin)
-
-
-def kish_n_eff(weights: list[float]) -> float:
-    """Kish effective sample size: (sum w)^2 / sum w^2."""
-    if not weights:
-        return 0.0
-    total = sum(weights)
-    squares = sum(w * w for w in weights)
-    if squares <= 0:
-        return 0.0
-    return (total * total) / squares
-
-
-def weighted_median(pairs: list[tuple[float, float]]) -> float | None:
-    """Median of (value, weight) pairs."""
-    cleaned = [(v, w) for v, w in pairs if v is not None and w > 0]
-    if not cleaned:
-        return None
-    cleaned.sort()
-    half = sum(w for _, w in cleaned) / 2.0
-    running = 0.0
-    for value, weight in cleaned:
-        running += weight
-        if running >= half:
-            return value
-    return cleaned[-1][0]
-
-
-def build_stratum_weights(
-    stratum_counts: dict[str, int],
-    reference_mix: dict[str, float],
-    min_stratum_n: int = 10,
-) -> tuple[dict[str, float], dict[str, Any]]:
-    """Per-posting weights that rake the observed sample toward a declared mix."""
-    usable = {
-        key: n
-        for key, n in stratum_counts.items()
-        if n >= min_stratum_n and reference_mix.get(key, 0) > 0
-    }
-    target_total = sum(reference_mix.get(key, 0) for key in usable)
-    requested_total = sum(v for v in reference_mix.values() if v > 0)
-
-    diagnostics = {
-        "strata_used": len(usable),
-        "strata_available": len(stratum_counts),
-        "n_used": sum(usable.values()),
-        "missing_weight": (
-            round(1.0 - (target_total / requested_total), 4) if requested_total > 0 else 1.0
-        ),
-    }
-
-    if not usable or target_total <= 0:
-        return dict.fromkeys(stratum_counts, 1.0), diagnostics
-
-    n_used = diagnostics["n_used"]
-    weights = {}
-    for key, n in usable.items():
-        target_share = reference_mix[key] / target_total
-        observed_share = n / n_used
-        weights[key] = target_share / observed_share if observed_share else 0.0
-    for key in stratum_counts:
-        weights.setdefault(key, 0.0)
-    return weights, diagnostics
 
 
 # =========================================================================================

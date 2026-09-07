@@ -92,7 +92,6 @@ function GapList({ rows, kind, onSelect }: {
 // Ported from `templates/tabs/skills.html` + `frontend/js/features/skills.js`.
 export function SkillsPage() {
   const [windowDays, setWindowDays] = useState(90);
-  const [weighting, setWeighting] = useState("interest");
   const [data, setData] = useState<SkillGapResponse | null>(null);
   const [selectedSkill, setSelectedSkill] = useState<string | null>(null);
   const tilesRef = useRef<HTMLDivElement>(null);
@@ -101,7 +100,7 @@ export function SkillsPage() {
   useEffect(() => {
     let cancelled = false;
     setData(null);
-    getJSON<SkillGapResponse>(`/api/skills/gap?window_days=${windowDays}&weighting=${weighting}`)
+    getJSON<SkillGapResponse>(`/api/skills/gap?window_days=${windowDays}`)
       .then((d) => {
         if (!cancelled) setData(d);
       })
@@ -111,7 +110,7 @@ export function SkillsPage() {
     return () => {
       cancelled = true;
     };
-  }, [windowDays, weighting]);
+  }, [windowDays]);
 
   useEffect(() => {
     if (!data || !tilesRef.current) return;
@@ -120,8 +119,7 @@ export function SkillsPage() {
       {
         value: p.n_postings ?? 0,
         label: "postings analysed",
-        sub: `n_eff ${p.n_eff ?? 0}`,
-        tooltip: "Effective sample size after target mix reweighting.",
+        tooltip: "Eligible postings in the window.",
       },
       {
         value: p.n_good_fit ?? 0,
@@ -138,9 +136,7 @@ export function SkillsPage() {
     if (!data || !coverageRef.current) return;
     const p = data.provenance;
     renderCoverageStrip(coverageRef.current, [
-      { label: "weighting", value: data.weighting_effective || data.weighting_mode },
       { label: "window", value: `${data.window_days}d`, warn: p.window_below_minimum },
-      { label: "strata", value: `${p.strata_used ?? 0}/${p.strata_available ?? 0}` },
       {
         label: "suppressed",
         value: data.views.suppressed.length,
@@ -150,7 +146,6 @@ export function SkillsPage() {
   }, [data]);
 
   const notes: { severity: "warning" | "info"; text: string }[] = [];
-  if (data?.weighting_fallback_reason) notes.push({ severity: "warning", text: data.weighting_fallback_reason });
   if (data?.provenance.cold_start) {
     notes.push({
       severity: "info",
@@ -189,21 +184,13 @@ export function SkillsPage() {
               <option value="30">Last 30 days</option>
               <option value="14">Last 14 days</option>
             </select>
-            <select
-              class="form-select-sm"
-              value={weighting}
-              onChange={(e) => setWeighting((e.target as HTMLSelectElement).value)}
-            >
-              <option value="interest">Weight: my target mix</option>
-              <option value="observed">Unweighted (diagnostic)</option>
-            </select>
           </div>
         </div>
         <div class="stat-tile-row" ref={tilesRef}></div>
         <div class="coverage-strip" ref={coverageRef}></div>
         <p class="card-note">
           Ranked by <strong>blocking gap</strong> — missing skills across matching
-          postings, weighted by learning effort.
+          postings, adjusted for learning effort.
         </p>
         {data ? (
           <GapList rows={data.views.priority_gaps} kind="gap" onSelect={setSelectedSkill} />

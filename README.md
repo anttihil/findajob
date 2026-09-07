@@ -286,10 +286,9 @@ coverage strip says which.
 Each location is charted separately because flow is only comparable within one
 location+source pair. There is no pooled cross-location ranking anywhere in the product.
 
-Skill demand is post-stratified against a *declared* `analytics.reference_mix` with Kish
-`n_eff` confidence intervals, falling back to unweighted-and-labelled figures until rotation
-coverage is adequate. Within-stratum selection bias is **not** corrected; it is reported
-(`saturated_share`, `n_companies`, `max_company_share`).
+Skill demand is a plain unweighted count over the eligible corpus, with Wilson confidence
+intervals. It therefore reflects the scrape rotation, not the market. Selection bias is
+**not** corrected; it is reported (`saturated_share`, `n_companies`, `max_company_share`).
 
 Suppression is always visible with a reason, never silent.
 

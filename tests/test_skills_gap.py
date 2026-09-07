@@ -18,7 +18,7 @@ class SkillsGapApiTests(unittest.TestCase):
         self.client = TestClient(app)
 
     def test_skills_gap_endpoint_returns_200_and_expected_structure(self):
-        resp = self.client.get("/api/skills/gap?window_days=90&weighting=interest")
+        resp = self.client.get("/api/skills/gap?window_days=90")
         self.assertEqual(resp.status_code, 200)
         data = resp.json()
         self.assertIn("views", data)
@@ -58,34 +58,30 @@ class GapAnalysisWithoutTaxonomyTests(unittest.TestCase):
             profile=adapter,
         )
 
-        empty = gap._empty_result(window_days=90, mode="observed", reason="no_eligible_postings")
+        empty = gap._empty_result(window_days=90, reason="no_eligible_postings")
         self.assertIsNone(empty["provenance"]["taxonomy_hash"])
 
         # Score rows without taxonomy
         stats = {
             "fastapi": {
-                "total_weight": 10.0,
-                "good_fit_weight": 5.0,
-                "weighted_count": 8.0,
+                "n_active": 10,
+                "n_good_fit": 5,
                 "raw_count": 8,
-                "weights": [1.0] * 8,
                 "companies": {"Acme": 5, "Beta": 3},
                 "in_title": 2,
-                "blocking_weight": 0.0,
+                "blocking_count": 0,
                 "familiar_share_sum": 4.0,
                 "familiar_share_n": 4,
                 "salaries": [],
                 "baseline_salary": 120000,
             },
             "kafka": {
-                "total_weight": 10.0,
-                "good_fit_weight": 5.0,
-                "weighted_count": 6.0,
+                "n_active": 10,
+                "n_good_fit": 5,
                 "raw_count": 6,
-                "weights": [1.0] * 6,
                 "companies": {"Acme": 4, "Gamma": 2},
                 "in_title": 0,
-                "blocking_weight": 3.0,
+                "blocking_count": 3,
                 "familiar_share_sum": 3.0,
                 "familiar_share_n": 3,
                 "salaries": [],
@@ -93,8 +89,7 @@ class GapAnalysisWithoutTaxonomyTests(unittest.TestCase):
             },
         }
 
-        diagnostics = {"missing_weight": 0.0}
-        rows = gap._score_rows(stats, n_eff_total=10.0, diagnostics=diagnostics)
+        rows = gap._score_rows(stats)
         self.assertEqual(len(rows), 2)
 
         fastapi_row = next(r for r in rows if r["skill"] == "fastapi")

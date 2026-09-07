@@ -362,17 +362,11 @@ export interface SuppressedSkill {
 
 export interface SkillGapResponse {
   window_days: number;
-  weighting_mode: string;
-  weighting_effective?: string;
-  weighting_fallback_reason?: string;
   provenance: {
     n_postings?: number;
-    n_eff?: number;
     n_good_fit?: number;
     good_fit_threshold?: number;
     window_below_minimum?: boolean;
-    strata_used?: number;
-    strata_available?: number;
     cold_start?: boolean;
     residual_bias_note?: string;
   };
