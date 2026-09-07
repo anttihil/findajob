@@ -251,7 +251,6 @@ def import_job_from_url(
 
     task = {
         "source": source,
-        "role_family": "",
         "location_id": "",
         "country": "",
         "hours_old": None,

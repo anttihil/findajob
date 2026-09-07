@@ -1,13 +1,13 @@
-"""Populate scrape_cells from target roles and locations.
+"""Populate scrape_cells from the configured search queries and locations.
 
-Re-runnable after every taxonomy edit. Existing cells keep their scrape history, so editing
-targets does not reset coverage; cells no longer in the taxonomy are disabled rather than
-deleted, which keeps cell_observations' foreign keys and past analytics auditable.
+Re-runnable after every edit to the targets. Existing cells keep their scrape history, so
+editing targets does not reset coverage; cells no longer in the matrix are disabled rather
+than deleted, which keeps cell_observations' foreign keys and past analytics auditable.
 
     careerradar search seed-cells [--prune]
 
-Every query_term declared in target_queries is seeded: the matrix is the whole plan, and
-what it lists is what gets searched.
+Every query declared in search_queries is seeded: the matrix is the whole plan, and what it
+lists is what gets searched.
 """
 
 from careerradar.core.config import load_config
@@ -29,7 +29,7 @@ def seed_cells(prune: bool = False) -> int:
     roles = load_roles()
     problems = roles.validate()
     if problems:
-        print("Search targets / role taxonomy has problems; fix these first:")
+        print("Search targets have problems; fix these first:")
         for problem in problems:
             print(f"  - {problem}")
         print("  (Tip: Configure targets via Dashboard or 'careerradar target')")
@@ -46,7 +46,7 @@ def seed_cells(prune: bool = False) -> int:
         print(f"sources:        {', '.join(enabled_sources)}")
         print(f"specs planned:  {len(specs)}")
         print(f"cells inserted: {inserted}")
-        print(f"cells re-enabled: {updated}")
+        print(f"cells refreshed: {updated}")
         if prune:
             print(f"cells disabled: {disabled}")
         print(f"cells enabled:  {total}")
@@ -58,7 +58,7 @@ def seed_cells(prune: bool = False) -> int:
 
         from careerradar.search.capacity import calculate_capacity
 
-        active_queries = sum(len(f.query_terms) for f in roles.families.values() if f.enabled)
+        active_queries = len(roles.queries)
         active_locations = sum(1 for loc in roles.locations.values() if loc.enabled)
         cap = calculate_capacity(active_queries, active_locations, config)
         print(

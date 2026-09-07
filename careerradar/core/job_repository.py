@@ -34,15 +34,13 @@ def fuzzy_job_search(
     company: str | None,
     skills: str | None,
     location: str | None,
-    role_family: str | None,
     seniority: str | None,
 ) -> int:
     """Multi-token typo-tolerant fuzzy matching across primary job posting fields."""
     if not q_str or not q_str.strip():
         return 1
     combined = (
-        f"{title or ''} {company or ''} {skills or ''} "
-        f"{location or ''} {role_family or ''} {seniority or ''}"
+        f"{title or ''} {company or ''} {skills or ''} {location or ''} {seniority or ''}"
     ).lower()
     tokens = [t for t in re.split(r"\s+", q_str.strip().lower()) if t]
     if not tokens:
@@ -153,7 +151,6 @@ def feed_filters(
     *,
     status: str | None = None,
     country: str | None = None,
-    role_family: str | None = None,
     seniority: str | None = None,
     source: str | None = None,
     is_remote: bool | None = None,
@@ -180,7 +177,6 @@ def feed_filters(
     for column, value in (
         ("jobs.status", status),
         ("jobs.country", country),
-        ("jobs.role_family", role_family),
         ("jobs.seniority", seniority),
         ("jobs.source", source),
         ("jobs.pipeline_state", pipeline_state),
@@ -217,7 +213,7 @@ def feed_filters(
     if q and q.strip():
         sql += (
             " AND fuzzy_search(?, jobs.title, jobs.company, jobs.matched_skills,"
-            " jobs.location, jobs.role_family, jobs.seniority) = 1"
+            " jobs.location, jobs.seniority) = 1"
         )
         params.append(q.strip())
     return sql, params
@@ -227,7 +223,6 @@ def query_jobs(
     conn: sqlite3.Connection,
     status: str | None = None,
     country: str | None = None,
-    role_family: str | None = None,
     seniority: str | None = None,
     source: str | None = None,
     is_remote: bool | None = None,
@@ -253,7 +248,6 @@ def query_jobs(
     where, params = feed_filters(
         status=status,
         country=country,
-        role_family=role_family,
         seniority=seniority,
         source=source,
         is_remote=is_remote,
@@ -305,7 +299,6 @@ def job_ids_for(
     db_path: str,
     status: str | None = None,
     country: str | None = None,
-    role_family: str | None = None,
     seniority: str | None = None,
     source: str | None = None,
     is_remote: bool | None = None,
@@ -327,7 +320,6 @@ def job_ids_for(
     where, params = feed_filters(
         status=status,
         country=country,
-        role_family=role_family,
         seniority=seniority,
         source=source,
         is_remote=is_remote,

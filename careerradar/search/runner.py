@@ -29,7 +29,6 @@ from careerradar.search.scheduler import (
     overdue_cells,
     select_cells,
     update_ewma,
-    with_location_weights,
 )
 from careerradar.taxonomy.roles import load_roles
 
@@ -84,15 +83,13 @@ def run_sync(
     scraper_config["proxies_list"] = proxies
     rotating = bool(proxies) and is_rotating(config)
 
-    scraper_config = with_location_weights(scraper_config, roles)
-
     if roles:
         problems = roles.validate()
         if problems:
-            logger.error("target_roles is invalid; aborting:")
+            logger.error("search targets are invalid; aborting:")
             for problem in problems:
                 logger.error(f"  - {problem}")
-            add_sync_error("Config", f"target_roles: {problems[0]}")
+            add_sync_error("Config", f"search targets: {problems[0]}")
             return None
 
     if not dry_run:
@@ -164,7 +161,7 @@ def run_sync(
                 logger.warning(f"[{source}] no cells seeded. Run: careerradar search seed-cells")
                 continue
 
-            tasks = select_cells(cells, scraper_config, roles, source)
+            tasks = select_cells(cells, scraper_config, source)
             if limit:
                 tasks = tasks[:limit]
             totals["cells_planned"] += len(tasks)
@@ -325,7 +322,6 @@ def _scrape_one(
     for posting in postings:
         posting["skills"] = {}
         posting["blockers"] = []
-        posting["role_family"] = task.role_family
         posting["seniority"] = None
         posting["match_score"] = None
         posting["matched_skills"] = []
@@ -453,7 +449,7 @@ def _print_dry_run(
     for posting in stored[:6]:
         print(f"\n  {posting['title'][:62]}")
         print(f"        {posting['company'][:40]:42} {posting['location'][:28]}")
-        print(f"        family={posting.get('role_family')} remote={posting.get('is_remote')}")
+        print(f"        remote={posting.get('is_remote')}")
         if posting.get("salary_annual_usd"):
             print(
                 f"        salary=${posting['salary_annual_usd']:,.0f}/yr "
@@ -467,12 +463,12 @@ def _report_coverage(db: Database, scraper_config: dict[str, Any]) -> None:
     overdue = overdue_cells(db.get_cells(), scraper_config)
     if not overdue:
         return
-    sample = ", ".join(f"{c.location_id}/{c.role_family}" for c in overdue[:4])
+    sample = ", ".join(f"{c.location_id}/{c.query}" for c in overdue[:4])
     add_sync_error(
         "Scheduler",
         f"Coverage: {len(overdue)} core cells past the "
         f"{scraper_config.get('max_staleness_hours', 72)}h floor ({sample}"
-        f"{'...' if len(overdue) > 4 else ''}). Supply comparisons for these families "
+        f"{'...' if len(overdue) > 4 else ''}). Supply comparisons for these cells "
         f"are suppressed this window.",
         severity="warning",
     )

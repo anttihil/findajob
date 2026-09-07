@@ -27,7 +27,6 @@ export interface Job {
   date_found: string | null;
   date_applied: string | null;
 
-  role_family: string | null;
   seniority: string | null;
   is_remote: boolean | null;
   city: string | null;
@@ -207,7 +206,7 @@ export interface QueryYieldTuple {
   query: string;
   location_id: string;
   enabled: boolean;
-  target_query_id: number | null;
+  search_query_id: number | null;
   total_postings: number;
   unique_postings: number;
   scored_postings: number;
@@ -225,7 +224,7 @@ export interface QueryYieldTuple {
 
 export interface QueryTermYield {
   query: string;
-  target_query_id: number | null;
+  search_query_id: number | null;
   total_postings: number;
   unique_postings: number;
   scored_postings: number;
@@ -307,7 +306,6 @@ export interface CoverageCell {
   source: string;
   location_id: string;
   query: string;
-  tier: number;
   total_scrapes: number;
   hours_since_success: number | null;
   last_result_count: number | null;
@@ -531,18 +529,8 @@ export interface ObservabilityPromptResponse {
   updated_at?: string | null;
 }
 
-export interface TargetRole {
-  id: number;
-  key: string;
-  label: string;
-  resume?: string | null;
-  enabled: number | boolean;
-  created_at?: string;
-}
-
 export interface TargetQuery {
   id: number;
-  role_key: string;
   query: string;
   enabled: number | boolean;
 }
@@ -575,7 +563,6 @@ export interface TargetCapacity {
 }
 
 export interface TargetsResponse {
-  roles: TargetRole[];
   queries: TargetQuery[];
   locations: TargetLocation[];
 }

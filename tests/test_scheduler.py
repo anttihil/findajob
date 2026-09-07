@@ -42,33 +42,18 @@ from careerradar.search.scheduler import (
     select_cells,
     starved_cells,
     update_ewma,
-    with_location_weights,
 )
 from careerradar.taxonomy.roles import RoleTaxonomy
 
 NOW = datetime(2026, 7, 29, 12, 0, tzinfo=timezone.utc)
 
 SCHEDULER_TEST_TAXONOMY_SPEC = {
-    "families": {
-        "ai_engineer": {
-            "label": "AI Engineer",
-            "aliases": [r"ai engineer", r"machine learning engineer"],
-            "query_terms": ["AI Engineer", "Machine Learning Engineer"],
-            "enabled": True,
-        },
-        "platform_engineer": {
-            "label": "Platform Engineer",
-            "aliases": [r"platform engineer", r"infrastructure engineer"],
-            "query_terms": ["Platform Engineer"],
-            "enabled": True,
-        },
-        "devrel": {
-            "label": "Developer Relations",
-            "aliases": [r"devrel", r"developer advocate"],
-            "query_terms": ["Developer Relations"],
-            "enabled": True,
-        },
-    },
+    "queries": [
+        "AI Engineer",
+        "Machine Learning Engineer",
+        "Platform Engineer",
+        "Developer Relations",
+    ],
     "locations": [
         {
             "id": "us_remote",
@@ -174,15 +159,6 @@ CONFIG = {
             "fetch_descriptions": False,
         },
     },
-    "locations": {
-        "us_remote": {"weight": 1.0},
-        "us_nat": {"weight": 0.3},
-        "los_angeles": {"weight": 1.0},
-        "helsinki": {"weight": 0.5},
-        "stockholm": {"weight": 0.5},
-        "oslo": {"weight": 0.5},
-        "copenhagen": {"weight": 0.5},
-    },
 }
 
 
@@ -195,10 +171,14 @@ def make_cells(source: str = "indeed", roles: RoleTaxonomy | None = None) -> lis
             CellState(
                 id=index,
                 source=spec["source"],
-                role_family=spec["role_family"],
                 location_id=spec["location_id"],
                 query=spec["query"],
-                active=spec.get("active", True),
+                search_label=spec["search_label"],
+                country=spec["country"],
+                indeed_country=spec["indeed_country"],
+                is_remote=bool(spec["is_remote"]),
+                distance=spec["distance"],
+                weight=spec["weight"],
             )
         )
     return cells
@@ -206,18 +186,18 @@ def make_cells(source: str = "indeed", roles: RoleTaxonomy | None = None) -> lis
 
 class EligibilityTests(unittest.TestCase):
     def test_disabled_cell_is_ineligible(self) -> None:
-        cell = CellState(1, "indeed", "x", "la", "q", enabled=0)
+        cell = CellState(1, "indeed", "la", "q", enabled=0)
         self.assertFalse(is_eligible(cell, NOW))
 
     def test_cell_in_backoff_is_ineligible(self) -> None:
         cell = CellState(
-            1, "indeed", "x", "la", "q", backoff_until=(NOW + timedelta(hours=2)).isoformat()
+            1, "indeed", "la", "q", backoff_until=(NOW + timedelta(hours=2)).isoformat()
         )
         self.assertFalse(is_eligible(cell, NOW))
 
     def test_expired_backoff_is_eligible_again(self) -> None:
         cell = CellState(
-            1, "indeed", "x", "la", "q", backoff_until=(NOW - timedelta(hours=1)).isoformat()
+            1, "indeed", "la", "q", backoff_until=(NOW - timedelta(hours=1)).isoformat()
         )
         self.assertTrue(is_eligible(cell, NOW))
 
@@ -227,7 +207,6 @@ class PriorityTests(unittest.TestCase):
         fresh = CellState(
             1,
             "indeed",
-            "x",
             "la",
             "q",
             active=True,
@@ -237,7 +216,6 @@ class PriorityTests(unittest.TestCase):
         stale = CellState(
             2,
             "indeed",
-            "x",
             "la",
             "q",
             active=True,
@@ -254,7 +232,6 @@ class PriorityTests(unittest.TestCase):
         more_stale = CellState(
             1,
             "indeed",
-            "x",
             "la",
             "q",
             last_scraped_at=(NOW - timedelta(days=10)).isoformat(),
@@ -263,7 +240,6 @@ class PriorityTests(unittest.TestCase):
         less_stale = CellState(
             2,
             "indeed",
-            "x",
             "la",
             "q",
             last_scraped_at=(NOW - timedelta(days=2)).isoformat(),
@@ -280,8 +256,8 @@ class PriorityTests(unittest.TestCase):
             "total_scrapes": 5,
             "last_scraped_at": (NOW - timedelta(days=3)).isoformat(),
         }
-        high = CellState(1, "indeed", "x", "us_remote", "q", **base)
-        low = CellState(2, "indeed", "x", "us_nat", "q", **base)
+        high = CellState(1, "indeed", "us_remote", "q", weight=1.0, **base)
+        low = CellState(2, "indeed", "us_nat", "q", weight=0.3, **base)
         self.assertGreater(cell_priority(high, CONFIG, NOW), cell_priority(low, CONFIG, NOW))
 
     def test_never_scraped_cell_gets_a_novelty_boost(self) -> None:
@@ -289,8 +265,8 @@ class PriorityTests(unittest.TestCase):
             "active": True,
             "last_scraped_at": (NOW - timedelta(days=3)).isoformat(),
         }
-        fresh = CellState(1, "indeed", "x", "la", "q", total_scrapes=0, **base)
-        seen = CellState(2, "indeed", "x", "la", "q", total_scrapes=10, **base)
+        fresh = CellState(1, "indeed", "la", "q", total_scrapes=0, **base)
+        seen = CellState(2, "indeed", "la", "q", total_scrapes=10, **base)
         self.assertGreater(cell_priority(fresh, CONFIG, NOW), cell_priority(seen, CONFIG, NOW))
 
     def test_saturated_cell_is_revisited_sooner(self) -> None:
@@ -299,8 +275,8 @@ class PriorityTests(unittest.TestCase):
             "total_scrapes": 5,
             "last_scraped_at": (NOW - timedelta(days=3)).isoformat(),
         }
-        saturated = CellState(1, "indeed", "x", "la", "q", last_saturated=1, **base)
-        normal = CellState(2, "indeed", "x", "la", "q", last_saturated=0, **base)
+        saturated = CellState(1, "indeed", "la", "q", last_saturated=1, **base)
+        normal = CellState(2, "indeed", "la", "q", last_saturated=0, **base)
         self.assertGreater(
             cell_priority(saturated, CONFIG, NOW), cell_priority(normal, CONFIG, NOW)
         )
@@ -311,24 +287,24 @@ class PriorityTests(unittest.TestCase):
             "total_scrapes": 5,
             "last_scraped_at": (NOW - timedelta(days=3)).isoformat(),
         }
-        empty = CellState(1, "indeed", "x", "la", "q", consecutive_empty=8, **base)
-        normal = CellState(2, "indeed", "x", "la", "q", consecutive_empty=0, **base)
+        empty = CellState(1, "indeed", "la", "q", consecutive_empty=8, **base)
+        normal = CellState(2, "indeed", "la", "q", consecutive_empty=0, **base)
         self.assertLess(cell_priority(empty, CONFIG, NOW), cell_priority(normal, CONFIG, NOW))
         # Must stay strictly positive, so a quiet family is still probed occasionally.
         self.assertGreater(cell_priority(empty, CONFIG, NOW), 0)
 
     def test_quality_multiplier_is_neutral_without_enough_samples(self) -> None:
-        cell = CellState(1, "indeed", "x", "la", "q", ewma_fit_score=10, quality_samples=1)
+        cell = CellState(1, "indeed", "la", "q", ewma_fit_score=10, quality_samples=1)
         self.assertEqual(quality_multiplier(cell), 1.0)
-        cell_never_scored = CellState(2, "indeed", "x", "la", "q")
+        cell_never_scored = CellState(2, "indeed", "la", "q")
         self.assertEqual(quality_multiplier(cell_never_scored), 1.0)
 
     def test_quality_multiplier_rewards_and_penalizes_once_sampled(self) -> None:
         strong = CellState(
-            1, "indeed", "x", "la", "q", ewma_fit_score=90, quality_samples=QUALITY_SAMPLE_MIN
+            1, "indeed", "la", "q", ewma_fit_score=90, quality_samples=QUALITY_SAMPLE_MIN
         )
         weak = CellState(
-            2, "indeed", "x", "la", "q", ewma_fit_score=10, quality_samples=QUALITY_SAMPLE_MIN
+            2, "indeed", "la", "q", ewma_fit_score=10, quality_samples=QUALITY_SAMPLE_MIN
         )
         self.assertGreater(quality_multiplier(strong), 1.0)
         self.assertLess(quality_multiplier(weak), 1.0)
@@ -343,8 +319,8 @@ class PriorityTests(unittest.TestCase):
             "ewma_new_per_scrape": 5.0,
             "quality_samples": QUALITY_SAMPLE_MIN,
         }
-        strong = CellState(1, "indeed", "x", "la", "q", ewma_fit_score=90, **base)
-        weak = CellState(2, "indeed", "x", "la", "q", ewma_fit_score=10, **base)
+        strong = CellState(1, "indeed", "la", "q", ewma_fit_score=90, **base)
+        weak = CellState(2, "indeed", "la", "q", ewma_fit_score=10, **base)
         self.assertGreater(cell_priority(strong, CONFIG, NOW), cell_priority(weak, CONFIG, NOW))
         # A poor track record must never be able to zero out an otherwise-productive cell.
         self.assertGreater(cell_priority(weak, CONFIG, NOW), 0)
@@ -357,11 +333,10 @@ class PriorityTests(unittest.TestCase):
             "active": True,
             "last_scraped_at": (NOW - timedelta(days=3)).isoformat(),
         }
-        never_scraped = CellState(1, "indeed", "x", "la", "q", total_scrapes=0, **base)
+        never_scraped = CellState(1, "indeed", "la", "q", total_scrapes=0, **base)
         seasoned_but_poor = CellState(
             2,
             "indeed",
-            "x",
             "la",
             "q",
             total_scrapes=10,
@@ -382,7 +357,6 @@ class AdaptiveHoursOldTests(unittest.TestCase):
             cell = CellState(
                 1,
                 "indeed",
-                "x",
                 "la",
                 "q",
                 active=True,
@@ -399,7 +373,6 @@ class AdaptiveHoursOldTests(unittest.TestCase):
         cell = CellState(
             1,
             "indeed",
-            "x",
             "la",
             "q",
             active=True,
@@ -411,7 +384,6 @@ class AdaptiveHoursOldTests(unittest.TestCase):
         cell = CellState(
             1,
             "indeed",
-            "x",
             "la",
             "q",
             active=True,
@@ -420,7 +392,7 @@ class AdaptiveHoursOldTests(unittest.TestCase):
         self.assertLessEqual(adaptive_hours_old(cell, CONFIG, NOW), 336)
 
     def test_never_succeeded_cell_uses_the_backfill_window(self) -> None:
-        cell = CellState(1, "indeed", "x", "la", "q", active=True)
+        cell = CellState(1, "indeed", "la", "q", active=True)
         self.assertEqual(adaptive_hours_old(cell, CONFIG, NOW), 336)
 
 
@@ -430,14 +402,14 @@ class BudgetTests(unittest.TestCase):
 
     def test_respects_searches_per_run(self) -> None:
         cells = make_cells("indeed", self.roles)
-        tasks = select_cells(cells, CONFIG, self.roles, "indeed", NOW)
+        tasks = select_cells(cells, CONFIG, "indeed", NOW)
         self.assertLessEqual(
             (tasks and len(tasks)) or 0, CONFIG["budgets"]["indeed"]["searches_per_run"]
         )
 
     def test_respects_request_unit_budget(self) -> None:
         cells = make_cells("indeed", self.roles)
-        tasks = select_cells(cells, CONFIG, self.roles, "indeed", NOW)
+        tasks = select_cells(cells, CONFIG, "indeed", NOW)
         units = sum(t.est_request_units for t in tasks)
         self.assertLessEqual(units, CONFIG["budgets"]["indeed"]["request_units"])
 
@@ -448,20 +420,20 @@ class BudgetTests(unittest.TestCase):
             CONFIG["budgets"],
             linkedin=dict(CONFIG["budgets"]["linkedin"], max_pages_per_run=10),
         )
-        tasks = select_cells(cells, cfg, self.roles, "linkedin", NOW)
+        tasks = select_cells(cells, cfg, "linkedin", NOW)
         pages = sum(estimate_pages("linkedin", t.results_wanted, cfg) for t in tasks)
         self.assertLessEqual(pages, 10)
 
     def test_indeed_tasks_request_a_description_census(self) -> None:
         cells = make_cells("indeed", self.roles)
-        tasks = select_cells(cells, CONFIG, self.roles, "indeed", NOW)
+        tasks = select_cells(cells, CONFIG, "indeed", NOW)
         for task in tasks:
             self.assertTrue(task.fetch_description)
             self.assertEqual(task.desc_selection, "census")
 
     def test_linkedin_without_proxies_fetches_no_descriptions(self) -> None:
         cells = make_cells("linkedin", self.roles)
-        tasks = select_cells(cells, CONFIG, self.roles, "linkedin", NOW)
+        tasks = select_cells(cells, CONFIG, "linkedin", NOW)
         for task in tasks:
             self.assertFalse(task.fetch_description)
             self.assertEqual(task.desc_selection, "none")
@@ -477,7 +449,7 @@ class BudgetTests(unittest.TestCase):
                 desc_selection="census",
             ),
         )
-        tasks = select_cells(cells, cfg, self.roles, "linkedin", NOW)
+        tasks = select_cells(cells, cfg, "linkedin", NOW)
         for task in tasks:
             self.assertTrue(task.fetch_description)
             self.assertEqual(task.desc_selection, "census")
@@ -491,14 +463,14 @@ class BudgetTests(unittest.TestCase):
 
     def test_tasks_carry_location_and_country_from_the_query(self) -> None:
         cells = make_cells("indeed", self.roles)
-        tasks = select_cells(cells, CONFIG, self.roles, "indeed", NOW)
+        tasks = select_cells(cells, CONFIG, "indeed", NOW)
         for task in tasks:
             self.assertTrue(task.location_label)
             self.assertTrue(task.country)
 
     def test_backfill_maximises_results_and_window(self) -> None:
         cells = make_cells("indeed", self.roles)
-        tasks = select_cells(cells, CONFIG, self.roles, "indeed", NOW, backfill=True)
+        tasks = select_cells(cells, CONFIG, "indeed", NOW, backfill=True)
         for task in tasks:
             self.assertEqual(task.results_wanted, CONFIG["budgets"]["indeed"]["max_results_wanted"])
             self.assertEqual(task.hours_old, CONFIG["backfill_hours_old"])
@@ -515,14 +487,10 @@ class StalenessFloorTests(unittest.TestCase):
             cell.last_success_at = NOW.isoformat()
             cell.total_scrapes = 10
             cell.ewma_new_per_scrape = 20.0
-        overdue = [
-            c
-            for c in cells
-            if CONFIG.get("locations", {}).get(c.location_id, {}).get("weight", 1.0) >= 1.0
-        ][-1]
+        overdue = [c for c in cells if c.weight >= 1.0][-1]
         overdue.last_success_at = (NOW - timedelta(days=5)).isoformat()
 
-        tasks = select_cells(cells, CONFIG, self.roles, "indeed", NOW)
+        tasks = select_cells(cells, CONFIG, "indeed", NOW)
         self.assertIn(overdue.id, {t.cell_id for t in tasks})
 
     def test_overdue_keys_on_success_not_attempt(self) -> None:
@@ -535,7 +503,6 @@ class StalenessFloorTests(unittest.TestCase):
             CellState(
                 1,
                 "indeed",
-                "ai_engineer",
                 "us_remote",
                 "q",
                 active=True,
@@ -550,7 +517,6 @@ class StalenessFloorTests(unittest.TestCase):
             CellState(
                 1,
                 "indeed",
-                "ai_engineer",
                 "us_remote",
                 "q",
                 active=True,
@@ -565,9 +531,9 @@ class StalenessFloorTests(unittest.TestCase):
             CellState(
                 1,
                 "indeed",
-                "ai_engineer",
                 "us_nat",
                 "q",
+                weight=0.3,
                 active=True,
                 last_success_at=(NOW - timedelta(days=30)).isoformat(),
             )
@@ -576,52 +542,42 @@ class StalenessFloorTests(unittest.TestCase):
 
 
 class LocationWeightWiringTests(unittest.TestCase):
-    """Weights are declared on target locations and consumed off the scraper config.
+    """The weight reaches the scheduler on the cell itself.
 
-    These assert the *bridge* rather than the policy. Every weight-dependent test above
-    hand-builds CONFIG with a "locations" key, so all of them passed while production
-    passed a config that had none -- every location weighed 1.0 and the >= 1.0 filters
-    matched everything. Testing the policy is not enough; the wiring needs its own test.
+    Every weight-dependent test above hand-builds its cells, so all of them passed while
+    production shipped a config the scheduler never populated -- every location weighed
+    1.0 and the >= 1.0 filters matched everything. Testing the policy is not enough; the
+    wiring from the location definition onto the cell needs its own test.
     """
 
     def setUp(self) -> None:
         self.roles = RoleTaxonomy(spec_dict=SCHEDULER_TEST_TAXONOMY_SPEC)
 
-    def test_weights_are_populated_from_target_locations(self) -> None:
-        merged = with_location_weights({"cadence_hours": 24}, self.roles)
-        self.assertTrue(merged["locations"])
-        for location_id, location in self.roles.locations.items():
-            self.assertEqual(merged["locations"][location_id]["weight"], location.weight)
+    def test_cell_specs_carry_the_location_weight(self) -> None:
+        for spec in self.roles.cell_specs(sources=("indeed",)):
+            self.assertEqual(spec["weight"], self.roles.locations[spec["location_id"]].weight)
 
-    def test_fixture_ids_match_target_locations(self) -> None:
-        """Guards the specific rot that hid the bug: renamed ids, silent lookup misses."""
-        self.assertEqual(set(CONFIG["locations"]), set(self.roles.locations))
+    def test_cells_built_from_specs_carry_the_weight(self) -> None:
+        by_location = {c.location_id: c for c in make_cells("indeed", self.roles)}
+        self.assertEqual(by_location["us_nat"].weight, 0.3)
+        self.assertEqual(by_location["us_remote"].weight, 1.0)
 
-    def test_bridge_changes_who_counts_as_overdue(self) -> None:
-        """The regression itself: a low-weight cell is only excluded once weights arrive."""
-        cells = [
-            CellState(
-                1,
-                "indeed",
-                "ai_engineer",
-                "us_nat",
-                "q",
-                active=True,
-                last_success_at=(NOW - timedelta(days=30)).isoformat(),
-            )
-        ]
-        bare = {"max_staleness_hours": 72}
-        self.assertEqual(len(overdue_cells(cells, bare, NOW)), 1)
-        self.assertEqual(overdue_cells(cells, with_location_weights(bare, self.roles), NOW), [])
+    def test_weight_decides_who_counts_as_overdue(self) -> None:
+        """The regression itself: a low-weight cell is outside the floor guarantee."""
+        stale: dict[str, Any] = {
+            "active": True,
+            "last_success_at": (NOW - timedelta(days=30)).isoformat(),
+        }
+        low = CellState(1, "indeed", "us_nat", "q", weight=0.3, **stale)
+        high = CellState(2, "indeed", "us_remote", "q", weight=1.0, **stale)
+        config = {"max_staleness_hours": 72}
+        self.assertEqual(overdue_cells([low], config, NOW), [])
+        self.assertEqual(len(overdue_cells([high], config, NOW)), 1)
 
     def test_priority_is_damped_by_location_weight(self) -> None:
-        merged = with_location_weights(CONFIG, self.roles)
-        commutable = CellState(1, "indeed", "ai_engineer", "los_angeles", "q", active=True)
-        relocation = CellState(2, "indeed", "ai_engineer", "us_nat", "q", active=True)
-        self.assertGreater(
-            cell_priority(commutable, merged, NOW),
-            cell_priority(relocation, merged, NOW),
-        )
+        near = CellState(1, "indeed", "los_angeles", "q", weight=1.0, active=True)
+        far = CellState(2, "indeed", "us_nat", "q", weight=0.3, active=True)
+        self.assertGreater(cell_priority(near, CONFIG, NOW), cell_priority(far, CONFIG, NOW))
 
 
 class StarvationDeadlineTests(unittest.TestCase):
@@ -635,7 +591,6 @@ class StarvationDeadlineTests(unittest.TestCase):
         return CellState(
             1,
             "indeed",
-            "ai_engineer",
             "us_remote",
             "q",
             active=True,
@@ -666,7 +621,7 @@ class StarvationDeadlineTests(unittest.TestCase):
         starving.consecutive_empty = 5
         starving.ewma_new_per_scrape = 0.0
 
-        tasks = select_cells(cells, self.config, self.roles, "indeed", NOW)
+        tasks = select_cells(cells, self.config, "indeed", NOW)
         self.assertIn(starving.id, {t.cell_id for t in tasks})
 
     def test_most_overdue_comes_first(self) -> None:
@@ -675,7 +630,6 @@ class StarvationDeadlineTests(unittest.TestCase):
         cell2 = CellState(
             2,
             "indeed",
-            "devrel",
             "us_remote",
             "q",
             active=True,
@@ -704,13 +658,13 @@ class EventualCoverageSimulationTests(unittest.TestCase):
         clock = NOW
 
         for _ in range(runs):
-            tasks = select_cells(cells, CONFIG, self.roles, source, clock)
+            tasks = select_cells(cells, CONFIG, source, clock)
             for task in tasks:
                 cell = by_id[task.cell_id]
                 visits[cell.id] += 1
                 cell.last_scraped_at = clock.isoformat()
                 cell.total_scrapes += 1
-                if cell.role_family in empties:
+                if cell.query in empties:
                     cell.consecutive_empty += 1
                     cell.last_result_count = 0
                     cell.last_success_at = clock.isoformat()
@@ -745,7 +699,7 @@ class EventualCoverageSimulationTests(unittest.TestCase):
         clock = NOW
         runs = 0
         while len(seen) < len(cells) and runs < 100:
-            for task in select_cells(cells, CONFIG, self.roles, "indeed", clock):
+            for task in select_cells(cells, CONFIG, "indeed", clock):
                 seen.add(task.cell_id)
                 cell = by_id[task.cell_id]
                 cell.last_scraped_at = clock.isoformat()
@@ -756,13 +710,13 @@ class EventualCoverageSimulationTests(unittest.TestCase):
         days = (clock - NOW).total_seconds() / 86400
         self.assertLessEqual(days, 8, f"full cycle took {days:.1f} days")
 
-    def test_persistently_empty_family_is_still_probed(self) -> None:
+    def test_persistently_empty_query_is_still_probed(self) -> None:
         """Otherwise "the market moved" and "my query broke" look the same."""
-        visits, cells = self._simulate(runs=200, empties=("devrel",))
+        visits, cells = self._simulate(runs=200, empties=("Developer Relations",))
         by_id = {c.id: c for c in cells}
-        devrel_visits = [v for cid, v in visits.items() if by_id[cid].role_family == "devrel"]
-        self.assertTrue(devrel_visits)
-        self.assertTrue(all(v >= 2 for v in devrel_visits), devrel_visits)
+        quiet = [v for cid, v in visits.items() if by_id[cid].query == "Developer Relations"]
+        self.assertTrue(quiet)
+        self.assertTrue(all(v >= 2 for v in quiet), quiet)
 
 
 class SaturationTests(unittest.TestCase):

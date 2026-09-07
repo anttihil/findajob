@@ -40,7 +40,7 @@ class Database:
         self.db_path = db_path or DB_PATH
         self.conn = sqlite3.connect(self.db_path)
         self.conn.row_factory = sqlite3.Row
-        self.conn.create_function("fuzzy_search", 7, fuzzy_job_search)
+        self.conn.create_function("fuzzy_search", 6, fuzzy_job_search)
         self._jobs_columns: list[str] | None = None
         self.create_tables()
 
@@ -67,7 +67,6 @@ class Database:
         self,
         status: str | None = None,
         country: str | None = None,
-        role_family: str | None = None,
         seniority: str | None = None,
         source: str | None = None,
         is_remote: bool | None = None,
@@ -89,7 +88,6 @@ class Database:
             conn=self.conn,
             status=status,
             country=country,
-            role_family=role_family,
             seniority=seniority,
             source=source,
             is_remote=is_remote,
@@ -114,7 +112,6 @@ class Database:
         self,
         status: str | None = None,
         country: str | None = None,
-        role_family: str | None = None,
         seniority: str | None = None,
         source: str | None = None,
         is_remote: bool | None = None,
@@ -137,7 +134,6 @@ class Database:
             db_path=self.db_path,
             status=status,
             country=country,
-            role_family=role_family,
             seniority=seniority,
             source=source,
             is_remote=is_remote,

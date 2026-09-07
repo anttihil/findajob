@@ -147,7 +147,7 @@ class MarketAnalytics:
                 "query": q,
                 "location_id": loc,
                 "enabled": bool(r["enabled"]),
-                "target_query_id": r["target_query_id"],
+                "search_query_id": r["search_query_id"],
                 "total_postings": tot,
                 "unique_postings": uniq,
                 "scored_postings": scored,
@@ -168,7 +168,7 @@ class MarketAnalytics:
             if q not in query_map:
                 query_map[q] = {
                     "query": q,
-                    "target_query_id": r["target_query_id"],
+                    "search_query_id": r["search_query_id"],
                     "total_postings": 0,
                     "unique_postings": 0,
                     "scored_postings": 0,
@@ -239,7 +239,7 @@ class MarketAnalytics:
             top_queries.append(
                 {
                     "query": q_rec["query"],
-                    "target_query_id": q_rec["target_query_id"],
+                    "search_query_id": q_rec["search_query_id"],
                     "total_postings": tot,
                     "unique_postings": q_rec["unique_postings"],
                     "scored_postings": s_post,

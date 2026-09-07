@@ -19,7 +19,6 @@ def test_render_resume_plaintext_and_job_context():
         "title": "Staff Backend Engineer",
         "company": "Stripe",
         "location": "San Francisco, CA",
-        "role_family": "backend",
         "seniority": "staff",
         "matched_skills": ["Python", "AWS", "FastAPI"],
         "description": "We are seeking a Staff Backend Engineer to lead high-throughput pipelines.",

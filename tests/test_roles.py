@@ -1,4 +1,4 @@
-"""Search-target tests: cell planning, search labels, and taxonomy integrity."""
+"""Search-target tests: cell planning, search labels, and target integrity."""
 
 import unittest
 from typing import Any
@@ -6,38 +6,14 @@ from typing import Any
 from careerradar.taxonomy.roles import RoleTaxonomy
 
 TEST_TAXONOMY_SPEC: dict[str, Any] = {
-    "families": {
-        "forward_deployed_engineer": {
-            "label": "Forward Deployed / Solutions Engineer",
-            "query_terms": ["Forward Deployed Engineer", "Solutions Engineer"],
-            "enabled": True,
-        },
-        "devops_engineer": {
-            "label": "DevOps Engineer",
-            "query_terms": ["DevOps Engineer"],
-            "enabled": True,
-        },
-        "ai_engineer": {
-            "label": "AI / GenAI Engineer",
-            "query_terms": ["AI Engineer", "GenAI Engineer"],
-            "enabled": True,
-        },
-        "mobile_engineer": {
-            "label": "Mobile Engineer",
-            "query_terms": [],
-            "enabled": True,
-        },
-        "product_manager": {
-            "label": "Product Manager",
-            "query_terms": ["Product Manager"],
-            "enabled": False,
-        },
-        "software_engineer": {
-            "label": "Software Engineer (generalist)",
-            "query_terms": ["Software Engineer"],
-            "enabled": True,
-        },
-    },
+    "queries": [
+        "Forward Deployed Engineer",
+        "Solutions Engineer",
+        "DevOps Engineer",
+        "AI Engineer",
+        "GenAI Engineer",
+        "Software Engineer",
+    ],
     "locations": [
         {
             "id": "us_remote",
@@ -72,6 +48,17 @@ TEST_TAXONOMY_SPEC: dict[str, Any] = {
             "distance": 50,
             "enabled": True,
         },
+        {
+            "id": "sydney",
+            "label": "Sydney, Australia",
+            "search_label": "Sydney, Australia",
+            "country": "AU",
+            "indeed_country": "australia",
+            "is_remote": False,
+            "weight": 0.4,
+            "distance": 50,
+            "enabled": False,
+        },
     ],
 }
 
@@ -82,7 +69,7 @@ class RoleTaxonomyIntegrityTests(unittest.TestCase):
 
     def test_validates_clean(self) -> None:
         problems = self.roles.validate()
-        self.assertEqual(problems, [], f"role taxonomy problems: {problems}")
+        self.assertEqual(problems, [], f"search target problems: {problems}")
 
     def test_location_ids_are_not_ambiguous_abbreviations(self) -> None:
         """ "la" reads as Louisiana, and two-letter ids collide with US state codes."""
@@ -97,49 +84,42 @@ class RoleTaxonomyIntegrityTests(unittest.TestCase):
 class CellPlanningTests(unittest.TestCase):
     def setUp(self) -> None:
         self.roles = RoleTaxonomy(spec_dict=TEST_TAXONOMY_SPEC)
+        self.enabled_locations = [loc for loc in self.roles.locations.values() if loc.enabled]
 
     def test_cells_are_unique_on_the_schema_key(self) -> None:
         specs = self.roles.cell_specs()
-        keys = {(s["source"], s["role_family"], s["location_id"], s["query"]) for s in specs}
+        keys = {(s["source"], s["location_id"], s["query"]) for s in specs}
         self.assertEqual(len(keys), len(specs), "duplicate cell keys would break UNIQUE")
 
-    def test_cell_planning_covers_all_locations(self) -> None:
-        specs = self.roles.cell_specs()
-        locations = {s["location_id"] for s in specs}
-        for loc_id in self.roles.locations:
-            self.assertIn(loc_id, locations)
+    def test_cell_planning_covers_every_enabled_location(self) -> None:
+        planned = {s["location_id"] for s in self.roles.cell_specs()}
+        self.assertEqual(planned, {loc.id for loc in self.enabled_locations})
+
+    def test_a_disabled_location_is_not_searched(self) -> None:
+        self.assertNotIn("sydney", {s["location_id"] for s in self.roles.cell_specs()})
 
     def test_both_sources_are_planned(self) -> None:
         sources = {s["source"] for s in self.roles.cell_specs()}
         self.assertEqual(sources, {"indeed", "linkedin"})
 
-    def test_every_declared_query_term_is_seeded(self) -> None:
+    def test_every_declared_query_is_seeded(self) -> None:
         specs = self.roles.cell_specs(sources=("indeed",))
-        for key, family in self.roles.families.items():
-            if not family.enabled:
-                continue
-            seeded = {s["query"] for s in specs if s["role_family"] == key}
-            self.assertEqual(seeded, set(family.query_terms), key)
+        self.assertEqual({s["query"] for s in specs}, set(self.roles.queries))
 
-    def test_a_family_with_no_query_terms_is_not_searched(self) -> None:
-        silent = [k for k, f in self.roles.families.items() if not f.query_terms]
-        self.assertTrue(silent, "spec must declare a family with no query terms")
-        planned = {s["role_family"] for s in self.roles.cell_specs()}
-        for key in silent:
-            self.assertNotIn(key, planned, key)
-
-    def test_a_disabled_family_is_not_searched(self) -> None:
-        planned = {s["role_family"] for s in self.roles.cell_specs()}
-        self.assertNotIn("product_manager", planned)
-
-    def test_cell_cost_of_a_term_covers_enabled_locations(self) -> None:
+    def test_the_matrix_is_queries_by_locations_by_sources(self) -> None:
         specs = self.roles.cell_specs(sources=("indeed", "linkedin"))
-        enabled_locs = [loc for loc in self.roles.locations.values() if loc.enabled]
-        for key, family in self.roles.families.items():
-            if not family.query_terms or not family.enabled:
-                continue
-            expected = len(family.query_terms) * len(enabled_locs) * 2
-            self.assertEqual(len([s for s in specs if s["role_family"] == key]), expected, key)
+        self.assertEqual(len(specs), len(self.roles.queries) * len(self.enabled_locations) * 2)
+
+    def test_specs_carry_the_whole_jobspy_call(self) -> None:
+        """The cell is built from one spec and joins nothing at task-build time."""
+        for spec in self.roles.cell_specs(sources=("indeed",)):
+            location = self.roles.locations[spec["location_id"]]
+            self.assertEqual(spec["search_label"], location.search_label)
+            self.assertEqual(spec["country"], location.country)
+            self.assertEqual(spec["indeed_country"], location.indeed_country)
+            self.assertEqual(bool(spec["is_remote"]), location.is_remote)
+            self.assertEqual(spec["distance"], location.distance)
+            self.assertEqual(spec["weight"], location.weight)
 
 
 class SearchLabelTests(unittest.TestCase):
@@ -174,9 +154,18 @@ class SearchLabelTests(unittest.TestCase):
 
         from careerradar.search.scheduler import CellState, _make_task
 
-        cell = CellState(1, "indeed", "ai_engineer", "us_nat", "AI Engineer", active=True)
-        task = _make_task(cell, {}, self.roles, "indeed", datetime.now(timezone.utc))
+        cell = CellState(
+            1,
+            "indeed",
+            "us_nat",
+            "AI Engineer",
+            search_label="United States",
+            country="US",
+            active=True,
+        )
+        task = _make_task(cell, {}, "indeed", datetime.now(timezone.utc))
         self.assertEqual(task.location_label, "United States")
+        self.assertEqual(task.country, "US")
 
 
 if __name__ == "__main__":

@@ -4,7 +4,6 @@ import type {
   TargetCapacity,
   TargetLocation,
   TargetQuery,
-  TargetRole,
   TargetsResponse,
 } from "../api/types";
 
@@ -314,7 +313,6 @@ export function SearchTargetsWidget({
   const [expanded, setExpanded] = useState(initialExpanded);
   const [activeTab, setActiveTab] = useState<"queries" | "locations" | "capacity">("queries");
 
-  const [roles, setRoles] = useState<TargetRole[]>([]);
   const [queries, setQueries] = useState<TargetQuery[]>([]);
   const [locations, setLocations] = useState<TargetLocation[]>([]);
   const [capacity, setCapacity] = useState<TargetCapacity | null>(null);
@@ -324,19 +322,15 @@ export function SearchTargetsWidget({
 
   // Queries Filter & Add Form State
   const [querySearchTerm, setQuerySearchTerm] = useState("");
-  const [selectedRoleFilter, setSelectedRoleFilter] = useState("all");
   const [queryStatusFilter, setQueryStatusFilter] = useState<"all" | "active" | "paused">("all");
 
   const [showAddQueryModal, setShowAddQueryModal] = useState(false);
-  const [newQueryRole, setNewQueryRole] = useState("ai_engineer");
-  const [newQueryCustomRole, setNewQueryCustomRole] = useState("");
   const [newQueryText, setNewQueryText] = useState("");
   const [newQueryEnabled, setNewQueryEnabled] = useState(true);
 
   // Query Inline Editing State
   const [editingQueryId, setEditingQueryId] = useState<number | null>(null);
   const [editingQueryText, setEditingQueryText] = useState("");
-  const [editingQueryRole, setEditingQueryRole] = useState("");
 
   // Location Form & Editing State
   const [showAddLocationModal, setShowAddLocationModal] = useState(false);
@@ -361,7 +355,6 @@ export function SearchTargetsWidget({
       ]);
 
       if (targetsData) {
-        setRoles(targetsData.roles || []);
         setQueries(targetsData.queries || []);
         setLocations(targetsData.locations || []);
       }
@@ -433,22 +426,14 @@ export function SearchTargetsWidget({
   const handleStartEditQuery = (q: TargetQuery) => {
     setEditingQueryId(q.id);
     setEditingQueryText(q.query);
-    setEditingQueryRole(q.role_key);
   };
 
   const handleSaveEditQuery = async (queryId: number) => {
     if (!editingQueryText.trim()) return;
     try {
-      await putJSON(`/api/targets/queries/${queryId}`, {
-        query: editingQueryText.trim(),
-        role_key: editingQueryRole.trim(),
-      });
+      await putJSON(`/api/targets/queries/${queryId}`, { query: editingQueryText.trim() });
       setQueries((prev) =>
-        prev.map((q) =>
-          q.id === queryId
-            ? { ...q, query: editingQueryText.trim(), role_key: editingQueryRole.trim() }
-            : q
-        )
+        prev.map((q) => (q.id === queryId ? { ...q, query: editingQueryText.trim() } : q))
       );
       setEditingQueryId(null);
       showNotification("Query term updated successfully.");
@@ -460,11 +445,6 @@ export function SearchTargetsWidget({
 
   const handleAddQuery = async (e: Event) => {
     e.preventDefault();
-    const roleKey = (newQueryRole === "custom" ? newQueryCustomRole : newQueryRole).trim().toLowerCase();
-    if (!roleKey) {
-      alert("Please specify a role family.");
-      return;
-    }
     const terms = newQueryText
       .split(/[\n,]+/)
       .map((t) => t.trim())
@@ -477,15 +457,10 @@ export function SearchTargetsWidget({
 
     try {
       for (const term of terms) {
-        await postJSON("/api/targets/queries", {
-          role_key: roleKey,
-          query: term,
-          enabled: newQueryEnabled,
-        });
+        await postJSON("/api/targets/queries", { query: term, enabled: newQueryEnabled });
       }
       setShowAddQueryModal(false);
       setNewQueryText("");
-      setNewQueryCustomRole("");
       await loadData();
       showNotification(`Added ${terms.length} new search query term(s).`);
       if (onTargetsChanged) onTargetsChanged();
@@ -604,18 +579,15 @@ export function SearchTargetsWidget({
   const filteredQueries = useMemo(() => {
     return queries.filter((q) => {
       const matchesText =
-        !querySearchTerm ||
-        q.query.toLowerCase().includes(querySearchTerm.toLowerCase()) ||
-        q.role_key.toLowerCase().includes(querySearchTerm.toLowerCase());
-      const matchesRole = selectedRoleFilter === "all" || q.role_key === selectedRoleFilter;
+        !querySearchTerm || q.query.toLowerCase().includes(querySearchTerm.toLowerCase());
       const isEnabled = Boolean(q.enabled);
       const matchesStatus =
         queryStatusFilter === "all" ||
         (queryStatusFilter === "active" && isEnabled) ||
         (queryStatusFilter === "paused" && !isEnabled);
-      return matchesText && matchesRole && matchesStatus;
+      return matchesText && matchesStatus;
     });
-  }, [queries, querySearchTerm, selectedRoleFilter, queryStatusFilter]);
+  }, [queries, querySearchTerm, queryStatusFilter]);
 
   const activeQueriesCount = useMemo(() => queries.filter((q) => Boolean(q.enabled)).length, [queries]);
   const activeLocationsCount = useMemo(
@@ -761,7 +733,7 @@ export function SearchTargetsWidget({
                       <input
                         type="text"
                         class="form-input"
-                        placeholder="Filter search queries or role keys..."
+                        placeholder="Filter search queries..."
                         value={querySearchTerm}
                         onInput={(e) => setQuerySearchTerm((e.target as HTMLInputElement).value)}
                       />
@@ -777,22 +749,6 @@ export function SearchTargetsWidget({
                     </div>
 
                     <div class="toolbar-filters">
-                      <select
-                        class="form-select"
-                        value={selectedRoleFilter}
-                        onChange={(e) => setSelectedRoleFilter((e.target as HTMLSelectElement).value)}
-                      >
-                        <option value="all">All Role Families ({queries.length} queries)</option>
-                        {roles.map((r) => {
-                          const count = queries.filter((q) => q.role_key === r.key).length;
-                          return (
-                            <option key={r.key} value={r.key}>
-                              {r.label} ({count})
-                            </option>
-                          );
-                        })}
-                      </select>
-
                       <select
                         class="form-select"
                         value={queryStatusFilter}
@@ -830,7 +786,6 @@ export function SearchTargetsWidget({
                             <tr>
                               <th style={{ width: "110px" }}>STATUS</th>
                               <th>SEARCH QUERY TERM</th>
-                              <th style={{ width: "220px" }}>ROLE FAMILY</th>
                               <th style={{ width: "130px", textAlign: "right" }}>ACTIONS</th>
                             </tr>
                           </thead>
@@ -838,8 +793,6 @@ export function SearchTargetsWidget({
                             {filteredQueries.map((q) => {
                               const isEditing = editingQueryId === q.id;
                               const isEnabled = Boolean(q.enabled);
-                              const roleObj = roles.find((r) => r.key === q.role_key);
-                              const roleLabel = roleObj ? roleObj.label : q.role_key.replace(/_/g, " ");
 
                               return (
                                 <tr key={q.id} class={isEnabled ? "row-active" : "row-paused"}>
@@ -878,27 +831,6 @@ export function SearchTargetsWidget({
                                       </span>
                                     )}
                                   </td>
-                                  <td>
-                                    {isEditing ? (
-                                      <select
-                                        class="form-select form-select-sm"
-                                        value={editingQueryRole}
-                                        onChange={(e) =>
-                                          setEditingQueryRole((e.target as HTMLSelectElement).value)
-                                        }
-                                      >
-                                        {roles.map((r) => (
-                                          <option key={r.key} value={r.key}>
-                                            {r.label}
-                                          </option>
-                                        ))}
-                                      </select>
-                                    ) : (
-                                      <span class="role-family-tag">
-                                        <i class="fa-solid fa-briefcase"></i> {roleLabel}
-                                      </span>
-                                    )}
-                                  </td>
                                   <td style={{ textAlign: "right" }}>
                                     {isEditing ? (
                                       <div class="row-action-btns">
@@ -925,7 +857,7 @@ export function SearchTargetsWidget({
                                           type="button"
                                           class="btn btn-xs btn-outline"
                                           onClick={() => handleStartEditQuery(q)}
-                                          title="Edit query term or role"
+                                          title="Edit query term"
                                         >
                                           <i class="fa-solid fa-pen-to-square"></i>
                                         </button>
@@ -1189,36 +1121,6 @@ export function SearchTargetsWidget({
               </button>
             </div>
             <form onSubmit={handleAddQuery} class="retro-modal-body">
-              <div class="form-group mb-3">
-                <label class="form-label">Role Family</label>
-                <select
-                  class="form-select"
-                  value={newQueryRole}
-                  onChange={(e) => setNewQueryRole((e.target as HTMLSelectElement).value)}
-                >
-                  {roles.map((r) => (
-                    <option key={r.key} value={r.key}>
-                      {r.label} ({r.key})
-                    </option>
-                  ))}
-                  <option value="custom">+ Create New Role Family...</option>
-                </select>
-              </div>
-
-              {newQueryRole === "custom" && (
-                <div class="form-group mb-3">
-                  <label class="form-label">New Role Family Key / Title</label>
-                  <input
-                    type="text"
-                    class="form-input"
-                    placeholder="e.g. distributed_systems_engineer"
-                    value={newQueryCustomRole}
-                    onInput={(e) => setNewQueryCustomRole((e.target as HTMLInputElement).value)}
-                    required
-                  />
-                </div>
-              )}
-
               <div class="form-group mb-3">
                 <label class="form-label">Search Query String(s)</label>
                 <textarea

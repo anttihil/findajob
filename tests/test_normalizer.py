@@ -198,7 +198,6 @@ class TestNormalizeRowAndRows(unittest.TestCase):
             "is_remote": False,
             "hours_old": 24,
             "cell_id": 101,
-            "role_family": "backend_engineer",
         }
         row = {
             "id": "ind-12345",
@@ -221,10 +220,8 @@ class TestNormalizeRowAndRows(unittest.TestCase):
         self.assertEqual(posting["job_key"], "indeed-ind-12345")
         self.assertEqual(posting["description_quality"], "full")
         self.assertEqual(posting["scrape_cell_id"], 101)
-        self.assertEqual(posting["role_family_hint"], "backend_engineer")
         # Ensure no taxonomy/role classification coupling is present in normalizer
         self.assertNotIn("skills", posting)
-        self.assertNotIn("role_family", posting)
 
     def test_normalize_rows_batch_and_stats(self) -> None:
         task = {"source": "linkedin", "country": "US"}

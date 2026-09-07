@@ -1,77 +1,38 @@
-"""Search targets: the roles and locations that define the scrape matrix.
+"""Search targets: the queries and locations that define the scrape matrix.
 
-Loaded from the `target_roles`, `target_queries`, and `target_locations` tables. This
-module carries no title classification -- a posting's provenance is the cell that found
-it, never something re-derived from the title.
+Loaded from the `search_queries` and `search_locations` tables. This module carries no
+title classification -- a posting's provenance is the cell that found it, never something
+re-derived from the title.
 """
 
 import os
 import sqlite3
+from dataclasses import asdict, dataclass
 from typing import Any
 
 from careerradar.core.paths import DB_PATH
 from careerradar.taxonomy import repository as taxonomy_repo
 
 
-class RoleFamily:
-    __slots__ = ("active", "enabled", "key", "label", "order", "query_terms", "resume")
-
-    def __init__(
-        self,
-        key: str,
-        spec: dict[str, Any],
-        order: int,
-    ) -> None:
-        self.key = key
-        self.label = spec.get("label", key.replace("_", " ").title())
-        self.resume: str | None = spec.get("resume")
-        self.enabled: bool = bool(spec.get("enabled", spec.get("active", True)))
-        self.active: bool = self.enabled
-        self.order = order
-
-        raw_queries = spec.get("query_terms")
-        self.query_terms: list[str] = [self.label] if raw_queries is None else list(raw_queries)
-
-    def __repr__(self) -> str:
-        return f"<RoleFamily {self.key}>"
-
-
+@dataclass
 class Location:
-    __slots__ = (
-        "country",
-        "distance",
-        "enabled",
-        "id",
-        "indeed_country",
-        "is_remote",
-        "label",
-        "search_label",
-        "weight",
-    )
+    id: str
+    label: str
+    search_label: str = ""
+    country: str = ""
+    indeed_country: str = "usa"
+    is_remote: bool = False
+    weight: float = 1.0
+    distance: int = 50
+    enabled: bool = True
 
-    def __init__(self, spec: dict[str, Any]) -> None:
-        self.id: str = spec["id"]
-        self.label: str = spec["label"]
-        self.search_label: str = spec.get("search_label", spec["label"])
-        self.country: str = spec.get("country", "")
-        self.is_remote = bool(spec.get("is_remote", False))
-        self.weight = float(spec.get("weight", 1.0))
-        self.indeed_country: str = spec.get("indeed_country", "usa")
-        self.distance: int = spec.get("distance", 50)
-        self.enabled: bool = bool(spec.get("enabled", True))
+    def __post_init__(self) -> None:
+        self.search_label = self.search_label or self.label
+        self.is_remote = bool(self.is_remote)
+        self.enabled = bool(self.enabled)
 
     def to_dict(self) -> dict[str, Any]:
-        return {
-            "id": self.id,
-            "label": self.label,
-            "search_label": self.search_label,
-            "country": self.country,
-            "is_remote": self.is_remote,
-            "weight": self.weight,
-            "indeed_country": self.indeed_country,
-            "distance": self.distance,
-            "enabled": self.enabled,
-        }
+        return asdict(self)
 
 
 class RoleTaxonomy:
@@ -81,16 +42,14 @@ class RoleTaxonomy:
         conn: sqlite3.Connection | None = None,
         spec_dict: dict[str, Any] | None = None,
     ) -> None:
-        self.families: dict[str, RoleFamily] = {}
+        self.queries: list[str] = []
         self.locations: dict[str, Location] = {}
-        self.version = 1
         self.hash = "db_taxonomy"
 
         if spec_dict is not None:
             self._load_from_dict(spec_dict)
             return
 
-        # Attempt to load from SQLite target tables
         target_conn = conn
         close_conn = False
         if target_conn is None:
@@ -107,26 +66,11 @@ class RoleTaxonomy:
             return
 
         try:
-            db_roles = taxonomy_repo.get_target_roles(target_conn)
-            for order, r in enumerate(db_roles):
-                key = r["key"]
-                queries = [
-                    q["query"]
-                    for q in taxonomy_repo.get_target_queries(
-                        target_conn, role_key=key, enabled_only=True
-                    )
-                ]
-                spec = {
-                    "label": r["label"],
-                    "resume": r.get("resume"),
-                    "query_terms": queries,
-                    "enabled": bool(r.get("enabled", 1)),
-                }
-                self.families[key] = RoleFamily(key, spec, order)
-
-            db_locs = taxonomy_repo.get_target_locations(target_conn)
-            for loc in db_locs:
-                self.locations[loc["id"]] = Location(loc)
+            self.queries = [
+                q["query"] for q in taxonomy_repo.get_queries(target_conn, enabled_only=True)
+            ]
+            for loc in taxonomy_repo.get_locations(target_conn):
+                self.locations[loc["id"]] = Location(**loc)
         except sqlite3.Error:
             pass
         finally:
@@ -134,39 +78,16 @@ class RoleTaxonomy:
                 target_conn.close()
 
     def _load_from_dict(self, data: dict[str, Any]) -> None:
-        self.version = data.get("version", 1)
-        for order, (key, spec) in enumerate((data.get("families") or {}).items()):
-            self.families[key] = RoleFamily(key, spec or {}, order)
+        self.queries = list(data.get("queries") or [])
         for spec in data.get("locations") or []:
-            location = Location(spec)
+            location = Location(**spec)
             self.locations[location.id] = location
-
-    # -- lookup ------------------------------------------------------------------------
-    def __len__(self) -> int:
-        return len(self.families)
-
-    def __contains__(self, key: str) -> bool:
-        return key in self.families
-
-    def get(self, key: str, default: RoleFamily | None = None) -> RoleFamily | None:
-        return self.families.get(key, default)
-
-    def is_active(self, key: str | None) -> bool:
-        family = self.families.get(key) if key else None
-        return bool(family and family.active)
-
-    def active_families(self) -> list[RoleFamily]:
-        return [f for f in self.families.values() if f.active]
-
-    def resume_for(self, key: str | None) -> str | None:
-        family = self.families.get(key) if key else None
-        return family.resume if family else None
 
     # -- validation --------------------------------------------------------------------
     def validate(self) -> list[str]:
         problems = []
-        if not self.families:
-            problems.append("no families defined")
+        if not self.queries:
+            problems.append("no search queries defined")
 
         for location in self.locations.values():
             if "(" in location.search_label:
@@ -178,24 +99,30 @@ class RoleTaxonomy:
         self,
         sources: tuple[str, ...] = ("indeed", "linkedin"),
     ) -> list[dict[str, Any]]:
-        """Enumerate active search cells: all enabled queries across all enabled locations."""
+        """Enumerate active search cells: every enabled query across every enabled location.
+
+        Each spec carries the whole JobSpy call, so `seed_cells` can write a cell that
+        needs no join at task-build time.
+        """
         specs = []
-        enabled_locs = [loc for loc in self.locations.values() if loc.enabled]
-        for family in self.families.values():
-            if not family.enabled:
+        for location in self.locations.values():
+            if not location.enabled:
                 continue
-            for location in enabled_locs:
-                for source in sources:
-                    for query in family.query_terms:
-                        specs.append(
-                            {
-                                "source": source,
-                                "role_family": family.key,
-                                "location_id": location.id,
-                                "query": query,
-                                "active": True,
-                            }
-                        )
+            for source in sources:
+                for query in self.queries:
+                    specs.append(
+                        {
+                            "source": source,
+                            "location_id": location.id,
+                            "query": query,
+                            "search_label": location.search_label,
+                            "country": location.country,
+                            "indeed_country": location.indeed_country,
+                            "is_remote": 1 if location.is_remote else 0,
+                            "distance": location.distance,
+                            "weight": location.weight,
+                        }
+                    )
         return specs
 
 

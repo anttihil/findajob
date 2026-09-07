@@ -74,9 +74,10 @@ class MigrationV16Tests(unittest.TestCase):
         migrate(self.conn)
 
         cell_insert = (
-            "INSERT INTO scrape_cells (id, source, role_family, location_id, query, tier, "
-            "last_success_at, last_hours_old, created_at) "
-            "VALUES (?, 'indeed', 'sre', 'los_angeles', ?, 'core', ?, 24, '2026-07-01T00:00:00Z')"
+            "INSERT INTO scrape_cells (id, source, location_id, query, search_label, "
+            "country, last_success_at, last_hours_old, created_at) "
+            "VALUES (?, 'indeed', 'los_angeles', ?, 'Los Angeles, CA', 'US', ?, 24, "
+            "'2026-07-01T00:00:00Z')"
         )
         self.conn.execute(cell_insert, (1, "q1", ago(hours=24)))
         self.conn.execute(cell_insert, (2, "q2", ago(days=8)))

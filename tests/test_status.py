@@ -43,7 +43,7 @@ def _report(**overrides: Any) -> dict[str, Any]:
         ],
         "cells": [
             {
-                "tier": "core",
+                "active": True,
                 "cells": 210,
                 "never_scraped": 0,
                 "oldest_success_hours": 30.0,

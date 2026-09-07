@@ -13,7 +13,7 @@ from careerradar.core.logger import get_logger
 
 logger = get_logger()
 
-SCHEMA_VERSION = 23
+SCHEMA_VERSION = 24
 
 
 def _v1_baseline(cursor: sqlite3.Cursor) -> None:
@@ -1753,6 +1753,343 @@ def _v23_add_typst_path_to_generated_resumes(cursor: sqlite3.Cursor) -> None:
         cursor.execute("ALTER TABLE generated_resumes ADD COLUMN typst_path TEXT")
 
 
+def _v24_cell_centric_queries(cursor: sqlite3.Cursor) -> None:
+    """Cell-centric query model: a scrape cell carries every parameter of its own search.
+
+    `role_family` began as a semantic grouping for the regex classifier removed in
+    42179cd. With the classifier, the research feature and post-stratification weighting
+    all gone, nothing does semantic work with the grouping any more, so the query string
+    becomes the unit of identity and the column leaves every table.
+
+    The JobSpy parameters -- search_label, country, indeed_country, is_remote, distance --
+    plus the scheduler's location weight move onto `scrape_cells`, so `build_task` reads
+    one row instead of joining the locations table at task-build time. `seed_cells`
+    refreshes them whenever a location definition changes: cells are not immutable
+    snapshots, and per-run provenance already lives in `cell_observations`.
+
+    Merge rule for cells that collide once `role_family` leaves the unique key: the row
+    with the most `total_scrapes` keeps its history and adopts the others' postings and
+    observations (ties go to the lowest id). Measured before writing this migration --
+    zero colliding pairs in either the development or the production database -- so the
+    branch is a safety net, not a data change.
+
+    The eligibility views widen. `role_family IS NOT NULL` used to exclude the postings
+    the regex left unclassified; cell-derived provenance is never null, so those postings
+    now count. Rows written after 42179cd already behaved this way.
+    """
+    # The documented procedure for rebuilding a table other tables reference.
+    # `migrate()` restores the pragma after the migration commits.
+    cursor.execute("PRAGMA foreign_keys=OFF")
+
+    # Views are re-parsed by ALTER TABLE ... RENAME, so they cannot outlive the tables
+    # they name. Dropped here, recreated at the end.
+    for view in ("v_supply_eligible", "v_skill_eligible", "cell_cost", "v_job_liveness"):
+        cursor.execute(f"DROP VIEW IF EXISTS {view}")
+
+    # 1. Embed the search parameters on the cell, backfilled from the locations table.
+    cell_columns = {row[1] for row in cursor.execute("PRAGMA table_info(scrape_cells)")}
+    for column, ddl in (
+        ("search_label", "TEXT NOT NULL DEFAULT ''"),
+        ("country", "TEXT NOT NULL DEFAULT ''"),
+        ("indeed_country", "TEXT NOT NULL DEFAULT 'usa'"),
+        ("is_remote", "INTEGER NOT NULL DEFAULT 0"),
+        ("distance", "INTEGER NOT NULL DEFAULT 50"),
+        ("weight", "REAL NOT NULL DEFAULT 1.0"),
+    ):
+        if column not in cell_columns:
+            cursor.execute(f"ALTER TABLE scrape_cells ADD COLUMN {column} {ddl}")
+
+    cursor.execute(
+        """
+        UPDATE scrape_cells SET
+            search_label = COALESCE(
+                (SELECT l.search_label FROM target_locations l WHERE l.id = location_id),
+                location_id),
+            country = COALESCE(
+                (SELECT l.country FROM target_locations l WHERE l.id = location_id), ''),
+            indeed_country = COALESCE(
+                (SELECT l.indeed_country FROM target_locations l WHERE l.id = location_id),
+                'usa'),
+            is_remote = COALESCE(
+                (SELECT l.is_remote FROM target_locations l WHERE l.id = location_id), 0),
+            distance = COALESCE(
+                (SELECT l.distance FROM target_locations l WHERE l.id = location_id), 50),
+            weight = COALESCE(
+                (SELECT l.weight FROM target_locations l WHERE l.id = location_id), 1.0)
+        """
+    )
+
+    # 2. Collapse cells that collide once role_family leaves the unique key.
+    cursor.execute(
+        """
+        CREATE TEMP TABLE cell_merge AS
+        SELECT c.id AS old_id,
+               (SELECT s.id FROM scrape_cells s
+                 WHERE s.source = c.source
+                   AND s.location_id = c.location_id
+                   AND s.query = c.query
+                 ORDER BY s.total_scrapes DESC, s.id ASC
+                 LIMIT 1) AS new_id
+          FROM scrape_cells c
+        """
+    )
+    cursor.execute(
+        "UPDATE jobs SET scrape_cell_id = (SELECT new_id FROM cell_merge WHERE old_id = "
+        "scrape_cell_id) WHERE scrape_cell_id IN (SELECT old_id FROM cell_merge)"
+    )
+    cursor.execute(
+        "UPDATE cell_observations SET cell_id = (SELECT new_id FROM cell_merge WHERE old_id = "
+        "cell_id) WHERE cell_id IN (SELECT old_id FROM cell_merge)"
+    )
+    cursor.execute("DELETE FROM scrape_cells WHERE id NOT IN (SELECT new_id FROM cell_merge)")
+    cursor.execute("DROP TABLE cell_merge")
+
+    # 3. Rebuild scrape_cells without role_family and tier.
+    cursor.execute(
+        """
+        CREATE TABLE scrape_cells_new (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            source      TEXT NOT NULL,
+            location_id TEXT NOT NULL,
+            query       TEXT NOT NULL,
+
+            -- The JobSpy call, embedded. Refreshed by seed_cells from search_locations.
+            search_label   TEXT NOT NULL,
+            country        TEXT NOT NULL,
+            indeed_country TEXT NOT NULL DEFAULT 'usa',
+            is_remote      INTEGER NOT NULL DEFAULT 0,
+            distance       INTEGER NOT NULL DEFAULT 50,
+            -- Scheduler priority only: how hard this location competes for the budget.
+            weight         REAL NOT NULL DEFAULT 1.0,
+
+            enabled     INTEGER NOT NULL DEFAULT 1,
+
+            -- INVARIANT: last_scraped_at advances on EVERY attempt (so priority backs off
+            -- a broken cell), last_success_at only on success (so the staleness floor and
+            -- adaptive hours_old are not fooled into reporting coverage that never happened).
+            last_scraped_at   TEXT,
+            last_success_at   TEXT,
+            last_requested    INTEGER,
+            last_result_count INTEGER,
+            last_new_count    INTEGER,
+            last_saturated    INTEGER,
+            last_hours_old    INTEGER,
+
+            ewma_new_per_scrape REAL,
+            ewma_fit_score      REAL,
+            quality_samples     INTEGER NOT NULL DEFAULT 0,
+            consecutive_empty INTEGER NOT NULL DEFAULT 0,
+            consecutive_error INTEGER NOT NULL DEFAULT 0,
+            total_scrapes     INTEGER NOT NULL DEFAULT 0,
+            total_postings    INTEGER NOT NULL DEFAULT 0,
+            backoff_until     TEXT,
+            last_error        TEXT,
+
+            created_at TEXT NOT NULL,
+            UNIQUE (source, location_id, query)
+        )
+        """
+    )
+    cursor.execute(
+        """
+        INSERT INTO scrape_cells_new
+            (id, source, location_id, query, search_label, country, indeed_country,
+             is_remote, distance, weight, enabled, last_scraped_at, last_success_at,
+             last_requested, last_result_count, last_new_count, last_saturated,
+             last_hours_old, ewma_new_per_scrape, ewma_fit_score, quality_samples,
+             consecutive_empty, consecutive_error, total_scrapes, total_postings,
+             backoff_until, last_error, created_at)
+        SELECT id, source, location_id, query, search_label, country, indeed_country,
+               is_remote, distance, weight, enabled, last_scraped_at, last_success_at,
+               last_requested, last_result_count, last_new_count, last_saturated,
+               last_hours_old, ewma_new_per_scrape, ewma_fit_score, quality_samples,
+               consecutive_empty, consecutive_error, total_scrapes, total_postings,
+               backoff_until, last_error, created_at
+          FROM scrape_cells
+        """
+    )
+    cursor.execute("DROP TABLE scrape_cells")
+    cursor.execute("ALTER TABLE scrape_cells_new RENAME TO scrape_cells")
+    cursor.execute(
+        "CREATE INDEX IF NOT EXISTS idx_cells_sched "
+        "ON scrape_cells(source, enabled, backoff_until, last_scraped_at)"
+    )
+
+    # 4. Rebuild cell_observations without role_family and returned_on_topic.
+    cursor.execute(
+        """
+        CREATE TABLE cell_observations_new (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            sync_run_id INTEGER NOT NULL REFERENCES sync_runs(id),
+            cell_id     INTEGER REFERENCES scrape_cells(id),
+            source      TEXT NOT NULL,
+            location_id TEXT NOT NULL,
+            query       TEXT NOT NULL,
+            observed_at   TEXT NOT NULL,
+            hours_old     INTEGER,
+            window_start  TEXT,                  -- observed_at - hours_old
+            window_end    TEXT,                  -- observed_at
+            requested         INTEGER NOT NULL DEFAULT 0,
+            returned          INTEGER NOT NULL DEFAULT 0,
+            new_unique        INTEGER NOT NULL DEFAULT 0,
+            saturated         INTEGER NOT NULL DEFAULT 0,
+            desc_selection    TEXT NOT NULL DEFAULT 'none',
+            descriptions_full INTEGER NOT NULL DEFAULT 0,
+            status TEXT NOT NULL,                -- ok|empty|error|skipped
+            error  TEXT,
+            duration_ms   INTEGER,
+            requests_made INTEGER
+        )
+        """
+    )
+    cursor.execute(
+        """
+        INSERT INTO cell_observations_new
+            (id, sync_run_id, cell_id, source, location_id, query, observed_at, hours_old,
+             window_start, window_end, requested, returned, new_unique, saturated,
+             desc_selection, descriptions_full, status, error, duration_ms, requests_made)
+        SELECT id, sync_run_id, cell_id, source, location_id, query, observed_at, hours_old,
+               window_start, window_end, requested, returned, new_unique, saturated,
+               desc_selection, descriptions_full, status, error, duration_ms, requests_made
+          FROM cell_observations
+        """
+    )
+    cursor.execute("DROP TABLE cell_observations")
+    cursor.execute("ALTER TABLE cell_observations_new RENAME TO cell_observations")
+    cursor.execute(
+        "CREATE INDEX IF NOT EXISTS idx_cellobs_scope "
+        "ON cell_observations(query, location_id, source, observed_at)"
+    )
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_cellobs_run ON cell_observations(sync_run_id)")
+
+    # 5. Drop the posting columns the deleted features wrote.
+    cursor.execute("DROP INDEX IF EXISTS idx_jobs_family_found")
+    cursor.execute("DROP INDEX IF EXISTS idx_jobs_access")
+    job_columns = {row[1] for row in cursor.execute("PRAGMA table_info(jobs)")}
+    for column in ("role_family", "role_family_hint", "access", "dossier_id"):
+        if column in job_columns:
+            cursor.execute(f"ALTER TABLE jobs DROP COLUMN {column}")
+
+    # 6. Drop the research and role-taxonomy tables.
+    cursor.execute("DROP INDEX IF EXISTS idx_dossiers_display")
+    cursor.execute("DROP TABLE IF EXISTS company_dossiers")
+    cursor.execute("DROP TABLE IF EXISTS research_runs")
+
+    # 7. target_queries -> search_queries: flat, keyed on the query string itself.
+    cursor.execute(
+        """
+        CREATE TABLE search_queries (
+            id      INTEGER PRIMARY KEY AUTOINCREMENT,
+            query   TEXT NOT NULL UNIQUE,
+            enabled INTEGER NOT NULL DEFAULT 1
+        )
+        """
+    )
+    cursor.execute(
+        """
+        INSERT INTO search_queries (id, query, enabled)
+        SELECT MIN(id), query, MAX(enabled) FROM target_queries GROUP BY query
+        """
+    )
+    cursor.execute("DROP TABLE target_queries")
+    cursor.execute("DROP TABLE IF EXISTS target_roles")
+
+    # 8. target_locations -> search_locations, without access.
+    cursor.execute(
+        """
+        CREATE TABLE search_locations (
+            id             TEXT PRIMARY KEY,
+            label          TEXT NOT NULL,
+            search_label   TEXT NOT NULL,
+            country        TEXT NOT NULL,
+            indeed_country TEXT NOT NULL DEFAULT 'usa',
+            is_remote      INTEGER NOT NULL DEFAULT 0,
+            weight         REAL NOT NULL DEFAULT 1.0,
+            distance       INTEGER NOT NULL DEFAULT 50,
+            enabled        INTEGER NOT NULL DEFAULT 1
+        )
+        """
+    )
+    cursor.execute(
+        """
+        INSERT INTO search_locations
+            (id, label, search_label, country, indeed_country, is_remote, weight,
+             distance, enabled)
+        SELECT id, label, search_label, country, indeed_country, is_remote, weight,
+               distance, enabled
+          FROM target_locations
+        """
+    )
+    cursor.execute("DROP TABLE target_locations")
+
+    # 9. Recreate the views over the new shape.
+    cursor.executescript(
+        """
+        CREATE VIEW v_supply_eligible AS
+        SELECT * FROM jobs
+        WHERE sync_run_id IS NOT NULL
+          AND duplicate_of IS NULL;
+
+        CREATE VIEW v_skill_eligible AS
+        SELECT * FROM jobs
+        WHERE sync_run_id IS NOT NULL
+          AND duplicate_of IS NULL
+          AND description_quality = 'full'
+          AND desc_selection = 'census';
+
+        CREATE VIEW cell_cost AS
+        SELECT
+            o.id,
+            o.sync_run_id,
+            o.cell_id,
+            o.source,
+            o.location_id,
+            o.query,
+            o.observed_at,
+            o.status,
+            o.desc_selection,
+            o.requested,
+            o.returned,
+            o.new_unique,
+            o.descriptions_full,
+            o.duration_ms,
+            o.requests_made,
+            o.duration_ms / 1000.0                              AS seconds,
+            1.0 * o.duration_ms / NULLIF(o.requests_made, 0)    AS ms_per_request,
+            o.duration_ms / 1000.0 / NULLIF(o.returned, 0)      AS seconds_per_posting,
+            1.0 * o.requests_made / NULLIF(o.returned, 0)       AS requests_per_posting
+        -- Measurements and ratios of measurements only. The planner's estimate of the same
+        -- cost lives in scheduler.estimate_units and reads page_size from config.yaml;
+        -- restating it here in SQL would let the two drift, and the whole point of these
+        -- columns is to be checkable against the model rather than derived from it.
+        FROM cell_observations o;
+
+        CREATE VIEW v_job_liveness AS
+        SELECT j.id AS job_id,
+               j.last_seen_at,
+               c.last_success_at AS cell_last_success_at,
+               CASE
+                 WHEN j.last_seen_at IS NULL OR c.last_success_at IS NULL THEN 'unknown'
+                 -- The cell was scraped well after we last saw this posting (12h grace).
+                 WHEN unixepoch(c.last_success_at) - unixepoch(j.last_seen_at) > 43200 THEN
+                      CASE
+                        WHEN j.date_posted IS NOT NULL
+                             AND (unixepoch(c.last_success_at)
+                                  - unixepoch(j.date_posted))
+                                 <= COALESCE(c.last_hours_old, 0) * 3600
+                             THEN 'likely_closed'
+                        ELSE 'unknown'
+                      END
+                 -- Stale if no scrape in over 7 days (7 * 86400s).
+                 WHEN unixepoch('now') - unixepoch(c.last_success_at) > 604800 THEN 'stale'
+                 ELSE 'live'
+               END AS liveness
+        FROM jobs j
+        LEFT JOIN scrape_cells c ON c.id = j.scrape_cell_id;
+        """
+    )
+
+
 MIGRATIONS: list[tuple[int, str, Callable[[sqlite3.Cursor], None]]] = [
     (1, "baseline jobs table", _v1_baseline),
     (2, "market analytics: cells, observations, skills, stats", _v2_analytics),
@@ -1817,6 +2154,11 @@ MIGRATIONS: list[tuple[int, str, Callable[[sqlite3.Cursor], None]]] = [
         "add typst_path to generated_resumes table",
         _v23_add_typst_path_to_generated_resumes,
     ),
+    (
+        24,
+        "cell-centric queries: embed search params, drop role_family and access",
+        _v24_cell_centric_queries,
+    ),
 ]
 
 
@@ -1858,6 +2200,8 @@ def migrate(conn: sqlite3.Connection) -> int:
             raise
 
     if applied:
+        # A migration may have turned foreign_keys off to rebuild a referenced table.
+        apply_pragmas(conn)
         logger.info(f"Schema now at v{current_version(conn)} ({applied} migration(s) applied)")
     return applied
 

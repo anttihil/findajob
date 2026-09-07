@@ -3,14 +3,10 @@ import { render, fireEvent, waitFor } from "@testing-library/preact";
 import { SearchTargetsWidget } from "../src/components/SearchTargetsWidget";
 
 const mockTargets = {
-  roles: [
-    { id: 1, key: "ai_engineer", label: "AI Engineer", enabled: 1 },
-    { id: 2, key: "platform_engineer", label: "Platform Engineer", enabled: 1 },
-  ],
   queries: [
-    { id: 1, role_key: "ai_engineer", query: "Agentic AI", enabled: 1 },
-    { id: 2, role_key: "ai_engineer", query: "GenAI Specialist", enabled: 0 },
-    { id: 3, role_key: "platform_engineer", query: "Kubernetes Architect", enabled: 1 },
+    { id: 1, query: "Agentic AI", enabled: 1 },
+    { id: 2, query: "GenAI Specialist", enabled: 0 },
+    { id: 3, query: "Kubernetes Architect", enabled: 1 },
   ],
   locations: [
     {
@@ -117,7 +113,7 @@ describe("SearchTargetsWidget", () => {
     });
 
     // Filter by text
-    const filterInput = getByPlaceholderText("Filter search queries or role keys...");
+    const filterInput = getByPlaceholderText("Filter search queries...");
     fireEvent.input(filterInput, { target: { value: "Kubernetes" } });
 
     await waitFor(() => {

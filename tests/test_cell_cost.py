@@ -22,7 +22,6 @@ from careerradar.search.sources.jobspy_source import count_requests
 TASK: dict[str, Any] = {
     "cell_id": 1,
     "source": "linkedin",
-    "role_family": "platform",
     "location_id": "helsinki",
     "query": "Platform Engineer",
     "hours_old": 24,
@@ -99,9 +98,9 @@ class ObservationStorageTests(unittest.TestCase):
             "'incremental', 'ok')"
         )
         self.db.conn.execute(
-            "INSERT INTO scrape_cells (id, source, role_family, location_id, query, tier, "
-            "created_at) VALUES (1, 'linkedin', 'platform', 'helsinki', 'Platform Engineer', "
-            "'core', '2026-08-15')"
+            "INSERT INTO scrape_cells (id, source, location_id, query, search_label, "
+            "country, created_at) VALUES (1, 'linkedin', 'helsinki', 'Platform Engineer', "
+            "'Helsinki, Finland', 'FI', '2026-08-15')"
         )
         self.db.conn.commit()
 

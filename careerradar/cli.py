@@ -155,51 +155,46 @@ def _cmd_target(args: argparse.Namespace) -> int:
     conn.row_factory = sqlite3.Row
     try:
         if sub == "list":
-            roles = target_repo.get_target_roles(conn)
-            if not roles:
-                print("No target roles configured.")
-                return 0
-            print(f"{'Key':<25} {'Label':<28} {'Status':<10} {'Queries'}")
-            print("-" * 80)
-            for r in roles:
-                queries = [
-                    q["query"] for q in target_repo.get_target_queries(conn, role_key=r["key"])
-                ]
-                status = "ACTIVE" if r["enabled"] else "PAUSED"
-                print(f"{r['key']:<25} {r['label']:<28} {status:<10} {', '.join(queries)}")
+            queries = target_repo.get_queries(conn)
+            locs = target_repo.get_locations(conn)
+            if not queries:
+                print("No search queries configured.")
+            else:
+                print(f"{'Id':<6} {'Status':<10} {'Query'}")
+                print("-" * 60)
+                for q in queries:
+                    print(f"{q['id']:<6} {'ACTIVE' if q['enabled'] else 'PAUSED':<10} {q['query']}")
+            print()
+            print(f"{'Id':<16} {'Status':<10} {'Search label'}")
+            print("-" * 60)
+            for loc in locs:
+                status = "ACTIVE" if loc["enabled"] else "PAUSED"
+                print(f"{loc['id']:<16} {status:<10} {loc['search_label']}")
             return 0
 
         if sub == "add":
-            queries = [q.strip() for q in (args.queries or "").split(",") if q.strip()]
-            target_repo.save_target_role(
-                conn,
-                key=args.key,
-                label=args.label or args.key.replace("_", " ").title(),
-                enabled=True,
-            )
-            for q in queries:
-                target_repo.add_target_query(conn, role_key=args.key, query_term=q)
-            print(f"Added target role '{args.key}' with {len(queries)} queries.")
+            queries = [q.strip() for q in args.queries.split(",") if q.strip()]
+            for query in queries:
+                target_repo.add_query(conn, query_term=query)
+            print(f"Added {len(queries)} search queries.")
             return 0
 
         if sub == "toggle":
             enabled = not getattr(args, "disable", False)
-            target_repo.toggle_target_role(conn, key=args.key, enabled=enabled)
-            print(f"Target role '{args.key}' is now {'ACTIVE' if enabled else 'PAUSED'}.")
+            target_repo.toggle_query(conn, query_id=args.id, enabled=enabled)
+            print(f"Search query {args.id} is now {'ACTIVE' if enabled else 'PAUSED'}.")
             return 0
 
         if sub == "delete":
-            target_repo.delete_target_role(conn, key=args.key)
-            print(f"Deleted target role '{args.key}'.")
+            target_repo.delete_query(conn, query_id=args.id)
+            print(f"Deleted search query {args.id}.")
             return 0
 
         if sub == "status":
-            roles = target_repo.get_target_roles(conn, enabled_only=True)
-            queries = target_repo.get_target_queries(conn, enabled_only=True)
-            locs = target_repo.get_target_locations(conn, enabled_only=True)
+            queries = target_repo.get_queries(conn, enabled_only=True)
+            locs = target_repo.get_locations(conn, enabled_only=True)
             cfg = load_config()
             cap = calculate_capacity(len(queries), len(locs), cfg)
-            print(f"Active Roles:     {len(roles)}")
             print(f"Active Queries:   {len(queries)}")
             print(f"Active Locations: {len(locs)}")
             print(f"Search Pairs:     {cap['search_pairs']} ({cap['total_cells']} total cells)")
@@ -400,22 +395,20 @@ def build_parser() -> argparse.ArgumentParser:
     imp.set_defaults(func=_cmd_import)
 
     # --- target ----------------------------------------------------------------------
-    tar = sub.add_parser("target", help="manage target roles, search queries, and capacity")
+    tar = sub.add_parser("target", help="manage search queries, locations, and capacity")
     tar_sub = tar.add_subparsers(dest="subcommand", required=True)
 
-    tar_sub.add_parser("list", help="list all configured target roles and queries")
+    tar_sub.add_parser("list", help="list the configured search queries and locations")
 
-    tar_add = tar_sub.add_parser("add", help="add a new target role with queries")
-    tar_add.add_argument("key", help="unique role key (e.g. ai_engineer)")
-    tar_add.add_argument("--label", help="display label (e.g. AI Engineer)")
-    tar_add.add_argument("--queries", help="comma-separated search queries")
+    tar_add = tar_sub.add_parser("add", help="add search queries")
+    tar_add.add_argument("queries", help="comma-separated search queries")
 
-    tar_tog = tar_sub.add_parser("toggle", help="enable or pause a target role")
-    tar_tog.add_argument("key", help="unique role key")
-    tar_tog.add_argument("--disable", action="store_true", help="pause this target role")
+    tar_tog = tar_sub.add_parser("toggle", help="enable or pause a search query")
+    tar_tog.add_argument("id", type=int, help="search query id (see 'target list')")
+    tar_tog.add_argument("--disable", action="store_true", help="pause this search query")
 
-    tar_del = tar_sub.add_parser("delete", help="delete a target role and its queries")
-    tar_del.add_argument("key", help="unique role key")
+    tar_del = tar_sub.add_parser("delete", help="delete a search query")
+    tar_del.add_argument("id", type=int, help="search query id (see 'target list')")
 
     tar_sub.add_parser("status", help="show capacity status and matrix cycle guidance")
     tar.set_defaults(func=_cmd_target)

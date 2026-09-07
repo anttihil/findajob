@@ -1,5 +1,5 @@
-"""Tests for fuzzy search across job title, company, matched_skills,
-location, role_family, and seniority.
+"""Tests for fuzzy search across job title, company, matched_skills, location,
+and seniority.
 """
 
 import json
@@ -33,7 +33,6 @@ class JobFuzzySearchTests(unittest.TestCase):
         matched_skills: list[str] | None = None,
         location: str | None = None,
         country: str | None = None,
-        role_family: str | None = None,
         seniority: str | None = None,
         status: str = "unread",
         date_posted: str | None = "2026-08-15",
@@ -41,8 +40,8 @@ class JobFuzzySearchTests(unittest.TestCase):
     ) -> None:
         self.db.conn.execute(
             "INSERT INTO jobs (id, job_key, title, company, matched_skills, location, country, "
-            "role_family, seniority, status, date_posted, date_found, sync_run_id, url) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)",
+            "seniority, status, date_posted, date_found, sync_run_id, url) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)",
             (
                 job_id,
                 f"key_{job_id}",
@@ -51,7 +50,6 @@ class JobFuzzySearchTests(unittest.TestCase):
                 json.dumps(matched_skills or []),
                 location,
                 country,
-                role_family,
                 seniority,
                 status,
                 date_posted,
@@ -95,21 +93,9 @@ class JobFuzzySearchTests(unittest.TestCase):
         res = self.db.query_jobs(q="Kubernetes")
         self.assertEqual([j["id"] for j in res["jobs"]], [1])
 
-    def test_location_and_role_family_search(self) -> None:
-        self.add_job(
-            1,
-            "Lead Architect",
-            "Nordic Oy",
-            location="Helsinki, Finland",
-            role_family="Architecture",
-        )
-        self.add_job(
-            2,
-            "Lead Architect",
-            "US Corp",
-            location="San Francisco, USA",
-            role_family="Architecture",
-        )
+    def test_location_search(self) -> None:
+        self.add_job(1, "Lead Architect", "Nordic Oy", location="Helsinki, Finland")
+        self.add_job(2, "Lead Architect", "US Corp", location="San Francisco, USA")
 
         res = self.db.query_jobs(q="Helsinki")
         self.assertEqual([j["id"] for j in res["jobs"]], [1])

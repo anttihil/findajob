@@ -108,20 +108,22 @@ def test_market_analytics_query_yield_unit(tmp_path: Path) -> None:
     cur.execute(
         """
         INSERT INTO scrape_cells (
-            id, source, role_family, location_id, query, tier, enabled, created_at, total_scrapes
+            id, source, location_id, query, search_label, country, enabled, created_at,
+            total_scrapes
         ) VALUES (
-            1, 'linkedin', 'fullstack_engineer', 'us_remote', 'Full Stack Engineer',
-            '1', 1, '2026-08-25T00:00:00Z', 2
+            1, 'linkedin', 'us_remote', 'Full Stack Engineer', 'Remote', 'US',
+            1, '2026-08-25T00:00:00Z', 2
         )
         """
     )
     cur.execute(
         """
         INSERT INTO scrape_cells (
-            id, source, role_family, location_id, query, tier, enabled, created_at, total_scrapes
+            id, source, location_id, query, search_label, country, enabled, created_at,
+            total_scrapes
         ) VALUES (
-            2, 'indeed', 'platform_engineer', 'helsinki', 'Platform Engineer',
-            '1', 1, '2026-08-25T00:00:00Z', 1
+            2, 'indeed', 'helsinki', 'Platform Engineer', 'Helsinki, Finland', 'FI',
+            1, '2026-08-25T00:00:00Z', 1
         )
         """
     )

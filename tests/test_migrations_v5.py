@@ -101,7 +101,6 @@ class MigrationV5Tests(unittest.TestCase):
         for column in (
             "match_score",
             "matched_skills",
-            "role_family",
             "desc_selection",
             "description_quality",
             "duplicate_of",
@@ -184,14 +183,11 @@ class MigrationV5Tests(unittest.TestCase):
         remaining = self.conn.execute("SELECT COUNT(*) FROM job_verdicts").fetchone()[0]
         self.assertEqual(remaining, 0)
 
-    def test_one_dossier_per_company(self) -> None:
+    def test_the_research_tables_do_not_survive_to_head(self) -> None:
+        """v5 created them; v24 removed the feature that wrote them."""
         migrate(self.conn)
-        insert = (
-            "INSERT INTO company_dossiers (company_normalized, generated_at) VALUES ('acme', 'now')"
-        )
-        self.conn.execute(insert)
-        with self.assertRaises(sqlite3.IntegrityError):
-            self.conn.execute(insert)
+        self.assertNotIn("company_dossiers", self.tables())
+        self.assertNotIn("research_runs", self.tables())
 
 
 if __name__ == "__main__":

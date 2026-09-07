@@ -26,7 +26,7 @@ def get_coverage_report_cells(conn: sqlite3.Connection) -> list[dict[str, Any]]:
     """Retrieve per-cell health and scrape statistics."""
     rows = conn.execute(
         """
-        SELECT source, location_id, query, tier, enabled,
+        SELECT source, location_id, query, enabled,
                last_scraped_at, last_success_at, last_result_count,
                last_saturated, consecutive_empty, consecutive_error,
                total_scrapes, backoff_until,
@@ -65,7 +65,7 @@ def get_query_yield_cells(
             sc.query,
             sc.location_id,
             sc.enabled,
-            tq.id AS target_query_id,
+            sq.id AS search_query_id,
             COUNT(DISTINCT j.id) AS total_postings,
             COUNT(DISTINCT CASE WHEN j.duplicate_of IS NULL THEN j.id END) AS unique_postings,
             COUNT(DISTINCT v.job_id) AS scored_postings,
@@ -75,7 +75,9 @@ def get_query_yield_cells(
             sc.last_scraped_at,
             sc.last_success_at
         FROM scrape_cells sc
-        LEFT JOIN target_queries tq ON tq.query = sc.query
+        -- `query` is the unique key of search_queries, so this recovers the row the
+        -- market page's "disable this query" action needs to target.
+        LEFT JOIN search_queries sq ON sq.query = sc.query
         LEFT JOIN jobs j ON j.scrape_cell_id = sc.id
              AND (? IS NULL OR j.date_found >= ?)
         LEFT JOIN job_verdicts v ON v.job_id = j.id

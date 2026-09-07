@@ -26,7 +26,6 @@ function CoverageTable({ cells }: { cells: CoverageCell[] | null }) {
               <th>Source</th>
               <th>Location</th>
               <th>Query</th>
-              <th>Tier</th>
               <th>Last success</th>
               <th>Returned</th>
               <th>Scrapes</th>
@@ -47,7 +46,6 @@ function CoverageTable({ cells }: { cells: CoverageCell[] | null }) {
                   <td>{c.source}</td>
                   <td>{c.location_id}</td>
                   <td>{c.query}</td>
-                  <td>{c.tier}</td>
                   <td>{hrs === null ? "never" : `${hrs.toFixed(0)}h ago`}</td>
                   <td>{c.last_result_count ?? 0}</td>
                   <td>{c.total_scrapes}</td>
@@ -481,15 +479,15 @@ export function MarketPage() {
                 <span key={zq.query} class="yield-prune-tag">
                   <strong>{zq.query}</strong>
                   <span class="yield-tag-badge">{zq.scored_postings} scored · 0 fits</span>
-                  {zq.target_query_id && (
+                  {zq.search_query_id && (
                     <button
                       type="button"
                       class="yield-action-btn"
-                      disabled={togglingQueryId === zq.target_query_id}
-                      onClick={() => handleToggleQuery(zq.target_query_id!)}
+                      disabled={togglingQueryId === zq.search_query_id}
+                      onClick={() => handleToggleQuery(zq.search_query_id!)}
                       style="padding: 1px 5px; font-size: 10px;"
                     >
-                      {togglingQueryId === zq.target_query_id ? "..." : "Disable"}
+                      {togglingQueryId === zq.search_query_id ? "..." : "Disable"}
                     </button>
                   )}
                 </span>

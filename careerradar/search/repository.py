@@ -25,9 +25,12 @@ def _parse_iso(value: datetime | str) -> datetime:
 
 
 def seed_cells(conn: sqlite3.Connection, specs: list[dict[str, Any]]) -> tuple[int, int]:
-    """Insert any missing cells, preserving the state of existing ones.
+    """Insert any missing cells and refresh the search parameters of existing ones.
 
-    Returns (inserted, updated).
+    A cell is not an immutable snapshot: when a location definition changes, its cells
+    adopt the new parameters. Per-run provenance already lives in `cell_observations`.
+
+    Returns (inserted, refreshed).
     """
     cursor = conn.cursor()
     now = _utcnow()
@@ -36,19 +39,29 @@ def seed_cells(conn: sqlite3.Connection, specs: list[dict[str, Any]]) -> tuple[i
     for spec in specs:
         cursor.execute(
             """
-            -- `tier` is inert; it is NOT NULL until migration v24 drops it.
             INSERT INTO scrape_cells
-                (source, role_family, location_id, query, tier, created_at)
-            VALUES (?, ?, ?, ?, '1', ?)
-            ON CONFLICT (source, role_family, location_id, query) DO UPDATE
-                SET enabled = 1
-              WHERE enabled != 1
+                (source, location_id, query, search_label, country, indeed_country,
+                 is_remote, distance, weight, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT (source, location_id, query) DO UPDATE SET
+                enabled        = 1,
+                search_label   = excluded.search_label,
+                country        = excluded.country,
+                indeed_country = excluded.indeed_country,
+                is_remote      = excluded.is_remote,
+                distance       = excluded.distance,
+                weight         = excluded.weight
             """,
             (
                 spec["source"],
-                spec["role_family"],
                 spec["location_id"],
                 spec["query"],
+                spec["search_label"],
+                spec["country"],
+                spec["indeed_country"],
+                spec["is_remote"],
+                spec["distance"],
+                spec["weight"],
                 now,
             ),
         )
@@ -60,14 +73,14 @@ def seed_cells(conn: sqlite3.Connection, specs: list[dict[str, Any]]) -> tuple[i
 
 
 def prune_cells(conn: sqlite3.Connection, specs: list[dict[str, Any]]) -> int:
-    """Disable cells no longer present in the taxonomy."""
-    wanted = {(s["source"], s["role_family"], s["location_id"], s["query"]) for s in specs}
+    """Disable cells no longer present in the search targets."""
+    wanted = {(s["source"], s["location_id"], s["query"]) for s in specs}
     cursor = conn.cursor()
     disabled = 0
     for row in cursor.execute(
-        "SELECT id, source, role_family, location_id, query FROM scrape_cells WHERE enabled = 1"
+        "SELECT id, source, location_id, query FROM scrape_cells WHERE enabled = 1"
     ).fetchall():
-        key = (row["source"], row["role_family"], row["location_id"], row["query"])
+        key = (row["source"], row["location_id"], row["query"])
         if key not in wanted:
             conn.execute("UPDATE scrape_cells SET enabled = 0 WHERE id = ?", (row["id"],))
             disabled += 1
@@ -95,9 +108,14 @@ def get_cells(
             CellState(
                 id=row["id"],
                 source=row["source"],
-                role_family=row["role_family"],
                 location_id=row["location_id"],
                 query=row["query"],
+                search_label=row["search_label"],
+                country=row["country"],
+                indeed_country=row["indeed_country"],
+                is_remote=bool(row["is_remote"]),
+                distance=row["distance"],
+                weight=row["weight"],
                 active=bool(row["enabled"]),
                 enabled=row["enabled"],
                 last_scraped_at=row["last_scraped_at"],
@@ -329,18 +347,17 @@ def record_observation(
     conn.execute(
         """
         INSERT INTO cell_observations
-            (sync_run_id, cell_id, source, role_family, location_id, query,
+            (sync_run_id, cell_id, source, location_id, query,
              observed_at, hours_old, window_start, window_end,
              requested, returned, new_unique, saturated,
              desc_selection, descriptions_full, status, error,
              duration_ms, requests_made)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
         """,
         (
             run_id,
             task.get("cell_id"),
             task.get("source"),
-            task.get("role_family") or "",
             task.get("location_id") or "",
             task.get("query") or "",
             observed_at,
@@ -380,8 +397,6 @@ POSTING_COLUMNS: list[str] = [
     "description",
     "source",
     "site_job_id",
-    "role_family",
-    "role_family_hint",
     "seniority",
     "is_remote",
     "date_posted",
@@ -401,7 +416,6 @@ POSTING_COLUMNS: list[str] = [
     "is_agency",
     "company_num_employees",
     "company_industry",
-    "access",
     "scrape_cell_id",
     "sync_run_id",
     "taxonomy_hash",

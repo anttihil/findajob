@@ -15,9 +15,7 @@ def test_targets_list_and_capacity(client: TestClient) -> None:
     res = client.get("/api/targets")
     assert res.status_code == 200
     data: dict[str, Any] = res.json()
-    assert "roles" in data
     assert "queries" in data
-    assert isinstance(data["roles"], list)
     assert isinstance(data["queries"], list)
     assert isinstance(data["locations"], list)
 
@@ -33,7 +31,7 @@ def test_target_query_crud(client: TestClient) -> None:
     # Add new query
     add_res = client.post(
         "/api/targets/queries",
-        json={"role_key": "ai_engineer", "query": "Test AI Agent Specialist", "enabled": True},
+        json={"query": "Test AI Agent Specialist", "enabled": True},
     )
     assert add_res.status_code == 200
     qid: int = add_res.json()["id"]

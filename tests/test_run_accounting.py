@@ -51,7 +51,6 @@ def _run(outcomes: list[str]) -> tuple[dict[str, Any], list[str], list[str]]:
     cell = CellState(
         id=1,
         source="indeed",
-        role_family="platform",
         location_id="helsinki",
         query="Platform Engineer",
         active=True,

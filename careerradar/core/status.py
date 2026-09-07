@@ -105,8 +105,7 @@ def render(report: dict[str, Any]) -> str:
         if row["stale"]:
             flags.append(f"oldest is past {row['cadence_hours']}h cadence")
         suffix = f"   {', '.join(flags)}" if flags else ""
-        label = "active" if row.get("active") else (row.get("tier") or "active")
-        out.append(f"  {label:<9} {row['cells']:>4} cells, oldest success {age}{suffix}")
+        out.append(f"  {'active':<9} {row['cells']:>4} cells, oldest success {age}{suffix}")
 
     if report["quarantined"]:
         out += ["", f"QUARANTINED  ({len(report['quarantined'])} shown, 3+ failures)"]

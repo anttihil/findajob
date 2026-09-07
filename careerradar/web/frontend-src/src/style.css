@@ -2656,17 +2656,6 @@ html, body {
   font-size: 13px;
 }
 
-.role-family-tag {
-  font-size: 11.5px;
-  font-weight: 700;
-  border: 1px solid var(--ink-primary);
-  padding: 2px 6px;
-  background-color: var(--bg-screen-alt);
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-}
-
 .row-action-btns {
   display: flex;
   align-items: center;

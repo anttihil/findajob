@@ -59,9 +59,9 @@ class LivenessWindowTests(unittest.TestCase):
 
     def cell(self, cell_id: int, last_success_at: str, last_hours_old: int | None = 24) -> None:
         self.conn.execute(
-            "INSERT INTO scrape_cells (id, source, role_family, location_id, query, tier, "
-            "last_success_at, last_hours_old, created_at) "
-            "VALUES (?, 'indeed', 'sre', 'los_angeles', ?, 'core', ?, ?, "
+            "INSERT INTO scrape_cells (id, source, location_id, query, search_label, "
+            "country, last_success_at, last_hours_old, created_at) "
+            "VALUES (?, 'indeed', 'los_angeles', ?, 'Los Angeles, CA', 'US', ?, ?, "
             "'2026-07-01T00:00:00Z')",
             (cell_id, f"q{cell_id}", last_success_at, last_hours_old),
         )

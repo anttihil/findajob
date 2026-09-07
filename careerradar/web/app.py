@@ -228,14 +228,12 @@ class ConfigUpdate(BaseModel):
 
 
 class TargetQueryCreate(BaseModel):
-    role_key: str
     query: str
     enabled: bool = True
 
 
 class TargetQueryUpdate(BaseModel):
     query: str | None = None
-    role_key: str | None = None
     enabled: bool | None = None
 
 
@@ -266,13 +264,6 @@ class TargetLocationUpdate(BaseModel):
     enabled: bool | None = None
 
 
-class TargetRolePayload(BaseModel):
-    key: str
-    label: str
-    resume: str | None = None
-    enabled: bool = True
-
-
 # --- Jobs ------------------------------------------------------------------------------
 
 
@@ -280,7 +271,6 @@ class TargetRolePayload(BaseModel):
 def get_jobs(
     status: str | None = None,
     country: str | None = None,
-    role_family: str | None = None,
     seniority: str | None = None,
     source: str | None = None,
     is_remote: bool | None = None,
@@ -301,7 +291,6 @@ def get_jobs(
         return db.query_jobs(
             status=status,
             country=country,
-            role_family=role_family,
             seniority=seniority,
             source=source,
             is_remote=is_remote,
@@ -445,7 +434,7 @@ def market_locations():
     roles = load_roles()
     return {
         "locations": [location.to_dict() for location in roles.locations.values()],
-        "queries": sorted({q for f in roles.families.values() if f.enabled for q in f.query_terms}),
+        "queries": sorted(roles.queries),
     }
 
 
@@ -457,8 +446,8 @@ def get_target_capacity():
     db = get_db()
     try:
         config, _, _, _ = analytics_context(db)
-        queries = target_repo.get_target_queries(db.conn, enabled_only=True)
-        locs = target_repo.get_target_locations(db.conn, enabled_only=True)
+        queries = target_repo.get_queries(db.conn, enabled_only=True)
+        locs = target_repo.get_locations(db.conn, enabled_only=True)
         return calculate_capacity(len(queries), len(locs), config)
     finally:
         db.close()
@@ -482,13 +471,9 @@ def list_targets():
 
     db = get_db()
     try:
-        roles = target_repo.get_target_roles(db.conn)
-        queries = target_repo.get_target_queries(db.conn)
-        locs = target_repo.get_target_locations(db.conn)
         return {
-            "roles": roles,
-            "queries": queries,
-            "locations": locs,
+            "queries": target_repo.get_queries(db.conn),
+            "locations": target_repo.get_locations(db.conn),
         }
     finally:
         db.close()
@@ -501,28 +486,10 @@ def create_target_query(payload: TargetQueryCreate):
     term = payload.query.strip()
     if not term:
         raise HTTPException(status_code=400, detail="Query term cannot be empty")
-    role_key = payload.role_key.strip().lower()
-    if not role_key:
-        raise HTTPException(status_code=400, detail="Role key cannot be empty")
 
     db = get_db()
     try:
-        # Ensure role exists in target_roles if missing
-        roles = {r["key"] for r in target_repo.get_target_roles(db.conn)}
-        if role_key not in roles:
-            target_repo.save_target_role(
-                db.conn,
-                key=role_key,
-                label=role_key.replace("_", " ").title(),
-                enabled=True,
-            )
-
-        query_id = target_repo.add_target_query(
-            db.conn,
-            role_key=role_key,
-            query_term=term,
-            enabled=payload.enabled,
-        )
+        query_id = target_repo.add_query(db.conn, query_term=term, enabled=payload.enabled)
         _sync_taxonomy_cells()
         return {"success": True, "id": query_id}
     finally:
@@ -535,11 +502,10 @@ def update_target_query_endpoint(query_id: int, payload: TargetQueryUpdate):
 
     db = get_db()
     try:
-        target_repo.update_target_query(
+        target_repo.update_query(
             db.conn,
             query_id=query_id,
             query_term=payload.query.strip() if payload.query is not None else None,
-            role_key=payload.role_key.strip().lower() if payload.role_key is not None else None,
             enabled=payload.enabled,
         )
         _sync_taxonomy_cells()
@@ -554,7 +520,7 @@ def toggle_target_query_endpoint(query_id: int, payload: TargetToggle):
 
     db = get_db()
     try:
-        target_repo.toggle_target_query(db.conn, query_id=query_id, enabled=payload.enabled)
+        target_repo.toggle_query(db.conn, query_id=query_id, enabled=payload.enabled)
         _sync_taxonomy_cells()
         return {"success": True, "enabled": payload.enabled}
     finally:
@@ -567,7 +533,7 @@ def delete_target_query_endpoint(query_id: int):
 
     db = get_db()
     try:
-        target_repo.delete_target_query(db.conn, query_id=query_id)
+        target_repo.delete_query(db.conn, query_id=query_id)
         _sync_taxonomy_cells()
         return {"success": True}
     finally:
@@ -588,7 +554,7 @@ def create_target_location(payload: TargetLocationPayload):
 
     db = get_db()
     try:
-        target_repo.save_target_location(
+        target_repo.save_location(
             db.conn,
             loc_id=loc_id,
             label=label,
@@ -612,12 +578,12 @@ def update_target_location_endpoint(loc_id: str, payload: TargetLocationUpdate):
 
     db = get_db()
     try:
-        existing = [loc for loc in target_repo.get_target_locations(db.conn) if loc["id"] == loc_id]
+        existing = [loc for loc in target_repo.get_locations(db.conn) if loc["id"] == loc_id]
         if not existing:
             raise HTTPException(status_code=404, detail="Location not found")
         loc = existing[0]
 
-        target_repo.save_target_location(
+        target_repo.save_location(
             db.conn,
             loc_id=loc_id,
             label=payload.label.strip() if payload.label is not None else loc["label"],
@@ -653,7 +619,7 @@ def toggle_target_location_endpoint(loc_id: str, payload: TargetToggle):
 
     db = get_db()
     try:
-        target_repo.toggle_target_location(db.conn, loc_id=loc_id, enabled=payload.enabled)
+        target_repo.toggle_location(db.conn, loc_id=loc_id, enabled=payload.enabled)
         _sync_taxonomy_cells()
         return {"success": True, "enabled": payload.enabled}
     finally:
@@ -666,57 +632,7 @@ def delete_target_location_endpoint(loc_id: str):
 
     db = get_db()
     try:
-        target_repo.delete_target_location(db.conn, loc_id=loc_id)
-        _sync_taxonomy_cells()
-        return {"success": True}
-    finally:
-        db.close()
-
-
-@app.post("/api/targets/roles")
-def create_target_role_endpoint(payload: TargetRolePayload):
-    from careerradar.taxonomy import repository as target_repo
-
-    role_key = payload.key.strip().lower().replace(" ", "_")
-    if not role_key:
-        raise HTTPException(status_code=400, detail="Role key cannot be empty")
-    label = payload.label.strip() or role_key.replace("_", " ").title()
-
-    db = get_db()
-    try:
-        target_repo.save_target_role(
-            db.conn,
-            key=role_key,
-            label=label,
-            resume=payload.resume,
-            enabled=payload.enabled,
-        )
-        _sync_taxonomy_cells()
-        return {"success": True, "key": role_key}
-    finally:
-        db.close()
-
-
-@app.put("/api/targets/roles/{role_key}/toggle")
-def toggle_target_role_endpoint(role_key: str, payload: TargetToggle):
-    from careerradar.taxonomy import repository as target_repo
-
-    db = get_db()
-    try:
-        target_repo.toggle_target_role(db.conn, key=role_key, enabled=payload.enabled)
-        _sync_taxonomy_cells()
-        return {"success": True, "enabled": payload.enabled}
-    finally:
-        db.close()
-
-
-@app.delete("/api/targets/roles/{role_key}")
-def delete_target_role_endpoint(role_key: str):
-    from careerradar.taxonomy import repository as target_repo
-
-    db = get_db()
-    try:
-        target_repo.delete_target_role(db.conn, key=role_key)
+        target_repo.delete_location(db.conn, loc_id=loc_id)
         _sync_taxonomy_cells()
         return {"success": True}
     finally:
@@ -732,8 +648,8 @@ def sync_targets_cells_endpoint():
     db = get_db()
     try:
         config, _, _, _ = analytics_context(db)
-        queries = target_repo.get_target_queries(db.conn, enabled_only=True)
-        locs = target_repo.get_target_locations(db.conn, enabled_only=True)
+        queries = target_repo.get_queries(db.conn, enabled_only=True)
+        locs = target_repo.get_locations(db.conn, enabled_only=True)
         capacity = calculate_capacity(len(queries), len(locs), config)
         return {
             "success": True,
@@ -1221,8 +1137,7 @@ def get_sync_plan(source: str = "indeed"):
     db = get_db()
     try:
         config = load_config()
-        roles = load_roles()
-        tasks = scrape_tasks(db, config, roles, source)
+        tasks = scrape_tasks(db, config, source)
         return {
             "source": source,
             "cells_total": len(db.get_cells(source=source)),

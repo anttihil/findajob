@@ -8,12 +8,9 @@ unit-testable without a network.
 import math
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from careerradar.core.database import Database
-
-if TYPE_CHECKING:
-    from careerradar.taxonomy.roles import RoleTaxonomy
 
 EWMA_ALPHA = 0.4
 
@@ -39,9 +36,15 @@ DEAD_PENALTY_FLOOR = 0.25
 class CellState:
     id: int
     source: str
-    role_family: str
     location_id: str
     query: str
+    search_label: str = ""
+    country: str = ""
+    indeed_country: str = "usa"
+    is_remote: bool = False
+    distance: int = 50
+    # Scheduler priority only: how hard this location competes for the run's budget.
+    weight: float = 1.0
     active: bool = True
     enabled: int = 1
     last_scraped_at: str | None = None
@@ -73,9 +76,6 @@ class ScrapeTask:
     hours_old: int
     fetch_description: bool
     desc_selection: str
-    # Provenance only. role_family is re-derived from each posting's title, because the
-    # query is a poor predictor of what the board returns.
-    role_family: str | None = None
     active: bool = True
     est_request_units: float = 0.0
     # The cell's persisted EWMA of new-postings-per-scrape, carried through so the
@@ -99,21 +99,11 @@ class ScrapeTask:
             "hours_old": self.hours_old,
             "fetch_description": self.fetch_description,
             "desc_selection": self.desc_selection,
-            "role_family": self.role_family,
             "active": self.active,
             "est_request_units": self.est_request_units,
             "ewma_new_per_scrape": self.ewma_new_per_scrape,
             "proxies": self.extra.get("proxies") or [],
         }
-
-
-def with_location_weights(scraper_config: dict[str, Any], roles: "RoleTaxonomy") -> dict[str, Any]:
-    """Copy of `scraper_config` carrying per-location weights."""
-    out = dict(scraper_config)
-    locs = out.setdefault("locations", {})
-    for location in roles.locations.values():
-        locs[location.id] = {"weight": location.weight}
-    return out
 
 
 def _parse(value: datetime | str | None) -> datetime | None:
@@ -177,8 +167,6 @@ def cell_priority(cell: CellState, config: dict[str, Any], now: datetime) -> flo
     staleness = hours_since(cell.last_scraped_at, now)
     urgency = staleness / max(cadence, 1)
 
-    location_weight = (config.get("locations") or {}).get(cell.location_id, {}).get("weight", 1.0)
-
     # Log-damped so one hot cell cannot monopolise the rotation.
     yield_estimate = (
         cell.ewma_new_per_scrape if cell.ewma_new_per_scrape is not None else DEFAULT_NEW_PER_SCRAPE
@@ -194,7 +182,7 @@ def cell_priority(cell: CellState, config: dict[str, Any], now: datetime) -> flo
 
     return (
         urgency
-        * location_weight
+        * cell.weight
         * (0.35 + 0.65 * productivity)
         * novelty
         * saturation_bonus
@@ -261,12 +249,10 @@ def estimate_units(
 def _make_task(
     cell: CellState,
     config: dict[str, Any],
-    roles: "RoleTaxonomy",
     source: str,
     now: datetime,
     backfill: bool = False,
 ) -> ScrapeTask:
-    location = roles.locations.get(cell.location_id)
     budget = (config.get("budgets") or {}).get(source, {})
     fetch_setting = budget.get("fetch_descriptions", False)
     if backfill:
@@ -284,11 +270,11 @@ def _make_task(
         source=source,
         query=cell.query,
         location_id=cell.location_id,
-        location_label=location.search_label if location else cell.location_id,
-        country=location.country if location else None,
-        indeed_country=location.indeed_country if location else "usa",
-        is_remote=location.is_remote if location else False,
-        distance=location.distance if location else 50,
+        location_label=cell.search_label or cell.location_id,
+        country=cell.country or None,
+        indeed_country=cell.indeed_country,
+        is_remote=cell.is_remote,
+        distance=cell.distance,
         results_wanted=results_wanted,
         hours_old=(
             config.get("backfill_hours_old", 336)
@@ -297,7 +283,6 @@ def _make_task(
         ),
         fetch_description=fetch_description,
         desc_selection=desc_selection,
-        role_family=cell.role_family,
         active=cell.active,
         est_request_units=estimate_units(source, results_wanted, config, fetch_description),
         extra={"proxies": config.get("proxies_list") or []},
@@ -307,7 +292,6 @@ def _make_task(
 def select_cells(
     cells: list[CellState],
     config: dict[str, Any],
-    roles: "RoleTaxonomy",
     source: str,
     now: datetime | None = None,
     backfill: bool = False,
@@ -333,7 +317,7 @@ def select_cells(
     for cell in order:
         if len(picked) >= max_searches:
             break
-        task = _make_task(cell, config, roles, source, now, backfill=backfill)
+        task = _make_task(cell, config, source, now, backfill=backfill)
         cell_pages = estimate_pages(source, task.results_wanted, config)
         if units + task.est_request_units > max_units:
             continue
@@ -343,9 +327,7 @@ def select_cells(
         units += task.est_request_units
         pages += cell_pages
 
-    return enforce_staleness_floor(
-        picked, ranked, cells, config, roles, source, now, backfill=backfill
-    )
+    return enforce_staleness_floor(picked, ranked, cells, config, source, now, backfill=backfill)
 
 
 def enforce_staleness_floor(
@@ -353,20 +335,18 @@ def enforce_staleness_floor(
     ranked: list[CellState],
     cells: list[CellState],  # noqa: ARG001 - signature parity with the other staleness passes
     config: dict[str, Any],
-    roles: "RoleTaxonomy",
     source: str,
     now: datetime,
     backfill: bool = False,
 ) -> list[ScrapeTask]:
     """Guarantee cells in high-weight locations are visited within the floor."""
     floor = config.get("max_staleness_hours", 72)
-    location_weights = config.get("locations") or {}
     chosen_ids = {t.cell_id for t in picked}
 
     overdue = [
         c
         for c in ranked
-        if location_weights.get(c.location_id, {}).get("weight", 1.0) >= 1.0
+        if c.weight >= 1.0
         and hours_since(c.last_success_at, now) > floor
         and c.id not in chosen_ids
     ]
@@ -378,7 +358,7 @@ def enforce_staleness_floor(
         if not result:
             break
         result.pop()
-        result.append(_make_task(cell, config, roles, source, now, backfill=backfill))
+        result.append(_make_task(cell, config, source, now, backfill=backfill))
 
     return result
 
@@ -389,13 +369,10 @@ def overdue_cells(
     """Cells past the staleness floor, for the coverage warning and for suppression."""
     now = now or datetime.now(timezone.utc)
     floor = config.get("max_staleness_hours", 72)
-    weights = config.get("locations") or {}
     return [
         c
         for c in cells
-        if c.enabled
-        and weights.get(c.location_id, {}).get("weight", 1.0) >= 1.0
-        and hours_since(c.last_success_at, now) > floor
+        if c.enabled and c.weight >= 1.0 and hours_since(c.last_success_at, now) > floor
     ]
 
 
@@ -412,10 +389,6 @@ def is_saturated(returned: int, requested: int, threshold: float = 0.95) -> bool
     return returned >= threshold * requested
 
 
-def scrape_tasks(
-    db: Database, config: dict[str, Any], roles: "RoleTaxonomy", source: str
-) -> list["ScrapeTask"]:
+def scrape_tasks(db: Database, config: dict[str, Any], source: str) -> list["ScrapeTask"]:
     """The tasks `run_sync` would pick for one source, right now."""
-    cells = db.get_cells(source=source)
-    scraper_config = with_location_weights(config.get("scraper", {}), roles)
-    return select_cells(cells, scraper_config, roles, source)
+    return select_cells(db.get_cells(source=source), config.get("scraper", {}), source)

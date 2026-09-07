@@ -405,7 +405,6 @@ def normalize_row(
         "company_num_employees": _text(row.get("company_num_employees")) or None,
         "company_industry": _text(row.get("company_industry")) or None,
         "scrape_cell_id": task.get("cell_id"),
-        "role_family_hint": task.get("role_family"),
     }
     posting.update(location)
     posting.update(normalize_salary(row, task.get("country"), config.get("fx")))

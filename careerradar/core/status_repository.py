@@ -216,18 +216,14 @@ def get_pipeline_status(
             planned = run["cells_planned"]
             if not planned and db_instance is not None:
                 from careerradar.search.scheduler import scrape_tasks
-                from careerradar.taxonomy.roles import load_roles
 
                 config = load_config()
-                roles = load_roles()
                 enabled = [
                     name
                     for name, on in (config.get("scraper", {}).get("sources") or {}).items()
                     if on
                 ]
-                planned = sum(
-                    len(scrape_tasks(db_instance, config, roles, source)) for source in enabled
-                )
+                planned = sum(len(scrape_tasks(db_instance, config, source)) for source in enabled)
             scrape["cells_planned"] = planned or None
 
     # 2. Score: single query for latest verdict timestamp and recent 5-min verdict count

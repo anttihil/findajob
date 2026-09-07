@@ -168,8 +168,8 @@ class MigrationTests(unittest.TestCase):
                 "INSERT INTO sync_runs (id, started_at, mode) VALUES (1, '2026-07-29', 'test')"
             )
             conn.executemany(
-                "INSERT INTO jobs (job_key, title, url, sync_run_id, role_family,"
-                " description_quality, desc_selection) VALUES (?,?,?,1,'x','full',?)",
+                "INSERT INTO jobs (job_key, title, url, sync_run_id,"
+                " description_quality, desc_selection) VALUES (?,?,?,1,'full',?)",
                 [
                     ("c1", "Census Row", "https://example.test/c1", "census"),
                     ("t1", "TopK Row", "https://example.test/t1", "top_k"),
@@ -196,9 +196,11 @@ class MigrationTests(unittest.TestCase):
         finally:
             conn.close()
 
-    def test_rows_with_no_role_family_are_excluded(self) -> None:
-        """Off-target postings (a 'Maintenance Technician' from a Platform Engineer query)
-        are retained for audit but must not reach any statistic."""
+    def test_eligibility_is_run_provenance_not_classification(self) -> None:
+        """v24 widened the views. They used to require a non-null role_family, which
+        excluded whatever the deleted regex classifier failed to label. Provenance now
+        comes from the cell that found the posting, so only the run and the duplicate
+        check decide eligibility."""
         conn = sqlite3.connect(self.path)
         try:
             migrate(conn)
@@ -206,17 +208,22 @@ class MigrationTests(unittest.TestCase):
                 "INSERT INTO sync_runs (id, started_at, mode) VALUES (1, '2026-07-29', 'test')"
             )
             conn.execute(
-                "INSERT INTO jobs (job_key, title, url, sync_run_id, role_family,"
+                "INSERT INTO jobs (job_key, title, url, sync_run_id,"
                 " description_quality, desc_selection)"
                 " VALUES ('off','Maintenance Technician','https://example.test/o',1,"
-                " NULL,'full','census')"
+                " 'full','census')"
+            )
+            # A posting that no run produced still proves nothing and stays out.
+            conn.execute(
+                "INSERT INTO jobs (job_key, title, url, description_quality, desc_selection)"
+                " VALUES ('man','Manual Import','https://example.test/m','full','census')"
             )
             conn.commit()
-            self.assertEqual(conn.execute("SELECT COUNT(*) FROM jobs").fetchone()[0], 1)
+            self.assertEqual(conn.execute("SELECT COUNT(*) FROM jobs").fetchone()[0], 2)
             self.assertEqual(
-                conn.execute("SELECT COUNT(*) FROM v_supply_eligible").fetchone()[0], 0
+                conn.execute("SELECT COUNT(*) FROM v_supply_eligible").fetchone()[0], 1
             )
-            self.assertEqual(conn.execute("SELECT COUNT(*) FROM v_skill_eligible").fetchone()[0], 0)
+            self.assertEqual(conn.execute("SELECT COUNT(*) FROM v_skill_eligible").fetchone()[0], 1)
         finally:
             conn.close()
 

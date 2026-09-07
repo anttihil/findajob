@@ -148,6 +148,7 @@ search_locations(id, label, search_label, country, indeed_country,
 scrape_cells(id, source, location_id, query,
              search_label, country, indeed_country,      -- embedded JobSpy params
              is_remote, distance,
+             weight,                                     -- embedded scheduler priority
              enabled, last_scraped_at, last_success_at, ...)
              UNIQUE(source, location_id, query)          -- role_family, tier removed
 
@@ -159,8 +160,10 @@ jobs(..., scrape_cell_id)                                -- role_family,
 
 Deleted tables: `target_roles`, `company_dossiers`, `research_runs`.
 
-`search_locations.weight` survives. After phase 4 its only consumer is scheduler priority
-(`scheduler.py:180`), which is what it was for.
+`search_locations.weight` survives as the definition. After phase 4 its only consumer is
+scheduler priority, which is what it was for, and phase 6 copies it onto the cell alongside
+the JobSpy parameters so `cell_priority` needs no lookup either. `with_location_weights`
+and the `scraper.locations` config key both disappear.
 
 **Snapshot semantics:** `seed_cells` *updates* the embedded columns when a target definition
 changes. Cells are not immutable snapshots. Per-run provenance already exists --
@@ -267,7 +270,11 @@ gap report returns a number for every skill that passes `min_postings_for_skill`
 No decisions remain -- phases 1 and 4 removed both semantic consumers.
 
 * `market/analytics.py:187-240,313,404` and `market/repository.py`: group by `sc.query`.
-  Delete the `target_queries` text join at `market/repository.py:80`; `sc.query` is the key.
+  The `target_queries` text join at `market/repository.py:80` is **kept**, reduced to the
+  single column: the market page's "disable this query" button needs the row id, and once
+  `search_queries.query` is UNIQUE (phase 6) the join is on a real key rather than on a
+  `(role_key, query)` pair that any edit could break. The payload field is renamed
+  `target_query_id` -> `search_query_id`.
 * Delete `roles.label()` and `target_roles.label`. The 42 query strings are already
   display-quality title case ("Cloud Infrastructure Engineer", "Site Reliability Engineer"),
   so no mapping is needed.
@@ -287,10 +294,15 @@ Single migration, `_v24_cell_centric_queries`, following the existing
 1. Add `search_label`, `country`, `indeed_country`, `is_remote`, `distance` to
    `scrape_cells`; backfill from `target_locations` by `location_id`.
 2. Rebuild `scrape_cells` without `role_family` and `tier`; new
-   `UNIQUE(source, location_id, query)`. Collapse the 252 disabled remnants and any rows that
-   now collide (same source/location/query under different old families).
-   **Open item:** count the colliding pairs and decide whose scrape history survives the
-   merge. Measure before writing the migration.
+   `UNIQUE(source, location_id, query)`. Collapse any rows that now collide (same
+   source/location/query under different old families).
+   **Measured:** zero colliding pairs -- 840 cells over 840 distinct
+   `(source, location_id, query)` in `jobs.db`, 698 over 698 in `prod_jobs.db`, and
+   `target_queries` holds 42 rows with 42 distinct query strings. The merge rule is
+   therefore a safety net, not a data change: the row with the most `total_scrapes`
+   keeps its history and adopts the others' postings and observations, ties going to the
+   lowest id. The 252 disabled remnants do not collide and are kept -- 29 of them are
+   still the `scrape_cell_id` of a stored posting and 33 carry observations.
 3. Rebuild `cell_observations` without `role_family` and `returned_on_topic`; rebuild
    `idx_cellobs_scope` as `(query, location_id, source, observed_at)`.
 4. Drop `jobs.role_family`, `jobs.role_family_hint`, `jobs.access`, `jobs.dossier_id`,

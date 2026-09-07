@@ -23,7 +23,6 @@ function mockJob(overrides: Partial<Job> = {}): Job {
     status: "unread",
     date_found: "2026-08-25T10:00:00Z",
     date_applied: null,
-    role_family: "Backend",
     seniority: "Senior",
     is_remote: true,
     city: null,
