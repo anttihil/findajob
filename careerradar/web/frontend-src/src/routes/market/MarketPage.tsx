@@ -183,7 +183,7 @@ export function MarketPage() {
   const handleToggleQuery = async (queryId: number) => {
     setTogglingQueryId(queryId);
     try {
-      await putJSON(`/api/targets/queries/${queryId}/toggle`, {});
+      await putJSON(`/api/targets/queries/${queryId}/toggle`, { enabled: false });
       fetchYieldData();
     } catch (e) {
       reportError("Failed to toggle target query", e);
