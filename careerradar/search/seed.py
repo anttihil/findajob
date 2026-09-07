@@ -6,8 +6,8 @@ deleted, which keeps cell_observations' foreign keys and past analytics auditabl
 
     careerradar search seed-cells [--prune]
 
-Every query_term declared in target_queries is seeded. There is no per-tier cap, so the matrix
-is the whole plan: what it lists is what gets searched.
+Every query_term declared in target_queries is seeded: the matrix is the whole plan, and
+what it lists is what gets searched.
 """
 
 from careerradar.core.config import load_config
@@ -46,9 +46,7 @@ def seed_cells(prune: bool = False) -> int:
         print(f"sources:        {', '.join(enabled_sources)}")
         print(f"specs planned:  {len(specs)}")
         print(f"cells inserted: {inserted}")
-        # Re-tiering an existing family shows up here, not above. Reported because it is
-        # the whole effect of a tier edit on a matrix that has already been seeded.
-        print(f"cells re-synced: {updated}   (tier or enabled brought back in line)")
+        print(f"cells re-enabled: {updated}")
         if prune:
             print(f"cells disabled: {disabled}")
         print(f"cells enabled:  {total}")

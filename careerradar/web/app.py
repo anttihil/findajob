@@ -271,7 +271,6 @@ class TargetLocationUpdate(BaseModel):
 class TargetRolePayload(BaseModel):
     key: str
     label: str
-    aliases: list[str] | None = None
     resume: str | None = None
     enabled: bool = True
 
@@ -699,7 +698,6 @@ def create_target_role_endpoint(payload: TargetRolePayload):
             db.conn,
             key=role_key,
             label=label,
-            aliases=payload.aliases,
             resume=payload.resume,
             enabled=payload.enabled,
         )

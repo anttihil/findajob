@@ -556,7 +556,6 @@ export interface TargetRole {
   key: string;
   label: string;
   resume?: string | null;
-  aliases?: string[];
   enabled: number | boolean;
   created_at?: string;
 }

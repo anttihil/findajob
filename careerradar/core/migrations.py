@@ -211,10 +211,8 @@ def _v2_analytics(cursor: sqlite3.Cursor) -> None:
             requested         INTEGER NOT NULL DEFAULT 0,
             returned          INTEGER NOT NULL DEFAULT 0,
             -- returned counts what the board gave us, and drives saturation.
-            -- returned_on_topic counts rows whose TITLE maps to a role family, and drives
-            -- flow. Indeed returns substantial off-target results (a 'Platform Engineer'
-            -- query returned a Maintenance Technician), so conflating these two inflates
-            -- every supply number.
+            -- returned_on_topic held a title-based on-topic count. The classifier that
+            -- produced it is gone; nothing writes the column now. Dropped in v24.
             returned_on_topic INTEGER NOT NULL DEFAULT 0,
             new_unique        INTEGER NOT NULL DEFAULT 0,
             saturated         INTEGER NOT NULL DEFAULT 0,

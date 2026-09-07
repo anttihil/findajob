@@ -36,19 +36,19 @@ def seed_cells(conn: sqlite3.Connection, specs: list[dict[str, Any]]) -> tuple[i
     for spec in specs:
         cursor.execute(
             """
+            -- `tier` is inert; it is NOT NULL until migration v24 drops it.
             INSERT INTO scrape_cells
                 (source, role_family, location_id, query, tier, created_at)
-            VALUES (?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, '1', ?)
             ON CONFLICT (source, role_family, location_id, query) DO UPDATE
-                SET tier = excluded.tier, enabled = 1
-              WHERE tier != excluded.tier OR enabled != 1
+                SET enabled = 1
+              WHERE enabled != 1
             """,
             (
                 spec["source"],
                 spec["role_family"],
                 spec["location_id"],
                 spec["query"],
-                spec.get("tier", 1),
                 now,
             ),
         )
@@ -313,7 +313,6 @@ def record_observation(
     task: dict[str, Any],
     observed_at: str,
     returned: int = 0,
-    returned_on_topic: int = 0,
     new_unique: int = 0,
     saturated: int = 0,
     descriptions_full: int = 0,
@@ -332,10 +331,10 @@ def record_observation(
         INSERT INTO cell_observations
             (sync_run_id, cell_id, source, role_family, location_id, query,
              observed_at, hours_old, window_start, window_end,
-             requested, returned, returned_on_topic, new_unique, saturated,
+             requested, returned, new_unique, saturated,
              desc_selection, descriptions_full, status, error,
              duration_ms, requests_made)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
         """,
         (
             run_id,
@@ -350,7 +349,6 @@ def record_observation(
             observed_at,
             task.get("results_wanted") or 0,
             returned,
-            returned_on_topic,
             new_unique,
             saturated,
             task.get("desc_selection", "none"),

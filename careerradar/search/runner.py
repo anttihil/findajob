@@ -119,7 +119,6 @@ def run_sync(
         "postings_fetched": 0,
         "postings_new": 0,
         "duplicates_merged": 0,
-        "off_topic": 0,
     }
     circuits: dict[str, SourceCircuit] = {}
 
@@ -204,7 +203,7 @@ def run_sync(
                     empty += 1
                 else:
                     errored += 1
-                for key in ("postings_fetched", "postings_new", "duplicates_merged", "off_topic"):
+                for key in ("postings_fetched", "postings_new", "duplicates_merged"):
                     totals[key] += _LAST_CELL_STATS.get(key, 0)
 
             totals["cells_empty"] += empty
@@ -239,7 +238,7 @@ def run_sync(
                 run_id,
                 status,
                 error_summary={s: c.summary() for s, c in circuits.items()},
-                **{k: v for k, v in totals.items() if k != "off_topic"},
+                **totals,
             )
         return totals
 
@@ -348,8 +347,6 @@ def _scrape_one(
                 db.mark_duplicate(job_id, canonical)
                 duplicates += 1
 
-    stats["on_topic"] = len(postings)
-
     if dry_run:
         _print_dry_run(task, stats, stored, saturated)
     else:
@@ -358,7 +355,6 @@ def _scrape_one(
             payload,
             observed_at.isoformat(),
             returned=stats["returned"],
-            returned_on_topic=stats["on_topic"],
             new_unique=new_count,
             saturated=saturated,
             descriptions_full=stats["with_full_description"],
@@ -387,7 +383,6 @@ def _scrape_one(
         "postings_fetched": stats["returned"],
         "postings_new": new_count,
         "duplicates_merged": duplicates,
-        "off_topic": 0,
     }
     return "ok" if stats["returned"] else "empty"
 

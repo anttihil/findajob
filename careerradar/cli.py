@@ -170,13 +170,11 @@ def _cmd_target(args: argparse.Namespace) -> int:
             return 0
 
         if sub == "add":
-            aliases = [a.strip() for a in (args.aliases or "").split(",") if a.strip()]
             queries = [q.strip() for q in (args.queries or "").split(",") if q.strip()]
             target_repo.save_target_role(
                 conn,
                 key=args.key,
                 label=args.label or args.key.replace("_", " ").title(),
-                aliases=aliases,
                 enabled=True,
             )
             for q in queries:
@@ -410,7 +408,6 @@ def build_parser() -> argparse.ArgumentParser:
     tar_add = tar_sub.add_parser("add", help="add a new target role with queries")
     tar_add.add_argument("key", help="unique role key (e.g. ai_engineer)")
     tar_add.add_argument("--label", help="display label (e.g. AI Engineer)")
-    tar_add.add_argument("--aliases", help="comma-separated aliases")
     tar_add.add_argument("--queries", help="comma-separated search queries")
 
     tar_tog = tar_sub.add_parser("toggle", help="enable or pause a target role")

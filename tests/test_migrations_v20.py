@@ -63,7 +63,6 @@ def test_target_roles_crud():
         conn,
         key="ai_engineer",
         label="AI Engineer",
-        aliases=["ai engineer", "genai engineer"],
         resume="fullstack_ai.md",
         enabled=True,
     )
@@ -72,7 +71,6 @@ def test_target_roles_crud():
     ai_role = next((r for r in roles if r["key"] == "ai_engineer"), None)
     assert ai_role is not None
     assert ai_role["label"] == "AI Engineer"
-    assert ai_role["aliases"] == ["ai engineer", "genai engineer"]
     assert ai_role["enabled"] == 1
 
     toggle_target_role(conn, "ai_engineer", enabled=False)

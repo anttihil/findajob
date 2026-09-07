@@ -1,6 +1,5 @@
 """SQLite repository for target roles, target queries, and target locations."""
 
-import json
 import sqlite3
 from datetime import datetime, timezone
 from typing import Any
@@ -19,47 +18,34 @@ def get_target_roles(
 ) -> list[dict[str, Any]]:
     """Fetch all configured target roles."""
     query = """
-        SELECT id, key, label, resume, aliases_json, enabled, created_at
+        SELECT id, key, label, resume, enabled, created_at
           FROM target_roles
     """
     if enabled_only:
         query += " WHERE enabled = 1"
     query += " ORDER BY id ASC"
 
-    cursor = conn.execute(query)
-    roles = []
-    for row in cursor.fetchall():
-        r_dict = dict(row)
-        try:
-            aliases = json.loads(r_dict.get("aliases_json") or "[]")
-        except (json.JSONDecodeError, TypeError):
-            aliases = []
-        r_dict["aliases"] = aliases
-        roles.append(r_dict)
-    return roles
+    return [dict(row) for row in conn.execute(query).fetchall()]
 
 
 def save_target_role(
     conn: sqlite3.Connection,
     key: str,
     label: str,
-    aliases: list[str] | None = None,
     resume: str | None = None,
     enabled: bool = True,
 ) -> None:
     """Insert or update a target role."""
-    aliases_json = json.dumps(aliases or [])
     conn.execute(
         """
-        INSERT INTO target_roles (key, label, resume, aliases_json, enabled, created_at)
-        VALUES (?, ?, ?, ?, ?, ?)
+        INSERT INTO target_roles (key, label, resume, enabled, created_at)
+        VALUES (?, ?, ?, ?, ?)
         ON CONFLICT(key) DO UPDATE SET
             label = excluded.label,
             resume = excluded.resume,
-            aliases_json = excluded.aliases_json,
             enabled = excluded.enabled
         """,
-        (key, label, resume, aliases_json, 1 if enabled else 0, _now()),
+        (key, label, resume, 1 if enabled else 0, _now()),
     )
     conn.commit()
 
