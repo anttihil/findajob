@@ -28,7 +28,7 @@ import os
 import re
 import time
 import warnings
-from collections.abc import Iterator
+from collections.abc import Generator
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from typing import Any, TypedDict
@@ -91,7 +91,7 @@ class _ErrorRecorder(logging.Handler):
 
 
 @contextmanager
-def capture_scraper_errors(source: str | None) -> Iterator[_ErrorRecorder]:
+def capture_scraper_errors(source: str | None) -> Generator[_ErrorRecorder]:
     """Watch a board's JobSpy logger for the duration of one scrape.
 
     Records arrive from JobSpy's worker thread rather than this one (scrape_jobs runs each
@@ -120,7 +120,7 @@ class _RequestCounter:
 
 
 @contextmanager
-def count_requests() -> Iterator[_RequestCounter]:
+def count_requests() -> Generator[_RequestCounter]:
     """Count every request JobSpy sends for the duration of one scrape.
 
     Both boards build their session through jobspy.util.create_session with is_tls=False,
@@ -174,7 +174,7 @@ GUEST_FRAGMENT_URL = "https://www.linkedin.com/jobs-guest/jobs/api/jobPosting/{j
 
 
 @contextmanager
-def guest_description_endpoint(enabled: bool) -> Iterator[None]:
+def guest_description_endpoint(enabled: bool) -> Generator[None]:
     """Route JobSpy's per-description fetches to the guest fragment.
 
     Rewriting the URL under the library rather than reimplementing `_get_job_details`: the

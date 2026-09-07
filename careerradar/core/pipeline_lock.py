@@ -11,14 +11,14 @@ so a crashed stage cannot wedge subsequent runs.
 
 import fcntl
 import sys
-from collections.abc import Iterator
+from collections.abc import Generator
 from contextlib import contextmanager
 
 from careerradar.core.paths import PIPELINE_LOCK_PATH
 
 
 @contextmanager
-def hold(stage: str) -> Iterator[None]:
+def hold(stage: str) -> Generator[None]:
     with open(PIPELINE_LOCK_PATH, "w") as lock:
         try:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
