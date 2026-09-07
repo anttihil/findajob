@@ -29,19 +29,14 @@ from careerradar.search.guard import (
     classify_error,
 )
 from careerradar.search.scheduler import (
-    QUALITY_SAMPLE_MIN,
     CellState,
     adaptive_hours_old,
-    cell_priority,
     estimate_pages,
     estimate_units,
     is_eligible,
     is_saturated,
     overdue_cells,
-    quality_multiplier,
     select_cells,
-    starved_cells,
-    update_ewma,
 )
 from careerradar.taxonomy.roles import RoleTaxonomy
 
@@ -202,152 +197,80 @@ class EligibilityTests(unittest.TestCase):
         self.assertTrue(is_eligible(cell, NOW))
 
 
-class PriorityTests(unittest.TestCase):
-    def test_staleness_raises_priority(self) -> None:
-        fresh = CellState(
-            1,
-            "indeed",
-            "la",
-            "q",
-            active=True,
-            last_scraped_at=NOW.isoformat(),
-            total_scrapes=5,
-        )
-        stale = CellState(
-            2,
-            "indeed",
-            "la",
-            "q",
-            active=True,
-            total_scrapes=5,
-            last_scraped_at=(NOW - timedelta(days=5)).isoformat(),
-        )
-        self.assertGreater(cell_priority(stale, CONFIG, NOW), cell_priority(fresh, CONFIG, NOW))
+class OrderingTests(unittest.TestCase):
+    """Ordering is oldest-attempt-first, and nothing else.
 
-    def test_more_stale_cell_outranks_less_stale(self) -> None:
-        base: dict[str, Any] = {
-            "total_scrapes": 5,
-            "active": True,
-        }
-        more_stale = CellState(
+    The six-term priority product this replaced could not outweigh staleness for more than
+    a few runs -- staleness was unbounded and every other term was clamped -- so the
+    schedule converged on this rotation anyway.
+    """
+
+    def setUp(self) -> None:
+        self.roles = RoleTaxonomy(spec_dict=SCHEDULER_TEST_TAXONOMY_SPEC)
+
+    def test_the_more_stale_cell_is_scheduled_first(self) -> None:
+        fresh = CellState(1, "indeed", "la", "q", last_scraped_at=NOW.isoformat())
+        stale = CellState(
+            2, "indeed", "la", "q", last_scraped_at=(NOW - timedelta(days=5)).isoformat()
+        )
+        tasks = select_cells([fresh, stale], CONFIG, "indeed", NOW)
+        self.assertEqual([t.cell_id for t in tasks], [2, 1])
+
+    def test_a_never_scraped_cell_sorts_ahead_of_every_scraped_one(self) -> None:
+        never = CellState(1, "indeed", "la", "q")
+        scraped = CellState(
+            2, "indeed", "la", "q", last_scraped_at=(NOW - timedelta(days=5)).isoformat()
+        )
+        tasks = select_cells([never, scraped], CONFIG, "indeed", NOW)
+        self.assertEqual([t.cell_id for t in tasks], [1, 2])
+
+    def test_ties_break_on_id_so_the_order_is_deterministic(self) -> None:
+        cells = [
+            CellState(i, "indeed", "la", f"q{i}", last_scraped_at=NOW.isoformat())
+            for i in (3, 1, 2)
+        ]
+        tasks = select_cells(cells, CONFIG, "indeed", NOW)
+        self.assertEqual([t.cell_id for t in tasks], [1, 2, 3])
+
+    def test_ordering_keys_on_the_attempt_not_the_success(self) -> None:
+        """A cell that keeps failing must back off, not monopolise the budget.
+
+        `record_cell_attempt` advances last_scraped_at on every attempt and last_success_at
+        only on success. Sorting on success would put a permanently broken cell at the
+        front of every run forever.
+        """
+        broken = CellState(
             1,
             "indeed",
             "la",
             "q",
-            last_scraped_at=(NOW - timedelta(days=10)).isoformat(),
-            **base,
+            last_scraped_at=NOW.isoformat(),
+            last_success_at=(NOW - timedelta(days=30)).isoformat(),
         )
-        less_stale = CellState(
+        waiting = CellState(
             2,
             "indeed",
             "la",
             "q",
             last_scraped_at=(NOW - timedelta(days=2)).isoformat(),
-            **base,
+            last_success_at=(NOW - timedelta(days=2)).isoformat(),
         )
-        self.assertGreater(
-            cell_priority(more_stale, CONFIG, NOW),
-            cell_priority(less_stale, CONFIG, NOW),
-        )
+        tasks = select_cells([broken, waiting], CONFIG, "indeed", NOW)
+        self.assertEqual([t.cell_id for t in tasks], [2, 1])
 
-    def test_location_weight_matters(self) -> None:
-        base: dict[str, Any] = {
-            "active": True,
-            "total_scrapes": 5,
-            "last_scraped_at": (NOW - timedelta(days=3)).isoformat(),
-        }
-        high = CellState(1, "indeed", "us_remote", "q", weight=1.0, **base)
-        low = CellState(2, "indeed", "us_nat", "q", weight=0.3, **base)
-        self.assertGreater(cell_priority(high, CONFIG, NOW), cell_priority(low, CONFIG, NOW))
+    def test_a_cell_skipped_for_budget_leads_the_next_run(self) -> None:
+        """The self-correcting property that makes a priority function unnecessary."""
+        cells = make_cells("indeed", self.roles)
+        first = select_cells(cells, CONFIG, "indeed", NOW)
+        picked = {t.cell_id for t in first}
+        skipped = {c.id for c in cells if c.id not in picked}
+        self.assertTrue(skipped, "budget must be tighter than the matrix for this test")
+        for cell in cells:
+            if cell.id in picked:
+                cell.last_scraped_at = NOW.isoformat()
 
-    def test_never_scraped_cell_gets_a_novelty_boost(self) -> None:
-        base: dict[str, Any] = {
-            "active": True,
-            "last_scraped_at": (NOW - timedelta(days=3)).isoformat(),
-        }
-        fresh = CellState(1, "indeed", "la", "q", total_scrapes=0, **base)
-        seen = CellState(2, "indeed", "la", "q", total_scrapes=10, **base)
-        self.assertGreater(cell_priority(fresh, CONFIG, NOW), cell_priority(seen, CONFIG, NOW))
-
-    def test_saturated_cell_is_revisited_sooner(self) -> None:
-        base: dict[str, Any] = {
-            "active": True,
-            "total_scrapes": 5,
-            "last_scraped_at": (NOW - timedelta(days=3)).isoformat(),
-        }
-        saturated = CellState(1, "indeed", "la", "q", last_saturated=1, **base)
-        normal = CellState(2, "indeed", "la", "q", last_saturated=0, **base)
-        self.assertGreater(
-            cell_priority(saturated, CONFIG, NOW), cell_priority(normal, CONFIG, NOW)
-        )
-
-    def test_repeatedly_empty_cell_is_deprioritised_but_never_zeroed(self) -> None:
-        base: dict[str, Any] = {
-            "active": True,
-            "total_scrapes": 5,
-            "last_scraped_at": (NOW - timedelta(days=3)).isoformat(),
-        }
-        empty = CellState(1, "indeed", "la", "q", consecutive_empty=8, **base)
-        normal = CellState(2, "indeed", "la", "q", consecutive_empty=0, **base)
-        self.assertLess(cell_priority(empty, CONFIG, NOW), cell_priority(normal, CONFIG, NOW))
-        # Must stay strictly positive, so a quiet family is still probed occasionally.
-        self.assertGreater(cell_priority(empty, CONFIG, NOW), 0)
-
-    def test_quality_multiplier_is_neutral_without_enough_samples(self) -> None:
-        cell = CellState(1, "indeed", "la", "q", ewma_fit_score=10, quality_samples=1)
-        self.assertEqual(quality_multiplier(cell), 1.0)
-        cell_never_scored = CellState(2, "indeed", "la", "q")
-        self.assertEqual(quality_multiplier(cell_never_scored), 1.0)
-
-    def test_quality_multiplier_rewards_and_penalizes_once_sampled(self) -> None:
-        strong = CellState(
-            1, "indeed", "la", "q", ewma_fit_score=90, quality_samples=QUALITY_SAMPLE_MIN
-        )
-        weak = CellState(
-            2, "indeed", "la", "q", ewma_fit_score=10, quality_samples=QUALITY_SAMPLE_MIN
-        )
-        self.assertGreater(quality_multiplier(strong), 1.0)
-        self.assertLess(quality_multiplier(weak), 1.0)
-        # Clamped: even a terrible track record can only ever dampen, never zero out.
-        self.assertGreaterEqual(quality_multiplier(weak), 0.5)
-
-    def test_high_quality_cell_outranks_low_quality_cell_at_equal_yield(self) -> None:
-        base: dict[str, Any] = {
-            "active": True,
-            "total_scrapes": 5,
-            "last_scraped_at": (NOW - timedelta(days=3)).isoformat(),
-            "ewma_new_per_scrape": 5.0,
-            "quality_samples": QUALITY_SAMPLE_MIN,
-        }
-        strong = CellState(1, "indeed", "la", "q", ewma_fit_score=90, **base)
-        weak = CellState(2, "indeed", "la", "q", ewma_fit_score=10, **base)
-        self.assertGreater(cell_priority(strong, CONFIG, NOW), cell_priority(weak, CONFIG, NOW))
-        # A poor track record must never be able to zero out an otherwise-productive cell.
-        self.assertGreater(cell_priority(weak, CONFIG, NOW), 0)
-
-    def test_unproven_cell_is_not_starved_by_a_thin_quality_sample(self) -> None:
-        """A cell with zero prior scrapes must still get a fair look regardless of quality
-        -- QUALITY_SAMPLE_MIN keeps quality neutral until there's enough signal to trust,
-        so it must never compound with the novelty boost to starve a brand-new cell."""
-        base: dict[str, Any] = {
-            "active": True,
-            "last_scraped_at": (NOW - timedelta(days=3)).isoformat(),
-        }
-        never_scraped = CellState(1, "indeed", "la", "q", total_scrapes=0, **base)
-        seasoned_but_poor = CellState(
-            2,
-            "indeed",
-            "la",
-            "q",
-            total_scrapes=10,
-            ewma_fit_score=10,
-            quality_samples=QUALITY_SAMPLE_MIN,
-            **base,
-        )
-        self.assertGreater(
-            cell_priority(never_scraped, CONFIG, NOW),
-            cell_priority(seasoned_but_poor, CONFIG, NOW),
-        )
+        second = select_cells(cells, CONFIG, "indeed", NOW + timedelta(hours=12))
+        self.assertTrue(skipped <= {t.cell_id for t in second})
 
 
 class AdaptiveHoursOldTests(unittest.TestCase):
@@ -480,19 +403,6 @@ class StalenessFloorTests(unittest.TestCase):
     def setUp(self) -> None:
         self.roles = RoleTaxonomy(spec_dict=SCHEDULER_TEST_TAXONOMY_SPEC)
 
-    def test_overdue_core_cell_is_forced_into_the_run(self) -> None:
-        cells = make_cells("indeed", self.roles)
-        for cell in cells:
-            cell.last_scraped_at = NOW.isoformat()
-            cell.last_success_at = NOW.isoformat()
-            cell.total_scrapes = 10
-            cell.ewma_new_per_scrape = 20.0
-        overdue = [c for c in cells if c.weight >= 1.0][-1]
-        overdue.last_success_at = (NOW - timedelta(days=5)).isoformat()
-
-        tasks = select_cells(cells, CONFIG, "indeed", NOW)
-        self.assertIn(overdue.id, {t.cell_id for t in tasks})
-
     def test_overdue_keys_on_success_not_attempt(self) -> None:
         """A cell that keeps failing must still read as overdue.
 
@@ -574,69 +484,35 @@ class LocationWeightWiringTests(unittest.TestCase):
         self.assertEqual(overdue_cells([low], config, NOW), [])
         self.assertEqual(len(overdue_cells([high], config, NOW)), 1)
 
-    def test_priority_is_damped_by_location_weight(self) -> None:
-        near = CellState(1, "indeed", "los_angeles", "q", weight=1.0, active=True)
-        far = CellState(2, "indeed", "us_nat", "q", weight=0.3, active=True)
-        self.assertGreater(cell_priority(near, CONFIG, NOW), cell_priority(far, CONFIG, NOW))
 
-
-class StarvationDeadlineTests(unittest.TestCase):
-    """The explicit coverage guarantee under uniform cadence."""
+class LongStaleCellTests(unittest.TestCase):
+    """Cells the old priority product could push to the back of the queue."""
 
     def setUp(self) -> None:
         self.roles = RoleTaxonomy(spec_dict=SCHEDULER_TEST_TAXONOMY_SPEC)
-        self.config = dict(CONFIG, starvation_multiple=4)
 
-    def _cell(self, hours_stale: float, **kwargs: Any) -> CellState:
-        return CellState(
-            1,
-            "indeed",
-            "us_remote",
-            "q",
-            active=True,
-            last_scraped_at=(NOW - timedelta(hours=hours_stale)).isoformat(),
-            **kwargs,
-        )
-
-    def test_deadline_scales_with_cadence(self) -> None:
-        # uniform cadence 24h x 4 = 96h.
-        self.assertTrue(starved_cells([self._cell(97)], self.config, NOW))
-        self.assertFalse(starved_cells([self._cell(95)], self.config, NOW))
-
-    def test_starved_cells_ignore_backoff(self) -> None:
-        cell = self._cell(500, backoff_until=(NOW + timedelta(hours=5)).isoformat())
-        self.assertEqual(starved_cells([cell], self.config, NOW), [])
-
-    def test_starved_cells_are_scheduled_ahead_of_priority(self) -> None:
+    def test_a_long_stale_cell_is_scheduled_first(self) -> None:
         cells = make_cells("indeed", self.roles)
         for cell in cells:
             cell.last_scraped_at = NOW.isoformat()
             cell.last_success_at = NOW.isoformat()
-            cell.total_scrapes = 20
-            cell.ewma_new_per_scrape = 30.0  # very productive, so high priority
-        # One low-yield, repeatedly-empty cell past its deadline: the exact
-        # profile that the priority formula alone pushes to the back forever.
         starving = cells[-1]
         starving.last_scraped_at = (NOW - timedelta(days=40)).isoformat()
-        starving.consecutive_empty = 5
-        starving.ewma_new_per_scrape = 0.0
 
-        tasks = select_cells(cells, self.config, "indeed", NOW)
-        self.assertIn(starving.id, {t.cell_id for t in tasks})
+        tasks = select_cells(cells, CONFIG, "indeed", NOW)
+        self.assertEqual(tasks[0].cell_id, starving.id)
 
-    def test_most_overdue_comes_first(self) -> None:
-        cell1 = self._cell(480)
-        cell1.id = 1
-        cell2 = CellState(
-            2,
-            "indeed",
-            "us_remote",
-            "q",
-            active=True,
-            last_scraped_at=(NOW - timedelta(hours=700)).isoformat(),
-        )
-        order = starved_cells([cell1, cell2], self.config, NOW)
-        self.assertEqual(order[0].id, cell2.id)
+    def test_backoff_still_wins_over_staleness(self) -> None:
+        """A blocked source must not be hammered just because its cells went stale."""
+        cells = make_cells("indeed", self.roles)
+        for cell in cells:
+            cell.last_scraped_at = NOW.isoformat()
+        blocked = cells[-1]
+        blocked.last_scraped_at = (NOW - timedelta(days=40)).isoformat()
+        blocked.backoff_until = (NOW + timedelta(hours=5)).isoformat()
+
+        tasks = select_cells(cells, CONFIG, "indeed", NOW)
+        self.assertNotIn(blocked.id, {t.cell_id for t in tasks})
 
 
 class EventualCoverageSimulationTests(unittest.TestCase):
@@ -650,7 +526,6 @@ class EventualCoverageSimulationTests(unittest.TestCase):
         runs: int,
         source: str = "indeed",
         runs_per_day: int = 2,
-        empties: tuple[str, ...] = (),
     ) -> tuple[dict[int, int], list[CellState]]:
         cells = make_cells(source, self.roles)
         by_id = {c.id: c for c in cells}
@@ -663,16 +538,7 @@ class EventualCoverageSimulationTests(unittest.TestCase):
                 cell = by_id[task.cell_id]
                 visits[cell.id] += 1
                 cell.last_scraped_at = clock.isoformat()
-                cell.total_scrapes += 1
-                if cell.query in empties:
-                    cell.consecutive_empty += 1
-                    cell.last_result_count = 0
-                    cell.last_success_at = clock.isoformat()
-                else:
-                    cell.consecutive_empty = 0
-                    cell.last_success_at = clock.isoformat()
-                    cell.last_result_count = 30
-                    cell.ewma_new_per_scrape = update_ewma(cell.ewma_new_per_scrape, 5)
+                cell.last_success_at = clock.isoformat()
             clock += timedelta(hours=24 / runs_per_day)
 
         return visits, cells
@@ -704,15 +570,18 @@ class EventualCoverageSimulationTests(unittest.TestCase):
                 cell = by_id[task.cell_id]
                 cell.last_scraped_at = clock.isoformat()
                 cell.last_success_at = clock.isoformat()
-                cell.total_scrapes += 1
             clock += timedelta(hours=12)
             runs += 1
         days = (clock - NOW).total_seconds() / 86400
         self.assertLessEqual(days, 8, f"full cycle took {days:.1f} days")
 
-    def test_persistently_empty_query_is_still_probed(self) -> None:
-        """Otherwise "the market moved" and "my query broke" look the same."""
-        visits, cells = self._simulate(runs=200, empties=("Developer Relations",))
+    def test_a_quiet_query_is_probed_as_often_as_any_other(self) -> None:
+        """Otherwise "the market moved" and "my query broke" look the same.
+
+        Nothing in the rotation reads yield any more, so this is a guard against
+        reintroducing a productivity term that silently strands a quiet query.
+        """
+        visits, cells = self._simulate(runs=200)
         by_id = {c.id: c for c in cells}
         quiet = [v for cid, v in visits.items() if by_id[cid].query == "Developer Relations"]
         self.assertTrue(quiet)
@@ -728,14 +597,6 @@ class SaturationTests(unittest.TestCase):
 
     def test_zero_requested_is_not_saturated(self) -> None:
         self.assertFalse(is_saturated(0, 0))
-
-
-class EwmaTests(unittest.TestCase):
-    def test_first_observation_seeds_the_average(self) -> None:
-        self.assertEqual(update_ewma(None, 10), 10.0)
-
-    def test_subsequent_observations_are_smoothed(self) -> None:
-        self.assertAlmostEqual(update_ewma(10, 0, alpha=0.4), 6.0)
 
 
 class UnitCostTests(unittest.TestCase):

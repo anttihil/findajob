@@ -263,7 +263,7 @@ def save_verdict(
     if job.get("scrape_cell_id"):
         from careerradar.search.repository import update_cell_quality
 
-        update_cell_quality(conn, job["scrape_cell_id"], 100.0 if verdict.get("fit") else 0.0)
+        update_cell_quality(conn, job["scrape_cell_id"], bool(verdict.get("fit")))
 
 
 # =====================================================================================

@@ -30,7 +30,7 @@ def get_coverage_report_cells(conn: sqlite3.Connection) -> list[dict[str, Any]]:
                last_scraped_at, last_success_at, last_result_count,
                last_saturated, consecutive_empty, consecutive_error,
                total_scrapes, backoff_until,
-               ewma_new_per_scrape, ewma_fit_score, quality_samples
+               last_new_count, quality_fits, quality_samples
           FROM scrape_cells
          ORDER BY source, location_id, query
         """
@@ -43,6 +43,9 @@ def get_coverage_report_cells(conn: sqlite3.Connection) -> list[dict[str, Any]]:
         record["hours_since_success"] = (
             round((now - success).total_seconds() / 3600, 1) if success else None
         )
+        # The signal for curating the query list: which cells actually return fits.
+        samples = row["quality_samples"] or 0
+        record["fit_rate"] = round(row["quality_fits"] / samples, 4) if samples else None
         out.append(record)
     return out
 

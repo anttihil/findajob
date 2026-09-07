@@ -217,7 +217,6 @@ class Database:
         status: str = "ok",
         error: str | None = None,
         backoff_until: str | None = None,
-        ewma: float | None = None,
     ) -> None:
         search_repo.record_cell_attempt(
             self.conn,
@@ -231,11 +230,10 @@ class Database:
             status=status,
             error=error,
             backoff_until=backoff_until,
-            ewma=ewma,
         )
 
-    def update_cell_quality(self, cell_id: int, fit_score: float) -> None:
-        search_repo.update_cell_quality(self.conn, cell_id, fit_score)
+    def update_cell_quality(self, cell_id: int, fit: bool) -> None:
+        search_repo.update_cell_quality(self.conn, cell_id, fit)
 
     # =====================================================================================
     # Source circuit-breaker state (delegating to search.repository)

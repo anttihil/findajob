@@ -1,6 +1,11 @@
 """Scrape-budget scheduler: choose which cells to visit this run.
 
-The matrix of enabled cells is rotated across runs rather than swept in one go.
+Cells are visited oldest-attempt-first, and the run takes as many as the budget allows.
+That is the whole policy. It used to be a six-term priority product with two override
+passes on top, but the budget is not scarce: Indeed runs 44 enabled cells against a
+40-search budget, so the ranking only ever decided which four to skip, and a skipped cell
+sorts to the front of the next run regardless.
+
 Everything here is a pure function over CellState, so the rotation policy is
 unit-testable without a network.
 """
@@ -11,25 +16,6 @@ from datetime import datetime, timezone
 from typing import Any
 
 from careerradar.core.database import Database
-
-EWMA_ALPHA = 0.4
-
-# Default productivity assumption for a cell that has never run, so first-time cells are
-# neither starved nor over-favoured.
-DEFAULT_NEW_PER_SCRAPE = 2.0
-
-# A cell's quality modifier stays neutral (1.0) until it clears this many verdicts, so one
-# or two bad LLM scores can't tank a cell before it's had a fair sample -- the same
-# exploration concern novelty/DEAD_PENALTY_FLOOR already guard for the yield signal.
-QUALITY_SAMPLE_MIN = 3
-
-# fit_score runs roughly 0-100 (keyword_score.py's observed corpus range is 15-80).
-# Centered on 0.5 + fit_score/100 and clamped so quality can only ever nudge productivity,
-# never zero it out on its own.
-QUALITY_CLAMP = (0.5, 1.5)
-
-# The dead-cell penalty is floored rather than allowed to decay toward zero.
-DEAD_PENALTY_FLOOR = 0.25
 
 
 @dataclass
@@ -43,21 +29,13 @@ class CellState:
     indeed_country: str = "usa"
     is_remote: bool = False
     distance: int = 50
-    # Scheduler priority only: how hard this location competes for the run's budget.
+    # Decides which locations the staleness floor guarantees, nothing else.
     weight: float = 1.0
     active: bool = True
     enabled: int = 1
     last_scraped_at: str | None = None
     last_success_at: str | None = None
-    last_result_count: int = 0
     last_saturated: int = 0
-    last_hours_old: int | None = None
-    ewma_new_per_scrape: float | None = None
-    ewma_fit_score: float | None = None
-    quality_samples: int = 0
-    consecutive_empty: int = 0
-    consecutive_error: int = 0
-    total_scrapes: int = 0
     backoff_until: str | None = None
 
 
@@ -78,10 +56,6 @@ class ScrapeTask:
     desc_selection: str
     active: bool = True
     est_request_units: float = 0.0
-    # The cell's persisted EWMA of new-postings-per-scrape, carried through so the
-    # observation writer can smooth against it. Without it the writer has no prior and the
-    # stored value degenerates to "whatever the last run returned".
-    ewma_new_per_scrape: float | None = None
     extra: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -101,7 +75,6 @@ class ScrapeTask:
             "desc_selection": self.desc_selection,
             "active": self.active,
             "est_request_units": self.est_request_units,
-            "ewma_new_per_scrape": self.ewma_new_per_scrape,
             "proxies": self.extra.get("proxies") or [],
         }
 
@@ -133,24 +106,6 @@ def is_eligible(cell: CellState, now: datetime) -> bool:
     return backoff is None or backoff <= now
 
 
-def quality_multiplier(cell: CellState) -> float:
-    """How much a cell's realized LLM fit_score should nudge its scrape priority."""
-    if cell.ewma_fit_score is None or cell.quality_samples < QUALITY_SAMPLE_MIN:
-        return 1.0
-    modifier = 0.5 + cell.ewma_fit_score / 100.0
-    return min(QUALITY_CLAMP[1], max(QUALITY_CLAMP[0], modifier))
-
-
-def _read_cadence(config: dict[str, Any]) -> int:
-    val = config.get("cadence_hours", 24)
-    if isinstance(val, dict):
-        return int(val.get("core", 24))
-    try:
-        return int(val)
-    except (ValueError, TypeError):
-        return 24
-
-
 def _read_floor(config: dict[str, Any]) -> int:
     val = config.get("hours_old_floor", 72)
     if isinstance(val, dict):
@@ -159,54 +114,6 @@ def _read_floor(config: dict[str, Any]) -> int:
         return int(val)
     except (ValueError, TypeError):
         return 72
-
-
-def cell_priority(cell: CellState, config: dict[str, Any], now: datetime) -> float:
-    """Higher is more urgent."""
-    cadence = _read_cadence(config)
-    staleness = hours_since(cell.last_scraped_at, now)
-    urgency = staleness / max(cadence, 1)
-
-    # Log-damped so one hot cell cannot monopolise the rotation.
-    yield_estimate = (
-        cell.ewma_new_per_scrape if cell.ewma_new_per_scrape is not None else DEFAULT_NEW_PER_SCRAPE
-    )
-    volume = math.log1p(max(yield_estimate, 0.0)) / math.log1p(20.0)
-    productivity = volume * quality_multiplier(cell)
-
-    novelty = 1.5 if cell.total_scrapes == 0 else 1.0
-    # A truncated cell was under-sampled, so revisit it sooner.
-    saturation_bonus = 1.25 if cell.last_saturated else 1.0
-    # Floored rather than decaying toward zero.
-    dead_penalty = max(DEAD_PENALTY_FLOOR, 0.6 ** min(cell.consecutive_empty, 5))
-
-    return (
-        urgency
-        * cell.weight
-        * (0.35 + 0.65 * productivity)
-        * novelty
-        * saturation_bonus
-        * dead_penalty
-    )
-
-
-def starved_cells(
-    cells: list[CellState], config: dict[str, Any], now: datetime, source: str | None = None
-) -> list[CellState]:
-    """Cells past their hard starvation deadline, scheduled immediately regardless of rank."""
-    cadence = _read_cadence(config)
-    multiple = int(config.get("starvation_multiple", 3))
-    deadline = cadence * multiple
-    out = []
-    for cell in cells:
-        if source and cell.source != source:
-            continue
-        if not is_eligible(cell, now):
-            continue
-        if hours_since(cell.last_scraped_at, now) > deadline:
-            out.append(cell)
-    # Most overdue first.
-    return sorted(out, key=lambda c: -hours_since(c.last_scraped_at, now))
 
 
 def adaptive_hours_old(cell: CellState, config: dict[str, Any], now: datetime) -> int:
@@ -296,7 +203,7 @@ def select_cells(
     now: datetime | None = None,
     backfill: bool = False,
 ) -> list[ScrapeTask]:
-    """Pick this run's cells for one source, within budget."""
+    """Pick this run's cells for one source, oldest attempt first, within budget."""
     now = now or datetime.now(timezone.utc)
     budget = (config.get("budgets") or {}).get(source, {})
     max_searches = budget.get("searches_per_run", 10)
@@ -304,13 +211,9 @@ def select_cells(
     max_pages = budget.get("max_pages_per_run")
 
     eligible = [c for c in cells if is_eligible(c, now)]
-    ranked = sorted(eligible, key=lambda c: (-cell_priority(c, config, now), c.id))
+    order = sorted(eligible, key=lambda c: (-hours_since(c.last_scraped_at, now), c.id))
 
-    starved = starved_cells(eligible, config, now, source)
-    starved_ids = {c.id for c in starved}
-    order = starved + [c for c in ranked if c.id not in starved_ids]
-
-    picked = []
+    picked: list[ScrapeTask] = []
     units = 0.0
     pages = 0
 
@@ -327,40 +230,7 @@ def select_cells(
         units += task.est_request_units
         pages += cell_pages
 
-    return enforce_staleness_floor(picked, ranked, cells, config, source, now, backfill=backfill)
-
-
-def enforce_staleness_floor(
-    picked: list[ScrapeTask],
-    ranked: list[CellState],
-    cells: list[CellState],  # noqa: ARG001 - signature parity with the other staleness passes
-    config: dict[str, Any],
-    source: str,
-    now: datetime,
-    backfill: bool = False,
-) -> list[ScrapeTask]:
-    """Guarantee cells in high-weight locations are visited within the floor."""
-    floor = config.get("max_staleness_hours", 72)
-    chosen_ids = {t.cell_id for t in picked}
-
-    overdue = [
-        c
-        for c in ranked
-        if c.weight >= 1.0
-        and hours_since(c.last_success_at, now) > floor
-        and c.id not in chosen_ids
-    ]
-    if not overdue:
-        return picked
-
-    result = list(picked)
-    for cell in overdue:
-        if not result:
-            break
-        result.pop()
-        result.append(_make_task(cell, config, source, now, backfill=backfill))
-
-    return result
+    return picked
 
 
 def overdue_cells(
@@ -374,12 +244,6 @@ def overdue_cells(
         for c in cells
         if c.enabled and c.weight >= 1.0 and hours_since(c.last_success_at, now) > floor
     ]
-
-
-def update_ewma(previous: float | None, observed: float, alpha: float = EWMA_ALPHA) -> float:
-    if previous is None:
-        return float(observed)
-    return alpha * float(observed) + (1 - alpha) * float(previous)
 
 
 def is_saturated(returned: int, requested: int, threshold: float = 0.95) -> bool:

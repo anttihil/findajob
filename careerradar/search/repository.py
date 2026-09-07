@@ -124,15 +124,7 @@ def get_cells(
                 enabled=row["enabled"],
                 last_scraped_at=row["last_scraped_at"],
                 last_success_at=row["last_success_at"],
-                last_result_count=row["last_result_count"] or 0,
                 last_saturated=row["last_saturated"] or 0,
-                last_hours_old=row["last_hours_old"],
-                ewma_new_per_scrape=row["ewma_new_per_scrape"],
-                ewma_fit_score=row["ewma_fit_score"],
-                quality_samples=row["quality_samples"] or 0,
-                consecutive_empty=row["consecutive_empty"] or 0,
-                consecutive_error=row["consecutive_error"] or 0,
-                total_scrapes=row["total_scrapes"] or 0,
                 backoff_until=row["backoff_until"],
             )
         )
@@ -151,7 +143,6 @@ def record_cell_attempt(
     status: str = "ok",
     error: str | None = None,
     backoff_until: str | None = None,
-    ewma: float | None = None,
 ) -> None:
     """Update a cell after an attempt."""
     cursor = conn.cursor()
@@ -188,9 +179,6 @@ def record_cell_attempt(
     else:
         fields.append("consecutive_error = consecutive_error + 1")
 
-    if ewma is not None:
-        fields.append("ewma_new_per_scrape = ?")
-        params.append(ewma)
     if backoff_until is not None:
         fields.append("backoff_until = ?")
         params.append(backoff_until)
@@ -203,20 +191,17 @@ def record_cell_attempt(
     conn.commit()
 
 
-def update_cell_quality(conn: sqlite3.Connection, cell_id: int, fit_score: float) -> None:
-    """Fold one posting's LLM fit_score into its scrape cell's quality EWMA."""
-    from careerradar.search.scheduler import update_ewma
+def update_cell_quality(conn: sqlite3.Connection, cell_id: int, fit: bool) -> None:
+    """Count one posting's LLM verdict into its scrape cell's running fit rate.
 
-    row = conn.execute(
-        "SELECT ewma_fit_score FROM scrape_cells WHERE id = ?", (cell_id,)
-    ).fetchone()
-    if row is None:
-        return
-    new_ewma = update_ewma(row["ewma_fit_score"], fit_score)
+    Two counters, not an EWMA: order-independent, so calling this once per posting is
+    correct. The EWMA this replaced had a 1.36-sample half-life against cells holding
+    1,400+ verdicts, so it tracked the last two or three postings rather than the cell.
+    """
     conn.execute(
-        "UPDATE scrape_cells SET ewma_fit_score = ?, quality_samples = quality_samples + 1 "
-        "WHERE id = ?",
-        (new_ewma, cell_id),
+        "UPDATE scrape_cells SET quality_fits = quality_fits + ?, "
+        "quality_samples = quality_samples + 1 WHERE id = ?",
+        (1 if fit else 0, cell_id),
     )
 
 

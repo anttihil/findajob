@@ -13,7 +13,7 @@ from careerradar.core.logger import get_logger
 
 logger = get_logger()
 
-SCHEMA_VERSION = 24
+SCHEMA_VERSION = 26
 
 
 def _v1_baseline(cursor: sqlite3.Cursor) -> None:
@@ -2090,6 +2090,81 @@ def _v24_cell_centric_queries(cursor: sqlite3.Cursor) -> None:
     )
 
 
+def _v25_cell_quality_counters(cursor: sqlite3.Cursor) -> None:
+    """Replace `scrape_cells.ewma_fit_score` with two plain counters.
+
+    The v10 EWMA was fed one posting at a time at alpha=0.4, giving it a 1.36-sample
+    half-life against cells that hold 1,400+ verdicts. It therefore measured whether the
+    last two or three postings happened to fit, not the cell. In production the stored
+    values had collapsed onto the reachable points of that recurrence -- 321 of 537 cells
+    sat below 1.0 and 186 sat at 0.4*100, regardless of a true fit rate spanning 0 to 0.48.
+
+    `quality_fits / quality_samples` is the same signal without the decay, and because
+    counting is order-independent the existing per-posting call site becomes correct.
+
+    Backfilled from job_verdicts at the newest profile version: earlier versions scored the
+    same corpus roughly 3x looser, so folding them in would understate every live cell.
+    """
+    cursor.execute("PRAGMA table_info(scrape_cells)")
+    existing = {row[1] for row in cursor.fetchall()}
+
+    if "quality_fits" not in existing:
+        cursor.execute(
+            "ALTER TABLE scrape_cells ADD COLUMN quality_fits INTEGER NOT NULL DEFAULT 0"
+        )
+
+    row = cursor.execute("SELECT MAX(profile_version) FROM job_verdicts").fetchone()
+    if row and row[0] is not None:
+        # Aggregated once into a keyed temp table rather than as correlated subqueries per
+        # cell: jobs.scrape_cell_id carries no index, so the per-cell form rescanned the
+        # whole join 500+ times and did not finish in minutes on a 750MB database.
+        cursor.execute("DROP TABLE IF EXISTS temp._v25_rates")
+        cursor.execute(
+            """
+            CREATE TEMP TABLE _v25_rates AS
+            SELECT j.scrape_cell_id AS cell_id,
+                   SUM(v.fit = 1)   AS fits,
+                   COUNT(*)         AS samples
+              FROM jobs j
+              JOIN job_verdicts v ON v.job_id = j.id
+             WHERE j.scrape_cell_id IS NOT NULL AND v.profile_version = ?
+             GROUP BY j.scrape_cell_id
+            """,
+            (row[0],),
+        )
+        cursor.execute("CREATE INDEX temp.idx_v25_rates ON _v25_rates(cell_id)")
+        cursor.execute(
+            """
+            UPDATE scrape_cells SET
+                quality_fits = COALESCE(
+                    (SELECT fits FROM _v25_rates WHERE cell_id = scrape_cells.id), 0),
+                quality_samples = COALESCE(
+                    (SELECT samples FROM _v25_rates WHERE cell_id = scrape_cells.id), 0)
+            """
+        )
+        cursor.execute("DROP TABLE temp._v25_rates")
+
+    if "ewma_fit_score" in existing:
+        cursor.execute("ALTER TABLE scrape_cells DROP COLUMN ewma_fit_score")
+
+
+def _v26_drop_new_per_scrape_ewma(cursor: sqlite3.Cursor) -> None:
+    """Delete `scrape_cells.ewma_new_per_scrape`, a duplicate of `last_new_count`.
+
+    `_make_task` never populated `ScrapeTask.ewma_new_per_scrape`, so the writer always
+    called `update_ewma(None, new_count)`, which returns the observation unsmoothed. Every
+    one of the 88 enabled cells held a whole number and 82 of them equalled
+    `last_new_count` outright -- no cell ever carried a fractional value, which a real
+    average would produce constantly.
+
+    Nothing reads it now: the priority function that consumed it is gone, and the coverage
+    report reads `last_new_count` instead.
+    """
+    cursor.execute("PRAGMA table_info(scrape_cells)")
+    if "ewma_new_per_scrape" in {row[1] for row in cursor.fetchall()}:
+        cursor.execute("ALTER TABLE scrape_cells DROP COLUMN ewma_new_per_scrape")
+
+
 MIGRATIONS: list[tuple[int, str, Callable[[sqlite3.Cursor], None]]] = [
     (1, "baseline jobs table", _v1_baseline),
     (2, "market analytics: cells, observations, skills, stats", _v2_analytics),
@@ -2158,6 +2233,16 @@ MIGRATIONS: list[tuple[int, str, Callable[[sqlite3.Cursor], None]]] = [
         24,
         "cell-centric queries: embed search params, drop role_family and access",
         _v24_cell_centric_queries,
+    ),
+    (
+        25,
+        "replace cell quality EWMA with plain fit/sample counters",
+        _v25_cell_quality_counters,
+    ),
+    (
+        26,
+        "drop the unsmoothed ewma_new_per_scrape duplicate of last_new_count",
+        _v26_drop_new_per_scrape_ewma,
     ),
 ]
 

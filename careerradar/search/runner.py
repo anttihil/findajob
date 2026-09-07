@@ -28,7 +28,6 @@ from careerradar.search.scheduler import (
     is_saturated,
     overdue_cells,
     select_cells,
-    update_ewma,
 )
 from careerradar.taxonomy.roles import load_roles
 
@@ -366,7 +365,6 @@ def _scrape_one(
             new_unique=new_count,
             saturated=saturated,
             status="ok" if stats["returned"] else "empty",
-            ewma=update_ewma(task.ewma_new_per_scrape, new_count),
         )
 
     if stats["returned"]:

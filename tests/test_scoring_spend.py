@@ -52,7 +52,7 @@ class _Db:
     def __init__(self, conn: sqlite3.Connection) -> None:
         self.conn = conn
 
-    def update_cell_quality(self, cell_id: int, score: int) -> None:
+    def update_cell_quality(self, cell_id: int, fit: bool) -> None:
         raise AssertionError("no posting in this fixture carries a scrape cell")
 
     def close(self) -> None:

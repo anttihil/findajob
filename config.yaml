@@ -46,8 +46,9 @@ scraper:
   # window. Set to 0 to keep everything.
   archive_retention_days: 14
 
-  # How often an active search cell should be revisited (daily). This feeds the
-  # priority ranking and the starvation deadline below; it is a target, not a promise.
+  # How often an active search cell should be revisited (daily). Read by the plan hash and
+  # the dashboard's staleness flag, not by the scheduler: cells are visited
+  # oldest-attempt-first, so the real cadence is searches_per_run against the matrix size.
   cadence_hours: 24
 
   # Minimum recency window for scraping (72 hours).
@@ -60,10 +61,6 @@ scraper:
   # Freshness guarantee: If a cell in a top-weighted location has not been visited
   # within this many hours, the dashboard shows a coverage warning.
   max_staleness_hours: 72
-
-  # Deadline for any cell, as a multiple of cadence_hours (24h * 3 = 72h max wait).
-  # A cell past its deadline jumps the priority ranking and is scheduled immediately.
-  starvation_multiple: 3
 
   # Per-source limits on one run. Several caps apply at once and the SMALLEST one binds, so
   # raising a single number often changes nothing -- check which one is actually stopping
@@ -83,7 +80,10 @@ scraper:
     # so it stays out of the way of a normal one. If you raise searches_per_run, raise
     # request_units with it or it becomes the binding cap instead.
     indeed:
-      searches_per_run: 40
+      # 44 = the whole enabled Indeed matrix, so every cell is visited every run and the
+      # ordering never has to choose. Keep this at or above the cell count, or trim the
+      # query list; ranking cells is not a substitute for not scraping the bad ones.
+      searches_per_run: 44
       request_units: 130
       results_wanted_default: 75
       max_results_wanted: 200

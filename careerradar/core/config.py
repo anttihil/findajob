@@ -56,7 +56,6 @@ def load_config() -> dict[str, Any]:
             "max_hours_old": 168,
             "backfill_hours_old": 168,
             "max_staleness_hours": 72,
-            "starvation_multiple": 3,
             "budgets": {
                 "indeed": {
                     "searches_per_run": 20,
