@@ -285,7 +285,6 @@ export interface MarketYieldResponse {
     generated_at: string;
     window_days: number | null;
     exclude_agencies: boolean;
-    taxonomy_hash: string;
     roles_hash: string;
   };
 }
@@ -332,7 +331,6 @@ export interface SkillGapRow {
   demand_ci_low: number;
   demand_ci_high: number;
   adjacency: number;
-  effort: string;
   n_raw: number;
   n_companies: number;
   user_level?: number;

@@ -263,12 +263,9 @@ class Database:
     def start_sync_run(
         self,
         mode: str,
-        taxonomy_hash: str | None = None,
         plan_hash: str | None = None,
     ) -> int | None:
-        return search_repo.start_sync_run(
-            self.conn, mode=mode, taxonomy_hash=taxonomy_hash, plan_hash=plan_hash
-        )
+        return search_repo.start_sync_run(self.conn, mode=mode, plan_hash=plan_hash)
 
     def finish_sync_run(self, run_id: int, status: str, **counters: Any) -> None:
         search_repo.finish_sync_run(self.conn, run_id, status, **counters)
@@ -310,11 +307,8 @@ class Database:
         self,
         posting: dict[str, Any],
         run_id: int | None = None,
-        taxonomy_hash: str | None = None,
     ) -> tuple[int | None, bool]:
-        return search_repo.upsert_posting(
-            self.conn, posting=posting, run_id=run_id, taxonomy_hash=taxonomy_hash
-        )
+        return search_repo.upsert_posting(self.conn, posting=posting, run_id=run_id)
 
     def find_duplicate(self, content_hash: str | None, exclude_id: int | None = None) -> int | None:
         return search_repo.find_duplicate(self.conn, content_hash, exclude_id=exclude_id)

@@ -276,14 +276,12 @@ def reset_source_trips(conn: sqlite3.Connection, source: str) -> None:
 def start_sync_run(
     conn: sqlite3.Connection,
     mode: str,
-    taxonomy_hash: str | None = None,
     plan_hash: str | None = None,
 ) -> int | None:
     cursor = conn.cursor()
     cursor.execute(
-        "INSERT INTO sync_runs (started_at, mode, status, taxonomy_hash, plan_hash) "
-        "VALUES (?, ?, 'running', ?, ?)",
-        (_utcnow(), mode, taxonomy_hash, plan_hash),
+        "INSERT INTO sync_runs (started_at, mode, status, plan_hash) VALUES (?, ?, 'running', ?)",
+        (_utcnow(), mode, plan_hash),
     )
     conn.commit()
     return cursor.lastrowid
@@ -408,7 +406,6 @@ POSTING_COLUMNS: list[str] = [
     "company_industry",
     "scrape_cell_id",
     "sync_run_id",
-    "taxonomy_hash",
     "match_score",
     "matched_skills",
     "matched_count",
@@ -422,13 +419,11 @@ def upsert_posting(
     conn: sqlite3.Connection,
     posting: dict[str, Any],
     run_id: int | None = None,
-    taxonomy_hash: str | None = None,
 ) -> tuple[int | None, bool]:
     """Insert or refresh one posting. Returns (job_id, is_new)."""
     cursor = conn.cursor()
     record = dict(posting)
     record["sync_run_id"] = run_id
-    record["taxonomy_hash"] = taxonomy_hash
     if isinstance(record.get("matched_skills"), (list, dict)):
         record["matched_skills"] = json.dumps(record["matched_skills"])
 
@@ -516,13 +511,6 @@ def replace_job_skills(
             [(job_id, key, 1 if info.get("in_title") else 0) for key, info in skills.items()],
         )
     conn.commit()
-
-
-def count_stale_taxonomy(conn: sqlite3.Connection, taxonomy_hash: str) -> int:
-    return conn.execute(
-        "SELECT COUNT(*) FROM jobs WHERE taxonomy_hash IS NOT NULL AND taxonomy_hash != ?",
-        (taxonomy_hash,),
-    ).fetchone()[0]
 
 
 def count_old_scorer(conn: sqlite3.Connection, scorer_version: int) -> int:

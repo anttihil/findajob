@@ -13,7 +13,7 @@ from careerradar.core.logger import get_logger
 
 logger = get_logger()
 
-SCHEMA_VERSION = 26
+SCHEMA_VERSION = 27
 
 
 def _v1_baseline(cursor: sqlite3.Cursor) -> None:
@@ -82,6 +82,8 @@ _V2_JOB_COLUMNS = [
     ("url_direct", "TEXT"),
     ("sync_run_id", "INTEGER"),
     ("scrape_cell_id", "INTEGER"),
+    # taxonomy_hash recorded which skills.yaml classified a posting. The keyword
+    # taxonomy is gone and nothing has written the column since. Dropped in v27.
     ("taxonomy_hash", "TEXT"),
 ]
 
@@ -188,7 +190,7 @@ def _v2_analytics(cursor: sqlite3.Cursor) -> None:
             postings_fetched INTEGER DEFAULT 0,
             postings_new     INTEGER DEFAULT 0,
             duplicates_merged INTEGER DEFAULT 0,
-            taxonomy_hash TEXT,
+            taxonomy_hash TEXT,               -- keyword-taxonomy leftover; dropped in v27
             plan_hash     TEXT,
             llm_cost_usd  REAL DEFAULT 0,
             error_summary TEXT
@@ -2165,6 +2167,25 @@ def _v26_drop_new_per_scrape_ewma(cursor: sqlite3.Cursor) -> None:
         cursor.execute("ALTER TABLE scrape_cells DROP COLUMN ewma_new_per_scrape")
 
 
+def _v27_drop_taxonomy_hash(cursor: sqlite3.Cursor) -> None:
+    """Delete `jobs.taxonomy_hash` and `sync_runs.taxonomy_hash`.
+
+    Both recorded which build of the static keyword taxonomy (`data/skills.yaml`) had
+    classified a row, so a trend line could refuse to compare numbers produced under two
+    different vocabularies. That taxonomy is gone -- skills now come from the candidate
+    profile, and scoring provenance is `job_verdicts.profile_version` plus `prompt_hash`.
+
+    No caller had passed a hash to `upsert_posting` or `start_sync_run` for some time, so
+    every insert wrote NULL and every refresh of an existing posting overwrote the legacy
+    value with NULL. The status report still compared the surviving values against a
+    profile-derived hash they could never equal, and reported the whole corpus as stale.
+    """
+    for table in ("jobs", "sync_runs"):
+        cursor.execute(f"PRAGMA table_info({table})")
+        if "taxonomy_hash" in {row[1] for row in cursor.fetchall()}:
+            cursor.execute(f"ALTER TABLE {table} DROP COLUMN taxonomy_hash")
+
+
 MIGRATIONS: list[tuple[int, str, Callable[[sqlite3.Cursor], None]]] = [
     (1, "baseline jobs table", _v1_baseline),
     (2, "market analytics: cells, observations, skills, stats", _v2_analytics),
@@ -2243,6 +2264,11 @@ MIGRATIONS: list[tuple[int, str, Callable[[sqlite3.Cursor], None]]] = [
         26,
         "drop the unsmoothed ewma_new_per_scrape duplicate of last_new_count",
         _v26_drop_new_per_scrape_ewma,
+    ),
+    (
+        27,
+        "drop the taxonomy_hash columns left by the retired keyword taxonomy",
+        _v27_drop_taxonomy_hash,
     ),
 ]
 

@@ -15,7 +15,6 @@ if TYPE_CHECKING:
     from careerradar.core.database import Database
     from careerradar.profile.adapter import ProfileAdapter
     from careerradar.taxonomy.roles import RoleTaxonomy
-    from careerradar.taxonomy.skills import Taxonomy
 
 SUPPRESS_COVERAGE_GAP = "coverage_gap"
 SUPPRESS_TOO_FEW_OBSERVATIONS = "too_few_observations"
@@ -55,14 +54,12 @@ class MarketAnalytics:
         db: "Database",
         config: dict[str, Any] | None,
         roles: "RoleTaxonomy",
-        taxonomy: "Taxonomy | None" = None,
         profile: "ProfileAdapter | None" = None,
     ) -> None:
         self.db = db
         self.config = config or {}
         self.analytics_config = self.config.get("analytics", {}) or {}
         self.roles = roles
-        self.taxonomy = taxonomy
         self.profile = profile
 
     def _window(self, window_days: int) -> tuple[datetime, datetime]:
@@ -339,7 +336,6 @@ class MarketAnalytics:
                 "generated_at": datetime.now(timezone.utc).isoformat(),
                 "window_days": window_days,
                 "exclude_agencies": self.analytics_config.get("exclude_agencies", True),
-                "taxonomy_hash": self.taxonomy.hash if self.taxonomy else None,
                 "roles_hash": self.roles.hash,
             },
         }
@@ -354,7 +350,6 @@ class MarketAnalytics:
             "total_rows": total,
             "suppressed_rows": total - published,
             "exclude_agencies": self.analytics_config.get("exclude_agencies", True),
-            "taxonomy_hash": self.taxonomy.hash if self.taxonomy else None,
             "roles_hash": self.roles.hash,
         }
 

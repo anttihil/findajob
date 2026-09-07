@@ -16,11 +16,9 @@ class ProfileAdapter:
         self,
         profile: Profile,
         version: int | None = 1,
-        taxonomy: Any = None,
     ) -> None:
         self.profile = profile
         self.version = version
-        self.taxonomy = taxonomy
 
         # Build skills map from categorized skills (binary: has skill)
         skills_map: dict[str, dict[str, Any]] = {}
@@ -96,7 +94,6 @@ class NoActiveProfile(RuntimeError):
 
 def load_profile_adapter(
     db: "Database | None" = None,
-    taxonomy: Any = None,
     required: bool = True,
 ) -> ProfileAdapter | None:
     """Load the singleton Profile as a ProfileAdapter."""
@@ -107,7 +104,7 @@ def load_profile_adapter(
         raise NoActiveProfile("No active profile configured.")
     if profile is None:
         return None
-    return ProfileAdapter(profile, version=1, taxonomy=taxonomy)
+    return ProfileAdapter(profile, version=1)
 
 
 # Backward compatibility alias

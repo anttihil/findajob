@@ -146,22 +146,10 @@ def collect_status_report(
         )
     ]
 
-    # -- taxonomy drift -----------------------------------------------------------------
+    # -- role taxonomy ------------------------------------------------------------------
     from careerradar.taxonomy.roles import load_roles
-    from careerradar.taxonomy.skills import load_taxonomy
 
-    stored = [
-        (row["taxonomy_hash"], row["n"])
-        for row in conn.execute(
-            "SELECT taxonomy_hash, COUNT(*) AS n FROM jobs WHERE taxonomy_hash IS NOT NULL "
-            "GROUP BY taxonomy_hash ORDER BY n DESC"
-        )
-    ]
-    report["taxonomy"] = {
-        "skills_hash": load_taxonomy().hash,
-        "roles_hash": load_roles().hash,
-        "stored": stored,
-    }
+    report["taxonomy"] = {"roles_hash": load_roles().hash}
     return report
 
 

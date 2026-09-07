@@ -356,7 +356,7 @@ loopback TCP port and have Serve proxy to a Unix socket (`tailscale serve unix:.
 ```
 careerradar/
 ├── core/       config, db, migrations, logging, paths, LLM construction + cost
-├── taxonomy/   open-vocabulary matcher & SQLite target taxonomy -- the shared vocabulary
+├── taxonomy/   role families and SQLite target taxonomy -- the shared vocabulary
 ├── profile/    document ingest, interview graph, canonicalization, versioned store
 ├── search/     scheduler, sources, circuit breaker, proxies, normalizer
 ├── scoring/    prompts, per-posting graph, queue worker
@@ -381,12 +381,10 @@ the package was reorganized.
 uv run python -m pytest tests/ -q
 ```
 
-279 tests, no API calls — the model is faked where behaviour around it is what matters.
+418 tests, no API calls — the model is faked where behaviour around it is what matters.
 Notable ones: `test_scheduler.py` simulates 200 runs and asserts no cell starves;
-`test_taxonomy.py` is a false-positive gauntlet ("go to market", "a ray of sunshine",
-"spark joy" must not match Go, Ray, Spark); `test_scoring_module.py` asserts the cached half
-of the prompt contains no posting data; `test_profile_module.py` asserts a rendered profile
-is byte-stable under skill reordering.
+`test_scoring_module.py` asserts the cached half of the prompt contains no posting data;
+`test_profile_module.py` asserts a rendered profile is byte-stable under skill reordering.
 
 Several suites depend on the gitignored corpus and skip without it.
 

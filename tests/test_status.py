@@ -54,7 +54,7 @@ def _report(**overrides: Any) -> dict[str, Any]:
             }
         ],
         "quarantined": [],
-        "taxonomy": {"skills_hash": "abc", "roles_hash": "def", "stored": [("abc", 100)]},
+        "taxonomy": {"roles_hash": "def"},
     }
     report.update(overrides)
     return report
@@ -102,10 +102,6 @@ class StatusRenderTests(unittest.TestCase):
         out = render(_report(quarantined=quarantined))
         self.assertIn("#7", out)
         self.assertIn("careerradar score retry", out)
-
-    def test_stale_taxonomy_hash_is_marked(self) -> None:
-        taxonomy = {"skills_hash": "abc", "roles_hash": "def", "stored": [("old", 900)]}
-        self.assertIn("(stale)", render(_report(taxonomy=taxonomy)))
 
 
 if __name__ == "__main__":

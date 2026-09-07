@@ -26,7 +26,6 @@ from careerradar.profile.render import (
     render_profile_for_resume,
     render_profile_for_scoring,
 )
-from careerradar.taxonomy.skills import load_taxonomy
 
 
 class RenderTests(unittest.TestCase):
@@ -185,7 +184,6 @@ class RenderTests(unittest.TestCase):
 
 class AdapterTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.tax = load_taxonomy()
         self.profile = Profile(
             summary_guidance="Staff software engineer.",
             seniority="Mid / Senior",
@@ -208,7 +206,7 @@ class AdapterTests(unittest.TestCase):
                 )
             ],
         )
-        self.adapter = ProfileAdapter(self.profile, taxonomy=self.tax)
+        self.adapter = ProfileAdapter(self.profile)
 
     def test_level_and_has_match_expected_semantics(self) -> None:
         self.assertTrue(self.adapter.has("python"))
@@ -236,13 +234,6 @@ class AdapterTests(unittest.TestCase):
         lang_keys = [s["key"] for s in grouped["Languages"]]
         self.assertIn("python", lang_keys)
         self.assertIn("typescript", lang_keys)
-
-    def test_adapter_works_without_taxonomy(self) -> None:
-        adapter = ProfileAdapter(self.profile, taxonomy=None)
-        self.assertTrue(adapter.has("python"))
-        grouped = adapter.by_category()
-        self.assertIn("Languages", grouped)
-        self.assertIn("Infra", grouped)
 
 
 class StoreTests(unittest.TestCase):

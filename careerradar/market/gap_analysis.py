@@ -29,7 +29,6 @@ if TYPE_CHECKING:
     from careerradar.core.database import Database
     from careerradar.profile.adapter import ProfileAdapter
     from careerradar.taxonomy.roles import RoleTaxonomy
-    from careerradar.taxonomy.skills import Taxonomy
 
 # A posting the user matches this well is "otherwise a good fit", so a missing skill in it
 # is genuinely blocking rather than incidental.
@@ -41,10 +40,6 @@ if TYPE_CHECKING:
 # the posting named at least four skills we recognise, and the candidate can evidence half.
 GOOD_FIT_COVERAGE = 0.5
 GOOD_FIT_MIN_REQUIREMENTS = 4
-
-# Effort ratings temper the ranking: a high-demand skill that takes months to acquire should
-# not automatically outrank a comparable one that takes a weekend.
-EFFORT_MULTIPLIER = {"low": 1.15, "medium": 1.0, "high": 0.8}
 
 
 def _is_good_fit(posting: dict[str, Any]) -> bool:
@@ -76,14 +71,12 @@ class GapAnalysis:
         db: "Database",
         config: dict[str, Any] | None,
         roles: "RoleTaxonomy",
-        taxonomy: "Taxonomy | None" = None,
         profile: "ProfileAdapter | None" = None,
     ) -> None:
         self.db = db
         self.config = config or {}
         self.analytics_config = self.config.get("analytics", {}) or {}
         self.roles = roles
-        self.taxonomy = taxonomy
         self.profile = profile or self._empty_profile()
 
     def _empty_profile(self) -> Any:
@@ -166,7 +159,6 @@ class GapAnalysis:
                     f"coverage >= {GOOD_FIT_COVERAGE} over >= "
                     f"{GOOD_FIT_MIN_REQUIREMENTS} recognised requirements"
                 ),
-                "taxonomy_hash": self.taxonomy.hash if self.taxonomy else None,
                 "roles_hash": self.roles.hash,
                 "window_below_minimum": window_days
                 < self.analytics_config.get("min_window_days", 30),
@@ -230,7 +222,7 @@ class GapAnalysis:
                 # An earlier version counted DISTINCT co-occurring user skills divided by
                 # the posting count, which exceeded 1.0 for almost every skill and clamped
                 # to a flat 1.00 -- contributing an identical constant to every candidate
-                # and letting the effort multiplier decide the ranking. That put dbt
+                # and letting the remaining terms decide the ranking. That put dbt
                 # (blocking_gap 0.01, n=24) above on-call (blocking_gap 0.24, n=271).
                 others = [s for s in job_skills if s != skill]
                 if others:
@@ -299,13 +291,8 @@ class GapAnalysis:
                 suppressed = SUPPRESS_COMPANY_CONCENTRATION
 
             user_has = self.profile.has(skill)
-            skill_meta = self.taxonomy.get(skill) if self.taxonomy else None
-            effort = skill_meta.effort if skill_meta else "medium"
 
-            if self.taxonomy and skill in self.taxonomy:
-                label = self.taxonomy.label(skill)
-                category = self.taxonomy.category(skill)
-            elif self.profile.has(skill):
+            if self.profile.has(skill):
                 label = self.profile.skills[skill]["label"]
                 category = self.profile.skills[skill].get("category") or "other"
             else:
@@ -319,7 +306,6 @@ class GapAnalysis:
                     "category": category,
                     "user_has": user_has,
                     "user_level": self.profile.level(skill),
-                    "effort": effort,
                     "demand": round(demand, 4),
                     "demand_ci_low": round(ci_low, 4),
                     "demand_ci_high": round(ci_high, 4),
@@ -364,7 +350,6 @@ class GapAnalysis:
             return None
 
         score = sum(terms[k] * weights[k] / total for k in terms)
-        score *= EFFORT_MULTIPLIER.get(row["effort"], 1.0)
         return round(min(1.0, score), 4)
 
     def _views(self, rows: list[dict[str, Any]]) -> dict[str, Any]:
@@ -413,7 +398,6 @@ class GapAnalysis:
                 "n_postings": 0,
                 "cold_start": True,
                 "suppressed_reason": reason,
-                "taxonomy_hash": self.taxonomy.hash if self.taxonomy else None,
             },
         }
 
@@ -439,10 +423,7 @@ class GapAnalysis:
             window_start=window_start.isoformat(),
         )
 
-        if self.taxonomy and skill in self.taxonomy:
-            label = self.taxonomy.label(skill)
-            category = self.taxonomy.category(skill)
-        elif self.profile.has(skill):
+        if self.profile.has(skill):
             label = self.profile.skills[skill]["label"]
             category = self.profile.skills[skill].get("category") or "other"
         else:
@@ -452,9 +433,7 @@ class GapAnalysis:
         cooccurring_items = []
         for r in cooccurring:
             c_skill = r["skill"]
-            if self.taxonomy and c_skill in self.taxonomy:
-                c_label = self.taxonomy.label(c_skill)
-            elif self.profile.has(c_skill):
+            if self.profile.has(c_skill):
                 c_label = self.profile.skills[c_skill]["label"]
             else:
                 c_label = c_skill.replace("_", " ").title()

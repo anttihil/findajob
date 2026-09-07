@@ -39,14 +39,12 @@ from careerradar.market.gap_analysis import GapAnalysis
 from careerradar.profile.adapter import load_profile
 from careerradar.search.scheduler import scrape_tasks
 from careerradar.taxonomy.roles import load_roles
-from careerradar.taxonomy.skills import load_taxonomy
 from careerradar.web import rendering
 from careerradar.web.live import live_hub
 
 if TYPE_CHECKING:
     from careerradar.profile.adapter import ProfileAdapter
     from careerradar.taxonomy.roles import RoleTaxonomy
-    from careerradar.taxonomy.skills import Taxonomy
 
 
 @asynccontextmanager
@@ -189,22 +187,15 @@ def get_db() -> "_PooledDatabase":
 
 def analytics_context(
     db: Database,  # noqa: ARG001 - endpoint dependency signature
-) -> tuple[dict[str, Any], "Taxonomy | None", "RoleTaxonomy", "ProfileAdapter"]:
+) -> tuple[dict[str, Any], "RoleTaxonomy", "ProfileAdapter"]:
     """Shared objects for the analytics endpoints."""
     config = load_config()
-    taxonomy: Taxonomy | None = None
-    try:
-        taxonomy = load_taxonomy()
-    except Exception:  # noqa: BLE001
-        taxonomy = None
     roles = load_roles()
-    profile = load_profile(taxonomy=taxonomy)
+    profile = load_profile()
     # `required` defaults to True, so load_profile raises NoActiveProfile rather than
     # returning None -- this is here only to narrow the type for callers.
     assert profile is not None
-    if taxonomy is not None:
-        taxonomy.enrich_from_profile(profile)
-    return config, taxonomy, roles, profile
+    return config, roles, profile
 
 
 # --- Request/Response Models -----------------------------------------------------------
@@ -415,10 +406,10 @@ def market_query_yield(
     """
     db = get_db()
     try:
-        config, taxonomy, roles, profile = analytics_context(db)
+        config, roles, profile = analytics_context(db)
         if location and location not in roles.locations:
             raise HTTPException(status_code=400, detail=f"Unknown location: {location}")
-        return MarketAnalytics(db, config, roles, taxonomy, profile).query_yield(
+        return MarketAnalytics(db, config, roles, profile).query_yield(
             window_days=window_days,
             source=source,
             location_id=location,
@@ -445,7 +436,7 @@ def get_target_capacity():
 
     db = get_db()
     try:
-        config, _, _, _ = analytics_context(db)
+        config, _, _ = analytics_context(db)
         queries = target_repo.get_queries(db.conn, enabled_only=True)
         locs = target_repo.get_locations(db.conn, enabled_only=True)
         return calculate_capacity(len(queries), len(locs), config)
@@ -647,7 +638,7 @@ def sync_targets_cells_endpoint():
     _sync_taxonomy_cells()
     db = get_db()
     try:
-        config, _, _, _ = analytics_context(db)
+        config, _, _ = analytics_context(db)
         queries = target_repo.get_queries(db.conn, enabled_only=True)
         locs = target_repo.get_locations(db.conn, enabled_only=True)
         capacity = calculate_capacity(len(queries), len(locs), config)
@@ -665,8 +656,8 @@ def market_coverage():
     """Per-cell scrape health. This is where a silently degrading scraper becomes visible."""
     db = get_db()
     try:
-        config, taxonomy, roles, profile = analytics_context(db)
-        return {"cells": MarketAnalytics(db, config, roles, taxonomy, profile).coverage_report()}
+        config, roles, profile = analytics_context(db)
+        return {"cells": MarketAnalytics(db, config, roles, profile).coverage_report()}
     finally:
         db.close()
 
@@ -682,8 +673,8 @@ def skills_gap(
 ):
     db = get_db()
     try:
-        config, taxonomy, roles, profile = analytics_context(db)
-        return GapAnalysis(db, config, roles, taxonomy, profile).analyse(
+        config, roles, profile = analytics_context(db)
+        return GapAnalysis(db, config, roles, profile).analyse(
             window_days=window_days,
             location_id=location,
             query=query,
@@ -700,15 +691,11 @@ def skill_detail(
 
     db = get_db()
     try:
-        config, taxonomy, roles, profile = analytics_context(db)
-        is_known = (
-            (taxonomy is not None and skill in taxonomy)
-            or profile.has(skill)
-            or market_repo.skill_exists(db.conn, skill)
-        )
+        config, roles, profile = analytics_context(db)
+        is_known = profile.has(skill) or market_repo.skill_exists(db.conn, skill)
         if not is_known:
             raise HTTPException(status_code=404, detail=f"Unknown skill: {skill}")
-        return GapAnalysis(db, config, roles, taxonomy, profile).skill_detail(
+        return GapAnalysis(db, config, roles, profile).skill_detail(
             skill, window_days=window_days, limit=limit
         )
     finally:

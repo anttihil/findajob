@@ -55,7 +55,6 @@ function GapRow({ row, index, kind, onSelect }: {
         </button>
         <span class="gap-tags">
           <span class="gap-tag">{row.category}</span>
-          {kind === "gap" && <span class={`gap-tag is-effort-${row.effort}`}>{row.effort} effort</span>}
           {row.user_has && <span class="gap-tag is-have">in profile</span>}
         </span>
       </div>
@@ -190,7 +189,7 @@ export function SkillsPage() {
         <div class="coverage-strip" ref={coverageRef}></div>
         <p class="card-note">
           Ranked by <strong>blocking gap</strong> — missing skills across matching
-          postings, adjusted for learning effort.
+          postings.
         </p>
         {data ? (
           <GapList rows={data.views.priority_gaps} kind="gap" onSelect={setSelectedSkill} />

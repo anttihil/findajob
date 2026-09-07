@@ -114,13 +114,8 @@ def render(report: dict[str, Any]) -> str:
             out.append(f"      {(row['error'] or '')[:96]}")
         out.append("  retry with:  careerradar score retry")
 
-    taxonomy = report["taxonomy"]
     out += ["", "TAXONOMY"]
-    out.append(f"  skills {taxonomy['skills_hash']}   roles {taxonomy['roles_hash']}")
-    for stored_hash, count in taxonomy["stored"][:3]:
-        mark = "" if stored_hash == taxonomy["skills_hash"] else "  (stale)"
-        out.append(f"  {count:>6} postings classified under {stored_hash}{mark}")
-    out.append("  jobs.taxonomy_hash is deprecated (tracks profile_version and prompt_hash)")
+    out.append(f"  roles {report['taxonomy']['roles_hash']}")
     return "\n".join(out)
 
 

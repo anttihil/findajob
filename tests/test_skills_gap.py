@@ -33,8 +33,8 @@ class SkillsGapApiTests(unittest.TestCase):
         self.assertEqual(resp.status_code, 404)
 
 
-class GapAnalysisWithoutTaxonomyTests(unittest.TestCase):
-    def test_gap_analysis_without_taxonomy(self) -> None:
+class GapAnalysisLabellingTests(unittest.TestCase):
+    def test_rows_are_labelled_from_the_profile(self) -> None:
         profile = Profile(
             name="Candidate",
             skills=[
@@ -44,7 +44,7 @@ class GapAnalysisWithoutTaxonomyTests(unittest.TestCase):
                 )
             ],
         )
-        adapter = ProfileAdapter(profile, taxonomy=None)
+        adapter = ProfileAdapter(profile)
         mock_db = mock.Mock()
         mock_db.conn = mock.Mock()
         mock_roles = mock.Mock()
@@ -54,14 +54,9 @@ class GapAnalysisWithoutTaxonomyTests(unittest.TestCase):
             db=mock_db,
             config={},
             roles=mock_roles,
-            taxonomy=None,
             profile=adapter,
         )
 
-        empty = gap._empty_result(window_days=90, reason="no_eligible_postings")
-        self.assertIsNone(empty["provenance"]["taxonomy_hash"])
-
-        # Score rows without taxonomy
         stats = {
             "fastapi": {
                 "n_active": 10,

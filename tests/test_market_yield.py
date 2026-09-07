@@ -8,7 +8,6 @@ from careerradar.core.database import Database
 from careerradar.core.migrations import migrate
 from careerradar.market.analytics import MarketAnalytics
 from careerradar.taxonomy.roles import RoleTaxonomy
-from careerradar.taxonomy.skills import Taxonomy
 from careerradar.web.app import app
 
 
@@ -176,8 +175,7 @@ def test_market_analytics_query_yield_unit(tmp_path: Path) -> None:
     db.conn.commit()
 
     roles = RoleTaxonomy()
-    taxonomy = Taxonomy()
-    analytics = MarketAnalytics(db, config={}, roles=roles, taxonomy=taxonomy)
+    analytics = MarketAnalytics(db, config={}, roles=roles)
 
     result = analytics.query_yield(window_days=30)
     summary = result["summary"]
