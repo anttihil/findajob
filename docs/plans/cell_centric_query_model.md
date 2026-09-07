@@ -335,11 +335,27 @@ Only needed if per-query and per-location counts must be exact.
 * Point the yield query (`market/repository.py:81`) and the dashboard location filter at
   `job_cells`.
 
-**Why it may matter:** 415 duplicate groups already span more than one cell and 77 span more
-than one location, so today a posting found by both a Stockholm cell and a Remote cell is
-credited only to whichever ran last. Cosmetic in the feed; a bias in the per-query yield
-metric. Phase 3 makes the location filter the only way to scope the dashboard, which raises
-the stakes.
+**Why it may matter:** `upsert_posting` matches an existing row on `job_key` or `url`, so a
+posting re-found by a second cell keeps one row and its `scrape_cell_id` is overwritten --
+last writer wins. A posting found by both a Stockholm cell and a Remote cell is credited only
+to whichever ran most recently. Cosmetic in the feed; a bias in the per-query yield metric.
+
+The 415 content-hash groups spanning more than one cell do **not** measure this. Those are
+separate rows linked by `duplicate_of`, and each keeps its own cell, so the yield query
+already attributes them correctly (`COUNT(DISTINCT j.id)` per cell, with `duplicate_of IS
+NULL` for the unique count). The rate of actual overwrites is unmeasured, because the
+overwrite destroys its own evidence; `times_seen > 1` (4728 jobs) is only an upper bound.
+
+`search/repository.py` therefore logs one `cell-reattribution` line at INFO whenever an
+incoming `cell_id` differs from the stored one. Decide phase 7 on that count:
+
+```
+grep cell-reattribution app.log | wc -l
+```
+
+Note also that the location filter reaches only the market and skills pages
+(`web/app.py:424,688`). The job feed filters on the `jobs.location` text column, not through
+cells, so phase 3 did not raise the stakes for the dashboard.
 
 ---
 

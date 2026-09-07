@@ -5,8 +5,12 @@ import sqlite3
 from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING, Any
 
+from careerradar.core.logger import get_logger
+
 if TYPE_CHECKING:
     from careerradar.search.scheduler import CellState
+
+logger = get_logger()
 
 
 def _utcnow() -> str:
@@ -445,13 +449,28 @@ def upsert_posting(
     existing = None
     if record.get("job_key"):
         existing = cursor.execute(
-            "SELECT id FROM jobs WHERE job_key = ?", (record["job_key"],)
+            "SELECT id, scrape_cell_id FROM jobs WHERE job_key = ?", (record["job_key"],)
         ).fetchone()
     if existing is None and record.get("url"):
-        existing = cursor.execute("SELECT id FROM jobs WHERE url = ?", (record["url"],)).fetchone()
+        existing = cursor.execute(
+            "SELECT id, scrape_cell_id FROM jobs WHERE url = ?", (record["url"],)
+        ).fetchone()
 
     if existing is not None:
         job_id = existing["id"]
+        # Measures how often a posting is re-found by a cell other than the one that
+        # stored it. The UPDATE below overwrites scrape_cell_id, so this line is the only
+        # record that the earlier attribution existed. Grep the log for
+        # "cell-reattribution" to decide whether the job_cells junction table is worth
+        # building -- docs/plans/cell_centric_query_model.md, phase 7.
+        if record.get("scrape_cell_id") and existing["scrape_cell_id"] != record["scrape_cell_id"]:
+            logger.info(
+                "cell-reattribution job_id=%s from_cell=%s to_cell=%s job_key=%s",
+                job_id,
+                existing["scrape_cell_id"],
+                record["scrape_cell_id"],
+                record.get("job_key"),
+            )
         updatable = [c for c in POSTING_COLUMNS if c in record and c not in ("job_key", "url")]
         cursor.execute(
             f"UPDATE jobs SET {', '.join(f'{c} = ?' for c in updatable)}"
