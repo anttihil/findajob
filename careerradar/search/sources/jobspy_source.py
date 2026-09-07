@@ -31,9 +31,10 @@ import warnings
 from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, TypedDict
 
 from careerradar.core.logger import get_logger
+from careerradar.search.scheduler import ScrapeTaskPayload
 from careerradar.search.sources.base import BaseJobSource
 
 logger = get_logger()
@@ -268,7 +269,7 @@ class JobSpySource(BaseJobSource):
         return self._scrape
 
     # -- BaseJobSource -----------------------------------------------------------------
-    def fetch_for_task(self, task: dict[str, Any]) -> list[dict[str, Any]]:
+    def fetch_for_task(self, task: ScrapeTaskPayload) -> list[dict[str, Any]]:
         """Run one search and return raw row dicts.
 
         Raises on failure so the caller's SourceCircuit can classify it -- a 429 must trip
@@ -279,9 +280,9 @@ class JobSpySource(BaseJobSource):
 
         logger.info(
             "[%s] %r in %s (want %d, hours_old=%s, desc=%s)",
-            task.get("source"),
-            task.get("query"),
-            task.get("location_label"),
+            task["source"],
+            task["query"],
+            task["location_label"],
             kwargs.get("results_wanted"),
             kwargs.get("hours_old"),
             kwargs.get("linkedin_fetch_description", True),
@@ -293,9 +294,9 @@ class JobSpySource(BaseJobSource):
             # JobSpy emits pandas FutureWarnings on concat of empty frames.
             warnings.simplefilter("ignore")
             with (
-                capture_scraper_errors(task.get("source")) as reported,
+                capture_scraper_errors(task["source"]) as reported,
                 count_requests() as calls,
-                guest_description_endpoint(task.get("source") == "linkedin"),
+                guest_description_endpoint(task["source"] == "linkedin"),
             ):
                 try:
                     frame = scrape(**kwargs)
@@ -318,20 +319,20 @@ class JobSpySource(BaseJobSource):
             # message text -- "Read timed out" lands as transient and gets retried on a
             # fresh exit IP, "429" as a rate limit that trips the source.
             raise ScraperReportedError(
-                f"{task.get('source')} reported {len(reported.messages)} error(s) after "
+                f"{task['source']} reported {len(reported.messages)} error(s) after "
                 f"{len(rows)} row(s): {'; '.join(reported.messages[:3])}",
                 board_messages=reported.messages,
             )
         return rows
 
-    def _archive(self, task: dict[str, Any], rows: list[dict[str, Any]]) -> None:
+    def _archive(self, task: ScrapeTaskPayload, rows: list[dict[str, Any]]) -> None:
         """Persist the raw payload so normalizer bugs can be replayed without re-scraping."""
         if not self.archive_dir:
             return
         try:
             os.makedirs(self.archive_dir, exist_ok=True)
             stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
-            slug = _slug(f"{task.get('source')}-{task.get('query')}-{task.get('location_id')}")
+            slug = _slug(f"{task['source']}-{task['query']}-{task['location_id']}")
             path = os.path.join(self.archive_dir, f"{stamp}-{slug}.json")
             with open(path, "w", encoding="utf-8") as handle:
                 json.dump({"task": task, "rows": rows}, handle, default=str)
@@ -377,39 +378,61 @@ def prune_archives(archive_dir: str | None, max_age_days: float = 14) -> tuple[i
     return removed, freed
 
 
+class ScrapeJobsKwargs(TypedDict, total=False):
+    """Arguments for jobspy's `scrape_jobs()`.
+
+    Optional throughout, because the call is assembled per board rather than filled in
+    once: `country_indeed` and `distance` are Indeed-only, `linkedin_fetch_description` is
+    LinkedIn-only, and the rest are omitted when the cell does not ask for them. Omitting a
+    key and passing its default are not the same to the library.
+    """
+
+    site_name: list[str]
+    search_term: str
+    location: str | None
+    results_wanted: int
+    description_format: str
+    verbose: int
+    hours_old: int
+    is_remote: bool
+    country_indeed: str
+    distance: int
+    linkedin_fetch_description: bool
+    proxies: list[str]
+
+
 def build_scrape_kwargs(
-    task: dict[str, Any], description_format: str = "markdown"
-) -> dict[str, Any]:
-    """Translate a ScrapeTask dict into scrape_jobs() arguments."""
-    source = task.get("source", "indeed")
-    kwargs: dict[str, Any] = {
+    task: ScrapeTaskPayload, description_format: str = "markdown"
+) -> ScrapeJobsKwargs:
+    """Translate a ScrapeTask payload into scrape_jobs() arguments."""
+    source = task["source"]
+    kwargs: ScrapeJobsKwargs = {
         "site_name": [source],
-        "search_term": task.get("query"),
-        "location": task.get("location_label") or None,
-        "results_wanted": int(task.get("results_wanted") or 25),
+        "search_term": task["query"],
+        "location": task["location_label"] or None,
+        "results_wanted": task["results_wanted"],
         "description_format": description_format,
         "verbose": 0,
     }
 
-    hours_old = task.get("hours_old")
-    if hours_old:
-        kwargs["hours_old"] = int(hours_old)
+    if task["hours_old"]:
+        kwargs["hours_old"] = task["hours_old"]
 
-    if task.get("is_remote"):
+    if task["is_remote"]:
         kwargs["is_remote"] = True
 
     if source == "indeed":
-        kwargs["country_indeed"] = task.get("indeed_country") or "usa"
-        if not task.get("is_remote") and task.get("distance"):
-            kwargs["distance"] = int(task["distance"])
+        kwargs["country_indeed"] = task["indeed_country"] or "usa"
+        if not task["is_remote"] and task["distance"]:
+            kwargs["distance"] = task["distance"]
     elif source == "linkedin":
         # All-or-nothing, matching the cell's desc_selection: 'census' when the budget
         # affords a description per posting, 'none' otherwise. Never a top-scoring subset
         # -- selecting on pre-score correlates with the user's own skills, which is exactly
         # the bias the skill-demand denominators must not contain.
-        kwargs["linkedin_fetch_description"] = bool(task.get("fetch_description"))
+        kwargs["linkedin_fetch_description"] = task["fetch_description"]
 
-    if task.get("proxies"):
+    if task["proxies"]:
         kwargs["proxies"] = task["proxies"]
 
     return kwargs

@@ -22,6 +22,7 @@ from careerradar.search.guard import (
     ERROR_TRANSIENT,
     classify_error,
 )
+from careerradar.search.scheduler import ScrapeTask, ScrapeTaskPayload
 from careerradar.search.sources.jobspy_source import (
     EXPECTED_COLUMNS,
     JOBSPY_LOGGERS,
@@ -179,19 +180,23 @@ class FetchWiringTests(unittest.TestCase):
         module.frame_to_rows = lambda frame: list(frame or [])
         self.addCleanup(setattr, module, "frame_to_rows", self._real_frame_to_rows)
 
-    def _task(self) -> dict[str, Any]:
-        return {
-            "source": "linkedin",
-            "query": "AI Engineer",
-            "country": "US",
-            "indeed_country": "usa",
-            "location_label": "Los Angeles, CA",
-            "results_wanted": 50,
-            "is_remote": False,
-            "distance": 50,
-            "hours_old": 336,
-            "fetch_description": True,
-        }
+    def _task(self) -> ScrapeTaskPayload:
+        """Built through ScrapeTask, so the fixture cannot drift from what runs live."""
+        return ScrapeTask(
+            cell_id=1,
+            source="linkedin",
+            query="AI Engineer",
+            location_id="los_angeles",
+            location_label="Los Angeles, CA",
+            country="US",
+            indeed_country="usa",
+            is_remote=False,
+            distance=50,
+            results_wanted=50,
+            hours_old=336,
+            fetch_description=True,
+            desc_selection="census",
+        ).to_dict()
 
     def test_logged_failure_becomes_an_exception(self) -> None:
         def fake_scrape(**kwargs: Any) -> list[dict[str, Any]]:

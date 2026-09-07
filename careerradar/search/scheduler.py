@@ -13,7 +13,7 @@ unit-testable without a network.
 import math
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, TypedDict
 
 from careerradar.core.database import Database
 
@@ -39,6 +39,31 @@ class CellState:
     backoff_until: str | None = None
 
 
+class ScrapeTaskPayload(TypedDict):
+    """One cell visit, as it crosses the BaseJobSource boundary.
+
+    Every key is always present -- `ScrapeTask.to_dict` writes all of them -- so a source
+    may ignore a field but must never expect it to be absent.
+    """
+
+    cell_id: int
+    source: str
+    query: str
+    location_id: str
+    location_label: str
+    country: str | None
+    indeed_country: str
+    is_remote: bool
+    distance: int
+    results_wanted: int
+    hours_old: int
+    fetch_description: bool
+    desc_selection: str
+    active: bool
+    est_request_units: float
+    proxies: list[str]
+
+
 @dataclass
 class ScrapeTask:
     cell_id: int
@@ -58,7 +83,7 @@ class ScrapeTask:
     est_request_units: float = 0.0
     extra: dict[str, Any] = field(default_factory=dict)
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> ScrapeTaskPayload:
         return {
             "cell_id": self.cell_id,
             "source": self.source,

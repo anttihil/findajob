@@ -1,6 +1,8 @@
 from abc import ABC, abstractmethod
 from typing import Any
 
+from careerradar.search.scheduler import ScrapeTaskPayload
+
 
 class BaseJobSource(ABC):
     """The seam where a hand-rolled scraper can replace the JobSpy-backed one.
@@ -19,7 +21,7 @@ class BaseJobSource(ABC):
         self.last_fetch: dict[str, int] = {}
 
     @abstractmethod
-    def fetch_for_task(self, task: dict[str, Any]) -> list[dict[str, Any]]:
+    def fetch_for_task(self, task: ScrapeTaskPayload) -> list[dict[str, Any]]:
         """Run one cell's search and return the board's raw rows.
 
         `task` is a `ScrapeTask.to_dict()` (careerradar/search/scheduler.py). The fields an

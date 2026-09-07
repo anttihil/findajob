@@ -1,6 +1,7 @@
 """Database connection management and repository facade."""
 
 import sqlite3
+from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any, ClassVar
 
 from careerradar.core import job_repository
@@ -275,7 +276,7 @@ class Database:
     def record_observation(
         self,
         run_id: int | None,
-        task: dict[str, Any],
+        task: Mapping[str, Any],
         observed_at: str,
         returned: int = 0,
         new_unique: int = 0,

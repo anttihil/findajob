@@ -2,6 +2,7 @@
 
 import json
 import sqlite3
+from collections.abc import Mapping
 from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING, Any
 
@@ -317,7 +318,7 @@ def finish_sync_run(conn: sqlite3.Connection, run_id: int, status: str, **counte
 def record_observation(
     conn: sqlite3.Connection,
     run_id: int | None,
-    task: dict[str, Any],
+    task: Mapping[str, Any],
     observed_at: str,
     returned: int = 0,
     new_unique: int = 0,

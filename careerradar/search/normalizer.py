@@ -20,6 +20,7 @@ Four normalizations carry real analytical weight:
 import hashlib
 import math
 import re
+from collections.abc import Mapping
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
@@ -361,7 +362,7 @@ def description_quality(description: Any) -> str:
 
 def normalize_row(
     row: dict[str, Any],
-    task: dict[str, Any],
+    task: Mapping[str, Any],
     observed_at: datetime | None = None,
     config: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
@@ -416,7 +417,7 @@ def normalize_row(
 
 def normalize_rows(
     rows: list[dict[str, Any]],
-    task: dict[str, Any],
+    task: Mapping[str, Any],
     observed_at: datetime | None = None,
     config: dict[str, Any] | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:

@@ -25,6 +25,7 @@ from careerradar.search.guard import (
 from careerradar.search.normalizer import normalize_rows
 from careerradar.search.proxies import apply_proxy_budgets, is_rotating, load_proxies, pin_for
 from careerradar.search.scheduler import (
+    ScrapeTaskPayload,
     is_saturated,
     overdue_cells,
     select_cells,
@@ -395,7 +396,7 @@ def scraper_retries(config: dict[str, Any]) -> int:
 def _record_failure(
     db: Database,
     run_id: int | None,
-    payload: dict[str, Any],
+    payload: ScrapeTaskPayload,
     observed_at: datetime,
     exc: BaseException,
     dry_run: bool,
