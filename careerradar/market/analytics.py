@@ -78,7 +78,7 @@ class MarketAnalytics:
         window_days: int | None = None,
         source: str | None = None,
         location_id: str | None = None,
-        role_family: str | None = None,
+        query: str | None = None,
         min_postings: int = 0,
     ) -> dict[str, Any]:
         """Yield analysis for search query tuples (source, query, location).
@@ -96,7 +96,7 @@ class MarketAnalytics:
             window_start=window_start,
             source=source,
             location_id=location_id,
-            role_family=role_family,
+            query=query,
             min_postings=min_postings,
         )
 
@@ -119,7 +119,6 @@ class MarketAnalytics:
             q = r["query"]
             src = r["source"]
             loc = r["location_id"]
-            rf = r["role_family"]
 
             total_postings_sum += tot
             total_unique_sum += uniq
@@ -147,9 +146,6 @@ class MarketAnalytics:
                 "source": src,
                 "query": q,
                 "location_id": loc,
-                "role_family": rf,
-                "role_label": self.roles.label(rf),
-                "tier": r["tier"],
                 "enabled": bool(r["enabled"]),
                 "target_query_id": r["target_query_id"],
                 "total_postings": tot,
@@ -172,8 +168,6 @@ class MarketAnalytics:
             if q not in query_map:
                 query_map[q] = {
                     "query": q,
-                    "role_family": rf,
-                    "role_label": self.roles.label(rf),
                     "target_query_id": r["target_query_id"],
                     "total_postings": 0,
                     "unique_postings": 0,
@@ -245,8 +239,6 @@ class MarketAnalytics:
             top_queries.append(
                 {
                     "query": q_rec["query"],
-                    "role_family": q_rec["role_family"],
-                    "role_label": q_rec["role_label"],
                     "target_query_id": q_rec["target_query_id"],
                     "total_postings": tot,
                     "unique_postings": q_rec["unique_postings"],
@@ -336,7 +328,7 @@ class MarketAnalytics:
             "window_days": window_days,
             "source": source,
             "location_id": location_id,
-            "role_family": role_family,
+            "query": query,
             "summary": summary,
             "top_queries": top_queries,
             "zero_yield_queries": zero_yield_queries,

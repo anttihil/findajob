@@ -39,7 +39,6 @@ def test_market_yield_api(client: TestClient) -> None:
     # Verify query rollup structure
     for q in data["top_queries"][:5]:
         assert "query" in q
-        assert "role_family" in q
         assert "total_postings" in q
         assert "scored_postings" in q
         assert "strong_fits" in q
@@ -86,6 +85,13 @@ def test_market_yield_api_filters(client: TestClient) -> None:
     data_loc = res_loc.json()
     for t in data_loc["tuples"][:10]:
         assert t["location_id"] == "us_remote"
+
+    # Filter by query term
+    res_q = client.get("/api/market/yield?query=Full%20Stack%20Engineer")
+    assert res_q.status_code == 200
+    data_q = res_q.json()
+    for t in data_q["tuples"][:10]:
+        assert t["query"] == "Full Stack Engineer"
 
     # Invalid location returns 400
     res_bad = client.get("/api/market/yield?location=atlantis")

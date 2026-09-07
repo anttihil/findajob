@@ -416,7 +416,7 @@ def market_query_yield(
     window_days: int | None = Query(None, ge=1, le=365),
     source: str | None = Query(None),
     location: str | None = Query(None),
-    role_family: str | None = Query(None),
+    query: str | None = Query(None),
     min_postings: int = Query(0, ge=0),
 ):
     """Query yield analytics for (source, query, location) search tuples.
@@ -433,7 +433,7 @@ def market_query_yield(
             window_days=window_days,
             source=source,
             location_id=location,
-            role_family=role_family,
+            query=query,
             min_postings=min_postings,
         )
     finally:
@@ -445,10 +445,7 @@ def market_locations():
     roles = load_roles()
     return {
         "locations": [location.to_dict() for location in roles.locations.values()],
-        "role_families": [
-            {"key": f.key, "label": f.label, "active": f.active, "resume": f.resume}
-            for f in roles.families.values()
-        ],
+        "queries": sorted({q for f in roles.families.values() if f.enabled for q in f.query_terms}),
     }
 
 
@@ -765,7 +762,7 @@ def market_coverage():
 def skills_gap(
     window_days: int = Query(90, ge=1, le=365),
     location: str | None = None,
-    role_family: str | None = None,
+    query: str | None = None,
 ):
     db = get_db()
     try:
@@ -773,7 +770,7 @@ def skills_gap(
         return GapAnalysis(db, config, roles, taxonomy, profile).analyse(
             window_days=window_days,
             location_id=location,
-            role_family=role_family,
+            query=query,
         )
     finally:
         db.close()

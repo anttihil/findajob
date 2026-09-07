@@ -96,9 +96,9 @@ export function SkillDrawer({ skill, onClose }: { skill: string | null; onClose:
                 {detail && (
                   <>
                     <ul class="detail-list">
-                      {detail.by_role_family.map((f) => (
-                        <li key={f.label}>
-                          {f.label} <strong>{f.n}</strong>
+                      {detail.by_query.map((f) => (
+                        <li key={f.query}>
+                          {f.query} <strong>{f.n}</strong>
                         </li>
                       ))}
                     </ul>

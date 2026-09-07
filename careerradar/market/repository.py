@@ -1,4 +1,4 @@
-"""Market repository: analytics observations, postings by family, and gap analysis."""
+"""Market repository: analytics observations, postings by query, and gap analysis."""
 
 import sqlite3
 from datetime import datetime, timezone
@@ -26,13 +26,13 @@ def get_coverage_report_cells(conn: sqlite3.Connection) -> list[dict[str, Any]]:
     """Retrieve per-cell health and scrape statistics."""
     rows = conn.execute(
         """
-        SELECT source, location_id, role_family, tier, enabled, query,
+        SELECT source, location_id, query, tier, enabled,
                last_scraped_at, last_success_at, last_result_count,
                last_saturated, consecutive_empty, consecutive_error,
                total_scrapes, backoff_until,
                ewma_new_per_scrape, ewma_fit_score, quality_samples
           FROM scrape_cells
-         ORDER BY source, location_id, role_family
+         ORDER BY source, location_id, query
         """
     ).fetchall()
     now = datetime.now(timezone.utc)
@@ -52,20 +52,18 @@ def get_query_yield_cells(
     window_start: str | None = None,
     source: str | None = None,
     location_id: str | None = None,
-    role_family: str | None = None,
+    query: str | None = None,
     min_postings: int = 0,
 ) -> list[dict[str, Any]]:
     """Retrieve posting counts and strong fit verdicts for each
     (source, query, location) search cell.
     """
-    query = """
+    sql = """
         SELECT
             sc.id AS cell_id,
             sc.source,
             sc.query,
             sc.location_id,
-            sc.role_family,
-            sc.tier,
             sc.enabled,
             tq.id AS target_query_id,
             COUNT(DISTINCT j.id) AS total_postings,
@@ -77,14 +75,14 @@ def get_query_yield_cells(
             sc.last_scraped_at,
             sc.last_success_at
         FROM scrape_cells sc
-        LEFT JOIN target_queries tq ON tq.role_key = sc.role_family AND tq.query = sc.query
+        LEFT JOIN target_queries tq ON tq.query = sc.query
         LEFT JOIN jobs j ON j.scrape_cell_id = sc.id
              AND (? IS NULL OR j.date_found >= ?)
         LEFT JOIN job_verdicts v ON v.job_id = j.id
         WHERE (? IS NULL OR sc.source = ?)
           AND (? IS NULL OR sc.location_id = ?)
-          AND (? IS NULL OR sc.role_family = ?)
-        GROUP BY sc.id, sc.source, sc.query, sc.location_id, sc.role_family
+          AND (? IS NULL OR sc.query = ?)
+        GROUP BY sc.id, sc.source, sc.query, sc.location_id
         HAVING COUNT(DISTINCT j.id) >= ? OR sc.total_scrapes > 0
         ORDER BY strong_fits DESC, total_postings DESC, sc.query ASC
     """
@@ -95,11 +93,11 @@ def get_query_yield_cells(
         source,
         location_id,
         location_id,
-        role_family,
-        role_family,
+        query,
+        query,
         min_postings,
     ]
-    rows = conn.execute(query, params).fetchall()
+    rows = conn.execute(sql, params).fetchall()
     return [dict(r) for r in rows]
 
 
@@ -113,23 +111,23 @@ def load_gap_analysis_corpus(
     eligibility_sql: str,
     window_start: str,
     location_id: str | None = None,
-    role_family: str | None = None,
+    query: str | None = None,
     exclude_agencies: bool = True,
 ) -> list[dict[str, Any]]:
     """Load postings for gap analysis matching filters."""
     where_conj = " AND " if " WHERE " in eligibility_sql.upper() else " WHERE "
-    query = eligibility_sql + where_conj + "date_found >= ?"
+    sql = eligibility_sql + where_conj + "date_found >= ?"
     params: list[Any] = [window_start]
     if exclude_agencies:
-        query += " AND COALESCE(is_agency, 0) = 0"
+        sql += " AND COALESCE(is_agency, 0) = 0"
     if location_id:
-        query += " AND scrape_cell_id IN (SELECT id FROM scrape_cells WHERE location_id = ?)"
+        sql += " AND scrape_cell_id IN (SELECT id FROM scrape_cells WHERE location_id = ?)"
         params.append(location_id)
-    if role_family:
-        query += " AND role_family = ?"
-        params.append(role_family)
+    if query:
+        sql += " AND scrape_cell_id IN (SELECT id FROM scrape_cells WHERE query = ?)"
+        params.append(query)
 
-    return [dict(row) for row in conn.execute(query, params)]
+    return [dict(row) for row in conn.execute(sql, params)]
 
 
 def load_job_skills_chunked(
@@ -154,7 +152,7 @@ def get_skill_drilldown_postings(
     """Postings requiring a specific skill for audit and drilldown."""
     query = """
         SELECT j.id, j.title, j.company, j.location, j.url, j.match_score,
-               j.role_family, j.seniority, j.salary_annual_usd, j.date_posted,
+               j.seniority, j.salary_annual_usd, j.date_posted,
                js.in_title
           FROM v_skill_eligible j
           JOIN job_skills js ON js.job_id = j.id
@@ -182,17 +180,19 @@ def get_skill_cooccurring(
     return conn.execute(query, (skill, window_start, limit)).fetchall()
 
 
-def get_skill_by_family(
+def get_skill_by_query(
     conn: sqlite3.Connection, skill: str, window_start: str
 ) -> list[sqlite3.Row]:
-    """Breakdown of skill demand by role family."""
-    query = """
-        SELECT j.role_family, COUNT(*) n
-          FROM job_skills js JOIN v_skill_eligible j ON j.id = js.job_id
+    """Breakdown of skill demand by the search query that found the posting."""
+    sql = """
+        SELECT sc.query, COUNT(*) n
+          FROM job_skills js
+          JOIN v_skill_eligible j ON j.id = js.job_id
+          JOIN scrape_cells sc ON sc.id = j.scrape_cell_id
          WHERE js.skill = ? AND j.date_found >= ?
-         GROUP BY j.role_family ORDER BY n DESC
+         GROUP BY sc.query ORDER BY n DESC
     """
-    return conn.execute(query, (skill, window_start)).fetchall()
+    return conn.execute(sql, (skill, window_start)).fetchall()
 
 
 def skill_exists(conn: sqlite3.Connection, skill: str) -> bool:

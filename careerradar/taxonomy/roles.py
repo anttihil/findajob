@@ -151,10 +151,6 @@ class RoleTaxonomy:
     def get(self, key: str, default: RoleFamily | None = None) -> RoleFamily | None:
         return self.families.get(key, default)
 
-    def label(self, key: str | None) -> str:
-        family = self.families.get(key) if key else None
-        return family.label if family else (key or "Unclassified")
-
     def is_active(self, key: str | None) -> bool:
         family = self.families.get(key) if key else None
         return bool(family and family.active)

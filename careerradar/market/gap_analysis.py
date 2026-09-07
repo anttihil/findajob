@@ -110,7 +110,7 @@ class GapAnalysis:
         self,
         window_days: int,
         location_id: str | None = None,
-        role_family: str | None = None,
+        query: str | None = None,
     ) -> tuple[list[dict[str, Any]], dict[int, dict[str, bool]]]:
         """Postings eligible for SKILL statistics.
 
@@ -126,7 +126,7 @@ class GapAnalysis:
             eligibility_sql="SELECT * FROM v_skill_eligible",
             window_start=window_start.isoformat(),
             location_id=location_id,
-            role_family=role_family,
+            query=query,
             exclude_agencies=self.analytics_config.get("exclude_agencies", True),
         )
         if not postings:
@@ -141,9 +141,9 @@ class GapAnalysis:
         self,
         window_days: int = 90,
         location_id: str | None = None,
-        role_family: str | None = None,
+        query: str | None = None,
     ) -> dict[str, Any]:
-        postings, skills_by_job = self._load_corpus(window_days, location_id, role_family)
+        postings, skills_by_job = self._load_corpus(window_days, location_id, query)
 
         if not postings:
             return self._empty_result(window_days, "no_eligible_postings")
@@ -155,7 +155,7 @@ class GapAnalysis:
         return {
             "window_days": window_days,
             "location_id": location_id,
-            "role_family": role_family,
+            "query": query,
             "rows": rows,
             "views": self._views(rows),
             "provenance": {
@@ -433,7 +433,7 @@ class GapAnalysis:
             window_start=window_start.isoformat(),
             limit=15,
         )
-        by_family = market_repo.get_skill_by_family(
+        by_query = market_repo.get_skill_by_query(
             self.db.conn,
             skill=skill,
             window_start=window_start.isoformat(),
@@ -477,13 +477,5 @@ class GapAnalysis:
             "window_days": window_days,
             "postings": postings,
             "cooccurring": cooccurring_items,
-            "by_role_family": [
-                {
-                    "role_family": r["role_family"],
-                    "label": self.roles.label(r["role_family"]),
-                    "n": r["n"],
-                }
-                for r in by_family
-                if r["role_family"]
-            ],
+            "by_query": [{"query": r["query"], "n": r["n"]} for r in by_query if r["query"]],
         }

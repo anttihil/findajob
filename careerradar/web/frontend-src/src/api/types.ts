@@ -206,9 +206,6 @@ export interface QueryYieldTuple {
   source: string;
   query: string;
   location_id: string;
-  role_family: string;
-  role_label: string;
-  tier: string;
   enabled: boolean;
   target_query_id: number | null;
   total_postings: number;
@@ -228,8 +225,6 @@ export interface QueryYieldTuple {
 
 export interface QueryTermYield {
   query: string;
-  role_family: string;
-  role_label: string;
   target_query_id: number | null;
   total_postings: number;
   unique_postings: number;
@@ -280,7 +275,7 @@ export interface MarketYieldResponse {
   window_days: number | null;
   source: string | null;
   location_id: string | null;
-  role_family: string | null;
+  query: string | null;
   summary: QueryYieldSummary;
   top_queries: QueryTermYield[];
   zero_yield_queries: QueryTermYield[];
@@ -303,22 +298,15 @@ export interface MarketLocation {
   is_remote: boolean;
 }
 
-export interface MarketRoleFamily {
-  key: string;
-  label: string;
-  tier: number;
-  resume: string;
-}
-
 export interface MarketLocationsResponse {
   locations: MarketLocation[];
-  role_families: MarketRoleFamily[];
+  queries: string[];
 }
 
 export interface CoverageCell {
   source: string;
   location_id: string;
-  role_family: string;
+  query: string;
   tier: number;
   total_scrapes: number;
   hours_since_success: number | null;
@@ -387,7 +375,7 @@ export interface SkillDetailResponse {
   window_days: number;
   evidence: string[];
   cooccurring: { label: string; n: number; user_has: boolean }[];
-  by_role_family: { label: string; n: number }[];
+  by_query: { query: string; n: number }[];
   postings: {
     url: string;
     title: string;

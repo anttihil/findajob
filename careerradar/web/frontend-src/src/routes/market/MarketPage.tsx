@@ -25,7 +25,7 @@ function CoverageTable({ cells }: { cells: CoverageCell[] | null }) {
             <tr>
               <th>Source</th>
               <th>Location</th>
-              <th>Role family</th>
+              <th>Query</th>
               <th>Tier</th>
               <th>Last success</th>
               <th>Returned</th>
@@ -46,7 +46,7 @@ function CoverageTable({ cells }: { cells: CoverageCell[] | null }) {
                 <tr key={i} class={staleCell ? "row-warn" : ""}>
                   <td>{c.source}</td>
                   <td>{c.location_id}</td>
-                  <td>{c.role_family}</td>
+                  <td>{c.query}</td>
                   <td>{c.tier}</td>
                   <td>{hrs === null ? "never" : `${hrs.toFixed(0)}h ago`}</td>
                   <td>{c.last_result_count ?? 0}</td>
@@ -93,7 +93,7 @@ export function MarketPage() {
   const [windowDays, setWindowDays] = useState<number | null>(null);
   const [sourceFilter, setSourceFilter] = useState<string>("all");
   const [locationFilter, setLocationFilter] = useState<string>("all");
-  const [roleFamilyFilter, setRoleFamilyFilter] = useState<string>("all");
+  const [queryFilter, setQueryFilter] = useState<string>("all");
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
   const [searchQuery, setSearchQuery] = useState<string>("");
   const [togglingQueryId, setTogglingQueryId] = useState<number | null>(null);
@@ -105,7 +105,7 @@ export function MarketPage() {
   useEffect(() => {
     getJSON<MarketLocationsResponse>("/api/market/locations")
       .then(setLocations)
-      .catch(() => setLocations({ locations: [], role_families: [] }));
+      .catch(() => setLocations({ locations: [], queries: [] }));
   }, []);
 
   // Load coverage on mount
@@ -122,7 +122,7 @@ export function MarketPage() {
     if (windowDays) params.set("window_days", String(windowDays));
     if (sourceFilter !== "all") params.set("source", sourceFilter);
     if (locationFilter !== "all") params.set("location", locationFilter);
-    if (roleFamilyFilter !== "all") params.set("role_family", roleFamilyFilter);
+    if (queryFilter !== "all") params.set("query", queryFilter);
 
     guard("Loading query yield analytics", () =>
       getJSON<MarketYieldResponse>(`/api/market/yield?${params.toString()}`)
@@ -136,7 +136,7 @@ export function MarketPage() {
 
   useEffect(() => {
     fetchYieldData();
-  }, [windowDays, sourceFilter, locationFilter, roleFamilyFilter]);
+  }, [windowDays, sourceFilter, locationFilter, queryFilter]);
 
   // Render Yield Bar Chart
   useEffect(() => {
@@ -152,7 +152,6 @@ export function MarketPage() {
       chartRef.current,
       topQueries.map((q) => ({
         label: q.query,
-        subLabel: q.role_label,
         totalPostings: q.total_postings,
         scoredPostings: q.scored_postings,
         strongFits: q.strong_fits,
@@ -199,9 +198,7 @@ export function MarketPage() {
     return yieldData.top_queries.filter((q) => {
       if (searchQuery.trim()) {
         const needle = searchQuery.toLowerCase();
-        const matchesName = q.query.toLowerCase().includes(needle);
-        const matchesRole = q.role_label.toLowerCase().includes(needle) || q.role_family.toLowerCase().includes(needle);
-        if (!matchesName && !matchesRole) return false;
+        if (!q.query.toLowerCase().includes(needle)) return false;
       }
       if (categoryFilter !== "all" && q.yield_category !== categoryFilter) {
         return false;
@@ -217,10 +214,9 @@ export function MarketPage() {
       if (searchQuery.trim()) {
         const needle = searchQuery.toLowerCase();
         const matchesQuery = t.query.toLowerCase().includes(needle);
-        const matchesRole = t.role_label.toLowerCase().includes(needle) || t.role_family.toLowerCase().includes(needle);
         const matchesLoc = t.location_id.toLowerCase().includes(needle);
         const matchesSource = t.source.toLowerCase().includes(needle);
-        if (!matchesQuery && !matchesRole && !matchesLoc && !matchesSource) return false;
+        if (!matchesQuery && !matchesLoc && !matchesSource) return false;
       }
       if (categoryFilter !== "all" && t.yield_category !== categoryFilter) {
         return false;
@@ -366,18 +362,18 @@ export function MarketPage() {
             </select>
           </div>
 
-          {/* Role Family */}
+          {/* Query Term */}
           <div class="yield-filter-item">
-            <label>Role:</label>
+            <label>Query:</label>
             <select
               class="form-select-sm"
-              value={roleFamilyFilter}
-              onChange={(e) => setRoleFamilyFilter((e.target as HTMLSelectElement).value)}
+              value={queryFilter}
+              onChange={(e) => setQueryFilter((e.target as HTMLSelectElement).value)}
             >
-              <option value="all">All Roles</option>
-              {locations?.role_families.map((rf) => (
-                <option key={rf.key} value={rf.key}>
-                  {rf.label}
+              <option value="all">All Queries</option>
+              {locations?.queries.map((q) => (
+                <option key={q} value={q}>
+                  {q}
                 </option>
               ))}
             </select>
@@ -522,7 +518,6 @@ export function MarketPage() {
                 <thead>
                   <tr>
                     <th>Query Term</th>
-                    <th>Role Family</th>
                     <th>Sources</th>
                     <th>Locations</th>
                     <th style="text-align: right;">Postings</th>
@@ -536,16 +531,13 @@ export function MarketPage() {
                 <tbody>
                   {filteredQueries.length === 0 ? (
                     <tr>
-                      <td colSpan={10} class="text-center">No query terms match the current filters.</td>
+                      <td colSpan={9} class="text-center">No query terms match the current filters.</td>
                     </tr>
                   ) : (
                     filteredQueries.map((q) => (
                       <tr key={q.query} class={q.yield_category === "high_yield" ? "row-highlight" : ""}>
                         <td>
                           <strong>{q.query}</strong>
-                        </td>
-                        <td>
-                          <span style="font-size: 12px; color: var(--ink-muted);">{q.role_label}</span>
                         </td>
                         <td>
                           <span style="font-size: 11.5px;">{q.sources.join(", ") || "—"}</span>
@@ -593,7 +585,6 @@ export function MarketPage() {
                     <th>Source</th>
                     <th>Query Term</th>
                     <th>Location</th>
-                    <th>Role Family</th>
                     <th style="text-align: right;">Postings</th>
                     <th style="text-align: right;">Scored</th>
                     <th style="text-align: right;">Strong Fits</th>
@@ -605,7 +596,7 @@ export function MarketPage() {
                 <tbody>
                   {filteredTuples.length === 0 ? (
                     <tr>
-                      <td colSpan={10} class="text-center">No search tuples match the current filters.</td>
+                      <td colSpan={9} class="text-center">No search tuples match the current filters.</td>
                     </tr>
                   ) : (
                     filteredTuples.map((t) => (
@@ -615,9 +606,6 @@ export function MarketPage() {
                           <strong>{t.query}</strong>
                         </td>
                         <td>{t.location_id}</td>
-                        <td>
-                          <span style="font-size: 12px; color: var(--ink-muted);">{t.role_label}</span>
-                        </td>
                         <td style="text-align: right;">
                           <strong>{t.total_postings}</strong>
                         </td>
