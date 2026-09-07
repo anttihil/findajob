@@ -113,7 +113,7 @@ describe("FilterQuery", () => {
       expect(params.get("country")).toBe("US");
       expect(params.get("date_posted")).toBe("3d");
       expect(params.get("q")).toBe("rust");
-      expect(params.has("access")).toBe(false);
+      expect(params.has("reason_type")).toBe(false);
     });
   });
 });

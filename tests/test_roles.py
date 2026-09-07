@@ -3,7 +3,7 @@
 import unittest
 from typing import Any
 
-from careerradar.taxonomy.roles import ACCESS_LEVELS, RoleTaxonomy
+from careerradar.taxonomy.roles import RoleTaxonomy
 
 TEST_TAXONOMY_SPEC: dict[str, Any] = {
     "families": {
@@ -46,7 +46,6 @@ TEST_TAXONOMY_SPEC: dict[str, Any] = {
             "country": "US",
             "indeed_country": "usa",
             "is_remote": True,
-            "access": "remote",
             "weight": 1.0,
             "distance": 50,
             "enabled": True,
@@ -58,7 +57,6 @@ TEST_TAXONOMY_SPEC: dict[str, Any] = {
             "country": "US",
             "indeed_country": "usa",
             "is_remote": False,
-            "access": "commutable",
             "weight": 1.0,
             "distance": 50,
             "enabled": True,
@@ -70,7 +68,6 @@ TEST_TAXONOMY_SPEC: dict[str, Any] = {
             "country": "US",
             "indeed_country": "usa",
             "is_remote": False,
-            "access": "relocation",
             "weight": 0.55,
             "distance": 50,
             "enabled": True,
@@ -95,10 +92,6 @@ class RoleTaxonomyIntegrityTests(unittest.TestCase):
     def test_remote_location_is_flagged_remote(self) -> None:
         self.assertTrue(self.roles.locations["us_remote"].is_remote)
         self.assertFalse(self.roles.locations["los_angeles"].is_remote)
-
-    def test_every_location_declares_an_access_level(self) -> None:
-        for location in self.roles.locations.values():
-            self.assertIn(location.access, ACCESS_LEVELS, location.id)
 
 
 class CellPlanningTests(unittest.TestCase):

@@ -20,7 +20,6 @@ function job(overrides: Partial<Job>): Job {
     status: "unread",
     date_found: null,
     date_applied: null,
-    access: null,
     role_family: null,
     seniority: null,
     is_remote: null,

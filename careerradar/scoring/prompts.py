@@ -76,8 +76,6 @@ def _facts(posting: dict[str, Any]) -> list[str]:
         facts.append("remote: yes")
     if posting.get("salary_annual_usd"):
         facts.append(f"salary: ${int(posting['salary_annual_usd']):,}/yr")
-    if posting.get("access"):
-        facts.append(f"access: {posting['access']}")
     return facts
 
 

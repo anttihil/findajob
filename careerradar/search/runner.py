@@ -327,7 +327,6 @@ def _scrape_one(
         posting["blockers"] = []
         posting["role_family"] = task.role_family
         posting["seniority"] = None
-        posting["access"] = "remote" if posting.get("is_remote") else "unspecified"
         posting["match_score"] = None
         posting["matched_skills"] = []
         posting["matched_count"] = 0

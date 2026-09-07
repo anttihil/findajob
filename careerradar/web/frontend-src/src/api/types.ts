@@ -7,7 +7,6 @@
 export type Liveness = "live" | "stale" | "likely_closed" | "unknown";
 export type PipelineState = "new" | "scored";
 export type JobStatus = "unread" | "saved" | "applied" | "rejected";
-export type Access = "commutable" | "remote" | "relocation";
 
 // A job row from `Database.query_jobs` (list or detail mode -- `/api/jobs` always uses
 // detail=True, so every field below is present on every row that endpoint returns).
@@ -27,7 +26,6 @@ export interface Job {
   status: JobStatus;
   date_found: string | null;
   date_applied: string | null;
-  access: Access | null;
 
   role_family: string | null;
   seniority: string | null;
@@ -574,7 +572,6 @@ export interface TargetLocation {
   country: string;
   indeed_country: string;
   is_remote: number | boolean;
-  access: "commutable" | "remote" | "relocation" | string;
   weight: number;
   distance: number;
   enabled: number | boolean;

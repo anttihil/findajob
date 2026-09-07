@@ -2,7 +2,6 @@ import { Link } from "wouter-preact";
 import type { Job } from "../api/types";
 import type { FilterQuery } from "../lib/filterQuery";
 import { retroDate } from "../lib/format";
-import { AccessBadge } from "./badges/AccessBadge";
 import { TierBadge } from "./badges/TierBadge";
 
 export function JobCard({ job, query }: { job: Job; query: FilterQuery }) {
@@ -21,7 +20,6 @@ export function JobCard({ job, query }: { job: Job; query: FilterQuery }) {
           <span>
             <i class="fa-solid fa-location-dot"></i> {job.location || "Remote"}
           </span>
-          <AccessBadge access={job.access} />
           <span>
             <i class="fa-solid fa-server"></i> {job.source}
           </span>

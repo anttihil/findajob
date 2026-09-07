@@ -67,7 +67,6 @@ def test_market_yield_api_filters(client: TestClient) -> None:
             "search_label": "Remote",
             "country": "US",
             "is_remote": True,
-            "access": "remote",
             "weight": 1.0,
             "distance": 50,
             "enabled": True,

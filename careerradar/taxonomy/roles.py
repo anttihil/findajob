@@ -36,15 +36,8 @@ class RoleFamily:
         return f"<RoleFamily {self.key}>"
 
 
-ACCESS_COMMUTABLE = "commutable"
-ACCESS_REMOTE = "remote"
-ACCESS_RELOCATION = "relocation"
-ACCESS_LEVELS = (ACCESS_COMMUTABLE, ACCESS_REMOTE, ACCESS_RELOCATION)
-
-
 class Location:
     __slots__ = (
-        "access",
         "country",
         "distance",
         "enabled",
@@ -65,9 +58,6 @@ class Location:
         self.weight = float(spec.get("weight", 1.0))
         self.indeed_country: str = spec.get("indeed_country", "usa")
         self.distance: int = spec.get("distance", 50)
-        self.access: str = spec.get(
-            "access", ACCESS_REMOTE if self.is_remote else ACCESS_RELOCATION
-        )
         self.enabled: bool = bool(spec.get("enabled", True))
 
     def to_dict(self) -> dict[str, Any]:
@@ -80,7 +70,6 @@ class Location:
             "weight": self.weight,
             "indeed_country": self.indeed_country,
             "distance": self.distance,
-            "access": self.access,
             "enabled": self.enabled,
         }
 
@@ -184,11 +173,6 @@ class RoleTaxonomy:
             problems.append("no families defined")
 
         for location in self.locations.values():
-            if location.access not in ACCESS_LEVELS:
-                problems.append(
-                    f"location '{location.id}': unknown access '{location.access}' "
-                    f"(expected one of {ACCESS_LEVELS})"
-                )
             if "(" in location.search_label:
                 problems.append(f"location '{location.id}': search_label contains a parenthetical")
         return problems

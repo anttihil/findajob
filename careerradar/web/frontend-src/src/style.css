@@ -621,25 +621,6 @@ html, body {
   color: var(--ink-muted);
 }
 
-.access-badge {
-  font-family: var(--font-mono);
-  font-size: 11px;
-  font-weight: 700;
-  padding: 2px 6px;
-  border: 1px solid var(--ink-primary);
-  background-color: transparent;
-  color: var(--ink-primary);
-}
-
-.access-badge.is-commutable {
-  background-color: var(--bg-screen-alt);
-}
-
-.access-badge.is-remote {
-  background-color: var(--bg-inverse);
-  color: var(--ink-inverse);
-}
-
 .job-status-indicator {
   font-family: var(--font-mono);
   font-size: 11px;
@@ -733,10 +714,6 @@ html, body {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
   gap: 6px;
-}
-
-.access-toggle-grid {
-  grid-template-columns: repeat(2, 1fr);
 }
 
 .status-pill {
@@ -2802,7 +2779,7 @@ html, body {
   background-color: var(--bg-screen);
 }
 
-.access-tag {
+.workplace-tag {
   font-size: 11px;
   font-weight: 700;
   padding: 2px 6px;
@@ -2813,17 +2790,12 @@ html, body {
   text-transform: uppercase;
 }
 
-.access-commutable {
-  background-color: #dbeafe;
-  color: #1e3a8a;
-}
-
-.access-remote {
+.workplace-remote {
   background-color: #e0f2fe;
   color: #075985;
 }
 
-.access-relocation {
+.workplace-onsite {
   background-color: #ede9fe;
   color: #5b21b6;
 }

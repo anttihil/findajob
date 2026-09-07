@@ -250,7 +250,6 @@ class TargetLocationPayload(BaseModel):
     country: str = "US"
     indeed_country: str = "usa"
     is_remote: bool = False
-    access: str = "relocation"
     weight: float = 1.0
     distance: int = 50
     enabled: bool = True
@@ -262,7 +261,6 @@ class TargetLocationUpdate(BaseModel):
     country: str | None = None
     indeed_country: str | None = None
     is_remote: bool | None = None
-    access: str | None = None
     weight: float | None = None
     distance: int | None = None
     enabled: bool | None = None
@@ -287,8 +285,6 @@ def get_jobs(
     source: str | None = None,
     is_remote: bool | None = None,
     has_salary: bool | None = None,
-    # commutable | remote | relocation.
-    access: str | None = Query(None, pattern="^(commutable|remote|relocation)$"),
     include_duplicates: bool = False,
     min_score: int | None = None,
     fit: bool | None = None,
@@ -310,7 +306,6 @@ def get_jobs(
             source=source,
             is_remote=is_remote,
             has_salary=has_salary,
-            access=access,
             include_duplicates=include_duplicates,
             min_score=min_score,
             fit=fit,
@@ -604,7 +599,6 @@ def create_target_location(payload: TargetLocationPayload):
             country=payload.country.strip().upper(),
             indeed_country=payload.indeed_country.strip().lower(),
             is_remote=payload.is_remote,
-            access=payload.access,
             weight=payload.weight,
             distance=payload.distance,
             enabled=payload.enabled,
@@ -646,7 +640,6 @@ def update_target_location_endpoint(loc_id: str, payload: TargetLocationUpdate):
             is_remote=(
                 payload.is_remote if payload.is_remote is not None else bool(loc["is_remote"])
             ),
-            access=payload.access if payload.access is not None else loc["access"],
             weight=payload.weight if payload.weight is not None else loc["weight"],
             distance=payload.distance if payload.distance is not None else loc["distance"],
             enabled=payload.enabled if payload.enabled is not None else bool(loc["enabled"]),
@@ -1342,7 +1335,6 @@ def filter_query(
     # at validation instead of being silently dropped -- which is how the old dashboard
     # shipped a sort control that sent nothing and a resume filter that filtered nothing.
     status: str = Query("unread", pattern="^(unread|saved|applied|rejected)$"),
-    access: str = Query("", pattern="^(commutable|remote|relocation)?$"),
     country: str = "",
     fit: bool | None = None,
     reason_type: str = Query("", pattern="^[a-z_]*$"),
@@ -1355,7 +1347,6 @@ def filter_query(
     return rendering.FilterQuery(
         {
             "status": status,
-            "access": access,
             "country": country,
             "fit": fit,
             "reason_type": reason_type if reason_type else None,

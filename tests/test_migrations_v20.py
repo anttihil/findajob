@@ -114,7 +114,6 @@ def test_target_locations_crud():
         country="FI",
         indeed_country="finland",
         is_remote=False,
-        access="relocation",
         weight=0.8,
         distance=50,
         enabled=True,
@@ -124,7 +123,7 @@ def test_target_locations_crud():
     hel = next((loc for loc in locs if loc["id"] == "helsinki"), None)
     assert hel is not None
     assert hel["country"] == "FI"
-    assert hel["access"] == "relocation"
+    assert hel["weight"] == 0.8
 
     toggle_target_location(conn, "helsinki", enabled=False)
     assert not any(loc["id"] == "helsinki" for loc in get_target_locations(conn, enabled_only=True))

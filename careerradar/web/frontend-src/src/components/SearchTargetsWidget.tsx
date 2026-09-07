@@ -15,7 +15,6 @@ interface PresetItem {
   country: string;
   indeed_country: string;
   is_remote: boolean;
-  access: "commutable" | "remote" | "relocation";
   weight: number;
   distance: number;
   region: "Remote" | "North America" | "Europe & UK" | "Asia-Pacific";
@@ -30,7 +29,6 @@ const LOCATION_PRESETS: PresetItem[] = [
     country: "US",
     indeed_country: "usa",
     is_remote: true,
-    access: "remote",
     weight: 1.0,
     distance: 50,
     region: "Remote",
@@ -42,7 +40,6 @@ const LOCATION_PRESETS: PresetItem[] = [
     country: "EU",
     indeed_country: "uk",
     is_remote: true,
-    access: "remote",
     weight: 1.0,
     distance: 50,
     region: "Remote",
@@ -54,7 +51,6 @@ const LOCATION_PRESETS: PresetItem[] = [
     country: "US",
     indeed_country: "usa",
     is_remote: true,
-    access: "remote",
     weight: 1.0,
     distance: 50,
     region: "Remote",
@@ -67,7 +63,6 @@ const LOCATION_PRESETS: PresetItem[] = [
     country: "US",
     indeed_country: "usa",
     is_remote: false,
-    access: "relocation",
     weight: 1.0,
     distance: 50,
     region: "North America",
@@ -79,7 +74,6 @@ const LOCATION_PRESETS: PresetItem[] = [
     country: "US",
     indeed_country: "usa",
     is_remote: false,
-    access: "relocation",
     weight: 1.0,
     distance: 50,
     region: "North America",
@@ -91,7 +85,6 @@ const LOCATION_PRESETS: PresetItem[] = [
     country: "US",
     indeed_country: "usa",
     is_remote: false,
-    access: "relocation",
     weight: 1.0,
     distance: 50,
     region: "North America",
@@ -103,7 +96,6 @@ const LOCATION_PRESETS: PresetItem[] = [
     country: "US",
     indeed_country: "usa",
     is_remote: false,
-    access: "relocation",
     weight: 1.0,
     distance: 50,
     region: "North America",
@@ -115,7 +107,6 @@ const LOCATION_PRESETS: PresetItem[] = [
     country: "US",
     indeed_country: "usa",
     is_remote: false,
-    access: "relocation",
     weight: 1.0,
     distance: 50,
     region: "North America",
@@ -127,7 +118,6 @@ const LOCATION_PRESETS: PresetItem[] = [
     country: "US",
     indeed_country: "usa",
     is_remote: false,
-    access: "relocation",
     weight: 1.0,
     distance: 50,
     region: "North America",
@@ -139,7 +129,6 @@ const LOCATION_PRESETS: PresetItem[] = [
     country: "US",
     indeed_country: "usa",
     is_remote: false,
-    access: "relocation",
     weight: 1.0,
     distance: 50,
     region: "North America",
@@ -151,7 +140,6 @@ const LOCATION_PRESETS: PresetItem[] = [
     country: "CA",
     indeed_country: "canada",
     is_remote: false,
-    access: "relocation",
     weight: 1.0,
     distance: 50,
     region: "North America",
@@ -163,7 +151,6 @@ const LOCATION_PRESETS: PresetItem[] = [
     country: "CA",
     indeed_country: "canada",
     is_remote: false,
-    access: "relocation",
     weight: 1.0,
     distance: 50,
     region: "North America",
@@ -176,7 +163,6 @@ const LOCATION_PRESETS: PresetItem[] = [
     country: "GB",
     indeed_country: "uk",
     is_remote: false,
-    access: "relocation",
     weight: 1.0,
     distance: 50,
     region: "Europe & UK",
@@ -188,7 +174,6 @@ const LOCATION_PRESETS: PresetItem[] = [
     country: "DE",
     indeed_country: "germany",
     is_remote: false,
-    access: "relocation",
     weight: 1.0,
     distance: 50,
     region: "Europe & UK",
@@ -200,7 +185,6 @@ const LOCATION_PRESETS: PresetItem[] = [
     country: "NL",
     indeed_country: "netherlands",
     is_remote: false,
-    access: "relocation",
     weight: 1.0,
     distance: 50,
     region: "Europe & UK",
@@ -212,7 +196,6 @@ const LOCATION_PRESETS: PresetItem[] = [
     country: "FR",
     indeed_country: "france",
     is_remote: false,
-    access: "relocation",
     weight: 1.0,
     distance: 50,
     region: "Europe & UK",
@@ -224,7 +207,6 @@ const LOCATION_PRESETS: PresetItem[] = [
     country: "IE",
     indeed_country: "ireland",
     is_remote: false,
-    access: "relocation",
     weight: 1.0,
     distance: 50,
     region: "Europe & UK",
@@ -236,7 +218,6 @@ const LOCATION_PRESETS: PresetItem[] = [
     country: "SE",
     indeed_country: "sweden",
     is_remote: false,
-    access: "relocation",
     weight: 1.0,
     distance: 50,
     region: "Europe & UK",
@@ -248,7 +229,6 @@ const LOCATION_PRESETS: PresetItem[] = [
     country: "FI",
     indeed_country: "finland",
     is_remote: false,
-    access: "relocation",
     weight: 1.0,
     distance: 50,
     region: "Europe & UK",
@@ -260,7 +240,6 @@ const LOCATION_PRESETS: PresetItem[] = [
     country: "NO",
     indeed_country: "norway",
     is_remote: false,
-    access: "relocation",
     weight: 1.0,
     distance: 50,
     region: "Europe & UK",
@@ -272,7 +251,6 @@ const LOCATION_PRESETS: PresetItem[] = [
     country: "DK",
     indeed_country: "denmark",
     is_remote: false,
-    access: "relocation",
     weight: 1.0,
     distance: 50,
     region: "Europe & UK",
@@ -284,7 +262,6 @@ const LOCATION_PRESETS: PresetItem[] = [
     country: "CH",
     indeed_country: "switzerland",
     is_remote: false,
-    access: "relocation",
     weight: 1.0,
     distance: 50,
     region: "Europe & UK",
@@ -297,7 +274,6 @@ const LOCATION_PRESETS: PresetItem[] = [
     country: "SG",
     indeed_country: "singapore",
     is_remote: false,
-    access: "relocation",
     weight: 1.0,
     distance: 50,
     region: "Asia-Pacific",
@@ -309,7 +285,6 @@ const LOCATION_PRESETS: PresetItem[] = [
     country: "AU",
     indeed_country: "australia",
     is_remote: false,
-    access: "relocation",
     weight: 1.0,
     distance: 50,
     region: "Asia-Pacific",
@@ -321,7 +296,6 @@ const LOCATION_PRESETS: PresetItem[] = [
     country: "JP",
     indeed_country: "japan",
     is_remote: false,
-    access: "relocation",
     weight: 1.0,
     distance: 50,
     region: "Asia-Pacific",
@@ -373,7 +347,6 @@ export function SearchTargetsWidget({
   const [locCountry, setLocCountry] = useState("US");
   const [locIndeedCountry, setLocIndeedCountry] = useState("usa");
   const [locIsRemote, setLocIsRemote] = useState(false);
-  const [locAccess, setLocAccess] = useState<"commutable" | "remote" | "relocation">("relocation");
   const [locWeight, setLocWeight] = useState(1.0);
   const [locDistance, setLocDistance] = useState(50);
   const [locEnabled, setLocEnabled] = useState(true);
@@ -558,7 +531,6 @@ export function SearchTargetsWidget({
       setLocCountry(preset.country);
       setLocIndeedCountry(preset.indeed_country);
       setLocIsRemote(preset.is_remote);
-      setLocAccess(preset.access);
       setLocWeight(preset.weight);
       setLocDistance(preset.distance);
       setLocEnabled(true);
@@ -570,7 +542,6 @@ export function SearchTargetsWidget({
       setLocCountry("US");
       setLocIndeedCountry("usa");
       setLocIsRemote(false);
-      setLocAccess("relocation");
       setLocWeight(1.0);
       setLocDistance(50);
       setLocEnabled(true);
@@ -586,7 +557,6 @@ export function SearchTargetsWidget({
     setLocCountry(loc.country || "US");
     setLocIndeedCountry(loc.indeed_country || "usa");
     setLocIsRemote(Boolean(loc.is_remote));
-    setLocAccess((loc.access as "commutable" | "remote" | "relocation") || "relocation");
     setLocWeight(loc.weight ?? 1.0);
     setLocDistance(loc.distance ?? 50);
     setLocEnabled(Boolean(loc.enabled));
@@ -609,7 +579,6 @@ export function SearchTargetsWidget({
       country: locCountry.trim().toUpperCase(),
       indeed_country: locIndeedCountry.trim().toLowerCase(),
       is_remote: locIsRemote,
-      access: locAccess,
       weight: Number(locWeight) || 1.0,
       distance: Number(locDistance) || 50,
       enabled: locEnabled,
@@ -1048,7 +1017,7 @@ export function SearchTargetsWidget({
                           <th style={{ width: "110px" }}>STATUS</th>
                           <th>LOCATION & SEARCH STRING</th>
                           <th style={{ width: "110px" }}>COUNTRY</th>
-                          <th style={{ width: "130px" }}>ACCESS</th>
+                          <th style={{ width: "130px" }}>WORKPLACE</th>
                           <th style={{ width: "100px" }}>WEIGHT</th>
                           <th style={{ width: "90px" }}>RADIUS</th>
                           <th style={{ width: "130px", textAlign: "right" }}>ACTIONS</th>
@@ -1088,12 +1057,8 @@ export function SearchTargetsWidget({
                                 </span>
                               </td>
                               <td>
-                                <span class={`access-tag access-${loc.access}`}>
-                                  {loc.access === "commutable" ? (
-                                    <>
-                                      <i class="fa-solid fa-house"></i> Local
-                                    </>
-                                  ) : loc.access === "remote" || isRemote ? (
+                                <span class={`workplace-tag workplace-${isRemote ? "remote" : "onsite"}`}>
+                                  {isRemote ? (
                                     <>
                                       <i class="fa-solid fa-wifi"></i> Remote
                                     </>
@@ -1375,26 +1340,6 @@ export function SearchTargetsWidget({
                     onInput={(e) => setLocIndeedCountry((e.target as HTMLInputElement).value.toLowerCase())}
                     required
                   />
-                </div>
-
-                <div class="form-group mb-3">
-                  <label class="form-label">Workplace / Access Arrangement</label>
-                  <select
-                    class="form-select"
-                    value={locAccess}
-                    onChange={(e) =>
-                      setLocAccess(
-                        (e.target as HTMLSelectElement).value as
-                          | "commutable"
-                          | "remote"
-                          | "relocation"
-                      )
-                    }
-                  >
-                    <option value="commutable">Local / Commutable (Within your primary home/commuting area)</option>
-                    <option value="remote">Remote (Remote arrangement — location independent)</option>
-                    <option value="relocation">Onsite (Onsite at target search location)</option>
-                  </select>
                 </div>
 
                 <div class="form-group mb-3">

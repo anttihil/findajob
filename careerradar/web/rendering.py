@@ -19,7 +19,6 @@ if TYPE_CHECKING:
 # of `Database.query_jobs` exactly, which is the point -- a form field whose name is wrong
 FILTER_DEFAULTS: dict[str, Any] = {
     "status": "unread",
-    "access": "",
     "country": "",
     "fit": None,
     "reason_type": "",

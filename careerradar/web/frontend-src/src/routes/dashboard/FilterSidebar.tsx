@@ -9,13 +9,6 @@ const STATUS_OPTIONS: [string, string][] = [
   ["rejected", "Rejected"],
 ];
 
-const ACCESS_OPTIONS: [string, string, string][] = [
-  ["", "All", "Every posting"],
-  ["commutable", "Local", "Within commuting distance of configured local search areas"],
-  ["remote", "Remote", "Remote work arrangement — not bound to a physical office"],
-  ["relocation", "Onsite", "Onsite at target search locations"],
-];
-
 const LIVENESS_OPTIONS: [string, string][] = [
   ["live", "Confirmed live"],
   ["stale", "Not re-checked recently"],
@@ -58,22 +51,6 @@ export function FilterSidebar({ query, meta }: { query: FilterQuery; meta: Meta 
               key={value}
               class={`status-pill ${query.isActive("status", value) ? "active" : ""}`}
               href={query.url({ status: value })}
-            >
-              {label}
-            </Link>
-          ))}
-        </div>
-      </div>
-
-      <div class="filter-group">
-        <label>Reachability</label>
-        <div class="status-toggle-grid access-toggle-grid">
-          {ACCESS_OPTIONS.map(([value, label, tip]) => (
-            <Link
-              key={value}
-              class={`status-pill ${query.isActive("access", value) ? "active" : ""}`}
-              href={query.url({ access: value })}
-              title={tip}
             >
               {label}
             </Link>

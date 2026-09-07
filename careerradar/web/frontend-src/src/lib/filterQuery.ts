@@ -10,7 +10,6 @@ export type JobStatusFilter = "unread" | "saved" | "applied" | "rejected";
 
 export interface FilterValues {
   status: JobStatusFilter;
-  access: string;
   country: string;
   fit: boolean | null;
   reason_type: string;
@@ -23,7 +22,6 @@ export interface FilterValues {
 
 export const FILTER_DEFAULTS: FilterValues = {
   status: "unread",
-  access: "",
   country: "",
   fit: null,
   reason_type: "",
@@ -47,7 +45,6 @@ function parseValues(search: string): FilterValues {
   }
   return {
     status: (raw.status as JobStatusFilter) || FILTER_DEFAULTS.status,
-    access: raw.access ?? FILTER_DEFAULTS.access,
     country: raw.country ?? FILTER_DEFAULTS.country,
     fit:
       raw.fit === "true" || raw.fit === "1"
@@ -73,9 +70,6 @@ export class FilterQuery {
 
   get status() {
     return this.values.status;
-  }
-  get access() {
-    return this.values.access;
   }
   get country() {
     return this.values.country;

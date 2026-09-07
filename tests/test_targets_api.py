@@ -78,7 +78,6 @@ def test_target_location_crud(client: TestClient) -> None:
             "country": "US",
             "indeed_country": "usa",
             "is_remote": False,
-            "access": "commutable",
             "weight": 1.0,
             "distance": 25,
             "enabled": True,
