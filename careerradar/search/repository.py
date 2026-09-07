@@ -46,16 +46,15 @@ def seed_cells(conn: sqlite3.Connection, specs: list[dict[str, Any]]) -> tuple[i
             """
             INSERT INTO scrape_cells
                 (source, location_id, query, search_label, country, indeed_country,
-                 is_remote, distance, weight, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 is_remote, distance, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT (source, location_id, query) DO UPDATE SET
                 enabled        = 1,
                 search_label   = excluded.search_label,
                 country        = excluded.country,
                 indeed_country = excluded.indeed_country,
                 is_remote      = excluded.is_remote,
-                distance       = excluded.distance,
-                weight         = excluded.weight
+                distance       = excluded.distance
             """,
             (
                 spec["source"],
@@ -66,7 +65,6 @@ def seed_cells(conn: sqlite3.Connection, specs: list[dict[str, Any]]) -> tuple[i
                 spec["indeed_country"],
                 spec["is_remote"],
                 spec["distance"],
-                spec["weight"],
                 now,
             ),
         )
@@ -120,7 +118,6 @@ def get_cells(
                 indeed_country=row["indeed_country"],
                 is_remote=bool(row["is_remote"]),
                 distance=row["distance"],
-                weight=row["weight"],
                 active=bool(row["enabled"]),
                 enabled=row["enabled"],
                 last_scraped_at=row["last_scraped_at"],

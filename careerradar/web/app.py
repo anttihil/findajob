@@ -239,7 +239,6 @@ class TargetLocationPayload(BaseModel):
     country: str = "US"
     indeed_country: str = "usa"
     is_remote: bool = False
-    weight: float = 1.0
     distance: int = 50
     enabled: bool = True
 
@@ -250,7 +249,6 @@ class TargetLocationUpdate(BaseModel):
     country: str | None = None
     indeed_country: str | None = None
     is_remote: bool | None = None
-    weight: float | None = None
     distance: int | None = None
     enabled: bool | None = None
 
@@ -553,7 +551,6 @@ def create_target_location(payload: TargetLocationPayload):
             country=payload.country.strip().upper(),
             indeed_country=payload.indeed_country.strip().lower(),
             is_remote=payload.is_remote,
-            weight=payload.weight,
             distance=payload.distance,
             enabled=payload.enabled,
         )
@@ -594,7 +591,6 @@ def update_target_location_endpoint(loc_id: str, payload: TargetLocationUpdate):
             is_remote=(
                 payload.is_remote if payload.is_remote is not None else bool(loc["is_remote"])
             ),
-            weight=payload.weight if payload.weight is not None else loc["weight"],
             distance=payload.distance if payload.distance is not None else loc["distance"],
             enabled=payload.enabled if payload.enabled is not None else bool(loc["enabled"]),
         )

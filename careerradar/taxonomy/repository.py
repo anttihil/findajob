@@ -97,7 +97,7 @@ def get_locations(
     """Fetch the configured search locations."""
     query = """
         SELECT id, label, search_label, country, indeed_country,
-               is_remote, weight, distance, enabled
+               is_remote, distance, enabled
           FROM search_locations
     """
     if enabled_only:
@@ -115,7 +115,6 @@ def save_location(
     country: str = "US",
     indeed_country: str = "usa",
     is_remote: bool = False,
-    weight: float = 1.0,
     distance: int = 50,
     enabled: bool = True,
 ) -> None:
@@ -124,15 +123,14 @@ def save_location(
         """
         INSERT INTO search_locations (
             id, label, search_label, country, indeed_country,
-            is_remote, weight, distance, enabled
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            is_remote, distance, enabled
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
             label = excluded.label,
             search_label = excluded.search_label,
             country = excluded.country,
             indeed_country = excluded.indeed_country,
             is_remote = excluded.is_remote,
-            weight = excluded.weight,
             distance = excluded.distance,
             enabled = excluded.enabled
         """,
@@ -143,7 +141,6 @@ def save_location(
             country,
             indeed_country,
             1 if is_remote else 0,
-            weight,
             distance,
             1 if enabled else 0,
         ),

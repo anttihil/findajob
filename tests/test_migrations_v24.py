@@ -42,7 +42,8 @@ def test_migration_v24_target_schema():
     assert queries_cols == {"id", "query", "enabled"}
 
     locs_cols = {row["name"] for row in conn.execute("PRAGMA table_info(search_locations)")}
-    assert "access" not in locs_cols
+    for gone in ("access", "weight"):
+        assert gone not in locs_cols, f"search_locations.{gone} survived"
     for col in (
         "id",
         "label",
@@ -50,7 +51,6 @@ def test_migration_v24_target_schema():
         "country",
         "indeed_country",
         "is_remote",
-        "weight",
         "distance",
         "enabled",
     ):
@@ -64,9 +64,9 @@ def test_migration_v24_target_schema():
 def test_migration_v24_embeds_the_search_parameters_on_the_cell():
     conn = _migrated()
     cell_cols = {row["name"] for row in conn.execute("PRAGMA table_info(scrape_cells)")}
-    for gone in ("role_family", "tier"):
+    for gone in ("role_family", "tier", "weight"):
         assert gone not in cell_cols
-    for col in ("search_label", "country", "indeed_country", "is_remote", "distance", "weight"):
+    for col in ("search_label", "country", "indeed_country", "is_remote", "distance"):
         assert col in cell_cols, f"Missing {col} in scrape_cells"
 
     obs_cols = {row["name"] for row in conn.execute("PRAGMA table_info(cell_observations)")}
@@ -109,7 +109,6 @@ def test_search_locations_crud():
         country="FI",
         indeed_country="finland",
         is_remote=False,
-        weight=0.8,
         distance=50,
         enabled=True,
     )
@@ -117,7 +116,6 @@ def test_search_locations_crud():
     hel = next((loc for loc in get_locations(conn) if loc["id"] == "helsinki"), None)
     assert hel is not None
     assert hel["country"] == "FI"
-    assert hel["weight"] == 0.8
 
     toggle_location(conn, "helsinki", enabled=False)
     assert not any(loc["id"] == "helsinki" for loc in get_locations(conn, enabled_only=True))

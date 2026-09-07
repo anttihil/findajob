@@ -540,7 +540,6 @@ export interface TargetLocation {
   country: string;
   indeed_country: string;
   is_remote: number | boolean;
-  weight: number;
   distance: number;
   enabled: number | boolean;
 }

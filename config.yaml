@@ -58,8 +58,8 @@ scraper:
   # Window used when a cell has never been scraped successfully, and by backfill runs.
   backfill_hours_old: 168
 
-  # Freshness guarantee: If a cell in a top-weighted location has not been visited
-  # within this many hours, the dashboard shows a coverage warning.
+  # If an enabled cell has had no successful visit within this many hours, the dashboard
+  # shows a coverage warning. It is a report, not a guarantee: nothing reschedules on it.
   max_staleness_hours: 72
 
   # Per-source limits on one run. Several caps apply at once and the SMALLEST one binds, so

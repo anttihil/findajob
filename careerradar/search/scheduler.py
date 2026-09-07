@@ -29,8 +29,6 @@ class CellState:
     indeed_country: str = "usa"
     is_remote: bool = False
     distance: int = 50
-    # Decides which locations the staleness floor guarantees, nothing else.
-    weight: float = 1.0
     active: bool = True
     enabled: int = 1
     last_scraped_at: str | None = None
@@ -131,19 +129,9 @@ def is_eligible(cell: CellState, now: datetime) -> bool:
     return backoff is None or backoff <= now
 
 
-def _read_floor(config: dict[str, Any]) -> int:
-    val = config.get("hours_old_floor", 72)
-    if isinstance(val, dict):
-        return int(val.get("core", 72))
-    try:
-        return int(val)
-    except (ValueError, TypeError):
-        return 72
-
-
 def adaptive_hours_old(cell: CellState, config: dict[str, Any], now: datetime) -> int:
     """How far back one scrape of this cell looks, in hours."""
-    floor = _read_floor(config)
+    floor = int(config.get("hours_old_floor", 72))
     gap = hours_since(cell.last_success_at, now, default=config.get("backfill_hours_old", 168))
     ceiling = int(config.get("max_hours_old", 168))
     return int(min(ceiling, max(floor, 1.5 * gap)))
@@ -261,14 +249,14 @@ def select_cells(
 def overdue_cells(
     cells: list[CellState], config: dict[str, Any], now: datetime | None = None
 ) -> list[CellState]:
-    """Cells past the staleness floor, for the coverage warning and for suppression."""
+    """Enabled cells whose last successful visit is older than the staleness floor.
+
+    Read by the coverage warning only. Being overdue changes nothing about scheduling: a
+    stale cell already sorts to the front of the queue, because the queue is staleness.
+    """
     now = now or datetime.now(timezone.utc)
     floor = config.get("max_staleness_hours", 72)
-    return [
-        c
-        for c in cells
-        if c.enabled and c.weight >= 1.0 and hours_since(c.last_success_at, now) > floor
-    ]
+    return [c for c in cells if c.enabled and hours_since(c.last_success_at, now) > floor]
 
 
 def is_saturated(returned: int, requested: int, threshold: float = 0.95) -> bool:

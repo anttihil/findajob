@@ -22,7 +22,6 @@ TEST_TAXONOMY_SPEC: dict[str, Any] = {
             "country": "US",
             "indeed_country": "usa",
             "is_remote": True,
-            "weight": 1.0,
             "distance": 50,
             "enabled": True,
         },
@@ -33,7 +32,6 @@ TEST_TAXONOMY_SPEC: dict[str, Any] = {
             "country": "US",
             "indeed_country": "usa",
             "is_remote": False,
-            "weight": 1.0,
             "distance": 50,
             "enabled": True,
         },
@@ -44,7 +42,6 @@ TEST_TAXONOMY_SPEC: dict[str, Any] = {
             "country": "US",
             "indeed_country": "usa",
             "is_remote": False,
-            "weight": 0.55,
             "distance": 50,
             "enabled": True,
         },
@@ -55,7 +52,6 @@ TEST_TAXONOMY_SPEC: dict[str, Any] = {
             "country": "AU",
             "indeed_country": "australia",
             "is_remote": False,
-            "weight": 0.4,
             "distance": 50,
             "enabled": False,
         },
@@ -119,7 +115,6 @@ class CellPlanningTests(unittest.TestCase):
             self.assertEqual(spec["indeed_country"], location.indeed_country)
             self.assertEqual(bool(spec["is_remote"]), location.is_remote)
             self.assertEqual(spec["distance"], location.distance)
-            self.assertEqual(spec["weight"], location.weight)
 
 
 class SearchLabelTests(unittest.TestCase):

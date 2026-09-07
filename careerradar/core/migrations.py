@@ -13,7 +13,7 @@ from careerradar.core.logger import get_logger
 
 logger = get_logger()
 
-SCHEMA_VERSION = 27
+SCHEMA_VERSION = 28
 
 
 def _v1_baseline(cursor: sqlite3.Cursor) -> None:
@@ -1861,7 +1861,7 @@ def _v24_cell_centric_queries(cursor: sqlite3.Cursor) -> None:
             indeed_country TEXT NOT NULL DEFAULT 'usa',
             is_remote      INTEGER NOT NULL DEFAULT 0,
             distance       INTEGER NOT NULL DEFAULT 50,
-            -- Scheduler priority only: how hard this location competes for the budget.
+            -- Dropped again in v28: the priority product that read it is gone.
             weight         REAL NOT NULL DEFAULT 1.0,
 
             enabled     INTEGER NOT NULL DEFAULT 1,
@@ -2186,6 +2186,25 @@ def _v27_drop_taxonomy_hash(cursor: sqlite3.Cursor) -> None:
             cursor.execute(f"ALTER TABLE {table} DROP COLUMN taxonomy_hash")
 
 
+def _v28_drop_location_weight(cursor: sqlite3.Cursor) -> None:
+    """Delete `search_locations.weight` and `scrape_cells.weight`.
+
+    The weight was one factor of the old six-term `cell_priority()` product, so a location
+    set to 2.0 really did compete harder for the scrape budget. That product is gone: cells
+    are visited oldest-attempt-first, and the only reader left tested `weight >= 1.0` to
+    decide who counted for the staleness coverage warning. As a gate that is not a weight,
+    and it silently dropped the low-weight cells out of the one report that would have said
+    they were never being visited.
+
+    The dashboard still offered a "Weight Multiplier (0.1 - 2.0)" field for a number that
+    could no longer multiply anything.
+    """
+    for table in ("search_locations", "scrape_cells"):
+        cursor.execute(f"PRAGMA table_info({table})")
+        if "weight" in {row[1] for row in cursor.fetchall()}:
+            cursor.execute(f"ALTER TABLE {table} DROP COLUMN weight")
+
+
 MIGRATIONS: list[tuple[int, str, Callable[[sqlite3.Cursor], None]]] = [
     (1, "baseline jobs table", _v1_baseline),
     (2, "market analytics: cells, observations, skills, stats", _v2_analytics),
@@ -2269,6 +2288,11 @@ MIGRATIONS: list[tuple[int, str, Callable[[sqlite3.Cursor], None]]] = [
         27,
         "drop the taxonomy_hash columns left by the retired keyword taxonomy",
         _v27_drop_taxonomy_hash,
+    ),
+    (
+        28,
+        "drop the location weight left by the retired priority ranking",
+        _v28_drop_location_weight,
     ),
 ]
 

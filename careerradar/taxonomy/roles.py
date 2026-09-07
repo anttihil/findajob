@@ -22,7 +22,6 @@ class Location:
     country: str = ""
     indeed_country: str = "usa"
     is_remote: bool = False
-    weight: float = 1.0
     distance: int = 50
     enabled: bool = True
 
@@ -120,7 +119,6 @@ class RoleTaxonomy:
                             "indeed_country": location.indeed_country,
                             "is_remote": 1 if location.is_remote else 0,
                             "distance": location.distance,
-                            "weight": location.weight,
                         }
                     )
         return specs

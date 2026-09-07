@@ -76,7 +76,6 @@ def test_target_location_crud(client: TestClient) -> None:
             "country": "US",
             "indeed_country": "usa",
             "is_remote": False,
-            "weight": 1.0,
             "distance": 25,
             "enabled": True,
         },
@@ -91,7 +90,7 @@ def test_target_location_crud(client: TestClient) -> None:
     # Update location
     up_res = client.put(
         f"/api/targets/locations/{loc_id}",
-        json={"weight": 0.8, "distance": 40},
+        json={"distance": 40},
     )
     assert up_res.status_code == 200
 

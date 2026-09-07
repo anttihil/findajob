@@ -57,7 +57,6 @@ SCHEDULER_TEST_TAXONOMY_SPEC = {
             "country": "US",
             "indeed_country": "usa",
             "is_remote": True,
-            "weight": 1.0,
             "distance": 50,
             "enabled": True,
         },
@@ -68,7 +67,6 @@ SCHEDULER_TEST_TAXONOMY_SPEC = {
             "country": "US",
             "indeed_country": "usa",
             "is_remote": False,
-            "weight": 0.3,
             "distance": 50,
             "enabled": True,
         },
@@ -79,7 +77,6 @@ SCHEDULER_TEST_TAXONOMY_SPEC = {
             "country": "US",
             "indeed_country": "usa",
             "is_remote": False,
-            "weight": 1.0,
             "distance": 50,
             "enabled": True,
         },
@@ -90,7 +87,6 @@ SCHEDULER_TEST_TAXONOMY_SPEC = {
             "country": "FI",
             "indeed_country": "finland",
             "is_remote": False,
-            "weight": 0.5,
             "distance": 50,
             "enabled": True,
         },
@@ -101,7 +97,6 @@ SCHEDULER_TEST_TAXONOMY_SPEC = {
             "country": "SE",
             "indeed_country": "sweden",
             "is_remote": False,
-            "weight": 0.5,
             "distance": 50,
             "enabled": True,
         },
@@ -112,7 +107,6 @@ SCHEDULER_TEST_TAXONOMY_SPEC = {
             "country": "NO",
             "indeed_country": "norway",
             "is_remote": False,
-            "weight": 0.5,
             "distance": 50,
             "enabled": True,
         },
@@ -123,7 +117,6 @@ SCHEDULER_TEST_TAXONOMY_SPEC = {
             "country": "DK",
             "indeed_country": "denmark",
             "is_remote": False,
-            "weight": 0.5,
             "distance": 50,
             "enabled": True,
         },
@@ -173,7 +166,6 @@ def make_cells(source: str = "indeed", roles: RoleTaxonomy | None = None) -> lis
                 indeed_country=spec["indeed_country"],
                 is_remote=bool(spec["is_remote"]),
                 distance=spec["distance"],
-                weight=spec["weight"],
             )
         )
     return cells
@@ -436,53 +428,19 @@ class StalenessFloorTests(unittest.TestCase):
         ]
         self.assertEqual(overdue_cells(cells, CONFIG, NOW), [])
 
-    def test_low_weight_locations_are_not_floor_guaranteed(self) -> None:
+    def test_disabled_cells_are_not_overdue(self) -> None:
+        """A paused cell is not expected back, so it cannot fall behind."""
         cells = [
             CellState(
                 1,
                 "indeed",
                 "us_nat",
                 "q",
-                weight=0.3,
-                active=True,
+                enabled=0,
                 last_success_at=(NOW - timedelta(days=30)).isoformat(),
             )
         ]
         self.assertEqual(overdue_cells(cells, CONFIG, NOW), [])
-
-
-class LocationWeightWiringTests(unittest.TestCase):
-    """The weight reaches the scheduler on the cell itself.
-
-    Every weight-dependent test above hand-builds its cells, so all of them passed while
-    production shipped a config the scheduler never populated -- every location weighed
-    1.0 and the >= 1.0 filters matched everything. Testing the policy is not enough; the
-    wiring from the location definition onto the cell needs its own test.
-    """
-
-    def setUp(self) -> None:
-        self.roles = RoleTaxonomy(spec_dict=SCHEDULER_TEST_TAXONOMY_SPEC)
-
-    def test_cell_specs_carry_the_location_weight(self) -> None:
-        for spec in self.roles.cell_specs(sources=("indeed",)):
-            self.assertEqual(spec["weight"], self.roles.locations[spec["location_id"]].weight)
-
-    def test_cells_built_from_specs_carry_the_weight(self) -> None:
-        by_location = {c.location_id: c for c in make_cells("indeed", self.roles)}
-        self.assertEqual(by_location["us_nat"].weight, 0.3)
-        self.assertEqual(by_location["us_remote"].weight, 1.0)
-
-    def test_weight_decides_who_counts_as_overdue(self) -> None:
-        """The regression itself: a low-weight cell is outside the floor guarantee."""
-        stale: dict[str, Any] = {
-            "active": True,
-            "last_success_at": (NOW - timedelta(days=30)).isoformat(),
-        }
-        low = CellState(1, "indeed", "us_nat", "q", weight=0.3, **stale)
-        high = CellState(2, "indeed", "us_remote", "q", weight=1.0, **stale)
-        config = {"max_staleness_hours": 72}
-        self.assertEqual(overdue_cells([low], config, NOW), [])
-        self.assertEqual(len(overdue_cells([high], config, NOW)), 1)
 
 
 class LongStaleCellTests(unittest.TestCase):

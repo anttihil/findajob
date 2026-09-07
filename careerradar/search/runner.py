@@ -465,9 +465,9 @@ def _report_coverage(db: Database, scraper_config: dict[str, Any]) -> None:
     sample = ", ".join(f"{c.location_id}/{c.query}" for c in overdue[:4])
     add_sync_error(
         "Scheduler",
-        f"Coverage: {len(overdue)} core cells past the "
-        f"{scraper_config.get('max_staleness_hours', 72)}h floor ({sample}"
-        f"{'...' if len(overdue) > 4 else ''}). Supply comparisons for these cells "
-        f"are suppressed this window.",
+        f"Coverage: {len(overdue)} cells have had no successful visit in "
+        f"{scraper_config.get('max_staleness_hours', 72)}h ({sample}"
+        f"{'...' if len(overdue) > 4 else ''}). Supply figures for these cells rest on "
+        f"older data than the rest.",
         severity="warning",
     )
