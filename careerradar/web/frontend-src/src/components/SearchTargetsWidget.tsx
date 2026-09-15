@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "preact/hooks";
+import { useStoredPreference } from "../lib/preferences";
 import { deleteJSON, getJSON, guard, postJSON, putJSON, reportError } from "../api/client";
 import type {
   TargetCapacity,
@@ -295,8 +296,8 @@ export function SearchTargetsWidget({
   const [actionMessage, setActionMessage] = useState<string | null>(null);
 
   // Queries Filter & Add Form State
-  const [querySearchTerm, setQuerySearchTerm] = useState("");
-  const [queryStatusFilter, setQueryStatusFilter] = useState<"all" | "active" | "paused">("all");
+  const [querySearchTerm, setQuerySearchTerm] = useStoredPreference("target-query-search", "");
+  const [queryStatusFilter, setQueryStatusFilter] = useStoredPreference<"all" | "active" | "paused">("target-query-status-filter", "all");
 
   const [showAddQueryModal, setShowAddQueryModal] = useState(false);
   const [newQueryText, setNewQueryText] = useState("");

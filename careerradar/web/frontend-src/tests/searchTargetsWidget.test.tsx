@@ -49,6 +49,7 @@ const mockCapacity = {
 
 describe("SearchTargetsWidget", () => {
   beforeEach(() => {
+    window.localStorage.clear();
     vi.stubGlobal(
       "fetch",
       vi.fn().mockImplementation((url: string, opts?: { method?: string; body?: string }) => {

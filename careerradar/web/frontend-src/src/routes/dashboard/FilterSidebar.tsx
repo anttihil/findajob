@@ -29,7 +29,15 @@ const DATE_POSTED_OPTIONS: [string, string][] = [
 // control here is a link/select carrying the *whole* current filter plus one change --
 // `query.url()` already merges in the rest, so unlike the Jinja version there is no need
 // for hidden fields to keep a `<select>`'s own `<form>` from dropping the other filters.
-export function FilterSidebar({ query, meta }: { query: FilterQuery; meta: Meta | null }) {
+export function FilterSidebar({
+  query,
+  meta,
+  onReset,
+}: {
+  query: FilterQuery;
+  meta: Meta | null;
+  onReset: () => void;
+}) {
   const [, navigate] = useLocation();
 
   return (
@@ -38,7 +46,7 @@ export function FilterSidebar({ query, meta }: { query: FilterQuery; meta: Meta 
         <h3>
           <i class="fa-solid fa-filter"></i> Filters
         </h3>
-        <Link class="text-btn" href="/">
+        <Link class="text-btn" href="/" onClick={onReset}>
           Reset
         </Link>
       </div>

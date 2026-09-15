@@ -34,6 +34,8 @@ export const FILTER_DEFAULTS: FilterValues = {
   offset: 0,
 };
 
+export const DASHBOARD_FILTER_PREFERENCE = "dashboard-filter";
+
 type Overrides = Partial<Record<keyof FilterValues, string | number | boolean | null>>;
 
 // Typed once as an index signature so default-comparisons below don't need a cast per call.
@@ -159,5 +161,11 @@ export class FilterQuery {
       params.set(key, String(value));
     }
     return params;
+  }
+
+  /** A compact, shareable representation for restoring a user's dashboard view.
+   * Pagination is intentionally excluded: reopening the app should start at page one. */
+  preferenceSearch(): string {
+    return this.queryString({ offset: 0 });
   }
 }

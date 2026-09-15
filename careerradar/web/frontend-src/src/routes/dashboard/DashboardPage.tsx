@@ -10,7 +10,8 @@ import type {
 } from "../../api/types";
 import { JobCard } from "../../components/JobCard";
 import { Pagination } from "../../components/Pagination";
-import { FilterQuery } from "../../lib/filterQuery";
+import { DASHBOARD_FILTER_PREFERENCE, FilterQuery } from "../../lib/filterQuery";
+import { clearPreference, readPreference, writePreference } from "../../lib/preferences";
 import { setSyncFinishedListener, syncStatus } from "../../state/sync";
 import { stats } from "../../state/stats";
 import { FilterSidebar } from "./FilterSidebar";
@@ -49,6 +50,27 @@ export function DashboardPage() {
   const [dismissedErrors, setDismissedErrors] = useState<unknown>(null);
   const [searchTerm, setSearchTerm] = useState(query.q);
   const debounceTimerRef = useRef<number | null>(null);
+  const initialPreferenceHandled = useRef(false);
+
+  useEffect(() => {
+    // A shared URL is explicit and always wins. On an unfiltered visit, recover the last
+    // dashboard filter instead. Do not save the empty initial URL before it is restored.
+    if (!initialPreferenceHandled.current) {
+      initialPreferenceHandled.current = true;
+      if (!search) {
+        const savedSearch = readPreference(DASHBOARD_FILTER_PREFERENCE, "");
+        if (savedSearch) {
+          navigate(`/?${savedSearch}`);
+          return;
+        }
+      }
+    }
+    const preferenceSearch = query.preferenceSearch();
+    if (preferenceSearch) writePreference(DASHBOARD_FILTER_PREFERENCE, preferenceSearch);
+    // Opening a job from a notification can produce a `?job=…` URL with no filter.
+    // That is navigation state, not a request to forget the user's saved dashboard view.
+    else if (!new URLSearchParams(search).has("job")) clearPreference(DASHBOARD_FILTER_PREFERENCE);
+  }, [navigate, query, search]);
 
   // Sync search input if URL changed externally (e.g. navigation or reset)
   useEffect(() => {
@@ -412,7 +434,11 @@ export function DashboardPage() {
 
         {/* Right Column: Filter Controls / Connections */}
         <div class="feed-sidebar-col">
-          <FilterSidebar query={query} meta={meta} />
+          <FilterSidebar
+            query={query}
+            meta={meta}
+            onReset={() => clearPreference(DASHBOARD_FILTER_PREFERENCE)}
+          />
         </div>
       </div>
 

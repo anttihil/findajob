@@ -77,6 +77,13 @@ describe("FilterQuery", () => {
     });
   });
 
+  describe("preferenceSearch()", () => {
+    it("preserves filters but never restores a later pagination offset", () => {
+      const q = new FilterQuery("?country=FI&q=platform+engineer&offset=100");
+      expect(q.preferenceSearch()).toBe("country=FI&q=platform+engineer");
+    });
+  });
+
   describe("withJob() / withoutJob()", () => {
     it("adds job to the query string", () => {
       const q = new FilterQuery("?status=saved");

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "preact/hooks";
 import { getJSON, guard } from "../../api/client";
+import { useStoredPreference } from "../../lib/preferences";
 import type {
   ObservabilityPromptResponse,
   ObservabilityReason,
@@ -24,12 +25,12 @@ export function ObservabilityPage() {
   const [copiedPrompt, setCopiedPrompt] = useState(false);
 
   // Filters and pagination state
-  const [searchTerm, setSearchTerm] = useState("");
-  const [activeQuery, setActiveQuery] = useState("");
-  const [fitFilter, setFitFilter] = useState<"all" | "fit" | "no_fit">("all");
-  const [reasonFilter, setReasonFilter] = useState<string>("all");
-  const [sortOrder, setSortOrder] = useState<string>("tokens_out_desc");
-  const [limit, setLimit] = useState<number>(20);
+  const [searchTerm, setSearchTerm] = useStoredPreference("observability-search-term", "");
+  const [activeQuery, setActiveQuery] = useStoredPreference("observability-active-query", "");
+  const [fitFilter, setFitFilter] = useStoredPreference<"all" | "fit" | "no_fit">("observability-fit-filter", "all");
+  const [reasonFilter, setReasonFilter] = useStoredPreference<string>("observability-reason-filter", "all");
+  const [sortOrder, setSortOrder] = useStoredPreference<string>("observability-sort-order", "tokens_out_desc");
+  const [limit, setLimit] = useStoredPreference<number>("observability-limit", 20);
   const [offset, setOffset] = useState<number>(0);
 
   // Load overall stats and prompt info on mount

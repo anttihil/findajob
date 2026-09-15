@@ -7,6 +7,7 @@ import type {
   MarketYieldResponse,
 } from "../../api/types";
 import { renderCoverageStrip, renderYieldBarChart } from "../../charts/charts";
+import { useStoredPreference } from "../../lib/preferences";
 
 function CoverageTable({ cells }: { cells: CoverageCell[] | null }) {
   if (cells === null) return null;
@@ -87,13 +88,13 @@ export function MarketPage() {
   const [showCoverage, setShowCoverage] = useState(false);
 
   // Filters state
-  const [viewMode, setViewMode] = useState<"query" | "tuple">("query");
-  const [windowDays, setWindowDays] = useState<number | null>(null);
-  const [sourceFilter, setSourceFilter] = useState<string>("all");
-  const [locationFilter, setLocationFilter] = useState<string>("all");
-  const [queryFilter, setQueryFilter] = useState<string>("all");
-  const [categoryFilter, setCategoryFilter] = useState<string>("all");
-  const [searchQuery, setSearchQuery] = useState<string>("");
+  const [viewMode, setViewMode] = useStoredPreference<"query" | "tuple">("market-view-mode", "query");
+  const [windowDays, setWindowDays] = useStoredPreference<number | null>("market-window-days", null);
+  const [sourceFilter, setSourceFilter] = useStoredPreference<string>("market-source-filter", "all");
+  const [locationFilter, setLocationFilter] = useStoredPreference<string>("market-location-filter", "all");
+  const [queryFilter, setQueryFilter] = useStoredPreference<string>("market-query-filter", "all");
+  const [categoryFilter, setCategoryFilter] = useStoredPreference<string>("market-category-filter", "all");
+  const [searchQuery, setSearchQuery] = useStoredPreference<string>("market-search-query", "");
   const [togglingQueryId, setTogglingQueryId] = useState<number | null>(null);
 
   const chartRef = useRef<HTMLDivElement>(null);
