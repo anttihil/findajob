@@ -13,7 +13,7 @@ from careerradar.core.logger import get_logger
 
 logger = get_logger()
 
-SCHEMA_VERSION = 28
+SCHEMA_VERSION = 29
 
 
 def _v1_baseline(cursor: sqlite3.Cursor) -> None:
@@ -2205,6 +2205,57 @@ def _v28_drop_location_weight(cursor: sqlite3.Cursor) -> None:
             cursor.execute(f"ALTER TABLE {table} DROP COLUMN weight")
 
 
+def _v29_job_search_fts(cursor: sqlite3.Cursor) -> None:
+    """Index the dashboard's searchable job fields with FTS5.
+
+    The external-content table keeps the index compact while triggers keep it in
+    lockstep with jobs, including postings updated on subsequent scrapes.
+    """
+    cursor.executescript(
+        """
+        CREATE VIRTUAL TABLE jobs_fts USING fts5(
+            title, company, matched_skills, location, seniority,
+            content='jobs', content_rowid='id'
+        );
+
+        INSERT INTO jobs_fts(rowid, title, company, matched_skills, location, seniority)
+        SELECT id, title, company, matched_skills, location, seniority FROM jobs;
+
+        CREATE TRIGGER jobs_fts_after_insert AFTER INSERT ON jobs BEGIN
+            INSERT INTO jobs_fts(rowid, title, company, matched_skills, location, seniority)
+            VALUES (
+                new.id, new.title, new.company, new.matched_skills, new.location, new.seniority
+            );
+        END;
+
+        CREATE TRIGGER jobs_fts_after_delete AFTER DELETE ON jobs BEGIN
+            INSERT INTO jobs_fts(
+                jobs_fts, rowid, title, company, matched_skills, location, seniority
+            )
+            VALUES (
+                'delete', old.id, old.title, old.company, old.matched_skills,
+                old.location, old.seniority
+            );
+        END;
+
+        CREATE TRIGGER jobs_fts_after_update
+        AFTER UPDATE OF title, company, matched_skills, location, seniority ON jobs BEGIN
+            INSERT INTO jobs_fts(
+                jobs_fts, rowid, title, company, matched_skills, location, seniority
+            )
+            VALUES (
+                'delete', old.id, old.title, old.company, old.matched_skills,
+                old.location, old.seniority
+            );
+            INSERT INTO jobs_fts(rowid, title, company, matched_skills, location, seniority)
+            VALUES (
+                new.id, new.title, new.company, new.matched_skills, new.location, new.seniority
+            );
+        END;
+        """
+    )
+
+
 MIGRATIONS: list[tuple[int, str, Callable[[sqlite3.Cursor], None]]] = [
     (1, "baseline jobs table", _v1_baseline),
     (2, "market analytics: cells, observations, skills, stats", _v2_analytics),
@@ -2294,6 +2345,7 @@ MIGRATIONS: list[tuple[int, str, Callable[[sqlite3.Cursor], None]]] = [
         "drop the location weight left by the retired priority ranking",
         _v28_drop_location_weight,
     ),
+    (29, "FTS5 index for dashboard job search", _v29_job_search_fts),
 ]
 
 

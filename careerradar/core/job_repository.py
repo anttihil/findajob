@@ -2,10 +2,8 @@
 
 import copy
 import json
-import re
 import sqlite3
 from datetime import datetime, timedelta, timezone
-from difflib import SequenceMatcher
 from typing import Any
 
 from careerradar.profile.models import DEFAULT_PROFILE_VERSION
@@ -28,43 +26,14 @@ def invalidate_stats() -> None:
     _WRITE_GENERATION += 1
 
 
-def fuzzy_job_search(
-    q_str: str | None,
-    title: str | None,
-    company: str | None,
-    skills: str | None,
-    location: str | None,
-    seniority: str | None,
-) -> int:
-    """Multi-token typo-tolerant fuzzy matching across primary job posting fields."""
-    if not q_str or not q_str.strip():
-        return 1
-    combined = (
-        f"{title or ''} {company or ''} {skills or ''} {location or ''} {seniority or ''}"
-    ).lower()
-    tokens = [t for t in re.split(r"\s+", q_str.strip().lower()) if t]
-    if not tokens:
-        return 1
-    words = None
-    for token in tokens:
-        if token in combined:
-            continue
-        if words is None:
-            words = re.findall(r"[a-zA-Z0-9+#.-]+", combined)
-        token_len = len(token)
-        if token_len < 3:
-            return 0
-        max_dist = 1 if token_len <= 5 else 2
-        matched = False
-        for w in words:
-            if abs(len(w) - token_len) <= max_dist and len(set(token) - set(w)) <= max_dist:
-                ratio = SequenceMatcher(None, token, w).ratio()
-                if ratio >= (0.75 if token_len <= 5 else 0.8):
-                    matched = True
-                    break
-        if not matched:
-            return 0
-    return 1
+def fts_match_query(query: str) -> str:
+    """Turn dashboard text into an ANDed, prefix FTS5 query.
+
+    Quoting each whitespace-delimited term prevents FTS operators in user input
+    from changing query semantics. Prefix matching keeps ordinary type-ahead
+    searches useful without sacrificing the index.
+    """
+    return " AND ".join(f'"{term.replace(chr(34), chr(34) * 2)}"*' for term in query.split())
 
 
 LIVENESS_CASE = """
@@ -211,11 +180,8 @@ def feed_filters(
         sql += " AND jobs.match_score >= ?"
         params.append(min_score)
     if q and q.strip():
-        sql += (
-            " AND fuzzy_search(?, jobs.title, jobs.company, jobs.matched_skills,"
-            " jobs.location, jobs.seniority) = 1"
-        )
-        params.append(q.strip())
+        sql += " AND jobs.id IN (SELECT rowid FROM jobs_fts WHERE jobs_fts MATCH ?)"
+        params.append(fts_match_query(q.strip()))
     return sql, params
 
 
@@ -263,11 +229,9 @@ def query_jobs(
         q=q,
     )
     cols_sql, new_cached_columns = select_columns(conn, detail, cached_columns)
-    query = f"SELECT {cols_sql}{FEED_FROM} WHERE 1=1{where}"
-
-    total = None
-    if job_id is None:
-        total = conn.execute(f"SELECT COUNT(*) FROM ({query})", params).fetchone()[0]
+    # The window count is evaluated before LIMIT/OFFSET, so it is the total number
+    # of matching jobs without issuing a second, duplicate filtered query.
+    query = f"SELECT {cols_sql}, COUNT(*) OVER () AS _total{FEED_FROM} WHERE 1=1{where}"
 
     query += f" ORDER BY {FEED_ORDER_BY}"
     query += " LIMIT ? OFFSET ?"
@@ -276,13 +240,14 @@ def query_jobs(
     jobs: list[dict[str, Any]] = []
     for row in conn.execute(query, params):
         job = dict(row)
+        total = job.pop("_total")
         for field in JSON_COLUMNS:
             if field in job:
                 job[field] = json.loads(job[field]) if job[field] else []
         jobs.append(job)
 
-    if total is None:
-        total = len(jobs)
+    if not jobs:
+        total = 0
 
     result = {
         "jobs": jobs,

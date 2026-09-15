@@ -61,8 +61,11 @@ export function DashboardPage() {
       debounceTimerRef.current = null;
     }
     const cleanVal = val.trim();
-    if (cleanVal !== query.q) {
-      navigate(query.url({ q: cleanVal }));
+    // FTS is deliberately only queried once there is enough input to make the
+    // result useful. Clearing the active query restores the normal feed.
+    const searchQuery = cleanVal.length >= 3 ? cleanVal : "";
+    if (searchQuery !== query.q) {
+      navigate(query.url({ q: searchQuery }));
     }
   };
 

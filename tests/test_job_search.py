@@ -1,6 +1,4 @@
-"""Tests for fuzzy search across job title, company, matched_skills, location,
-and seniority.
-"""
+"""Tests for FTS search across job title, company, matched_skills, location, and seniority."""
 
 import json
 import os
@@ -13,7 +11,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from careerradar.core.database import Database
 
 
-class JobFuzzySearchTests(unittest.TestCase):
+class JobFtsSearchTests(unittest.TestCase):
     def setUp(self) -> None:
         tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
         tmp.close()
@@ -107,20 +105,34 @@ class JobFuzzySearchTests(unittest.TestCase):
             res = self.db.query_jobs(q=term)
             self.assertEqual([j["id"] for j in res["jobs"]], [1], f"Failed for {term}")
 
-    def test_fuzzy_typo_tolerance(self) -> None:
+    def test_index_tracks_job_updates(self) -> None:
+        self.add_job(1, "Python Engineer", "Acme")
+        self.db.conn.execute("UPDATE jobs SET title = ? WHERE id = ?", ("Rust Engineer", 1))
+        self.db.conn.commit()
+
+        self.assertEqual(self.db.query_jobs(q="Python")["jobs"], [])
+        self.assertEqual([j["id"] for j in self.db.query_jobs(q="Rust")["jobs"]], [1])
+
+    def test_window_count_is_the_full_filtered_total(self) -> None:
+        for job_id in range(1, 4):
+            self.add_job(job_id, "Python Engineer", f"Acme {job_id}")
+
+        page = self.db.query_jobs(q="Python", limit=1, offset=1)
+        self.assertEqual(len(page["jobs"]), 1)
+        self.assertEqual(page["total"], 3)
+        self.assertTrue(page["has_more"])
+
+    def test_prefix_search(self) -> None:
         self.add_job(1, "Python Developer", "Google", matched_skills=["Kubernetes", "FastAPI"])
         self.add_job(2, "Java Developer", "Oracle", matched_skills=["Spring Boot"])
 
-        # Typo in title: 'pythn' -> 'Python'
-        res1 = self.db.query_jobs(q="pythn")
+        res1 = self.db.query_jobs(q="Pyth")
         self.assertEqual([j["id"] for j in res1["jobs"]], [1])
 
-        # Typo in company: 'gogle' -> 'Google'
-        res2 = self.db.query_jobs(q="gogle")
+        res2 = self.db.query_jobs(q="Goog")
         self.assertEqual([j["id"] for j in res2["jobs"]], [1])
 
-        # Typo in skill: 'kuvernetes' -> 'Kubernetes'
-        res3 = self.db.query_jobs(q="kuvernetes")
+        res3 = self.db.query_jobs(q="Kubern")
         self.assertEqual([j["id"] for j in res3["jobs"]], [1])
 
     def test_multi_token_search_requires_all_tokens(self) -> None:
@@ -131,9 +143,8 @@ class JobFuzzySearchTests(unittest.TestCase):
         res = self.db.query_jobs(q="Senior Python")
         self.assertEqual([j["id"] for j in res["jobs"]], [1])
 
-        # Multi-token with typo in one token
-        res_fuzzy = self.db.query_jobs(q="Senior pythn")
-        self.assertEqual([j["id"] for j in res_fuzzy["jobs"]], [1])
+        res_prefix = self.db.query_jobs(q="Senior Pyth")
+        self.assertEqual([j["id"] for j in res_prefix["jobs"]], [1])
 
     def test_search_respects_status_and_filters(self) -> None:
         self.add_job(1, "Python Engineer", "Acme", status="unread", country="FI")

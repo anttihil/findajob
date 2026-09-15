@@ -14,7 +14,6 @@ from careerradar.core.job_repository import (
     LIVENESS_CASE,
     VERDICT_DETAIL_COLUMNS,
     VERDICT_LIST_COLUMNS,
-    fuzzy_job_search,
 )
 from careerradar.core.paths import DB_PATH
 from careerradar.scoring import repository as scoring_repo
@@ -41,7 +40,6 @@ class Database:
         self.db_path = db_path or DB_PATH
         self.conn = sqlite3.connect(self.db_path)
         self.conn.row_factory = sqlite3.Row
-        self.conn.create_function("fuzzy_search", 6, fuzzy_job_search)
         self._jobs_columns: list[str] | None = None
         self.create_tables()
 
