@@ -27,6 +27,7 @@ from careerradar.search.sources.jobspy_source import (
     EXPECTED_COLUMNS,
     JOBSPY_LOGGERS,
     ScraperReportedError,
+    build_scrape_kwargs,
     capture_scraper_errors,
     count_requests,
     guest_description_endpoint,
@@ -247,6 +248,50 @@ class FetchWiringTests(unittest.TestCase):
         with self.assertRaises(ScraperReportedError):
             source.fetch_for_task(self._task())
         self.assertEqual(len(os.listdir(archive)), 1)
+
+
+class ScrapeKwargsTests(unittest.TestCase):
+    def test_us_remote_linkedin_search_is_scoped_to_united_states(self) -> None:
+        """JobSpy sends is_remote as f_WT=2; location must provide the US scope."""
+        task = ScrapeTask(
+            cell_id=1,
+            source="linkedin",
+            query="AI Engineer",
+            location_id="us_remote",
+            location_label="Remote",  # legacy cell value retained in existing databases
+            country="US",
+            indeed_country="usa",
+            is_remote=True,
+            distance=50,
+            results_wanted=50,
+            hours_old=336,
+            fetch_description=False,
+            desc_selection="none",
+        ).to_dict()
+
+        kwargs = build_scrape_kwargs(task)
+
+        self.assertEqual(kwargs.get("location"), "United States")
+        self.assertTrue(kwargs.get("is_remote"))
+
+    def test_global_remote_linkedin_search_remains_unscoped(self) -> None:
+        task = ScrapeTask(
+            cell_id=1,
+            source="linkedin",
+            query="AI Engineer",
+            location_id="global_remote",
+            location_label="Remote",
+            country="US",
+            indeed_country="usa",
+            is_remote=True,
+            distance=50,
+            results_wanted=50,
+            hours_old=336,
+            fetch_description=False,
+            desc_selection="none",
+        ).to_dict()
+
+        self.assertEqual(build_scrape_kwargs(task).get("location"), "Remote")
 
 
 class GuestDescriptionEndpointTests(unittest.TestCase):

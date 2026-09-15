@@ -404,12 +404,23 @@ class ScrapeJobsKwargs(TypedDict, total=False):
 def build_scrape_kwargs(
     task: ScrapeTaskPayload, description_format: str = "markdown"
 ) -> ScrapeJobsKwargs:
-    """Translate a ScrapeTask payload into scrape_jobs() arguments."""
+    """Translate a ScrapeTask payload into scrape_jobs() arguments.
+
+    JobSpy translates ``is_remote`` to LinkedIn's ``f_WT=2`` query parameter.  That
+    filter is global unless it is paired with a geographic ``location``.  Older US
+    remote cells used ``Remote`` as the location label, which made the resulting
+    LinkedIn request worldwide.  Keep the legacy cell id working while sending the
+    location that scopes the remote filter to the US.
+    """
     source = task["source"]
+    location = task["location_label"] or None
+    if source == "linkedin" and task["location_id"] == "us_remote":
+        location = "United States"
+
     kwargs: ScrapeJobsKwargs = {
         "site_name": [source],
         "search_term": task["query"],
-        "location": task["location_label"] or None,
+        "location": location,
         "results_wanted": task["results_wanted"],
         "description_format": description_format,
         "verbose": 0,
