@@ -20,6 +20,7 @@ if TYPE_CHECKING:
 FILTER_DEFAULTS: dict[str, Any] = {
     "status": "unread",
     "country": "",
+    "location": "",
     "fit": None,
     "reason_type": "",
     "liveness": "",

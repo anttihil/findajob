@@ -12,10 +12,11 @@ describe("FilterQuery", () => {
 
   it("reads values off the query string", () => {
     const q = new FilterQuery(
-      "?status=saved&country=US&fit=true&reason_type=match&date_posted=24h&offset=50&q=python"
+      "?status=saved&country=US&location=San%20Francisco&fit=true&reason_type=match&date_posted=24h&offset=50&q=python"
     );
     expect(q.status).toBe("saved");
     expect(q.country).toBe("US");
+    expect(q.location).toBe("San Francisco");
     expect(q.fit).toBe(true);
     expect(q.reason_type).toBe("match");
     expect(q.date_posted).toBe("24h");
@@ -54,6 +55,13 @@ describe("FilterQuery", () => {
       expect(q.url({ date_posted: "7d" })).toBe("/?date_posted=7d");
       const q2 = new FilterQuery("?date_posted=7d");
       expect(q2.url({ date_posted: "" })).toBe("/");
+    });
+
+    it("includes location when set and drops it when cleared", () => {
+      const q = new FilterQuery("?status=unread&offset=50");
+      expect(q.url({ location: "Remote" })).toBe("/?location=Remote");
+      const q2 = new FilterQuery("?location=Remote");
+      expect(q2.url({ location: "" })).toBe("/");
     });
   });
 

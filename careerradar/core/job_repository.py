@@ -120,6 +120,7 @@ def feed_filters(
     *,
     status: str | None = None,
     country: str | None = None,
+    location: str | None = None,
     seniority: str | None = None,
     source: str | None = None,
     is_remote: bool | None = None,
@@ -154,6 +155,9 @@ def feed_filters(
         if value:
             sql += f" AND {column} = ?"
             params.append(value)
+    if location and location.strip():
+        sql += " AND lower(jobs.location) LIKE ?"
+        params.append(f"%{location.strip().lower()}%")
     if fit is not None:
         sql += " AND v.fit = ?"
         params.append(1 if fit else 0)
@@ -189,6 +193,7 @@ def query_jobs(
     conn: sqlite3.Connection,
     status: str | None = None,
     country: str | None = None,
+    location: str | None = None,
     seniority: str | None = None,
     source: str | None = None,
     is_remote: bool | None = None,
@@ -214,6 +219,7 @@ def query_jobs(
     where, params = feed_filters(
         status=status,
         country=country,
+        location=location,
         seniority=seniority,
         source=source,
         is_remote=is_remote,
@@ -264,6 +270,7 @@ def job_ids_for(
     db_path: str,
     status: str | None = None,
     country: str | None = None,
+    location: str | None = None,
     seniority: str | None = None,
     source: str | None = None,
     is_remote: bool | None = None,
@@ -285,6 +292,7 @@ def job_ids_for(
     where, params = feed_filters(
         status=status,
         country=country,
+        location=location,
         seniority=seniority,
         source=source,
         is_remote=is_remote,

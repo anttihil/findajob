@@ -260,6 +260,7 @@ class TargetLocationUpdate(BaseModel):
 def get_jobs(
     status: str | None = None,
     country: str | None = None,
+    location: str | None = None,
     seniority: str | None = None,
     source: str | None = None,
     is_remote: bool | None = None,
@@ -280,6 +281,7 @@ def get_jobs(
         return db.query_jobs(
             status=status,
             country=country,
+            location=location,
             seniority=seniority,
             source=source,
             is_remote=is_remote,
@@ -1229,6 +1231,7 @@ def filter_query(
     # shipped a sort control that sent nothing and a resume filter that filtered nothing.
     status: str = Query("unread", pattern="^(unread|saved|applied|rejected)$"),
     country: str = "",
+    location: str = "",
     fit: bool | None = None,
     reason_type: str = Query("", pattern="^[a-z_]*$"),
     liveness: str = Query("", pattern="^(live|stale|likely_closed|unknown)?$"),
@@ -1241,6 +1244,7 @@ def filter_query(
         {
             "status": status,
             "country": country,
+            "location": location,
             "fit": fit,
             "reason_type": reason_type if reason_type else None,
             "liveness": liveness,

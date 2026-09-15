@@ -92,6 +92,20 @@ export function FilterSidebar({ query, meta }: { query: FilterQuery; meta: Meta 
       </div>
 
       <div class="filter-group">
+        <label for="filter-location">Location</label>
+        <input
+          id="filter-location"
+          class="form-select"
+          type="search"
+          placeholder="City, region, or Remote"
+          value={query.location}
+          onInput={(e) =>
+            navigate(query.url({ location: (e.target as HTMLInputElement).value }))
+          }
+        />
+      </div>
+
+      <div class="filter-group">
         <label for="filter-fit">Job Fit</label>
         <select
           id="filter-fit"
