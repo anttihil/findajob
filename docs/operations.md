@@ -99,18 +99,18 @@ journalctl -t careerradar-search -S -1h     # or -score, -research, -web
 **Rotation is logrotate's, not the application's.** Four processes hold `app.log` open at
 once, and the old in-process `RotatingFileHandler` assumed a single writer: when one stage
 rotated, the other three kept appending to the renamed file, which the next rotation
-deleted. `deploy/careerradar.logrotate` uses `copytruncate` so every open handle survives a
+deleted. `deploy/install-systemd.sh` generates a `copytruncate` policy so every open handle survives a
 rotation. It is a one-time install and nothing warns you if you skip it — the file simply
 grows until the disk does:
 
 ```bash
-sudo install -m 0644 deploy/careerradar.logrotate /etc/logrotate.d/careerradar
+sudo ./deploy/install-systemd.sh --user "$(id -un)" --install-dir "$PWD" --no-start
 sudo logrotate --debug /etc/logrotate.d/careerradar   # dry run, prints what it would do
 ```
 
 ## The stages queue, they do not overlap
 
-`search`, `score`, `research` and `migrate` take an exclusive `flock` on `.pipeline.lock`
+`search`, `score`, `run` and `migrate` take an exclusive `flock` on `.pipeline.lock`
 before they touch the database, and hold it until the process exits. A stage that finds the
 lock taken says so on stderr and waits:
 
@@ -134,8 +134,8 @@ dies, unlike the `sync_status.json` lock, which needs `STALE_LOCK_MINUTES` to re
 ## Deploying an update
 
 Prod is a plain git checkout, so a deploy is a pull plus whatever the change touched.
-Order matters: config and taxonomy before the commands that read them, and never enable a
-timer before the config it depends on has landed.
+Personal settings belong in the gitignored `config.local.yaml`; pulling updates changes only
+the tracked defaults in `config.yaml`.
 
 ```bash
 ssh <prod-host>
@@ -146,7 +146,7 @@ uv run careerradar migrate              # applies migrations and auto-seeds/prun
 npm ci && npm run build                 # only if careerradar/web/frontend-src/ changed --
                                          # the built output is gitignored, so a pull alone
                                          # leaves the previous build in place until this runs
-sudo systemctl restart careerradar      # restarts dashboard + background scheduler
+sudo systemctl restart careerradar      # restarts dashboard and any enabled scheduler
 uv run careerradar status               # confirm the pipeline still reads healthy
 ```
 

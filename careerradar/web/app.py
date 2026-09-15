@@ -26,7 +26,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict
 from starlette.types import Scope
 
-from careerradar.core.config import deep_merge, load_config, save_config
+from careerradar.core.config import load_config, save_config
 from careerradar.core.database import Database
 from careerradar.core.logger import get_logger
 from careerradar.core.paths import FRONTEND_DIR
@@ -1068,9 +1068,8 @@ def update_current_config(payload: ConfigUpdate):
     Merging rather than assigning is what makes a partial update safe -- see ConfigUpdate.
     """
     incoming = payload.model_dump(exclude_unset=True)
-    merged = deep_merge(load_config(), incoming)
-    save_config(merged)
-    return {"success": True, "config": merged}
+    save_config(incoming)
+    return {"success": True, "config": load_config()}
 
 
 # --- Sync ------------------------------------------------------------------------------

@@ -24,6 +24,9 @@ DB_PATH = os.environ.get("CAREERRADAR_DB_PATH") or os.path.join(REPO_ROOT, "jobs
 GRAPH_DB_PATH = os.environ.get("CAREERRADAR_GRAPH_DB_PATH") or os.path.join(REPO_ROOT, "graphs.db")
 
 CONFIG_PATH = os.environ.get("CAREERRADAR_CONFIG_PATH") or os.path.join(REPO_ROOT, "config.yaml")
+CONFIG_LOCAL_PATH = os.environ.get("CAREERRADAR_CONFIG_LOCAL_PATH") or os.path.join(
+    REPO_ROOT, "config.local.yaml"
+)
 ENV_PATH = os.path.join(REPO_ROOT, ".env")
 # Overridable because importing the package is enough to open this file for append, so a
 # bare `pytest` used to write test records into the production log. tests/conftest.py points

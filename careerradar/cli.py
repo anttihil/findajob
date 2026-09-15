@@ -49,6 +49,14 @@ def _cmd_score(args: argparse.Namespace) -> Any:
     )
 
 
+def _cmd_run(_args: argparse.Namespace) -> int:
+    """Run the user-initiated pipeline: fetch first, then score its backlog."""
+    search_result = _cmd_search(argparse.Namespace(dry_run=False, force=False))
+    if search_result != 0:
+        return search_result
+    return int(_cmd_score(argparse.Namespace(limit=None)) or 0)
+
+
 def _cmd_profile(args: argparse.Namespace) -> Any:
     from careerradar.profile.cli import run_profile_command
 
@@ -339,7 +347,7 @@ def build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="command", required=True)
 
     # --- start -----------------------------------------------------------------------
-    st_parser = sub.add_parser("start", help="start the web dashboard and background scheduler")
+    st_parser = sub.add_parser("start", help="start the web dashboard (and enabled scheduler)")
     st_parser.add_argument("--host", default="127.0.0.1")
     st_parser.add_argument("--port", type=int, default=8010)
     st_parser.add_argument("--reload", action="store_true", help="development autoreload")
@@ -348,20 +356,14 @@ def build_parser() -> argparse.ArgumentParser:
     # --- profile ---------------------------------------------------------------------
     p = sub.add_parser("profile", help="build or inspect the candidate profile")
     psub = p.add_subparsers(dest="subcommand", required=True)
-    pb = psub.add_parser("build", help="run the document ingest + interview wizard")
-    pb.add_argument("file", nargs="?", help="optional path to resume document (pdf, md, txt)")
-    pb.add_argument("--resume", action="store_true", help="continue an interview left unfinished")
-    pb.add_argument(
-        "--force", action="store_true", help="rebuild even if the corpus has not changed"
-    )
-    pb.add_argument(
-        "--no-interview",
-        action="store_true",
-        help="build from the documents alone, skipping the interview",
-    )
+    pb = psub.add_parser("build", help="extract a profile from a resume document")
+    pb.add_argument("file", help="path to your resume (PDF, Markdown, or plain text)")
     psub.add_parser("show", help="print the active profile")
     psub.add_parser("history", help="list every profile version")
     p.set_defaults(func=_cmd_profile)
+
+    run = sub.add_parser("run", help="run one manual search-and-score pass")
+    run.set_defaults(func=_cmd_run, stage="run")
 
     # --- search ----------------------------------------------------------------------
     s = sub.add_parser("search", help="scrape job boards")

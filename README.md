@@ -1,15 +1,14 @@
 # CareerRadar
 
-Scrapes job boards by role family and location, judges every posting against an LLM-built
-profile of you, and researches the companies behind the good ones.
+Scrapes job boards by role family and location, then judges every posting against an
+LLM-built profile of you.
 
 Four stages, each on its own timer, handing off through one column:
 
 ```
 search    scrape LinkedIn + Indeed on a rotating cell matrix   -> pipeline_state='new'
 score     judge each posting against your profile              -> pipeline_state='scored'
-research  build a dossier for companies behind strong matches  -> pipeline_state='researched'
-start     serve the dashboard and background scheduler
+start     serve the dashboard; scheduling is opt-in
 ```
 
 They are separate commands rather than one pipeline because a failure in one must not cost
@@ -29,22 +28,22 @@ missing skill most often blocks a posting you otherwise match.
 make setup
 make build
 
-# 2. Configure environment
-cp .env.example .env                         # add DEEPSEEK_API_KEY (optional if using agy, claude, etc.)
+# 2. Configure an LLM provider and personal overrides
+cp .env.example .env                          # add DEEPSEEK_API_KEY, or use an authenticated CLI provider
+cp config.local.example.yaml config.local.yaml
 
-# 3. Initialize schema and ingest resume profile
+# 3. Initialize schema, start the dashboard, and upload your resume
 uv run careerradar migrate
-uv run careerradar profile build examples/sample_resume.md
-
-# 4. Start dashboard and background scheduler
 make start                                   # or: uv run careerradar start --port 8010
+# Open http://127.0.0.1:8010 and drop your PDF, TXT, or Markdown resume on the Resumes page.
 ```
 
 ### Docker
 
 ```bash
-# 1. Configure environment
-cp .env.example .env                         # add DEEPSEEK_API_KEY (required for Docker)
+# 1. Configure environment and persistent personal overrides
+cp .env.example .env                         # add DEEPSEEK_API_KEY for the default Docker provider
+cp config.local.example.yaml config.local.yaml
 
 # 2. Start via Docker Compose
 make docker-up                               # or: docker compose up -d
@@ -67,60 +66,25 @@ numpy to 1.26.3 and has no cp313 wheel.
 
 | variable | needed for |
 |---|---|
-| `DEEPSEEK_API_KEY` | profile, scoring, research — **required** for direct API / Docker; **optional** if an authenticated CLI (`agy`, `claude`, `codex`, `opencode`) is available |
-| `TAVILY_API_KEY` | company intel and contacts. Without it, research still finds other openings from the corpus and says plainly that no web research happened |
+| `DEEPSEEK_API_KEY` | profile extraction and scoring when using the DeepSeek API provider |
 | `SCRAPER_PROXIES` | optional rotating pool. With it, LinkedIn becomes a description census instead of titles only |
 | `CAREERRADAR_OWNER` | the tailnet login allowed to reach the dashboard |
 
-## The profile
+## Your profile
 
-Everything downstream depends on this, so it is built once, deliberately, with you in the
-room.
+CareerRadar never includes or expects personal career documents in the repository. On the
+**Resumes** page, drop your own PDF, TXT, or Markdown resume; the same extraction model used
+by the CLI drafts a profile, which you can refine with the profile copilot before saving.
+
+For a terminal-only setup, pass the resume explicitly:
 
 ```bash
-uv run careerradar profile build      # ingest documents, then interview you
+uv run careerradar profile build /path/to/your-resume.pdf
 uv run careerradar profile show
-uv run careerradar profile history
 ```
 
-`profile build` reads your corpus, extracts what the documents support, then works out what
-they *cannot* tell it and asks you. Career documents are a sales artifact: they
-systematically omit honest weaknesses, compensation floors, work authorization, and what
-you would refuse. Those are exactly the facts that decide whether a posting is a blocker or
-a stretch.
-
-### The corpus is an explicit list
-
-`profile.corpus` in config.yaml names the documents. Markdown, plain text, and PDF are all
-read; a document that is named but missing is an error rather than a shrug.
-
-```yaml
-profile:
-  corpus:
-    - path: achievements.md
-      kind: achievements
-    - path: resumes/resume.txt
-      kind: resume
-```
-
-This used to be a scan of `resumes/`, which is quietly dangerous, because that directory
-also holds tailored resumes written for *submitting* to employers — a different kind of
-document from evidence about what you can actually do. Six LLM-generated variants were
-being read as evidence, and their inflated skill lists (Go listed first on the strength of
-one side project; NestJS, D3.js and CloudFormation with no backing work) became skill
-levels and then scores. Nothing failed; the numbers were just wrong.
-
-Adding a document to the profile should be a decision, not a side effect of where a file
-happens to live. `scripts/sync_corpus.sh` no longer uses `rsync --delete` for the same
-reason: it was deleting hand-curated documents that exist only here.
-
-It is a LangGraph graph checkpointed to `graphs.db`, so you can stop at question four and
-resume a week later (`--resume`) with the extraction intact.
-
-- `--no-interview` builds from the documents alone. Useful for a first pass; the
-  constraints will be empty until you actually sit the interview.
-- `--resume` continues an interview you left unfinished.
-- `--force` rebuilds even when the corpus has not changed.
+The CLI saves the extracted profile immediately. The dashboard lets you review and refine it
+before saving. In either case, profile data lives in the local database, not in Git.
 
 The result is versioned and append-only. Every verdict records the `profile_version` that
 produced it, so rebuilding your profile does not rewrite history — it lets you re-score and
@@ -134,21 +98,22 @@ relying on brittle keyword checklist matching.
 ## Running
 
 ```bash
-# Scrape. Postings land unscored.
-uv run careerradar search run --dry-run               # plan and fetch, but write nothing
-uv run careerradar search run                          # run scrape pass
+# One manual run: scrape, then score the resulting backlog.
+uv run careerradar run
 
-# Score. Cheap, idempotent, safe to run often.
-uv run careerradar score run                           # drain unscored postings
-uv run careerradar score run --limit 200               # cap batch size
+# Individual stages remain available for troubleshooting and development.
+uv run careerradar search run --dry-run
+uv run careerradar search run
+uv run careerradar score run --limit 200
 
-# Research the companies behind strong matches.
-uv run careerradar research run                        # drain researched queue
-uv run careerradar research run --company "MongoDB"     # research specific company
-
-# Serve dashboard and background scheduler.
+# Serve dashboard. Automatic scheduling is disabled until you opt in.
 uv run careerradar start --port 8010
 ```
+
+The dashboard's **Sync Now** action also runs search followed by scoring. To enable automatic
+runs, set `scheduler.enabled: true` in your gitignored `config.local.yaml`; the schedule in
+the tracked `config.yaml` then supplies the defaults. Dashboard configuration changes are
+saved to `config.local.yaml`, so pulling project updates does not replace them.
 
 ### What scraping costs
 
@@ -292,39 +257,31 @@ intervals. It therefore reflects the scrape rotation, not the market. Selection 
 
 Suppression is always visible with a reason, never silent.
 
-The same standard applies to dossiers: source URLs are recorded from what was actually
-fetched, never authored by the model. Asked to supply them, it produced six plausible,
-well-formed, entirely invented URLs on a run where no search had happened — a failure
-invisible precisely because the URLs looked right. When web search is unavailable, the
-dossier says so.
-
 ## Deployment
 
-Runs as a single unified service: FastAPI dashboard and background `asyncio` scheduler running
-in one process, executing pipeline stages (`search`, `score`, `research`) as isolated worker
-subprocesses with automated pipeline chaining.
+The service runs the FastAPI dashboard. Its background scheduler remains off until you enable
+it in `config.local.yaml`.
 
 ```bash
 git clone https://github.com/your-username/careerradar.git ~/projects/careerradar
 cd ~/projects/careerradar
 make setup
 cp .env.example .env                                   # configure API keys
+cp config.local.example.yaml config.local.yaml
 uv run careerradar migrate                             # applies migrations & auto-seeds scrape cells
-uv run careerradar profile build examples/sample_resume.md
 
 make build                                             # -> careerradar/web/frontend/dist/
 
-sudo cp deploy/careerradar.service /etc/systemd/system/
-sudo install -m 0644 deploy/careerradar.logrotate /etc/logrotate.d/careerradar
-sudo systemctl daemon-reload
-sudo systemctl enable --now careerradar.service
+sudo ./deploy/install-systemd.sh --user "$(id -un)" --install-dir "$PWD"
 ```
 
-The unit hardcodes the app root and `User=`; the logrotate snippet hardcodes the same two.
-Adjust all of them if the server layout differs.
+The installer validates the checkout, then renders the systemd and logrotate files for that
+specific Unix user and directory. Add `--no-start` to install without immediately starting the
+service. Keep personal overrides in `config.local.yaml`; project defaults remain in
+`config.yaml` and can update safely with Git.
 
-The background scheduler manages stage execution, boot catch-up (`persistent_catchup: true`),
-and pipeline chaining (Search $\rightarrow$ Score $\rightarrow$ Research) as configured in `config.yaml`.
+When enabled, the scheduler runs search and score as isolated worker subprocesses. Manual
+runs are always available through **Sync Now** or `uv run careerradar run`.
 
 The web service binds `127.0.0.1:8010` and stays there. Tailscale fronts it:
 
@@ -357,10 +314,9 @@ loopback TCP port and have Serve proxy to a Unix socket (`tailscale serve unix:.
 careerradar/
 ├── core/       config, db, migrations, logging, paths, LLM construction + cost
 ├── taxonomy/   role families and SQLite target taxonomy -- the shared vocabulary
-├── profile/    document ingest, interview graph, canonicalization, versioned store
+├── profile/    resume parsing, copilot refinement, canonicalization, versioned store
 ├── search/     scheduler, sources, circuit breaker, proxies, normalizer
 ├── scoring/    prompts, per-posting graph, queue worker
-├── research/   company dossier graph, search tools, queue worker
 ├── market/     supply analytics, skill-gap analysis
 ├── web/        FastAPI app, owner gate, JSON API, SPA shell
 │   ├── frontend-src/   Preact + TypeScript dashboard (Vite), source of truth
@@ -385,8 +341,6 @@ uv run python -m pytest tests/ -q
 Notable ones: `test_scheduler.py` simulates 200 runs and asserts no cell starves;
 `test_scoring_module.py` asserts the cached half of the prompt contains no posting data;
 `test_profile_module.py` asserts a rendered profile is byte-stable under skill reordering.
-
-Several suites depend on the gitignored corpus and skip without it.
 
 ## Terms of service
 

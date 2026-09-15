@@ -7,9 +7,8 @@ services:
     env_file:
       - .env
     volumes:
-      - ./data:/app/data
       - ./jobs.db:/app/jobs.db
       - ./graphs.db:/app/graphs.db
-      - ./config.yaml:/app/config.yaml
+      - ./config.local.yaml:/app/config.local.yaml
       - ./resumes:/app/resumes
     restart: unless-stopped

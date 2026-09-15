@@ -3,7 +3,7 @@ from typing import Any
 
 import yaml
 
-from careerradar.core.paths import CONFIG_PATH, ENV_PATH
+from careerradar.core.paths import CONFIG_LOCAL_PATH, CONFIG_PATH, ENV_PATH
 
 
 # Simple .env loader
@@ -128,9 +128,30 @@ def load_config() -> dict[str, Any]:
             print(f"Error loading config.yaml: {e}")
             return defaults
 
-    return deep_merge(defaults, config)
+    merged = deep_merge(defaults, config)
+    if not os.path.exists(CONFIG_LOCAL_PATH):
+        return merged
+
+    with open(CONFIG_LOCAL_PATH, encoding="utf-8") as f:
+        try:
+            local_config = yaml.safe_load(f) or {}
+        except Exception as e:  # noqa: BLE001 - a malformed local override must not stop startup
+            print(f"Error loading config.local.yaml: {e}")
+            return merged
+    return deep_merge(merged, local_config)
 
 
 def save_config(config_data: dict[str, Any]) -> None:
-    with open(CONFIG_PATH, "w", encoding="utf-8") as f:
-        yaml.safe_dump(config_data, f, default_flow_style=False, sort_keys=False)
+    """Persist user overrides without modifying the version-controlled defaults.
+
+    Keeping only the local delta means `git pull` can update config.yaml without
+    overwriting settings made in the dashboard or creating merge conflicts.
+    """
+    existing: dict[str, Any] = {}
+    if os.path.exists(CONFIG_LOCAL_PATH):
+        with open(CONFIG_LOCAL_PATH, encoding="utf-8") as f:
+            existing = yaml.safe_load(f) or {}
+    with open(CONFIG_LOCAL_PATH, "w", encoding="utf-8") as f:
+        yaml.safe_dump(
+            deep_merge(existing, config_data), f, default_flow_style=False, sort_keys=False
+        )

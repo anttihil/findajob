@@ -23,8 +23,6 @@ RUN uv sync --frozen --no-dev --no-install-project
 
 # Copy application source code and configurations
 COPY careerradar/ ./careerradar/
-COPY data/ ./data/
-COPY templates/ ./templates/
 COPY config.yaml ./config.yaml
 COPY --from=frontend-builder /app/careerradar/web/frontend/dist/ ./careerradar/web/frontend/dist/
 

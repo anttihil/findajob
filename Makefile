@@ -27,9 +27,8 @@ docker-build:
 	docker compose build
 
 docker-up:
-	touch jobs.db graphs.db
+	touch jobs.db graphs.db config.local.yaml
 	docker compose up -d
 
 docker-down:
 	docker compose down
-

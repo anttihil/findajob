@@ -71,29 +71,19 @@ def cmd_show(_args: argparse.Namespace) -> int:
 
 
 def cmd_build(args: argparse.Namespace) -> int:
-    resume_file = getattr(args, "file", None)
+    resume_file = args.file
     config = load_config()
     model = config.get("profile", {}).get("model") or get_model_for_role("agent")
 
-    if resume_file and os.path.exists(resume_file):
-        with open(resume_file, "rb") as f:
-            content = f.read()
-        text = parse_resume_file(content, os.path.basename(resume_file))
-    else:
-        # Check standard default file paths
-        candidates = ["resume.pdf", "resume.md", "resume.txt"]
-        text = ""
-        for c in candidates:
-            if os.path.exists(c):
-                with open(c, "rb") as f:
-                    content = f.read()
-                text = parse_resume_file(content, c)
-                print(f"Found and parsing default resume file: {c}")
-                break
+    if not os.path.isfile(resume_file):
+        print(f"Error: resume file not found: {resume_file}")
+        return 1
 
-    if not text:
-        print("Error: No resume file provided or found.")
-        print("Usage: careerradar profile build <path/to/resume.pdf>")
+    with open(resume_file, "rb") as f:
+        content = f.read()
+    text = parse_resume_file(content, os.path.basename(resume_file))
+    if not text.strip():
+        print("Error: resume file contained no readable text.")
         return 1
 
     print(f"Extracting candidate profile using model {model}...")

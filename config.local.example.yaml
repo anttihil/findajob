@@ -1,0 +1,10 @@
+# Personal overrides for CareerRadar. This file is intentionally gitignored after
+# copying it to config.local.yaml, so pulling updates never overwrites your settings.
+#
+# Uncomment and adjust only the values you want to override.
+
+# llm:
+#   provider: deepseek
+
+# scheduler:
+#   enabled: true

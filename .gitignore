@@ -26,6 +26,7 @@ __pycache__/
 
 # Credentials
 .env
+config.local.yaml
 
 # Logging. logrotate writes app.log.1, app.log.2.gz and so on, and *.log matches only the
 # .log suffix, so the rotated files need their own pattern.

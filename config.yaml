@@ -1,8 +1,7 @@
 # Job Search Automation Configuration ("CareerRadar")
 
-# The profile corpus is configured under `profile.corpus` near the bottom of this file.
-# Personal documents are gitignored; scripts/sync_corpus.sh pulls achievements.md in from
-# the separate `resume` repo.
+# Personal resumes are supplied from the dashboard or directly to `careerradar profile build`.
+# They are stored only in the local database and are never part of this repository.
 
 # ---------------------------------------------------------------------------------------
 # Scraping
@@ -276,30 +275,15 @@ analytics:
 # Set provider to 'auto' to automatically detect available authenticated CLI tools or API keys.
 # ---------------------------------------------------------------------------------------
 llm:
-  provider: deepseek
+  provider: auto
   scoring_model: ""  # Blank uses provider default (or set custom model)
   agent_model: ""    # Blank uses provider default (or set custom model)
   timeout_seconds: 60
 
 profile:
-  # Built once, interactively, by interviewing the user.
+  # Your resume is supplied directly in the dashboard or as the required argument
+  # to `careerradar profile build`; no personal corpus is kept in this repository.
   max_interview_questions: 15
-
-  # The documents the profile is built from. An explicit list, deliberately not a scan of
-  # resumes/, because that directory also holds resumes tailored for SENDING to employers.
-  # Those are sales documents, not evidence of what the user can do, and letting them in
-  # inflates the skill levels and then every score downstream. Nothing errors when that
-  # happens; the numbers are just wrong.
-  #
-  # Paths are relative to the repo root. A listed file that is missing is an error, unless
-  # it is marked `optional: true`.
-  corpus:
-    - path: achievements.md
-      kind: achievements
-      optional: true
-    - path: resumes/resume.txt
-      kind: resume
-      optional: true
 
 scoring:
   # Evaluates scraped postings against the active profile.
@@ -340,7 +324,9 @@ scoring:
 # subprocess to maintain pristine memory boundaries and fault isolation.
 # ---------------------------------------------------------------------------------------
 scheduler:
-  enabled: true
+  # Off until you explicitly opt in through config.local.yaml. The dashboard's
+  # "Run now" action remains available and runs search followed by scoring.
+  enabled: false
   search:
     schedule: ["01:00", "07:00", "13:00", "19:00"]
     jitter_minutes: 30
@@ -352,4 +338,3 @@ scheduler:
     timeout_minutes: 90
   chaining:
     search_triggers_score: true
-
