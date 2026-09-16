@@ -1,5 +1,5 @@
 [project]
-name = "find-a-job"
+name = "findajob"
 version = "0.1.0"
 description = "Agentic job search: scrapes job boards by query and location, scores postings against an LLM-built profile, and tailors a resume for the good ones"
 readme = "README.md"

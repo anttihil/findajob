@@ -572,7 +572,7 @@ def _v6_ordinal_verdicts(cursor: sqlite3.Cursor) -> None:
 
     Now the model answers five named scales and `scoring/scale.py` projects them onto a
     score. Keeping the ordinals in columns is what makes that projection cheap to change:
-    `careerradar score rescale` recomputes every row without an API call, and the UI can
+    `findajob score rescale` recomputes every row without an API call, and the UI can
     sort, filter and cross-tab on any dimension instead of on one collapsed number.
 
     Existing verdicts are KEPT, at `scale_version = 0`. They are the only cross-version
@@ -695,7 +695,7 @@ def _v7_structured_blockers(cursor: sqlite3.Cursor) -> None:
 
     Each old string becomes `{"quote": <the string>, "why": ""}`. Nothing is lost: the
     string is preserved exactly, and it lands in the field whose contract it was already
-    written against. `careerradar score audit` therefore reports the same quote-status
+    written against. `findajob score audit` therefore reports the same quote-status
     rates over migrated rows as it did before, which is what keeps the trend line readable
     across the change.
 

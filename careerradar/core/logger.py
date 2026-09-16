@@ -12,7 +12,7 @@ LOG_FILE = LOG_PATH
 # line is 71 seconds *newer* than app.log.2's.
 #
 # Rotation is logrotate's job now, with `copytruncate` so every writer keeps the same inode
-# across a rotation. See deploy/careerradar.logrotate -- without it installed, this file
+# across a rotation. See deploy/install-systemd.sh -- without it installed, this file
 # grows without bound.
 logger = logging.getLogger("job_search")
 logger.setLevel(logging.DEBUG)

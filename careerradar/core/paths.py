@@ -31,7 +31,7 @@ def _under_home(name: str) -> str | None:
 
 
 SOURCE_CHECKOUT = _is_checkout() and not os.environ.get("FIND_A_JOB_HOME")
-APP_NAME = "find-a-job"
+APP_NAME = "findajob"
 
 if SOURCE_CHECKOUT:
     CONFIG_DIR = REPO_ROOT

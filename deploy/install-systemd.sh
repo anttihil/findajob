@@ -7,7 +7,7 @@ usage() {
   cat <<'EOF'
 Usage: sudo ./deploy/install-systemd.sh --user USER --install-dir /absolute/path [--no-start]
 
-Renders /etc/systemd/system/find-a-job.service and /etc/logrotate.d/find-a-job
+Renders /etc/systemd/system/findajob.service and /etc/logrotate.d/findajob
 for this checkout. The installer never copies or modifies personal configuration.
 EOF
 }
@@ -71,13 +71,13 @@ fi
 
 USER_HOME=$(getent passwd "$RUN_USER" | cut -d: -f6)
 RUN_GROUP=$(id -gn "$RUN_USER")
-SERVICE_PATH=/etc/systemd/system/find-a-job.service
-LOGROTATE_PATH=/etc/logrotate.d/find-a-job
+SERVICE_PATH=/etc/systemd/system/findajob.service
+LOGROTATE_PATH=/etc/logrotate.d/findajob
 
 cat >"$SERVICE_PATH" <<EOF
 [Unit]
 Description=Find a Job Dashboard
-Documentation=https://github.com/example/find-a-job
+Documentation=https://github.com/anttihil/findajob
 After=network-online.target
 Wants=network-online.target
 StartLimitIntervalSec=300
@@ -118,9 +118,9 @@ EOF
 chmod 0644 "$SERVICE_PATH" "$LOGROTATE_PATH"
 systemctl daemon-reload
 if [[ $START_SERVICE == true ]]; then
-  systemctl enable --now find-a-job.service
+  systemctl enable --now findajob.service
 else
-  systemctl enable find-a-job.service
+  systemctl enable findajob.service
 fi
 
 echo "Installed $SERVICE_PATH and $LOGROTATE_PATH for $INSTALL_DIR."

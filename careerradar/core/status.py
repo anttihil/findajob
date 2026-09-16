@@ -3,7 +3,7 @@
 Exists because the four stages fail independently and silently. Each has its own timer, so
 "scoring stopped a week ago" looks exactly like "scoring is keeping up" from anywhere else
 in the system -- the dashboard shows postings either way. The failure that motivated this
-was precisely that: careerradar-score.timer sat disabled on the production host while 62%
+was precisely that: the scoring service sat disabled on the production host while 62%
 of the corpus went unjudged, and every hit rate computed off that corpus was quietly
 skewed toward whatever HAD been scored.
 
@@ -74,7 +74,7 @@ def render(report: dict[str, Any]) -> str:
     # The stall test is on the SCORER, not on the queue: a large backlog with a recent
     # verdict is a budget question, a small backlog with no recent verdict is a broken timer.
     if score["hours_since"] is None or score["hours_since"] > 24 * STALL_MULTIPLE:
-        out.append("  ! scoring looks stalled -- check: systemctl status careerradar")
+        out.append("  ! scoring looks stalled -- check: systemctl status findajob.service")
 
     out += ["", "VERDICT COVERAGE  (every hit rate in this project is a ratio over these)"]
     shares = []

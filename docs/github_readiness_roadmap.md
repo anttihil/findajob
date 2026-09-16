@@ -14,7 +14,7 @@ Find a Job has an exceptionally strong technical core:
 However, the repository currently reflects a **single-user personal setup** rather than a reusable open-source product. The gaps fall into five key areas:
 1. **Legal & Open-Source Governance**: No open-source license.
 2. **Onboarding & Configuration Ergonomics**: External private corpus dependencies, missing `.env.example`, and undocumented environment variables.
-3. **CLI & Documentation Alignment**: Discrepancies between commands in `README.md` and `careerradar/cli.py` (`careerradar web` vs `careerradar start`, missing flags).
+3. **CLI & Documentation Alignment**: Discrepancies between commands in `README.md` and `careerradar/cli.py` (`findajob web` vs `findajob start`, missing flags).
 4. **Geographic & Role Portability**: Hardcoded US/Nordic target locations and recruiting agency filters.
 5. **Deployment & Authentication Portability**: Tight coupling to Tailscale Serve and host-specific systemd paths, with no Docker containerization.
 
@@ -143,7 +143,7 @@ flowchart TD
 - **Action**: Provide a turn-key `docker-compose.yml`:
   ```yaml
   services:
-    find-a-job:
+    findajob:
       build: .
       ports:
         - "8010:8010"

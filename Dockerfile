@@ -26,11 +26,11 @@ COPY careerradar/ ./careerradar/
 COPY config.yaml ./config.yaml
 COPY --from=frontend-builder /app/careerradar/web/frontend/dist/ ./careerradar/web/frontend/dist/
 
-# Install the careerradar package
+# Install the Find a Job package
 RUN uv sync --frozen --no-dev
 
 ENV PATH="/app/.venv/bin:$PATH"
 ENV PYTHONUNBUFFERED=1
 
 EXPOSE 8010
-CMD ["careerradar", "start", "--host", "0.0.0.0", "--port", "8010"]
+CMD ["findajob", "start", "--host", "0.0.0.0", "--port", "8010"]

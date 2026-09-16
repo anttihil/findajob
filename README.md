@@ -23,8 +23,21 @@ missing skill most often blocks a posting you otherwise match.
 
 ### Local
 
+For normal use, run the installer. It manages the private runtime environment; users do not
+need `uv`, npm, or Node.js.
+
 ```bash
-# 1. Install dependencies and compile frontend
+./install.sh
+```
+
+It initializes storage and starts the dashboard at http://127.0.0.1:8010. Complete the
+provider, resume, location, and query setup from the dashboard. Python 3.10+ is the only
+runtime requirement; release wheels are built in CI with the frontend already included.
+
+### Development checkout
+
+```bash
+# Install dependencies and compile frontend
 make setup
 make build
 
@@ -43,7 +56,7 @@ make start                                   # or: uv run findajob start --port 
 For normal use, install Find a Job once and run it from any directory:
 
 ```bash
-uv tool install find-a-job
+uv tool install findajob
 findajob init
 findajob profile build /path/to/your-resume.pdf
 findajob start
@@ -316,8 +329,8 @@ The service runs the FastAPI dashboard. Its background scheduler remains off unt
 it in `config.local.yaml`.
 
 ```bash
-git clone https://github.com/your-username/careerradar.git ~/projects/careerradar
-cd ~/projects/find-a-job
+git clone https://github.com/anttihil/findajob.git ~/projects/findajob
+cd ~/projects/findajob
 make setup
 cp .env.example .env                                   # configure API keys
 cp config.local.example.yaml config.local.yaml

@@ -25,7 +25,7 @@ report prints a warning when the spread crosses 20 points.
 
 Two failures it exists to catch, both of which happened:
 
-- A stage timer sitting disabled. `careerradar-score.timer` was disabled on the production
+- A scoring service sitting disabled. `findajob.service` was disabled on the production
   host for weeks; 62% of the corpus went unjudged, and every family hit rate silently
   skewed toward whatever had been scored.
 - A cold backlog deadlocking against `scoring.max_usd_per_run`. The pre-flight aborts the
@@ -92,7 +92,7 @@ unit's identifier, which is the faster way to read one run in isolation:
 
 ```bash
 tail -f <install-dir>/app.log
-journalctl -t careerradar-search -S -1h     # or -score, -research, -web
+journalctl -u findajob.service -S -1h
 ```
 
 **Rotation is logrotate's, not the application's.** Four processes hold `app.log` open at
@@ -104,7 +104,7 @@ grows until the disk does:
 
 ```bash
 sudo ./deploy/install-systemd.sh --user "$(id -un)" --install-dir "$PWD" --no-start
-sudo logrotate --debug /etc/logrotate.d/find-a-job   # dry run, prints what it would do
+sudo logrotate --debug /etc/logrotate.d/findajob   # dry run, prints what it would do
 ```
 
 ## The stages queue, they do not overlap
@@ -145,7 +145,7 @@ uv run findajob migrate              # applies migrations and auto-seeds/prunes 
 npm ci && npm run build                 # only if careerradar/web/frontend-src/ changed --
                                          # the built output is gitignored, so a pull alone
                                          # leaves the previous build in place until this runs
-sudo systemctl restart find-a-job      # restarts dashboard and any enabled scheduler
+sudo systemctl restart findajob        # restarts dashboard and any enabled scheduler
 uv run findajob status               # confirm the pipeline still reads healthy
 ```
 

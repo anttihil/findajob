@@ -27,7 +27,8 @@ docker-build:
 	docker compose build
 
 docker-up:
-	touch jobs.db graphs.db config.local.yaml
+	mkdir -p data resumes
+	touch data/jobs.db graphs.db config.local.yaml
 	docker compose up -d
 
 docker-down:

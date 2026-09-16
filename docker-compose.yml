@@ -1,7 +1,7 @@
 services:
-  find-a-job:
+  findajob:
     build: .
-    container_name: find-a-job
+    container_name: findajob
     ports:
       - "8010:8010"
     env_file:
