@@ -450,6 +450,10 @@ def upsert_posting(
                 record.get("job_key"),
             )
         updatable = [c for c in POSTING_COLUMNS if c in record and c not in ("job_key", "url")]
+        # An explicit query has no configured cell.  Never let that absence erase the
+        # attribution earned by a posting previously found through the search matrix.
+        if record.get("scrape_cell_id") is None and existing["scrape_cell_id"] is not None:
+            updatable.remove("scrape_cell_id")
         cursor.execute(
             f"UPDATE jobs SET {', '.join(f'{c} = ?' for c in updatable)}"
             f"{', ' if updatable else ' '}"

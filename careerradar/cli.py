@@ -11,8 +11,12 @@ stages in isolated worker subprocesses and automatically chains search -> score.
 """
 
 import argparse
+import contextlib
+import json
 import sys
 from typing import Any
+
+CONTRACT_VERSION = 1
 
 
 def _cmd_score_retry(args: argparse.Namespace) -> Any:
@@ -256,10 +260,122 @@ def _cmd_migrate(args: argparse.Namespace) -> int:  # noqa: ARG001 - argparse ha
     return 0
 
 
+_STARTER_CONFIG = """\
+# Personal CareerRadar settings. This file is never overwritten by `careerradar init`.
+#
+# llm:
+#   provider: deepseek
+#
+# resumes:
+#   # Default: your platform's Documents/CareerRadar directory.
+#   # output_dir: ~/Documents/My Job Applications
+#
+scheduler:
+  # Automatic runs are opt-in for a new standalone install.
+  enabled: false
+"""
+
+
+def _cmd_init(args: argparse.Namespace) -> int:
+    """Create a standalone user layout without overwriting personal data."""
+    from pathlib import Path
+
+    from careerradar.core.database import Database
+    from careerradar.core.paths import (
+        CONFIG_PATH,
+        DB_PATH,
+        GENERATED_RESUMES_DIR,
+        GRAPH_DB_PATH,
+        LOG_PATH,
+        SOURCE_CHECKOUT,
+        STATUS_PATH,
+        ensure_user_dirs,
+        generated_resumes_dir,
+    )
+    from careerradar.search.seed import seed_cells
+
+    paths = ensure_user_dirs()
+    config_created = False
+    config_path = Path(CONFIG_PATH)
+    if not config_path.exists():
+        config_path.write_text(_STARTER_CONFIG, encoding="utf-8")
+        config_created = True
+
+    db = Database()
+    db.close()
+    # `seed_cells` is an older human CLI and prints progress. Keep `init --json`
+    # machine-readable by treating that progress as diagnostics.
+    with contextlib.redirect_stdout(sys.stderr):
+        seed_exit = seed_cells(prune=True)
+    report = {
+        "source_checkout": SOURCE_CHECKOUT,
+        "config_created": config_created,
+        "config": CONFIG_PATH,
+        "database": DB_PATH,
+        "graph_database": GRAPH_DB_PATH,
+        "resumes": generated_resumes_dir(),
+        "resume_default": GENERATED_RESUMES_DIR,
+        "log": LOG_PATH,
+        "status": STATUS_PATH,
+        "paths": paths,
+        "seed_exit": seed_exit,
+    }
+    if args.json:
+        print(json.dumps(report, default=str))
+    else:
+        print("CareerRadar is ready.")
+        print(f"  Config:   {report['config']}")
+        print(f"  Database: {report['database']}")
+        print(f"  Resumes:  {report['resumes']}")
+        print(f"  Log:      {report['log']}")
+        if config_created:
+            print("  Created starter config. Add an LLM provider before scoring.")
+    return 0
+
+
 def _cmd_status(args: argparse.Namespace) -> Any:
     from careerradar.core.status import run_status
 
     return run_status(as_json=args.json)
+
+
+def _emit_result(result: dict[str, Any], *, as_json: bool) -> None:
+    """Render a shared command result for either a terminal or a program."""
+    if as_json:
+        print(json.dumps(result, default=str, separators=(",", ":")), flush=True)
+    else:
+        print(json.dumps(result, default=str, indent=2))
+
+
+def _result(stage: str, payload: dict[str, Any]) -> dict[str, Any]:
+    return {"contract_version": CONTRACT_VERSION, "stage": stage, **payload}
+
+
+def _cmd_shared(args: argparse.Namespace) -> int:
+    """Dispatch operations that are equally available to people and programs."""
+    from careerradar.core.jobs import list_postings
+    from careerradar.scoring.worker import review_packet, save_reviewed_verdict, score_selected
+    from careerradar.search.explicit import run_query
+
+    stage = f"{args.command} {args.subcommand}"
+    try:
+        if stage == "jobs list":
+            result = _result("jobs", {"status": "ok", **list_postings(args)})
+        elif stage == "search query":
+            result = _result("search", run_query(args))
+        elif stage == "score jobs":
+            result = _result("score", score_selected(args.job_id, model=args.model))
+        elif stage == "score packet":
+            result = _result("packet", review_packet(args.job_id))
+        elif stage == "score verdict":
+            result = _result("verdict", save_reviewed_verdict(args))
+        else:
+            raise ValueError(f"unknown command {stage!r}")
+    except Exception as exc:  # noqa: BLE001 - JSON callers need a structured failure.
+        result = _result(args.subcommand, {"status": "error", "error": str(exc)})
+
+    _emit_result(result, as_json=args.json)
+    return 0 if result["status"] in ("ok", "empty") else 1
 
 
 def _cmd_llm(args: argparse.Namespace) -> int:
@@ -381,6 +497,19 @@ def build_parser() -> argparse.ArgumentParser:
     )
     ssd.set_defaults(func=_cmd_search_seed)
 
+    query = ssub.add_parser("query", help="run one explicit board query outside the rotation")
+    query.add_argument("--query", required=True)
+    query.add_argument("--location", required=True)
+    query.add_argument("--source", choices=["indeed", "linkedin"], default="indeed")
+    query.add_argument("--country", default="US", help="ISO country code used for normalization")
+    query.add_argument("--indeed-country", default="usa", help="JobSpy Indeed country slug")
+    query.add_argument("--remote", action="store_true")
+    query.add_argument("--distance", type=int, default=50)
+    query.add_argument("--hours-old", type=int, default=168)
+    query.add_argument("--results-wanted", type=int, default=25)
+    query.add_argument("--json", action="store_true", help="emit one machine-readable result")
+    query.set_defaults(func=_cmd_shared, stage="search")
+
     # --- score -----------------------------------------------------------------------
     sco = sub.add_parser("score", help="score postings against the profile")
     scosub = sco.add_subparsers(dest="subcommand", required=True)
@@ -395,6 +524,25 @@ def build_parser() -> argparse.ArgumentParser:
         "--job-id", type=int, help="clear one posting; defaults to every quarantined posting"
     )
     scy.set_defaults(func=_cmd_score_retry, stage="score")
+
+    score_jobs = scosub.add_parser("jobs", help="score selected posting IDs")
+    score_jobs.add_argument("--job-id", type=int, action="append", required=True)
+    score_jobs.add_argument("--model")
+    score_jobs.add_argument("--json", action="store_true", help="emit one machine-readable result")
+    score_jobs.set_defaults(func=_cmd_shared, stage="score")
+
+    packet = scosub.add_parser("packet", help="show scoring instructions and selected postings")
+    packet.add_argument("--job-id", type=int, action="append", required=True)
+    packet.add_argument("--json", action="store_true", help="emit one machine-readable result")
+    packet.set_defaults(func=_cmd_shared, stage="score")
+
+    verdict = scosub.add_parser("verdict", help="save a reviewed verdict for one posting")
+    verdict.add_argument("--job-id", type=int, required=True)
+    verdict.add_argument("--fit", action=argparse.BooleanOptionalAction, required=True)
+    verdict.add_argument("--reason-type", required=True)
+    verdict.add_argument("--reason-description", required=True)
+    verdict.add_argument("--json", action="store_true", help="emit one machine-readable result")
+    verdict.set_defaults(func=_cmd_shared, stage="score")
 
     # --- resume ----------------------------------------------------------------------
     res = sub.add_parser("resume", help="tailor, validate, and generate 1-page resumes")
@@ -472,12 +620,34 @@ def build_parser() -> argparse.ArgumentParser:
     llm_parser.set_defaults(func=_cmd_llm)
 
     # --- db / status -----------------------------------------------------------------
+    init = sub.add_parser("init", help="create standalone user directories and initialize storage")
+    init.add_argument("--json", action="store_true", help="machine-readable path report")
+    init.set_defaults(func=_cmd_init, stage="init")
+
     d = sub.add_parser("migrate", help="apply pending schema migrations and seed cells")
     d.set_defaults(func=_cmd_migrate, stage="migrate")
 
     st = sub.add_parser("status", help="one health report for every stage of the pipeline")
     st.add_argument("--json", action="store_true", help="machine-readable, for piping over ssh")
     st.set_defaults(func=_cmd_status)
+
+    # --- jobs ------------------------------------------------------------------------
+    jobs_command = sub.add_parser("jobs", help="inspect stored normalized postings")
+    jobs_sub = jobs_command.add_subparsers(dest="subcommand", required=True)
+    jobs = jobs_sub.add_parser("list", help="list postings with stable filters")
+    jobs.add_argument("--country")
+    jobs.add_argument("--location")
+    jobs.add_argument("--source", choices=["indeed", "linkedin"])
+    jobs.add_argument("--remote", action="store_true")
+    jobs.add_argument("--pipeline-state", choices=["new", "scored"])
+    jobs.add_argument("--fit", action=argparse.BooleanOptionalAction)
+    jobs.add_argument("--reason-type")
+    jobs.add_argument("--posted-within", choices=["24h", "7d", "30d", "90d"])
+    jobs.add_argument("--text", help="search title, company, and description")
+    jobs.add_argument("--limit", type=int, default=25)
+    jobs.add_argument("--offset", type=int, default=0)
+    jobs.add_argument("--json", action="store_true", help="emit one machine-readable result")
+    jobs.set_defaults(func=_cmd_shared)
 
     return parser
 

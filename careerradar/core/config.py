@@ -1,4 +1,5 @@
 import os
+import sys
 from typing import Any
 
 import yaml
@@ -125,7 +126,7 @@ def load_config() -> dict[str, Any]:
         try:
             config = yaml.safe_load(f) or {}
         except Exception as e:  # noqa: BLE001 - a malformed config.yaml must fall back to defaults, not crash startup
-            print(f"Error loading config.yaml: {e}")
+            print(f"Error loading config.yaml: {e}", file=sys.stderr)
             return defaults
 
     merged = deep_merge(defaults, config)
@@ -136,7 +137,7 @@ def load_config() -> dict[str, Any]:
         try:
             local_config = yaml.safe_load(f) or {}
         except Exception as e:  # noqa: BLE001 - a malformed local override must not stop startup
-            print(f"Error loading config.local.yaml: {e}")
+            print(f"Error loading config.local.yaml: {e}", file=sys.stderr)
             return merged
     return deep_merge(merged, local_config)
 

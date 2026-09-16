@@ -71,6 +71,7 @@ dependencies = [
     { name = "langchain-deepseek" },
     { name = "langgraph" },
     { name = "langgraph-checkpoint-sqlite" },
+    { name = "platformdirs" },
     { name = "pydantic" },
     { name = "pypdf" },
     { name = "python-jobspy" },
@@ -96,9 +97,10 @@ requires-dist = [
     { name = "langchain-deepseek", specifier = ">=1.1.0" },
     { name = "langgraph", specifier = ">=1.2.11" },
     { name = "langgraph-checkpoint-sqlite", specifier = ">=3.1.1" },
+    { name = "platformdirs", specifier = ">=4.0" },
     { name = "pydantic", specifier = ">=2.7.4" },
     { name = "pypdf", specifier = ">=6.15.0" },
-    { name = "python-jobspy", git = "https://github.com/speedyapply/JobSpy?rev=fda080a373e8226f3fd60635323f5da9af9892b1" },
+    { name = "python-jobspy", git = "https://github.com/speedyapply/JobSpy.git?rev=fda080a373e8226f3fd60635323f5da9af9892b1" },
     { name = "python-multipart", specifier = ">=0.0.32" },
     { name = "pyyaml", specifier = ">=6.0.1" },
     { name = "typst", specifier = ">=0.15.0" },
@@ -1360,7 +1362,7 @@ wheels = [
 [[package]]
 name = "python-jobspy"
 version = "1.1.82"
-source = { git = "https://github.com/speedyapply/JobSpy?rev=fda080a373e8226f3fd60635323f5da9af9892b1#fda080a373e8226f3fd60635323f5da9af9892b1" }
+source = { git = "https://github.com/speedyapply/JobSpy.git?rev=fda080a373e8226f3fd60635323f5da9af9892b1#fda080a373e8226f3fd60635323f5da9af9892b1" }
 dependencies = [
     { name = "beautifulsoup4" },
     { name = "markdownify" },

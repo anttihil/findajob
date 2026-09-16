@@ -259,6 +259,35 @@ def run_sync(
 _LAST_CELL_STATS: dict[str, int] = {}
 
 
+def store_postings(
+    db: Database, postings: list[dict[str, Any]], run_id: int | None
+) -> tuple[list[int], int, int]:
+    """Apply common search defaults, persist postings, and merge duplicates."""
+    job_ids: list[int] = []
+    new_count = duplicates = 0
+    for posting in postings:
+        posting.update(
+            skills={},
+            blockers=[],
+            seniority=None,
+            match_score=None,
+            matched_skills=[],
+            matched_count=0,
+            required_count=0,
+            pipeline_state="new",
+        )
+        job_id, is_new = db.upsert_posting(posting, run_id=run_id)
+        assert job_id is not None, "upsert_posting always inserts or finds a row"
+        job_ids.append(job_id)
+        if is_new:
+            new_count += 1
+            canonical = db.find_duplicate(posting.get("content_hash"), exclude_id=job_id)
+            if canonical:
+                db.mark_duplicate(job_id, canonical)
+                duplicates += 1
+    return job_ids, new_count, duplicates
+
+
 def _scrape_one(
     db: Database,
     client: "JobSpySource",
@@ -315,32 +344,22 @@ def _scrape_one(
     )
     saturated = 1 if is_saturated(stats["returned"], task.results_wanted) else 0
 
-    new_count = 0
-    duplicates = 0
-    stored = []
-
-    for posting in postings:
-        posting["skills"] = {}
-        posting["blockers"] = []
-        posting["seniority"] = None
-        posting["match_score"] = None
-        posting["matched_skills"] = []
-        posting["matched_count"] = 0
-        posting["required_count"] = 0
-        posting["pipeline_state"] = "new"
-        stored.append(posting)
-
-        if dry_run:
-            continue
-
-        job_id, is_new = db.upsert_posting(posting, run_id=run_id)
-        assert job_id is not None, "upsert_posting always inserts or finds a row"
-        if is_new:
-            new_count += 1
-            canonical = db.find_duplicate(posting.get("content_hash"), exclude_id=job_id)
-            if canonical:
-                db.mark_duplicate(job_id, canonical)
-                duplicates += 1
+    stored = postings
+    if dry_run:
+        for posting in stored:
+            posting.update(
+                skills={},
+                blockers=[],
+                seniority=None,
+                match_score=None,
+                matched_skills=[],
+                matched_count=0,
+                required_count=0,
+                pipeline_state="new",
+            )
+        new_count = duplicates = 0
+    else:
+        _job_ids, new_count, duplicates = store_postings(db, postings, run_id)
 
     if dry_run:
         _print_dry_run(task, stats, stored, saturated)

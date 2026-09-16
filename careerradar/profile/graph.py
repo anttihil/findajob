@@ -13,7 +13,7 @@ from careerradar.core.llm import (
     structured_model,
 )
 from careerradar.core.logger import get_logger
-from careerradar.core.paths import GENERATED_RESUMES_DIR
+from careerradar.core.paths import generated_resumes_dir
 from careerradar.profile.layout_validator import validate_resume_layout
 from careerradar.profile.models import (
     ATSScreeningVerdict,
@@ -150,11 +150,12 @@ def node_render_artifacts(state: ResumeState) -> dict[str, Any]:
     company = re.sub(r"[^a-zA-Z0-9_-]", "_", str(job.get("company", "company")).lower())[:20]
     title = re.sub(r"[^a-zA-Z0-9_-]", "_", str(job.get("title", "role")).lower())[:20]
     filename_base = f"resume_job_{job_id}_{company}_{title}"
-    typst_path = os.path.join(GENERATED_RESUMES_DIR, f"{filename_base}.typ")
+    output_dir = generated_resumes_dir()
+    typst_path = os.path.join(output_dir, f"{filename_base}.typ")
 
     # Render Typst source and compile directly to 1-page PDF
     render_typst(payload, typst_path)
-    pdf_path = compile_typst_to_pdf(typst_path, GENERATED_RESUMES_DIR)
+    pdf_path = compile_typst_to_pdf(typst_path, output_dir)
 
     if pdf_path:
         pages = verify_page_count(pdf_path)

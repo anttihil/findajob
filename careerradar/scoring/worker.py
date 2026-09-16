@@ -22,6 +22,7 @@ from careerradar.core.llm import (
 )
 from careerradar.core.logger import get_logger
 from careerradar.profile.adapter import NoActiveProfile
+from careerradar.profile.models import JobFitVerdict
 from careerradar.profile.repository import load_active
 from careerradar.scoring import repository as scoring_repo
 from careerradar.scoring.graph import build_graph
@@ -335,3 +336,89 @@ def score_job(
     finally:
         if owned:
             database.close()
+
+
+def score_selected(job_ids: list[int], model: str | None = None) -> dict[str, Any]:
+    """Score explicit posting IDs without draining the normal backlog."""
+    if not job_ids:
+        raise ValueError("provide at least one --job-id")
+    results: list[dict[str, Any]] = []
+    for job_id in dict.fromkeys(job_ids):
+        try:
+            results.append(
+                {"job_id": job_id, "status": "ok", "verdict": score_job(job_id, model=model)}
+            )
+        except Exception as exc:  # noqa: BLE001 - report every requested ID.
+            results.append({"job_id": job_id, "status": "error", "error": str(exc)})
+    failed = sum(result["status"] == "error" for result in results)
+    return {
+        "status": "ok" if not failed else ("partial" if failed < len(results) else "error"),
+        "requested": len(results),
+        "scored": len(results) - failed,
+        "failed": failed,
+        "results": results,
+    }
+
+
+def review_packet(job_ids: list[int]) -> dict[str, Any]:
+    """Return active-profile instructions and selected postings for external review."""
+    if not job_ids:
+        raise ValueError("provide at least one --job-id")
+    loaded = load_active()
+    if loaded is None:
+        raise NoActiveProfile("No active profile. Build one first: careerradar profile build")
+    profile_version, _profile, summary = loaded
+    threshold = int((load_config().get("scoring") or {}).get("fit_threshold", 70))
+    db = Database()
+    try:
+        jobs, missing = [], []
+        for job_id in dict.fromkeys(job_ids):
+            found = db.query_jobs(job_id=job_id, detail=True)["jobs"]
+            (jobs if found else missing).append(
+                {"job_id": job_id, "posting": render_posting(found[0])} if found else job_id
+            )
+        return {
+            "status": "ok" if not missing else "partial",
+            "profile_version": profile_version,
+            "instructions": build_system(summary, fit_threshold=threshold),
+            "jobs": jobs,
+            "missing_job_ids": missing,
+        }
+    finally:
+        db.close()
+
+
+def save_reviewed_verdict(args: Any) -> dict[str, Any]:
+    """Validate and persist a human or external review verdict."""
+    loaded = load_active()
+    if loaded is None:
+        raise NoActiveProfile("No active profile. Build one first: careerradar profile build")
+    profile_version, _profile, summary = loaded
+    verdict = JobFitVerdict(
+        fit=args.fit, reason_type=args.reason_type, reason_description=args.reason_description
+    ).model_dump()
+    threshold = int((load_config().get("scoring") or {}).get("fit_threshold", 70))
+    db = Database()
+    try:
+        jobs = db.query_jobs(job_id=args.job_id, detail=True)["jobs"]
+        if not jobs:
+            raise ValueError(f"job {args.job_id} not found")
+        scoring_repo.save_verdict(
+            db.conn,
+            job=jobs[0],
+            verdict=verdict,
+            usage=None,
+            cost=0.0,
+            model="external-review",
+            profile_version=profile_version,
+            phash=prompt_hash(summary, fit_threshold=threshold),
+        )
+        db.conn.commit()
+        return {
+            "status": "ok",
+            "job_id": args.job_id,
+            "verdict": verdict,
+            "model": "external-review",
+        }
+    finally:
+        db.close()

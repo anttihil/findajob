@@ -38,6 +38,26 @@ make start                                   # or: uv run careerradar start --po
 # Open http://127.0.0.1:8010 and drop your PDF, TXT, or Markdown resume on the Resumes page.
 ```
 
+### Global install
+
+For normal use, install CareerRadar once and run it from any directory:
+
+```bash
+uv tool install careerradar
+careerradar init
+careerradar profile build /path/to/your-resume.pdf
+careerradar start
+```
+
+An installed copy keeps configuration, databases, and logs in your operating system's normal
+application directories. Generated résumés go to your visible `Documents/CareerRadar` folder
+by default. Set `resumes.output_dir` in the generated configuration to choose another folder.
+`CAREERRADAR_HOME` makes a self-contained config/data/state/resume tree for automation or a
+second profile; individual `CAREERRADAR_*_PATH` variables remain available for precise control.
+
+Source checkouts retain their existing repository-local paths, so development commands such as
+`uv run careerradar ...` continue to work without moving current data.
+
 ### Docker
 
 ```bash
@@ -114,6 +134,36 @@ The dashboard's **Sync Now** action also runs search followed by scoring. To ena
 runs, set `scheduler.enabled: true` in your gitignored `config.local.yaml`; the schedule in
 the tracked `config.yaml` then supplies the defaults. Dashboard configuration changes are
 saved to `config.local.yaml`, so pulling project updates does not replace them.
+
+### CLI automation
+
+Humans and coding agents use the same commands. Add `--json` for one machine-readable result
+on stdout; diagnostics remain on stderr. First build an active profile as described above.
+
+```bash
+# Search one board query outside the configured rotation.
+uv run careerradar search query --query "Platform Engineer" \
+  --location "Helsinki, Finland" --country FI --indeed-country finland --json
+
+# Inspect local normalized postings with stable filters and full descriptions.
+uv run careerradar jobs list --pipeline-state new --source indeed --limit 25 --json
+
+# Use the configured CareerRadar LLM provider for selected postings.
+uv run careerradar score jobs --job-id 123 --job-id 124 --json
+```
+
+An external reviewer may score without a separately configured provider: request a packet
+containing the active-profile rules and posting text, then save its validated result.
+
+```bash
+uv run careerradar score packet --job-id 123 --json
+uv run careerradar score verdict --job-id 123 --fit \
+  --reason-type match --reason-description "Strong relevant platform experience." --json
+```
+
+See [AGENTS.md](AGENTS.md) for automation and privacy constraints. Explicit queries are stored
+in the local database, but are deliberately excluded from the configured search matrix and its
+coverage statistics.
 
 ### What scraping costs
 

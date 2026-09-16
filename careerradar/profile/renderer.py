@@ -7,7 +7,7 @@ import pypdf
 from pypdf.errors import PdfReadError
 
 from careerradar.core.logger import get_logger
-from careerradar.core.paths import GENERATED_RESUMES_DIR
+from careerradar.core.paths import generated_resumes_dir
 from careerradar.profile.models import TailoredResumePayload
 
 logger = get_logger()
@@ -166,7 +166,7 @@ def compile_typst_to_pdf(
     if output_pdf_path:
         pdf_path = output_pdf_path
     else:
-        out_dir = output_dir or os.path.dirname(typst_path) or GENERATED_RESUMES_DIR
+        out_dir = output_dir or os.path.dirname(typst_path) or generated_resumes_dir()
         stem = Path(typst_path).stem
         pdf_path = os.path.join(out_dir, f"{stem}.pdf")
 

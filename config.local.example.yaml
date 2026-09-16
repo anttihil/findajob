@@ -6,5 +6,9 @@
 # llm:
 #   provider: deepseek
 
+# resumes:
+#   # Default outside a source checkout: your platform's Documents/CareerRadar directory.
+#   # output_dir: ~/Documents/My Job Applications
+
 # scheduler:
 #   enabled: true

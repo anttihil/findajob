@@ -940,7 +940,7 @@ class ResumeSourceUpdate(BaseModel):
 def download_resume(resume_id: int, format: str = Query("pdf", pattern="^(pdf|typst)$")):
     from pathlib import Path
 
-    from careerradar.core.paths import GENERATED_RESUMES_DIR
+    from careerradar.core.paths import generated_resumes_dir
     from careerradar.profile.models import TailoredResumePayload
     from careerradar.profile.renderer import compile_typst_to_pdf, render_typst
     from careerradar.profile.repository import get_resume_by_id
@@ -957,13 +957,13 @@ def download_resume(resume_id: int, format: str = Query("pdf", pattern="^(pdf|ty
         if format == "pdf":
             file_path = record.get("pdf_path")
             if (not file_path or not os.path.exists(file_path)) and record.get("typst_path"):
-                file_path = compile_typst_to_pdf(record["typst_path"], GENERATED_RESUMES_DIR)
+                file_path = compile_typst_to_pdf(record["typst_path"], generated_resumes_dir())
             media_type = "application/pdf"
         else:
             file_path = record.get("typst_path")
             if (not file_path or not os.path.exists(file_path)) and record.get("resume"):
                 payload = TailoredResumePayload.model_validate(record["resume"])
-                file_path = os.path.join(GENERATED_RESUMES_DIR, f"{stem}.typ")
+                file_path = os.path.join(generated_resumes_dir(), f"{stem}.typ")
                 render_typst(payload, file_path)
             media_type = "text/plain; charset=utf-8"
 
@@ -980,7 +980,7 @@ def download_resume(resume_id: int, format: str = Query("pdf", pattern="^(pdf|ty
 def get_resume_source(resume_id: int):
     from pathlib import Path
 
-    from careerradar.core.paths import GENERATED_RESUMES_DIR
+    from careerradar.core.paths import generated_resumes_dir
     from careerradar.profile.models import TailoredResumePayload
     from careerradar.profile.renderer import generate_typst_source, render_typst, verify_page_count
     from careerradar.profile.repository import get_resume_by_id
@@ -998,7 +998,7 @@ def get_resume_source(resume_id: int):
             payload = TailoredResumePayload.model_validate(record["resume"])
             source = generate_typst_source(payload)
             stem = f"resume_{resume_id}"
-            typst_path = os.path.join(GENERATED_RESUMES_DIR, f"{stem}.typ")
+            typst_path = os.path.join(generated_resumes_dir(), f"{stem}.typ")
             render_typst(payload, typst_path)
         else:
             raise HTTPException(status_code=404, detail="No source data found for resume")
@@ -1019,7 +1019,7 @@ def get_resume_source(resume_id: int):
 def update_resume_source(resume_id: int, req: ResumeSourceUpdate):
     from pathlib import Path
 
-    from careerradar.core.paths import GENERATED_RESUMES_DIR
+    from careerradar.core.paths import generated_resumes_dir
     from careerradar.profile.renderer import compile_typst_to_pdf, verify_page_count
     from careerradar.profile.repository import get_resume_by_id, update_resume_artifacts
 
@@ -1032,7 +1032,7 @@ def update_resume_source(resume_id: int, req: ResumeSourceUpdate):
         typst_path = record.get("typst_path")
         if not typst_path:
             stem = f"resume_{resume_id}"
-            typst_path = os.path.join(GENERATED_RESUMES_DIR, f"{stem}.typ")
+            typst_path = os.path.join(generated_resumes_dir(), f"{stem}.typ")
 
         Path(typst_path).parent.mkdir(parents=True, exist_ok=True)
         Path(typst_path).write_text(req.typst_source, encoding="utf-8")
