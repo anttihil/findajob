@@ -121,7 +121,7 @@ Two consequences worth keeping in mind when reading a distribution:
 
 **Temperature 0 is not full determinism.** The 12/12 figure above is a small sample.
 
-Check pipeline state with `careerradar status` or view metrics in the dashboard.
+Check pipeline state with `find-a-job status` or view metrics in the dashboard.
 
 ## 6. Measured token shape (for cost estimates)
 

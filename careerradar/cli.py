@@ -1,4 +1,4 @@
-"""careerradar -- one entry point for every stage of the pipeline.
+"""find-a-job -- one entry point for every stage of the pipeline.
 
 The pipeline is three stages that talk to each other only through `jobs.pipeline_state`:
 
@@ -259,13 +259,13 @@ def _cmd_migrate(args: argparse.Namespace) -> int:  # noqa: ARG001 - argparse ha
 
 
 _STARTER_CONFIG = """\
-# Personal CareerRadar settings. This file is never overwritten by `careerradar init`.
+# Personal Find a Job settings. This file is never overwritten by `find-a-job init`.
 #
 # llm:
 #   provider: deepseek
 #
 # resumes:
-#   # Default: your platform's Documents/CareerRadar directory.
+#   # Default: your platform's Documents/Find a Job directory.
 #   # output_dir: ~/Documents/My Job Applications
 #
 scheduler:
@@ -321,7 +321,7 @@ def _cmd_init(args: argparse.Namespace) -> int:
     if args.json:
         print(json.dumps(report, default=str))
     else:
-        print("CareerRadar is ready.")
+        print("Find a Job is ready.")
         print(f"  Config:   {report['config']}")
         print(f"  Database: {report['database']}")
         print(f"  Resumes:  {report['resumes']}")
@@ -428,7 +428,7 @@ def _cmd_llm(args: argparse.Namespace) -> int:
             print("2. Structured output test...")
             structured = prov.complete_structured(
                 TestOutput,
-                "Return a JSON object with message='Hello CareerRadar' and answer=42.",
+                "Return a JSON object with message='Hello Find a Job' and answer=42.",
                 label="cli_test",
             )
             print(f"   Structured Output: {structured.model_dump()}")
@@ -456,7 +456,7 @@ def _cmd_start(args: argparse.Namespace) -> int:
 
 def build_parser() -> argparse.ArgumentParser:
     doc = __doc__ or ""
-    parser = argparse.ArgumentParser(prog="careerradar", description=doc.split("\n")[0])
+    parser = argparse.ArgumentParser(prog="find-a-job", description=doc.split("\n")[0])
     parser.set_defaults(stage=None)
     sub = parser.add_subparsers(dest="command", required=True)
 

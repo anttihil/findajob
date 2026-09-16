@@ -2,13 +2,13 @@
 
 ## 1. Executive Summary & Problem Statement
 
-CareerRadar transitioned from an early deterministic keyword-matching system (`JobScorer`, BM25) to an LLM-agentic pipeline for candidate-job fit evaluation. However, the static taxonomy file (`data/skills.yaml`) remains embedded across several core components.
+Find a Job transitioned from an early deterministic keyword-matching system (`JobScorer`, BM25) to an LLM-agentic pipeline for candidate-job fit evaluation. However, the static taxonomy file (`data/skills.yaml`) remains embedded across several core components.
 
 Retaining this hardcoded taxonomy introduces three significant architectural issues:
 
 1. **Prevents Generalization Across Industries:**
    * `skills.yaml` hardcodes 172 skills exclusively for software engineering, DevOps, and cloud/AI infrastructure.
-   * Applying CareerRadar to any other discipline (e.g., healthcare, finance, legal, sales, biotechnology) currently requires authoring and maintaining a massive custom YAML file.
+   * Applying Find a Job to any other discipline (e.g., healthcare, finance, legal, sales, biotechnology) currently requires authoring and maintaining a massive custom YAML file.
    * Even within software engineering, it requires perpetual manual maintenance as new frameworks, tools, and languages emerge.
 
 2. **Regex Extraction is Brittle:**

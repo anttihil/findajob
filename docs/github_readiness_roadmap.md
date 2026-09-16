@@ -1,12 +1,12 @@
-# CareerRadar: GitHub & Community Readiness Roadmap
+# Find a Job: GitHub & Community Readiness Roadmap
 
-This document outlines the evaluation, gap analysis, and step-by-step roadmap required to make CareerRadar turnkey, portable, and accessible for any GitHub user.
+This document outlines the evaluation, gap analysis, and step-by-step roadmap required to make Find a Job turnkey, portable, and accessible for any GitHub user.
 
 ---
 
 ## 1. Executive Summary & Readiness Assessment
 
-CareerRadar has an exceptionally strong technical core:
+Find a Job has an exceptionally strong technical core:
 - **Rock-solid test coverage**: 494 Python unit/integration tests and 43 Vitest frontend tests.
 - **Strict code quality**: 0 Ruff lint issues, 0 Pyright type errors.
 - **Architectural maturity**: Robust SQLite WAL data layer, LangGraph agent workflows, prefix-cache optimized LLM calls, and a responsive Preact/TypeScript dashboard.
@@ -35,8 +35,8 @@ flowchart TD
     end
 
     subgraph P1["P1: Developer Experience (DX)"]
-        B1["Remove obsolete commands & standardize on 'careerradar start'"]
-        B2["Fix 'careerradar profile build <file>' argparse"]
+        B1["Remove obsolete commands & standardize on 'find-a-job start'"]
+        B2["Fix 'find-a-job profile build <file>' argparse"]
         B3["Add Makefile for 1-command setup & build"]
         B4["Restructure README for 5-min Quickstart"]
     end
@@ -76,14 +76,14 @@ flowchart TD
 
   # Optional: Tailscale login permitted to access the dashboard
   # Leave blank for local-only access (127.0.0.1)
-  CAREERRADAR_OWNER=
+  FIND_A_JOB_OWNER=
   ```
 
 ### 1.3. Streamline Candidate Profile Ingestion
 - **Fixes**:
-  1. Update `careerradar/cli.py` so `careerradar profile build` takes an optional file argument:
+  1. Update `careerradar/cli.py` so `find-a-job profile build` takes an optional file argument:
      ```bash
-     careerradar profile build ./path/to/my_resume.pdf
+     find-a-job profile build ./path/to/my_resume.pdf
      ```
   2. Document the web UI's **Resume Dropzone** (`/resumes` route) as the visual alternative for profile extraction.
   3. Include a sanitized sample resume or template document in `examples/sample_resume.md` so users without an immediate PDF can test the pipeline immediately.
@@ -93,7 +93,7 @@ flowchart TD
 ## Phase 2: CLI Consistency & Build Automation (P1 — High)
 
 ### 2.1. Align CLI Subcommands with Documentation
-- **Action**: Standardize on `careerradar start` across all documentation and purge obsolete commands (`web`, `score rescale`, `score audit`, `search cost`, `score stats`).
+- **Action**: Standardize on `find-a-job start` across all documentation and purge obsolete commands (`web`, `score rescale`, `score audit`, `search cost`, `score stats`).
 - **Audit**: All flags referenced in documentation (`search run --dry-run`, `score run --limit`, `migrate`, `status`) match `careerradar/cli.py` exactly.
 
 ### 2.2. Single-Step Setup & Build Automation (`Makefile`)
@@ -103,8 +103,8 @@ flowchart TD
 - Provide a clear, top-level **"⚡ Quickstart (5 Minutes)"** section:
   1. Clone & install dependencies (`make setup && make build`)
   2. Configure `.env` (`cp .env.example .env`)
-  3. Initialize database (`uv run careerradar migrate`)
-  4. Ingest resume (`uv run careerradar profile build examples/sample_resume.md`)
+  3. Initialize database (`uv run find-a-job migrate`)
+  4. Ingest resume (`uv run find-a-job profile build examples/sample_resume.md`)
   5. Start app (`make start`)
 - Move deep technical essays (DeepSeek pricing analysis, LinkedIn guest API pagination benchmarks, Pareto score theory) into dedicated subheadings or `docs/` files to keep the main README accessible.
 
@@ -137,13 +137,13 @@ flowchart TD
   ENV PATH="/app/.venv/bin:$PATH"
 
   EXPOSE 8010
-  CMD ["careerradar", "start", "--host", "0.0.0.0", "--port", "8010"]
+  CMD ["find-a-job", "start", "--host", "0.0.0.0", "--port", "8010"]
   ```
 
 - **Action**: Provide a turn-key `docker-compose.yml`:
   ```yaml
   services:
-    careerradar:
+    find-a-job:
       build: .
       ports:
         - "8010:8010"
@@ -158,9 +158,9 @@ flowchart TD
   ```
 
 ### 3.2. Universal Web Authentication
-- **Problem**: `careerradar/web/app.py` enforces `CAREERRADAR_OWNER` by inspecting the `tailscale-user-login` header. Non-Tailscale users deploying behind standard reverse proxies (Nginx, Caddy, Cloudflare, Traefik) have no built-in auth mechanism.
+- **Problem**: `careerradar/web/app.py` enforces `FIND_A_JOB_OWNER` by inspecting the `tailscale-user-login` header. Non-Tailscale users deploying behind standard reverse proxies (Nginx, Caddy, Cloudflare, Traefik) have no built-in auth mechanism.
 - **Fix**: Extend `careerradar/web/app.py` with optional Basic Auth or API Token authentication:
-  - If `CAREERRADAR_PASSWORD` or `CAREERRADAR_AUTH_TOKEN` is set, validate HTTP Basic Auth or `Authorization: Bearer <token>` / cookie before serving the dashboard.
+  - If `FIND_A_JOB_PASSWORD` or `FIND_A_JOB_AUTH_TOKEN` is set, validate HTTP Basic Auth or `Authorization: Bearer <token>` / cookie before serving the dashboard.
 
 ---
 
@@ -184,11 +184,10 @@ flowchart TD
 
 - [x] Add `LICENSE` (MIT).
 - [x] Add `.env.example`.
-- [x] Standardize on `careerradar start` and remove obsolete commands from documentation.
-- [x] Fix `careerradar profile build [file]` argument parsing in `careerradar/cli.py`.
+- [x] Standardize on `find-a-job start` and remove obsolete commands from documentation.
+- [x] Fix `find-a-job profile build [file]` argument parsing in `careerradar/cli.py`.
 - [x] Add `Makefile` for one-command install/build/start.
 - [x] Add `Dockerfile` and `docker-compose.yml`.
 - [x] Add optional Basic Auth / Bearer token gate in `careerradar/web/app.py`.
 - [x] Reorganize `README.md` with a clean 5-minute Quickstart.
 - [ ] Add `.github/ISSUE_TEMPLATE/` and `CONTRIBUTING.md`.
-

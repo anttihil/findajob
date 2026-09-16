@@ -1,6 +1,6 @@
 """Scrape, normalize, and store job postings.
 
-careerradar search run [--dry-run]
+find-a-job search run [--dry-run]
 """
 
 from datetime import datetime, timezone
@@ -154,7 +154,7 @@ def run_sync(
 
             cells = db.get_cells(source=source)
             if not cells:
-                logger.warning(f"[{source}] no cells seeded. Run: careerradar search seed-cells")
+                logger.warning(f"[{source}] no cells seeded. Run: find-a-job search seed-cells")
                 continue
 
             tasks = select_cells(cells, scraper_config, source)

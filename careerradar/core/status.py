@@ -45,7 +45,7 @@ def collect(db: Database | None = None, now: datetime | None = None) -> dict[str
 
 
 def render(report: dict[str, Any]) -> str:
-    out: list[str] = ["CareerRadar status", ""]
+    out: list[str] = ["Find a Job status", ""]
 
     search = report["search"]
     since = search["hours_since"]
@@ -112,7 +112,7 @@ def render(report: dict[str, Any]) -> str:
         for row in report["quarantined"]:
             out.append(f"  #{row['id']} {row['title'][:48]}")
             out.append(f"      {(row['error'] or '')[:96]}")
-        out.append("  retry with:  careerradar score retry")
+        out.append("  retry with:  find-a-job score retry")
 
     out += ["", "SEARCH TARGETS"]
     out.append(f"  fingerprint {report['search_targets']['search_targets_hash']}")

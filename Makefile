@@ -8,7 +8,7 @@ build:
 	npm run build
 
 start: build
-	uv run careerradar start --port 8010
+	uv run find-a-job start --port 8010
 
 test:
 	uv run pytest -q

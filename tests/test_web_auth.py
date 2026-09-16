@@ -14,10 +14,10 @@ def client() -> TestClient:
 def test_no_auth_configured_allows_unheadered_request(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.delenv("CAREERRADAR_OWNER", raising=False)
-    monkeypatch.delenv("CAREERRADAR_PASSWORD", raising=False)
-    monkeypatch.delenv("CAREERRADAR_AUTH_TOKEN", raising=False)
-    monkeypatch.delenv("CAREERRADAR_USER", raising=False)
+    monkeypatch.delenv("FIND_A_JOB_OWNER", raising=False)
+    monkeypatch.delenv("FIND_A_JOB_PASSWORD", raising=False)
+    monkeypatch.delenv("FIND_A_JOB_AUTH_TOKEN", raising=False)
+    monkeypatch.delenv("FIND_A_JOB_USER", raising=False)
 
     response = client.get("/api/sync/status")
     # Endpoint should not return 401 or 403
@@ -26,9 +26,9 @@ def test_no_auth_configured_allows_unheadered_request(
 
 
 def test_tailscale_owner_matching(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("CAREERRADAR_OWNER", "alice@github")
-    monkeypatch.delenv("CAREERRADAR_PASSWORD", raising=False)
-    monkeypatch.delenv("CAREERRADAR_AUTH_TOKEN", raising=False)
+    monkeypatch.setenv("FIND_A_JOB_OWNER", "alice@github")
+    monkeypatch.delenv("FIND_A_JOB_PASSWORD", raising=False)
+    monkeypatch.delenv("FIND_A_JOB_AUTH_TOKEN", raising=False)
 
     # Correct Tailscale login
     resp = client.get("/api/sync/status", headers={"tailscale-user-login": "alice@github"})
@@ -41,15 +41,15 @@ def test_tailscale_owner_matching(client: TestClient, monkeypatch: pytest.Monkey
 
 
 def test_basic_auth_password(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("CAREERRADAR_PASSWORD", "supersecret123")
-    monkeypatch.delenv("CAREERRADAR_OWNER", raising=False)
-    monkeypatch.delenv("CAREERRADAR_AUTH_TOKEN", raising=False)
-    monkeypatch.delenv("CAREERRADAR_USER", raising=False)
+    monkeypatch.setenv("FIND_A_JOB_PASSWORD", "supersecret123")
+    monkeypatch.delenv("FIND_A_JOB_OWNER", raising=False)
+    monkeypatch.delenv("FIND_A_JOB_AUTH_TOKEN", raising=False)
+    monkeypatch.delenv("FIND_A_JOB_USER", raising=False)
 
     # Missing auth header -> 401
     resp_unauth = client.get("/api/sync/status")
     assert resp_unauth.status_code == 401
-    assert resp_unauth.headers.get("www-authenticate") == 'Basic realm="CareerRadar"'
+    assert resp_unauth.headers.get("www-authenticate") == 'Basic realm="Find a Job"'
 
     # Invalid Basic Auth credentials
     bad_creds = base64.b64encode(b"admin:wrongpassword").decode("utf-8")
@@ -64,9 +64,9 @@ def test_basic_auth_password(client: TestClient, monkeypatch: pytest.MonkeyPatch
 
 
 def test_bearer_and_api_key_auth(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("CAREERRADAR_AUTH_TOKEN", "token_abc_xyz")
-    monkeypatch.delenv("CAREERRADAR_OWNER", raising=False)
-    monkeypatch.delenv("CAREERRADAR_PASSWORD", raising=False)
+    monkeypatch.setenv("FIND_A_JOB_AUTH_TOKEN", "token_abc_xyz")
+    monkeypatch.delenv("FIND_A_JOB_OWNER", raising=False)
+    monkeypatch.delenv("FIND_A_JOB_PASSWORD", raising=False)
 
     # Bearer token
     resp_bearer = client.get("/api/sync/status", headers={"Authorization": "Bearer token_abc_xyz"})

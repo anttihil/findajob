@@ -62,61 +62,6 @@ wheels = [
 ]
 
 [[package]]
-name = "careerradar"
-version = "0.1.0"
-source = { editable = "." }
-dependencies = [
-    { name = "beautifulsoup4" },
-    { name = "fastapi" },
-    { name = "langchain-deepseek" },
-    { name = "langgraph" },
-    { name = "langgraph-checkpoint-sqlite" },
-    { name = "platformdirs" },
-    { name = "pydantic" },
-    { name = "pypdf" },
-    { name = "python-jobspy" },
-    { name = "python-multipart" },
-    { name = "pyyaml" },
-    { name = "typst" },
-    { name = "uvicorn" },
-]
-
-[package.dev-dependencies]
-dev = [
-    { name = "httpx2" },
-    { name = "pre-commit" },
-    { name = "pyright" },
-    { name = "pytest" },
-    { name = "ruff" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "beautifulsoup4", specifier = ">=4.12.0" },
-    { name = "fastapi", specifier = ">=0.111.0" },
-    { name = "langchain-deepseek", specifier = ">=1.1.0" },
-    { name = "langgraph", specifier = ">=1.2.11" },
-    { name = "langgraph-checkpoint-sqlite", specifier = ">=3.1.1" },
-    { name = "platformdirs", specifier = ">=4.0" },
-    { name = "pydantic", specifier = ">=2.7.4" },
-    { name = "pypdf", specifier = ">=6.15.0" },
-    { name = "python-jobspy", git = "https://github.com/speedyapply/JobSpy.git?rev=fda080a373e8226f3fd60635323f5da9af9892b1" },
-    { name = "python-multipart", specifier = ">=0.0.32" },
-    { name = "pyyaml", specifier = ">=6.0.1" },
-    { name = "typst", specifier = ">=0.15.0" },
-    { name = "uvicorn", specifier = ">=0.30.1" },
-]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "httpx2", specifier = ">=2.9.1" },
-    { name = "pre-commit", specifier = ">=4.6.2" },
-    { name = "pyright", specifier = ">=1.1.411" },
-    { name = "pytest", specifier = ">=9.1.1" },
-    { name = "ruff", specifier = ">=0.16.3" },
-]
-
-[[package]]
 name = "certifi"
 version = "2026.7.22"
 source = { registry = "https://pypi.org/simple" }
@@ -295,6 +240,61 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/7d/64/a02e6765de08964ed371eca577870593245afc9dfac16d037de7c10d18e6/filelock-3.32.3.tar.gz", hash = "sha256:0ffa185a3540854c95caa7fa76b76cb219d907415e2c5dc9af25fd970563487f", size = 218135, upload-time = "2026-08-13T16:00:05.577Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/a7/8e/50f46a9c0ce8d2861a394c1347caae037ea0431d2f67d7feb151cbc4649a/filelock-3.32.3-py3-none-any.whl", hash = "sha256:7f0ca4bcc0e181c60dbbd8aa9ab5b120ebb99e4e064e83636340056f833a1f09", size = 98901, upload-time = "2026-08-13T16:00:03.974Z" },
+]
+
+[[package]]
+name = "find-a-job"
+version = "0.1.0"
+source = { editable = "." }
+dependencies = [
+    { name = "beautifulsoup4" },
+    { name = "fastapi" },
+    { name = "langchain-deepseek" },
+    { name = "langgraph" },
+    { name = "langgraph-checkpoint-sqlite" },
+    { name = "platformdirs" },
+    { name = "pydantic" },
+    { name = "pypdf" },
+    { name = "python-jobspy" },
+    { name = "python-multipart" },
+    { name = "pyyaml" },
+    { name = "typst" },
+    { name = "uvicorn" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "httpx2" },
+    { name = "pre-commit" },
+    { name = "pyright" },
+    { name = "pytest" },
+    { name = "ruff" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "beautifulsoup4", specifier = ">=4.12.0" },
+    { name = "fastapi", specifier = ">=0.111.0" },
+    { name = "langchain-deepseek", specifier = ">=1.1.0" },
+    { name = "langgraph", specifier = ">=1.2.11" },
+    { name = "langgraph-checkpoint-sqlite", specifier = ">=3.1.1" },
+    { name = "platformdirs", specifier = ">=4.0" },
+    { name = "pydantic", specifier = ">=2.7.4" },
+    { name = "pypdf", specifier = ">=6.15.0" },
+    { name = "python-jobspy", git = "https://github.com/speedyapply/JobSpy.git?rev=fda080a373e8226f3fd60635323f5da9af9892b1" },
+    { name = "python-multipart", specifier = ">=0.0.32" },
+    { name = "pyyaml", specifier = ">=6.0.1" },
+    { name = "typst", specifier = ">=0.15.0" },
+    { name = "uvicorn", specifier = ">=0.30.1" },
+]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "httpx2", specifier = ">=2.9.1" },
+    { name = "pre-commit", specifier = ">=4.6.2" },
+    { name = "pyright", specifier = ">=1.1.411" },
+    { name = "pytest", specifier = ">=9.1.1" },
+    { name = "ruff", specifier = ">=0.16.3" },
 ]
 
 [[package]]

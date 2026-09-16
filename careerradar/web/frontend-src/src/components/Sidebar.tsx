@@ -35,7 +35,7 @@ export function Sidebar() {
             />
           </svg>
         </div>
-        <div class="hatched-logo-caption">CAREERRADAR</div>
+        <div class="hatched-logo-caption">Find a Job</div>
       </div>
 
       <nav class="nav-menu">

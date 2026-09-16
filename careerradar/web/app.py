@@ -71,7 +71,7 @@ async def lifespan(_: FastAPI):
         live_hub.stop()
 
 
-app = FastAPI(title="Job Search Automation Dashboard", lifespan=lifespan)
+app = FastAPI(title="Find a Job", lifespan=lifespan)
 
 logger = get_logger()
 
@@ -120,10 +120,10 @@ def _is_request_authenticated(
 async def auth_middleware(
     request: Request, call_next: Callable[[Request], Awaitable[FastAPIResponse]]
 ) -> FastAPIResponse:
-    owner_login = os.environ.get("CAREERRADAR_OWNER", "").strip()
-    auth_password = os.environ.get("CAREERRADAR_PASSWORD", "").strip()
-    auth_token = os.environ.get("CAREERRADAR_AUTH_TOKEN", "").strip()
-    auth_user = os.environ.get("CAREERRADAR_USER", "").strip()
+    owner_login = os.environ.get("FIND_A_JOB_OWNER", "").strip()
+    auth_password = os.environ.get("FIND_A_JOB_PASSWORD", "").strip()
+    auth_token = os.environ.get("FIND_A_JOB_AUTH_TOKEN", "").strip()
+    auth_user = os.environ.get("FIND_A_JOB_USER", "").strip()
 
     # 1. Tailscale Serve identity header check (if request arrived through Tailscale)
     login = request.headers.get(IDENTITY_HEADER)
@@ -140,7 +140,7 @@ async def auth_middleware(
         return JSONResponse(
             {"detail": "Authentication required."},
             status_code=401,
-            headers={"WWW-Authenticate": 'Basic realm="CareerRadar"'},
+            headers={"WWW-Authenticate": 'Basic realm="Find a Job"'},
         )
 
     return await call_next(request)
@@ -1133,7 +1133,7 @@ def get_sync_plan(source: str = "indeed"):
 def pipeline_status():
     """Live progress for the two background stages: scraping and scoring.
 
-    `careerradar status` (careerradar/core/status.py) already answers "is each stage
+    `find-a-job status` (careerradar/core/status.py) already answers "is each stage
     stalled" from history alone -- last completed run, verdict backlog, verdict recency.
     This reuses that report and adds the two things it cannot show: how far the scrape
     *in progress right now* has gotten, and whether the scorer -- which has no lock file,

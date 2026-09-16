@@ -16,7 +16,7 @@ describe("browser preferences", () => {
 
   it("uses the fallback for missing or malformed data", () => {
     expect(readPreference("missing", "all")).toBe("all");
-    window.localStorage.setItem("careerradar.preferences.invalid", "not json");
+    window.localStorage.setItem("find-a-job.preferences.invalid", "not json");
     expect(readPreference("invalid", "all")).toBe("all");
   });
 

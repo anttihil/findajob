@@ -26,12 +26,12 @@ def _is_checkout() -> bool:
 
 
 def _under_home(name: str) -> str | None:
-    root = os.environ.get("CAREERRADAR_HOME")
+    root = os.environ.get("FIND_A_JOB_HOME")
     return os.path.join(_expand(root), name) if root else None
 
 
-SOURCE_CHECKOUT = _is_checkout() and not os.environ.get("CAREERRADAR_HOME")
-APP_NAME = "careerradar"
+SOURCE_CHECKOUT = _is_checkout() and not os.environ.get("FIND_A_JOB_HOME")
+APP_NAME = "find-a-job"
 
 if SOURCE_CHECKOUT:
     CONFIG_DIR = REPO_ROOT
@@ -43,32 +43,32 @@ else:
     DATA_DIR = _under_home("data") or user_data_dir(APP_NAME)
     STATE_DIR = _under_home("state") or user_state_dir(APP_NAME)
     _default_resumes_dir = _under_home("resumes") or os.path.join(
-        user_documents_dir(), "CareerRadar"
+        user_documents_dir(), "Find a Job"
     )
 
-CONFIG_DIR = _expand(os.environ.get("CAREERRADAR_CONFIG_DIR", CONFIG_DIR))
-DATA_DIR = _expand(os.environ.get("CAREERRADAR_DATA_DIR", DATA_DIR))
-STATE_DIR = _expand(os.environ.get("CAREERRADAR_STATE_DIR", STATE_DIR))
+CONFIG_DIR = _expand(os.environ.get("FIND_A_JOB_CONFIG_DIR", CONFIG_DIR))
+DATA_DIR = _expand(os.environ.get("FIND_A_JOB_DATA_DIR", DATA_DIR))
+STATE_DIR = _expand(os.environ.get("FIND_A_JOB_STATE_DIR", STATE_DIR))
 
-DB_PATH = _expand(os.environ.get("CAREERRADAR_DB_PATH", os.path.join(DATA_DIR, "jobs.db")))
+DB_PATH = _expand(os.environ.get("FIND_A_JOB_DB_PATH", os.path.join(DATA_DIR, "jobs.db")))
 GRAPH_DB_PATH = _expand(
-    os.environ.get("CAREERRADAR_GRAPH_DB_PATH", os.path.join(DATA_DIR, "graphs.db"))
+    os.environ.get("FIND_A_JOB_GRAPH_DB_PATH", os.path.join(DATA_DIR, "graphs.db"))
 )
 CONFIG_PATH = _expand(
-    os.environ.get("CAREERRADAR_CONFIG_PATH", os.path.join(CONFIG_DIR, "config.yaml"))
+    os.environ.get("FIND_A_JOB_CONFIG_PATH", os.path.join(CONFIG_DIR, "config.yaml"))
 )
 CONFIG_LOCAL_PATH = _expand(
-    os.environ.get("CAREERRADAR_CONFIG_LOCAL_PATH", os.path.join(CONFIG_DIR, "config.local.yaml"))
+    os.environ.get("FIND_A_JOB_CONFIG_LOCAL_PATH", os.path.join(CONFIG_DIR, "config.local.yaml"))
 )
-ENV_PATH = _expand(os.environ.get("CAREERRADAR_ENV_PATH", os.path.join(CONFIG_DIR, ".env")))
-LOG_PATH = _expand(os.environ.get("CAREERRADAR_LOG_PATH", os.path.join(STATE_DIR, "app.log")))
+ENV_PATH = _expand(os.environ.get("FIND_A_JOB_ENV_PATH", os.path.join(CONFIG_DIR, ".env")))
+LOG_PATH = _expand(os.environ.get("FIND_A_JOB_LOG_PATH", os.path.join(STATE_DIR, "app.log")))
 STATUS_PATH = _expand(
-    os.environ.get("CAREERRADAR_STATUS_PATH", os.path.join(STATE_DIR, "sync_status.json"))
+    os.environ.get("FIND_A_JOB_STATUS_PATH", os.path.join(STATE_DIR, "sync_status.json"))
 )
 PIPELINE_LOCK_PATH = _expand(
-    os.environ.get("CAREERRADAR_PIPELINE_LOCK_PATH", os.path.join(STATE_DIR, ".pipeline.lock"))
+    os.environ.get("FIND_A_JOB_PIPELINE_LOCK_PATH", os.path.join(STATE_DIR, ".pipeline.lock"))
 )
-RESUMES_DIR = _expand(os.environ.get("CAREERRADAR_RESUMES_DIR", _default_resumes_dir))
+RESUMES_DIR = _expand(os.environ.get("FIND_A_JOB_RESUMES_DIR", _default_resumes_dir))
 
 # Kept for callers that need a static default. Runtime resume generation uses
 # ``generated_resumes_dir`` so `resumes.output_dir` can override it.

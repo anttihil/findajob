@@ -17,9 +17,9 @@ def test_source_checkout_keeps_its_repository_local_config() -> None:
 def _installed_paths(home: Path) -> dict[str, object]:
     env = os.environ.copy()
     for key in tuple(env):
-        if key.startswith("CAREERRADAR_"):
+        if key.startswith("FIND_A_JOB_"):
             env.pop(key)
-    env["CAREERRADAR_HOME"] = str(home)
+    env["FIND_A_JOB_HOME"] = str(home)
     script = """
 import json
 from careerradar.core.paths import (

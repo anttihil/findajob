@@ -1,4 +1,4 @@
-"""The `careerradar profile` command-line interface."""
+"""The `find-a-job profile` command-line interface."""
 
 import argparse
 import os
@@ -41,7 +41,7 @@ def cmd_show(_args: argparse.Namespace) -> int:
     profile = load_profile()
     if not profile.name and not profile.summary_guidance:
         print("No active profile configured. Set up your profile with:")
-        print("  careerradar profile build <path/to/resume.pdf>")
+        print("  find-a-job profile build <path/to/resume.pdf>")
         return 1
 
     print(_style(f"Profile: {profile.name or 'Unnamed'}", BOLD))
@@ -95,7 +95,7 @@ def cmd_build(args: argparse.Namespace) -> int:
     print(_style(f"Successfully extracted and saved profile for {profile.name}!", BOLD))
     print(f"  Skills: {len(profile.skills)} categories")
     print(f"  Roles: {len(profile.experience)} work history entries")
-    print("Run `careerradar profile show` to inspect.")
+    print("Run `find-a-job profile show` to inspect.")
     return 0
 
 

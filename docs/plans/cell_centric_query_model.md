@@ -201,8 +201,8 @@ Phase 6 is the schema change. Phase 7 is optional.
   Re-lock with `uv lock`.
 * Leave the tables and `jobs.dossier_id` in place; phase 6 drops them.
 
-**Exit check:** `careerradar --help` lists no research stage; the scheduler runs search and
-score; the job drawer opens without a dossier panel; `careerradar status` prints without a
+**Exit check:** `find-a-job --help` lists no research stage; the scheduler runs search and
+score; the job drawer opens without a dossier panel; `find-a-job status` prints without a
 research section.
 
 ### Phase 2: Delete dead taxonomy code (no migration)
@@ -220,7 +220,7 @@ research section.
 * Remove `tier` from `roles.cell_specs()`, `seed_cells`, and `seed.py`'s "cells re-synced"
   line.
 
-**Exit check:** `careerradar search seed-cells` reports 588 cells; a dry-run scrape produces
+**Exit check:** `find-a-job search seed-cells` reports 588 cells; a dry-run scrape produces
 the same task list as before.
 
 ### Phase 3: Delete `access` end to end

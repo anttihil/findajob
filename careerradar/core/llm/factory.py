@@ -1,4 +1,4 @@
-"""Provider factory and registry for CareerRadar LLM subsystem."""
+"""Provider factory and registry for Find a Job's LLM subsystem."""
 
 import os
 from typing import Any

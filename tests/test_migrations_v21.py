@@ -93,7 +93,7 @@ def test_profile_v21_roundtrip_with_projects_and_guidance():
         ],
         projects=[
             MasterProject(
-                heading="CareerRadar - Autonomous AI job search engine",
+                heading="Find a Job - Autonomous AI job search engine",
                 url="https://github.com/alexriver/careerradar",
                 bullets=["Engineered LangGraph multi-agent pipeline."],
             )
@@ -119,7 +119,7 @@ def test_profile_v21_roundtrip_with_projects_and_guidance():
     assert loaded.model_guidance == guidance
     assert loaded.dealbreakers == ["24/7 on-call", "DoD security clearance required"]
     assert len(loaded.projects) == 1
-    assert loaded.projects[0].heading == "CareerRadar - Autonomous AI job search engine"
+    assert loaded.projects[0].heading == "Find a Job - Autonomous AI job search engine"
     assert loaded.projects[0].url == "https://github.com/alexriver/careerradar"
     assert loaded.projects[0].bullets == ["Engineered LangGraph multi-agent pipeline."]
     assert len(loaded.experience) == 1
@@ -129,7 +129,7 @@ def test_profile_v21_roundtrip_with_projects_and_guidance():
     summary = render_profile(loaded)
     assert "Alex River" not in summary  # Header text
     assert "Staff Engineer architecting high-scale" in summary
-    assert "Project: CareerRadar - Autonomous AI job search engine" in summary
+    assert "Project: Find a Job - Autonomous AI job search engine" in summary
     assert "Engineered LangGraph multi-agent pipeline." in summary
     assert "POSITIONING & STRATEGIC DIRECTIVES" in summary
     assert "Focus on backend infrastructure" in summary

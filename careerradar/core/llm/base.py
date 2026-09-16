@@ -1,4 +1,4 @@
-"""Base types and interfaces for LLM providers in CareerRadar."""
+"""Base types and interfaces for LLM providers in Find a Job."""
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field

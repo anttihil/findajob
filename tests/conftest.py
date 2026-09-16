@@ -13,13 +13,13 @@ test modules, and by the time any fixture runs the handler is already open on wh
 import os
 import tempfile
 
-os.environ["CAREERRADAR_LOG_PATH"] = os.path.join(tempfile.gettempdir(), "careerradar-tests.log")
+os.environ["FIND_A_JOB_LOG_PATH"] = os.path.join(tempfile.gettempdir(), "find-a-job-tests.log")
 
 # Same reasoning for the database. `tests/test_targets_api.py` drives the real targets API,
 # and `prune_cells` disables cells rather than deleting them, so every run left permanent
 # rows in the operator's `jobs.db` -- 84 orphan `test_city` cells were found there. A fresh
 # file per run also stops tests from asserting against whatever the last scrape happened to
 # collect. `Database.__init__` migrates the file, so an empty path is all that is needed.
-os.environ["CAREERRADAR_DB_PATH"] = os.path.join(
-    tempfile.mkdtemp(prefix="careerradar-tests-"), "jobs.db"
+os.environ["FIND_A_JOB_DB_PATH"] = os.path.join(
+    tempfile.mkdtemp(prefix="find-a-job-tests-"), "jobs.db"
 )

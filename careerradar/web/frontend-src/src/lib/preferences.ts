@@ -3,7 +3,7 @@ import { useEffect, useState } from "preact/hooks";
 // Browser preferences are deliberately local to this device and browser profile. Unlike
 // IndexedDB, localStorage is enough for this small amount of non-sensitive UI state and
 // lets the application recover gracefully when storage is unavailable or corrupt.
-const PREFIX = "careerradar.preferences.";
+const PREFIX = "find-a-job.preferences.";
 
 function storageKey(key: string): string {
   return `${PREFIX}${key}`;

@@ -1,4 +1,4 @@
-"""Unified LLM subsystem and provider interface for CareerRadar."""
+"""Unified LLM subsystem and provider interface for Find a Job."""
 
 from typing import Any, Generic, TypeVar
 

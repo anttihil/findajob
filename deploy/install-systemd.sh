@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Install CareerRadar as a systemd service for an existing checkout.
+# Install Find a Job as a systemd service for an existing checkout.
 # Run with sudo; the checkout itself remains owned by the selected application user.
 set -euo pipefail
 
@@ -7,7 +7,7 @@ usage() {
   cat <<'EOF'
 Usage: sudo ./deploy/install-systemd.sh --user USER --install-dir /absolute/path [--no-start]
 
-Renders /etc/systemd/system/careerradar.service and /etc/logrotate.d/careerradar
+Renders /etc/systemd/system/find-a-job.service and /etc/logrotate.d/find-a-job
 for this checkout. The installer never copies or modifies personal configuration.
 EOF
 }
@@ -60,8 +60,8 @@ if [[ ! -d $INSTALL_DIR ]]; then
 fi
 
 INSTALL_DIR=$(realpath "$INSTALL_DIR")
-if [[ ! -x "$INSTALL_DIR/.venv/bin/careerradar" ]]; then
-  echo "Expected $INSTALL_DIR/.venv/bin/careerradar; run 'uv sync' first." >&2
+if [[ ! -x "$INSTALL_DIR/.venv/bin/find-a-job" ]]; then
+  echo "Expected $INSTALL_DIR/.venv/bin/find-a-job; run 'uv sync' first." >&2
   exit 1
 fi
 if [[ ! -f "$INSTALL_DIR/config.local.yaml" ]]; then
@@ -71,13 +71,13 @@ fi
 
 USER_HOME=$(getent passwd "$RUN_USER" | cut -d: -f6)
 RUN_GROUP=$(id -gn "$RUN_USER")
-SERVICE_PATH=/etc/systemd/system/careerradar.service
-LOGROTATE_PATH=/etc/logrotate.d/careerradar
+SERVICE_PATH=/etc/systemd/system/find-a-job.service
+LOGROTATE_PATH=/etc/logrotate.d/find-a-job
 
 cat >"$SERVICE_PATH" <<EOF
 [Unit]
-Description=CareerRadar Dashboard
-Documentation=https://github.com/example/careerradar
+Description=Find a Job Dashboard
+Documentation=https://github.com/example/find-a-job
 After=network-online.target
 Wants=network-online.target
 StartLimitIntervalSec=300
@@ -89,7 +89,7 @@ User=$RUN_USER
 Group=$RUN_GROUP
 WorkingDirectory=$INSTALL_DIR
 Environment="PATH=$USER_HOME/.local/bin:/usr/local/bin:/usr/bin:/bin"
-ExecStart=$INSTALL_DIR/.venv/bin/careerradar start --host 127.0.0.1 --port 8010
+ExecStart=$INSTALL_DIR/.venv/bin/find-a-job start --host 127.0.0.1 --port 8010
 Restart=on-failure
 RestartSec=10s
 TimeoutStopSec=15s
@@ -118,9 +118,9 @@ EOF
 chmod 0644 "$SERVICE_PATH" "$LOGROTATE_PATH"
 systemctl daemon-reload
 if [[ $START_SERVICE == true ]]; then
-  systemctl enable --now careerradar.service
+  systemctl enable --now find-a-job.service
 else
-  systemctl enable careerradar.service
+  systemctl enable find-a-job.service
 fi
 
 echo "Installed $SERVICE_PATH and $LOGROTATE_PATH for $INSTALL_DIR."

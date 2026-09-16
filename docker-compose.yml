@@ -1,7 +1,7 @@
 services:
-  careerradar:
+  find-a-job:
     build: .
-    container_name: careerradar
+    container_name: find-a-job
     ports:
       - "8010:8010"
     env_file:

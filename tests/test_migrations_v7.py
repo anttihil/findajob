@@ -4,7 +4,7 @@ v7 rewrites data rather than adding columns, which puts the burden of proof on t
 side from v6: the question is not "did it leave the old verdicts alone" but "did it change
 them into exactly what they already meant". Each old blocker string was written under a
 field contract that said "quote the phrase from the posting", so moving it into `quote`
-with an empty `why` preserves it exactly, and `careerradar score audit` keeps reporting
+with an empty `why` preserves it exactly, and `find-a-job score audit` keeps reporting
 comparable quote-status rates across the change.
 
 The other thing worth pinning is what v7 must NOT do: bump VERDICT_SCHEMA_VERSION. That

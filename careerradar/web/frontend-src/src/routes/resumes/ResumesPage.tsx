@@ -810,7 +810,7 @@ export function ResumesPage() {
                       <div class="role-header-row">
                         <input
                           type="text"
-                          placeholder="Project Title / Heading (e.g. CareerRadar / ZMK Firmware)"
+                          placeholder="Project Title / Heading (e.g. Find a Job / ZMK Firmware)"
                           class="filter-input"
                           style={{ flex: 3 }}
                           value={proj.heading || ""}

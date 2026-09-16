@@ -29,7 +29,7 @@ def _iso(dt: datetime | None) -> str | None:
 
 
 class PipelineScheduler:
-    """Manages scheduled and chained execution of CareerRadar pipeline stages."""
+    """Manages scheduled and chained execution of Find a Job pipeline stages."""
 
     def __init__(self) -> None:
         self._running: bool = False
@@ -72,7 +72,7 @@ class PipelineScheduler:
             return
 
         self._running = True
-        logger.info("Starting CareerRadar background scheduler...")
+        logger.info("Starting Find a Job background scheduler...")
 
         # 1. Startup catch-up check for search
         if config.get("search", {}).get("persistent_catchup", True):
@@ -88,7 +88,7 @@ class PipelineScheduler:
             return
 
         self._running = False
-        logger.info("Stopping CareerRadar scheduler...")
+        logger.info("Stopping Find a Job scheduler...")
 
         for task in self._tasks:
             task.cancel()
