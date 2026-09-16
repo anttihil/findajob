@@ -13,7 +13,7 @@ from findajob.core.logger import get_logger
 
 logger = get_logger()
 
-SCHEMA_VERSION = 29
+SCHEMA_VERSION = 30
 
 
 def _v1_baseline(cursor: sqlite3.Cursor) -> None:
