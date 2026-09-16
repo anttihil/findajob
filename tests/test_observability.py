@@ -10,9 +10,9 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from fastapi.testclient import TestClient
 
-from careerradar.core.database import Database
-from careerradar.core.migrations import migrate
-from careerradar.web.app import app
+from findajob.core.database import Database
+from findajob.core.migrations import migrate
+from findajob.web.app import app
 
 
 def _seed_sample_data(db: Database) -> None:
@@ -166,7 +166,7 @@ class ObservabilityApiEndpointsTests(unittest.TestCase):
         self.db = Database(self.tmp.name)
         migrate(self.db.conn)
 
-        from careerradar.web.app import _PooledDatabase, _thread_state
+        from findajob.web.app import _PooledDatabase, _thread_state
 
         def _get_test_db() -> _PooledDatabase:
             db = getattr(_thread_state, "db", None)
@@ -175,7 +175,7 @@ class ObservabilityApiEndpointsTests(unittest.TestCase):
                 _thread_state.db = db
             return db
 
-        self.patcher = patch("careerradar.web.app.get_db", side_effect=_get_test_db)
+        self.patcher = patch("findajob.web.app.get_db", side_effect=_get_test_db)
         self.patcher.start()
         self.client = TestClient(app)
 

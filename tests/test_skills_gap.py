@@ -7,10 +7,10 @@ from fastapi.testclient import TestClient
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from careerradar.market.gap_analysis import GapAnalysis
-from careerradar.profile.adapter import ProfileAdapter
-from careerradar.profile.models import MasterSkillCategory, Profile
-from careerradar.web.app import app
+from findajob.market.gap_analysis import GapAnalysis
+from findajob.profile.adapter import ProfileAdapter
+from findajob.profile.models import MasterSkillCategory, Profile
+from findajob.web.app import app
 
 
 class SkillsGapApiTests(unittest.TestCase):

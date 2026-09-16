@@ -6,12 +6,12 @@ from unittest import mock
 
 import pytest
 
-from careerradar import cli
-from careerradar.core import jobs
-from careerradar.core.database import Database
-from careerradar.scoring import worker
-from careerradar.search import explicit
-from careerradar.search.repository import upsert_posting
+from findajob import cli
+from findajob.core import jobs
+from findajob.core.database import Database
+from findajob.scoring import worker
+from findajob.search import explicit
+from findajob.search.repository import upsert_posting
 
 
 def _records(captured: str) -> list[dict[str, object]]:

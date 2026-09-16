@@ -1,0 +1,655 @@
+"""findajob -- one entry point for every stage of the pipeline.
+
+The pipeline is three stages that talk to each other only through `jobs.pipeline_state`:
+
+    search    scrape boards, write postings as state='new'
+    score     drain 'new', write a verdict, mark 'scored'
+    start     serve the dashboard and run the background scheduler
+
+`start` runs the FastAPI dashboard and background asyncio scheduler, which runs
+stages in isolated worker subprocesses and automatically chains search -> score.
+"""
+
+import argparse
+import contextlib
+import json
+import sys
+from typing import Any
+
+CONTRACT_VERSION = 1
+
+
+def _cmd_score_retry(args: argparse.Namespace) -> Any:
+    from findajob.scoring.worker import run_retry
+
+    return run_retry(args.job_id)
+
+
+def _cmd_search(args: argparse.Namespace) -> int:
+    from findajob.search.runner import run_sync
+
+    res = run_sync(
+        dry_run=getattr(args, "dry_run", False),
+        force=getattr(args, "force", False),
+    )
+    if isinstance(res, dict):
+        if res.get("cells_planned") and not res.get("cells_succeeded"):
+            return 1
+        return 0
+    return 0 if res is None else int(bool(res))
+
+
+def _cmd_search_seed(args: argparse.Namespace) -> int:
+    from findajob.search.seed import seed_cells
+
+    return seed_cells(prune=getattr(args, "prune", False))
+
+
+def _cmd_score(args: argparse.Namespace) -> Any:
+    from findajob.scoring.worker import run_scoring
+
+    return run_scoring(
+        limit=getattr(args, "limit", None),
+    )
+
+
+def _cmd_run(_args: argparse.Namespace) -> int:
+    """Run the user-initiated pipeline: fetch first, then score its backlog."""
+    search_result = _cmd_search(argparse.Namespace(dry_run=False, force=False))
+    if search_result != 0:
+        return search_result
+    return int(_cmd_score(argparse.Namespace(limit=None)) or 0)
+
+
+def _cmd_profile(args: argparse.Namespace) -> Any:
+    from findajob.profile.cli import run_profile_command
+
+    return run_profile_command(args)
+
+
+def _cmd_import(args: argparse.Namespace) -> int:
+    from findajob.search.importer import import_and_process_job
+
+    url = args.url
+    score = not getattr(args, "no_score", False)
+    generate_resume = getattr(args, "resume", False)
+    model = getattr(args, "model", None)
+
+    print(f"Importing job from {url}...")
+    res = import_and_process_job(
+        url=url,
+        score=score,
+        generate_resume=generate_resume,
+        model=model,
+    )
+    job_id = res["job_id"]
+    job = res.get("job") or {}
+    print(f"Imported job {job_id}: {job.get('title')} @ {job.get('company')}")
+    if res.get("verdict"):
+        v = res["verdict"]
+        fit_str = "FIT" if v.get("fit") else "NO FIT"
+        reason = (
+            f" ({v.get('reason_type')}: {v.get('reason_description')})"
+            if v.get("reason_type")
+            else ""
+        )
+        print(f"  Scoring Verdict: {fit_str}{reason}")
+    if res.get("resume"):
+        r = res["resume"]
+        print("  Resume generated:")
+        if r.get("typst_path"):
+            print(f"    Typst: {r.get('typst_path')}")
+        print(f"    PDF:   {r.get('pdf_path')}")
+        if r.get("ats_score") is not None:
+            print(f"    ATS Match Score: {r.get('ats_score')}/10 ({r.get('ats_verdict')})")
+    return 0
+
+
+def _cmd_resume(args: argparse.Namespace) -> int:
+    sub = args.subcommand
+    if sub == "generate":
+        from findajob.profile.builder import build_resume_for_job
+
+        model = getattr(args, "model", None)
+        res = build_resume_for_job(args.job_id, model=model)
+        print(f"Generated resume for job {args.job_id}:")
+        if res.get("typst_path"):
+            print(f"  Typst: {res.get('typst_path')}")
+        print(f"  PDF:   {res.get('pdf_path')}")
+        if res.get("ats_score") is not None:
+            print(f"  ATS Match Score: {res.get('ats_score')}/10 ({res.get('ats_verdict')})")
+        return 0
+    if sub == "list":
+        from findajob.profile.repository import list_tailored_resumes
+
+        limit = getattr(args, "limit", 20) or 20
+        resumes = list_tailored_resumes(limit=limit)
+        if not resumes:
+            print("No generated resumes found.")
+            return 0
+        for r in resumes:
+            score_str = f"{r.get('ats_score')}/10" if r.get("ats_score") is not None else "N/A"
+            source_file = r.get("typst_path")
+            print(
+                f"[{r.get('id')}] Job {r.get('job_id')} ({r.get('job_title')} @ "
+                f"{r.get('job_company')}): ATS: {score_str} ({r.get('ats_verdict')}) - "
+                f"{source_file}"
+            )
+        return 0
+    if sub == "batch":
+        from findajob.core.database import Database
+        from findajob.profile.builder import build_resume_for_job
+
+        status = getattr(args, "status", "saved")
+        db = Database()
+        try:
+            jobs_res = db.query_jobs(status=status, limit=100)
+            jobs = jobs_res.get("jobs") or []
+            print(f"Found {len(jobs)} jobs with status='{status}'.")
+            for j in jobs:
+                jid = j["id"]
+                print(f"Building resume for job {jid}: {j.get('title')} @ {j.get('company')}...")
+                build_resume_for_job(
+                    jid,
+                    model=getattr(args, "model", None),
+                    db=db,
+                )
+            return 0
+        finally:
+            db.close()
+    return 0
+
+
+def _reseed_cells() -> None:
+    """Recompile scrape_cells after a search-target edit.
+
+    scrape_cells is a materialized copy of the queries x locations matrix, so an edit to
+    the plan does not reach the scraper until the matrix is rebuilt. The dashboard does
+    this on every mutation; the CLI has to do it too, or the next run scrapes the old plan.
+    """
+    from findajob.search.seed import seed_cells
+
+    seed_cells(prune=True)
+
+
+def _cmd_target(args: argparse.Namespace) -> int:
+    import sqlite3
+
+    from findajob.core.config import load_config
+    from findajob.core.paths import DB_PATH
+    from findajob.search import targets as target_repo
+    from findajob.search.capacity import calculate_capacity
+
+    sub = args.subcommand
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    try:
+        if sub == "list":
+            queries = target_repo.get_queries(conn)
+            locs = target_repo.get_locations(conn)
+            if not queries:
+                print("No search queries configured.")
+            else:
+                print(f"{'Id':<6} {'Status':<10} {'Query'}")
+                print("-" * 60)
+                for q in queries:
+                    print(f"{q['id']:<6} {'ACTIVE' if q['enabled'] else 'PAUSED':<10} {q['query']}")
+            print()
+            print(f"{'Id':<16} {'Status':<10} {'Search label'}")
+            print("-" * 60)
+            for loc in locs:
+                status = "ACTIVE" if loc["enabled"] else "PAUSED"
+                print(f"{loc['id']:<16} {status:<10} {loc['search_label']}")
+            return 0
+
+        if sub == "add":
+            queries = [q.strip() for q in args.queries.split(",") if q.strip()]
+            for query in queries:
+                target_repo.add_query(conn, query_term=query)
+            print(f"Added {len(queries)} search queries.")
+            _reseed_cells()
+            return 0
+
+        if sub == "toggle":
+            enabled = not getattr(args, "disable", False)
+            target_repo.toggle_query(conn, query_id=args.id, enabled=enabled)
+            print(f"Search query {args.id} is now {'ACTIVE' if enabled else 'PAUSED'}.")
+            _reseed_cells()
+            return 0
+
+        if sub == "delete":
+            target_repo.delete_query(conn, query_id=args.id)
+            print(f"Deleted search query {args.id}.")
+            _reseed_cells()
+            return 0
+
+        if sub == "status":
+            queries = target_repo.get_queries(conn, enabled_only=True)
+            locs = target_repo.get_locations(conn, enabled_only=True)
+            cfg = load_config()
+            cap = calculate_capacity(len(queries), len(locs), cfg)
+            print(f"Active Queries:   {len(queries)}")
+            print(f"Active Locations: {len(locs)}")
+            print(f"Search Pairs:     {cap['search_pairs']} ({cap['total_cells']} total cells)")
+            print(f"Cycle Duration:   ~{cap['cycle_hours']}h ({cap['cycle_days']} days)")
+            print(f"Capacity Zone:    [{cap['zone'].upper()}]")
+            print(f"Guidance:         {cap['message']}")
+            return 0
+    finally:
+        conn.close()
+    return 0
+
+
+def _cmd_migrate(args: argparse.Namespace) -> int:  # noqa: ARG001 - argparse handler signature
+    import sqlite3
+
+    from findajob.core.migrations import current_version, migrate
+    from findajob.core.paths import DB_PATH
+    from findajob.search.seed import seed_cells
+
+    conn = sqlite3.connect(DB_PATH)
+    try:
+        migrate(conn)
+        print(f"schema version: {current_version(conn)}")
+    finally:
+        conn.close()
+
+    seed_cells(prune=True)
+    return 0
+
+
+_STARTER_CONFIG = """\
+# Personal Find a Job settings. This file is never overwritten by `findajob init`.
+#
+# llm:
+#   provider: deepseek
+#
+# resumes:
+#   # Default: your platform's Documents/Find a Job directory.
+#   # output_dir: ~/Documents/My Job Applications
+#
+scheduler:
+  # Automatic runs are opt-in for a new standalone install.
+  enabled: false
+"""
+
+
+def _cmd_init(args: argparse.Namespace) -> int:
+    """Create a standalone user layout without overwriting personal data."""
+    from pathlib import Path
+
+    from findajob.core.database import Database
+    from findajob.core.paths import (
+        CONFIG_PATH,
+        DB_PATH,
+        GENERATED_RESUMES_DIR,
+        GRAPH_DB_PATH,
+        LOG_PATH,
+        SOURCE_CHECKOUT,
+        STATUS_PATH,
+        ensure_user_dirs,
+        generated_resumes_dir,
+    )
+    from findajob.search.seed import seed_cells
+
+    paths = ensure_user_dirs()
+    config_created = False
+    config_path = Path(CONFIG_PATH)
+    if not config_path.exists():
+        config_path.write_text(_STARTER_CONFIG, encoding="utf-8")
+        config_created = True
+
+    db = Database()
+    db.close()
+    # `seed_cells` is an older human CLI and prints progress. Keep `init --json`
+    # machine-readable by treating that progress as diagnostics.
+    with contextlib.redirect_stdout(sys.stderr):
+        seed_exit = seed_cells(prune=True)
+    report = {
+        "source_checkout": SOURCE_CHECKOUT,
+        "config_created": config_created,
+        "config": CONFIG_PATH,
+        "database": DB_PATH,
+        "graph_database": GRAPH_DB_PATH,
+        "resumes": generated_resumes_dir(),
+        "resume_default": GENERATED_RESUMES_DIR,
+        "log": LOG_PATH,
+        "status": STATUS_PATH,
+        "paths": paths,
+        "seed_exit": seed_exit,
+    }
+    if args.json:
+        print(json.dumps(report, default=str))
+    else:
+        print("Find a Job is ready.")
+        print(f"  Config:   {report['config']}")
+        print(f"  Database: {report['database']}")
+        print(f"  Resumes:  {report['resumes']}")
+        print(f"  Log:      {report['log']}")
+        if config_created:
+            print("  Created starter config. Add an LLM provider before scoring.")
+    return 0
+
+
+def _cmd_status(args: argparse.Namespace) -> Any:
+    from findajob.core.status import run_status
+
+    return run_status(as_json=args.json)
+
+
+def _emit_result(result: dict[str, Any], *, as_json: bool) -> None:
+    """Render a shared command result for either a terminal or a program."""
+    if as_json:
+        print(json.dumps(result, default=str, separators=(",", ":")), flush=True)
+    else:
+        print(json.dumps(result, default=str, indent=2))
+
+
+def _result(stage: str, payload: dict[str, Any]) -> dict[str, Any]:
+    return {"contract_version": CONTRACT_VERSION, "stage": stage, **payload}
+
+
+def _cmd_shared(args: argparse.Namespace) -> int:
+    """Dispatch operations that are equally available to people and programs."""
+    from findajob.core.jobs import list_postings
+    from findajob.scoring.worker import review_packet, save_reviewed_verdict, score_selected
+    from findajob.search.explicit import run_query
+
+    stage = f"{args.command} {args.subcommand}"
+    try:
+        if stage == "jobs list":
+            result = _result("jobs", {"status": "ok", **list_postings(args)})
+        elif stage == "search query":
+            result = _result("search", run_query(args))
+        elif stage == "score jobs":
+            result = _result("score", score_selected(args.job_id, model=args.model))
+        elif stage == "score packet":
+            result = _result("packet", review_packet(args.job_id))
+        elif stage == "score verdict":
+            result = _result("verdict", save_reviewed_verdict(args))
+        else:
+            raise ValueError(f"unknown command {stage!r}")
+    except Exception as exc:  # noqa: BLE001 - JSON callers need a structured failure.
+        result = _result(args.subcommand, {"status": "error", "error": str(exc)})
+
+    _emit_result(result, as_json=args.json)
+    return 0 if result["status"] in ("ok", "empty") else 1
+
+
+def _cmd_llm(args: argparse.Namespace) -> int:
+    import subprocess
+
+    from findajob.core.llm import get_llm_provider, list_available_providers
+
+    sub = args.subcommand
+    if sub == "status":
+        providers = list_available_providers()
+        print(f"{'Provider':<12} {'Type':<8} {'Available':<12} {'Status'}")
+        print("-" * 80)
+        for p in providers:
+            avail_str = "YES" if p["available"] else "NO"
+            print(f"{p['name']:<12} {p['type']:<8} {avail_str:<12} {p['status']}")
+        print()
+        try:
+            active = get_llm_provider()
+            print(f"Active Provider: {active.name.upper()}")
+        except Exception as exc:  # noqa: BLE001
+            print(f"Active Provider: NONE ({exc})")
+        return 0
+
+    if sub == "auth":
+        target = getattr(args, "provider", None) or "claude"
+        if target == "agy":
+            return subprocess.run(["agy"], check=False).returncode
+        if target == "claude":
+            return subprocess.run(["claude", "auth", "login"], check=False).returncode
+        if target == "codex":
+            return subprocess.run(["codex", "login"], check=False).returncode
+        if target == "opencode":
+            return subprocess.run(["opencode", "providers", "login"], check=False).returncode
+        print(f"Interactive login not supported for provider '{target}'.")
+        return 1
+
+    if sub == "test":
+        from pydantic import BaseModel
+
+        class TestOutput(BaseModel):
+            message: str
+            answer: int
+
+        provider_name = getattr(args, "provider", None)
+        try:
+            prov = get_llm_provider(provider_name)
+            print(f"Testing provider '{prov.name}'...")
+            print("1. Text completion test...")
+            resp = prov.complete("Respond with the single word SUCCESS.")
+            print(f"   Output: {resp.content.strip()}")
+
+            print("2. Structured output test...")
+            structured = prov.complete_structured(
+                TestOutput,
+                "Return a JSON object with message='Hello Find a Job' and answer=42.",
+                label="cli_test",
+            )
+            print(f"   Structured Output: {structured.model_dump()}")
+            print(f"Provider '{prov.name}' is operational!")
+            return 0
+        except Exception as exc:  # noqa: BLE001
+            print(f"Test failed: {exc}")
+            return 1
+
+    return 0
+
+
+def _cmd_start(args: argparse.Namespace) -> int:
+    import uvicorn
+
+    uvicorn.run(
+        "findajob.web.app:app",
+        host=args.host,
+        port=args.port,
+        reload=args.reload,
+        timeout_graceful_shutdown=5,
+    )
+    return 0
+
+
+def build_parser() -> argparse.ArgumentParser:
+    doc = __doc__ or ""
+    parser = argparse.ArgumentParser(prog="findajob", description=doc.split("\n")[0])
+    parser.set_defaults(stage=None)
+    sub = parser.add_subparsers(dest="command", required=True)
+
+    st_parser = sub.add_parser("start", help="start the web dashboard (and enabled scheduler)")
+    st_parser.add_argument("--host", default="127.0.0.1")
+    st_parser.add_argument("--port", type=int, default=8010)
+    st_parser.add_argument("--reload", action="store_true", help="development autoreload")
+    st_parser.set_defaults(func=_cmd_start)
+
+    p = sub.add_parser("profile", help="build or inspect the candidate profile")
+    psub = p.add_subparsers(dest="subcommand", required=True)
+    pb = psub.add_parser("build", help="extract a profile from a resume document")
+    pb.add_argument("file", help="path to your resume (PDF, Markdown, or plain text)")
+    psub.add_parser("show", help="print the active profile")
+    psub.add_parser("history", help="list every profile version")
+    p.set_defaults(func=_cmd_profile)
+
+    run = sub.add_parser("run", help="run one manual search-and-score pass")
+    run.set_defaults(func=_cmd_run, stage="run")
+
+    s = sub.add_parser("search", help="scrape job boards")
+    ssub = s.add_subparsers(dest="subcommand", required=True)
+    sr = ssub.add_parser("run", help="run one scrape pass")
+    sr.add_argument("--dry-run", action="store_true", help="plan and fetch, but write nothing")
+    sr.add_argument("--force", action="store_true", help="ignore the sync lock")
+    sr.set_defaults(func=_cmd_search, stage="search")
+
+    ssd = ssub.add_parser(
+        "seed-cells", help="rebuild the scrape matrix from the search queries and locations"
+    )
+    ssd.add_argument(
+        "--prune", action="store_true", help="disable cells that are no longer in the matrix"
+    )
+    ssd.set_defaults(func=_cmd_search_seed)
+
+    query = ssub.add_parser("query", help="run one explicit board query outside the rotation")
+    query.add_argument("--query", required=True)
+    query.add_argument("--location", required=True)
+    query.add_argument("--source", choices=["indeed", "linkedin"], default="indeed")
+    query.add_argument("--country", default="US", help="ISO country code used for normalization")
+    query.add_argument("--indeed-country", default="usa", help="JobSpy Indeed country slug")
+    query.add_argument("--remote", action="store_true")
+    query.add_argument("--distance", type=int, default=50)
+    query.add_argument("--hours-old", type=int, default=168)
+    query.add_argument("--results-wanted", type=int, default=25)
+    query.add_argument("--json", action="store_true", help="emit one machine-readable result")
+    query.set_defaults(func=_cmd_shared, stage="search")
+
+    sco = sub.add_parser("score", help="score postings against the profile")
+    scosub = sco.add_subparsers(dest="subcommand", required=True)
+    scr = scosub.add_parser("run", help="drain unscored postings")
+    scr.add_argument("--limit", type=int, help="cap the number of postings scored")
+    scr.set_defaults(func=_cmd_score, stage="score")
+
+    scy = scosub.add_parser(
+        "retry", help="re-offer postings withdrawn after repeated scoring failures"
+    )
+    scy.add_argument(
+        "--job-id", type=int, help="clear one posting; defaults to every quarantined posting"
+    )
+    scy.set_defaults(func=_cmd_score_retry, stage="score")
+
+    score_jobs = scosub.add_parser("jobs", help="score selected posting IDs")
+    score_jobs.add_argument("--job-id", type=int, action="append", required=True)
+    score_jobs.add_argument("--model")
+    score_jobs.add_argument("--json", action="store_true", help="emit one machine-readable result")
+    score_jobs.set_defaults(func=_cmd_shared, stage="score")
+
+    packet = scosub.add_parser("packet", help="show scoring instructions and selected postings")
+    packet.add_argument("--job-id", type=int, action="append", required=True)
+    packet.add_argument("--json", action="store_true", help="emit one machine-readable result")
+    packet.set_defaults(func=_cmd_shared, stage="score")
+
+    verdict = scosub.add_parser("verdict", help="save a reviewed verdict for one posting")
+    verdict.add_argument("--job-id", type=int, required=True)
+    verdict.add_argument("--fit", action=argparse.BooleanOptionalAction, required=True)
+    verdict.add_argument("--reason-type", required=True)
+    verdict.add_argument("--reason-description", required=True)
+    verdict.add_argument("--json", action="store_true", help="emit one machine-readable result")
+    verdict.set_defaults(func=_cmd_shared, stage="score")
+
+    res = sub.add_parser("resume", help="tailor, validate, and generate 1-page resumes")
+    res_sub = res.add_subparsers(dest="subcommand", required=True)
+    res_gen = res_sub.add_parser("generate", help="generate tailored resume for a specific job")
+    res_gen.add_argument("job_id", type=int, help="job posting database id")
+    res_gen.add_argument(
+        "--model", help="Model to use for tailoring (or leave empty for provider default)"
+    )
+    res_gen.set_defaults(func=_cmd_resume)
+
+    res_list = res_sub.add_parser("list", help="list generated tailored resumes")
+    res_list.add_argument("--limit", type=int, default=20, help="max resumes to list")
+    res_list.set_defaults(func=_cmd_resume)
+
+    res_batch = res_sub.add_parser("batch", help="batch generate resumes for jobs by status")
+    res_batch.add_argument("--status", default="saved", help="status to match (default: saved)")
+    res_batch.add_argument(
+        "--model", help="Model to use for tailoring (or leave empty for provider default)"
+    )
+    res_batch.set_defaults(func=_cmd_resume)
+
+    imp = sub.add_parser(
+        "import", help="import a job from URL, score it, and optionally generate a resume"
+    )
+    imp.add_argument("url", help="URL of the job posting")
+    imp.add_argument("--no-score", action="store_true", help="skip scoring stage")
+    imp.add_argument("--resume", action="store_true", help="generate tailored resume after scoring")
+    imp.add_argument("--model", help="Model to use for extraction/scoring/tailoring")
+    imp.set_defaults(func=_cmd_import)
+
+    tar = sub.add_parser(
+        "target",
+        help="manage search queries and check capacity (edit locations in the dashboard)",
+    )
+    tar_sub = tar.add_subparsers(dest="subcommand", required=True)
+
+    tar_sub.add_parser("list", help="list the configured search queries and locations")
+
+    tar_add = tar_sub.add_parser("add", help="add search queries")
+    tar_add.add_argument("queries", help="comma-separated search queries")
+
+    tar_tog = tar_sub.add_parser("toggle", help="enable or pause a search query")
+    tar_tog.add_argument("id", type=int, help="search query id (see 'target list')")
+    tar_tog.add_argument("--disable", action="store_true", help="pause this search query")
+
+    tar_del = tar_sub.add_parser("delete", help="delete a search query")
+    tar_del.add_argument("id", type=int, help="search query id (see 'target list')")
+
+    tar_sub.add_parser("status", help="show capacity status and matrix cycle guidance")
+    tar.set_defaults(func=_cmd_target)
+
+    llm_parser = sub.add_parser(
+        "llm", help="inspect LLM providers, test connections, and authenticate"
+    )
+    llm_sub = llm_parser.add_subparsers(dest="subcommand", required=True)
+    llm_sub.add_parser("status", help="list all LLM providers and availability status")
+
+    llm_auth = llm_sub.add_parser("auth", help="launch interactive login for a CLI provider")
+    llm_auth.add_argument(
+        "provider",
+        choices=["agy", "claude", "codex", "opencode"],
+        help="CLI provider to authenticate",
+    )
+
+    llm_test = llm_sub.add_parser(
+        "test", help="run a quick completion and structured test against a provider"
+    )
+    llm_test.add_argument(
+        "--provider", help="provider to test (e.g. agy, claude, codex, opencode, deepseek)"
+    )
+    llm_parser.set_defaults(func=_cmd_llm)
+
+    init = sub.add_parser("init", help="create standalone user directories and initialize storage")
+    init.add_argument("--json", action="store_true", help="machine-readable path report")
+    init.set_defaults(func=_cmd_init, stage="init")
+
+    d = sub.add_parser("migrate", help="apply pending schema migrations and seed cells")
+    d.set_defaults(func=_cmd_migrate, stage="migrate")
+
+    st = sub.add_parser("status", help="one health report for every stage of the pipeline")
+    st.add_argument("--json", action="store_true", help="machine-readable, for piping over ssh")
+    st.set_defaults(func=_cmd_status)
+
+    jobs_command = sub.add_parser("jobs", help="inspect stored normalized postings")
+    jobs_sub = jobs_command.add_subparsers(dest="subcommand", required=True)
+    jobs = jobs_sub.add_parser("list", help="list postings with stable filters")
+    jobs.add_argument("--country")
+    jobs.add_argument("--location")
+    jobs.add_argument("--source", choices=["indeed", "linkedin"])
+    jobs.add_argument("--remote", action="store_true")
+    jobs.add_argument("--pipeline-state", choices=["new", "scored"])
+    jobs.add_argument("--fit", action=argparse.BooleanOptionalAction)
+    jobs.add_argument("--reason-type")
+    jobs.add_argument("--posted-within", choices=["24h", "7d", "30d", "90d"])
+    jobs.add_argument("--text", help="search title, company, and description")
+    jobs.add_argument("--limit", type=int, default=25)
+    jobs.add_argument("--offset", type=int, default=0)
+    jobs.add_argument("--json", action="store_true", help="emit one machine-readable result")
+    jobs.set_defaults(func=_cmd_shared)
+
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = build_parser().parse_args(argv)
+    if not args.stage:
+        return args.func(args) or 0
+
+    from findajob.core import pipeline_lock
+
+    with pipeline_lock.hold(args.stage):
+        return args.func(args) or 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

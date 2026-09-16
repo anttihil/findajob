@@ -3,7 +3,7 @@
 import unittest
 from typing import Any
 
-from careerradar.search.targets import SearchTargets
+from findajob.search.targets import SearchTargets
 
 TEST_TARGETS_SPEC: dict[str, Any] = {
     "queries": [
@@ -147,7 +147,7 @@ class SearchLabelTests(unittest.TestCase):
     def test_planned_cells_carry_the_search_label(self) -> None:
         from datetime import datetime, timezone
 
-        from careerradar.search.scheduler import CellState, _make_task
+        from findajob.search.scheduler import CellState, _make_task
 
         cell = CellState(
             1,

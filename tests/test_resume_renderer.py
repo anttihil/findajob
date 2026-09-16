@@ -1,14 +1,14 @@
 import os
 from pathlib import Path
 
-from careerradar.profile.models import (
+from findajob.profile.models import (
     ResumeEducation,
     ResumeRole,
     ResumeSkillCategory,
     ResumeSubsection,
     TailoredResumePayload,
 )
-from careerradar.profile.renderer import compile_typst_to_pdf, render_typst, verify_page_count
+from findajob.profile.renderer import compile_typst_to_pdf, render_typst, verify_page_count
 
 
 def test_render_typst_and_compile_pdf(tmp_path: Path):

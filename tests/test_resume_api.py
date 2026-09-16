@@ -4,11 +4,11 @@ from unittest.mock import MagicMock, patch
 
 from fastapi.testclient import TestClient
 
-from careerradar.profile.models import Profile
-from careerradar.web.app import app
+from findajob.profile.models import Profile
+from findajob.web.app import app
 
 
-@patch("careerradar.profile.repository.load_profile")
+@patch("findajob.profile.repository.load_profile")
 def test_get_master_profile(mock_load: MagicMock):
     mock_load.return_value = Profile(name="Jane Doe", email="jane.doe@example.com")
 
@@ -32,7 +32,7 @@ def test_get_master_profile(mock_load: MagicMock):
     assert isinstance(vdata["skills_vector"], list)
 
 
-@patch("careerradar.profile.repository.save_profile")
+@patch("findajob.profile.repository.save_profile")
 def test_update_master_profile(mock_save: MagicMock):
     client = TestClient(app)
     payload = {
@@ -56,7 +56,7 @@ def test_update_master_profile(mock_save: MagicMock):
     mock_save.assert_called_once()
 
 
-@patch("careerradar.profile.builder.build_resume_for_job")
+@patch("findajob.profile.builder.build_resume_for_job")
 def test_generate_resume_endpoint(mock_build: MagicMock):
     mock_build.return_value = {
         "id": 1,
@@ -75,7 +75,7 @@ def test_generate_resume_endpoint(mock_build: MagicMock):
     assert data["record"]["ats_score"] == 9
 
 
-@patch("careerradar.profile.repository.list_tailored_resumes")
+@patch("findajob.profile.repository.list_tailored_resumes")
 def test_list_resumes_endpoint(mock_list: MagicMock):
     mock_list.return_value = [
         {
@@ -101,8 +101,8 @@ def test_list_resumes_endpoint(mock_list: MagicMock):
     assert kwargs.get("job_id") == 5
 
 
-@patch("careerradar.profile.copilot.extract_profile_from_resume_text")
-@patch("careerradar.profile.copilot.parse_resume_file")
+@patch("findajob.profile.copilot.extract_profile_from_resume_text")
+@patch("findajob.profile.copilot.parse_resume_file")
 def test_upload_resume_success(mock_parse: MagicMock, mock_extract: MagicMock):
     import io
 
@@ -131,7 +131,7 @@ def test_upload_resume_missing_file():
     assert "Missing 'file' in upload form payload." in data["detail"]
 
 
-@patch("careerradar.profile.copilot.parse_resume_file")
+@patch("findajob.profile.copilot.parse_resume_file")
 def test_upload_resume_empty_content(mock_parse: MagicMock):
     import io
 
@@ -144,7 +144,7 @@ def test_upload_resume_empty_content(mock_parse: MagicMock):
     assert "Uploaded file contained no readable text." in data["detail"]
 
 
-@patch("careerradar.profile.repository.get_resume_by_id")
+@patch("findajob.profile.repository.get_resume_by_id")
 def test_download_resume_typst_format(mock_get_resume: MagicMock, tmp_path: object):
     from pathlib import Path
 
@@ -170,8 +170,8 @@ def test_download_resume_typst_format(mock_get_resume: MagicMock, tmp_path: obje
     assert resp_docx.status_code == 422
 
 
-@patch("careerradar.profile.repository.update_resume_artifacts")
-@patch("careerradar.profile.repository.get_resume_by_id")
+@patch("findajob.profile.repository.update_resume_artifacts")
+@patch("findajob.profile.repository.get_resume_by_id")
 def test_get_and_update_resume_source(
     mock_get_resume: MagicMock, mock_update_artifacts: MagicMock, tmp_path: object
 ):

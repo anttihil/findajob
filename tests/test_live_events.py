@@ -7,7 +7,7 @@ Unskip these tests and verify your implementation of `format_sse_message` and `L
 import json
 import unittest
 
-from careerradar.web.live import LiveEventHub, format_sse_message
+from findajob.web.live import LiveEventHub, format_sse_message
 
 
 class TestLiveEventHub(unittest.IsolatedAsyncioTestCase):

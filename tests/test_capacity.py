@@ -1,6 +1,6 @@
 """Unit tests for capacity and freshness calculations."""
 
-from careerradar.search.capacity import calculate_capacity
+from findajob.search.capacity import calculate_capacity
 
 
 def test_capacity_empty():

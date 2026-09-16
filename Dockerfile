@@ -2,7 +2,7 @@
 FROM node:22-slim AS frontend-builder
 WORKDIR /app
 COPY package.json package-lock.json tsconfig.json vite.config.ts ./
-COPY careerradar/web/frontend-src/ ./careerradar/web/frontend-src/
+COPY findajob/web/frontend-src/ ./findajob/web/frontend-src/
 RUN npm ci && npm run build
 
 # Stage 2: Python Runtime
@@ -22,9 +22,9 @@ COPY pyproject.toml uv.lock README.md ./
 RUN uv sync --frozen --no-dev --no-install-project
 
 # Copy application source code and configurations
-COPY careerradar/ ./careerradar/
+COPY findajob/ ./findajob/
 COPY config.yaml ./config.yaml
-COPY --from=frontend-builder /app/careerradar/web/frontend/dist/ ./careerradar/web/frontend/dist/
+COPY --from=frontend-builder /app/findajob/web/frontend/dist/ ./findajob/web/frontend/dist/
 
 # Install the Find a Job package
 RUN uv sync --frozen --no-dev

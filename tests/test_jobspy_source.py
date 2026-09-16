@@ -15,15 +15,15 @@ from typing import Any
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from careerradar.search.guard import (
+from findajob.search.guard import (
     ERROR_BLOCKED,
     ERROR_FATAL,
     ERROR_RATE_LIMIT,
     ERROR_TRANSIENT,
     classify_error,
 )
-from careerradar.search.scheduler import ScrapeTask, ScrapeTaskPayload
-from careerradar.search.sources.jobspy_source import (
+from findajob.search.scheduler import ScrapeTask, ScrapeTaskPayload
+from findajob.search.sources.jobspy_source import (
     EXPECTED_COLUMNS,
     JOBSPY_LOGGERS,
     ScraperReportedError,
@@ -171,7 +171,7 @@ class FetchWiringTests(unittest.TestCase):
     """
 
     def setUp(self) -> None:
-        import careerradar.search.sources.jobspy_source as module
+        import findajob.search.sources.jobspy_source as module
 
         self.module = module
         self.source = module.JobSpySource()

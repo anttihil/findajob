@@ -13,7 +13,7 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from careerradar.core.migrations import (
+from findajob.core.migrations import (
     MIGRATIONS,
     SCHEMA_VERSION,
     current_version,
@@ -34,7 +34,7 @@ class MigrationV5Tests(unittest.TestCase):
 
     def migrate_to(self, version: int) -> None:
         """Apply migrations up to `version`, the way a real older database arrives."""
-        from careerradar.core.migrations import apply_pragmas
+        from findajob.core.migrations import apply_pragmas
 
         apply_pragmas(self.conn)
         cursor = self.conn.cursor()

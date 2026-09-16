@@ -7,8 +7,8 @@ from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from careerradar.search.runner import plan_hash
-from careerradar.search.targets import SearchTargets
+from findajob.search.runner import plan_hash
+from findajob.search.targets import SearchTargets
 
 
 class PlanHashTests(unittest.TestCase):

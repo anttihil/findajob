@@ -3,14 +3,14 @@
 import sqlite3
 from unittest.mock import MagicMock, patch
 
-from careerradar.core.migrations import migrate
-from careerradar.profile.graph import (
+from findajob.core.migrations import migrate
+from findajob.profile.graph import (
     ResumeState,
     _route_after_layout,
     _route_after_screener,
     build_resume_graph,
 )
-from careerradar.profile.models import (
+from findajob.profile.models import (
     ATSScreeningVerdict,
     LayoutValidationResult,
     MasterEducation,
@@ -24,7 +24,7 @@ from careerradar.profile.models import (
     ResumeSubsection,
     TailoredResumePayload,
 )
-from careerradar.profile.prompts import (
+from findajob.profile.prompts import (
     GENERATOR_SYSTEM_PROMPT,
     build_generator_system,
     render_generator_user,
@@ -135,12 +135,12 @@ def test_graph_routing_helpers():
     assert _route_after_screener(state_ats_failed) == "generate"
 
 
-@patch("careerradar.profile.graph.structured_model")
-@patch("careerradar.profile.graph.render_typst")
-@patch("careerradar.profile.graph.compile_typst_to_pdf")
-@patch("careerradar.profile.graph.screen_resume")
-@patch("careerradar.profile.graph.invoke_structured")
-@patch("careerradar.profile.graph.save_tailored_resume")
+@patch("findajob.profile.graph.structured_model")
+@patch("findajob.profile.graph.render_typst")
+@patch("findajob.profile.graph.compile_typst_to_pdf")
+@patch("findajob.profile.graph.screen_resume")
+@patch("findajob.profile.graph.invoke_structured")
+@patch("findajob.profile.graph.save_tailored_resume")
 def test_full_graph_execution(
     mock_save: MagicMock,
     mock_invoke: MagicMock,
@@ -210,13 +210,13 @@ def test_full_graph_execution(
     conn.close()
 
 
-@patch("careerradar.profile.graph.structured_model")
-@patch("careerradar.profile.graph.render_typst")
-@patch("careerradar.profile.graph.compile_typst_to_pdf")
-@patch("careerradar.profile.graph.screen_resume")
-@patch("careerradar.profile.graph.invoke_structured")
-@patch("careerradar.profile.graph.save_tailored_resume")
-@patch("careerradar.profile.graph.validate_resume_layout")
+@patch("findajob.profile.graph.structured_model")
+@patch("findajob.profile.graph.render_typst")
+@patch("findajob.profile.graph.compile_typst_to_pdf")
+@patch("findajob.profile.graph.screen_resume")
+@patch("findajob.profile.graph.invoke_structured")
+@patch("findajob.profile.graph.save_tailored_resume")
+@patch("findajob.profile.graph.validate_resume_layout")
 def test_graph_screens_even_when_layout_fails_max_attempts(
     mock_validate_layout: MagicMock,
     mock_save: MagicMock,

@@ -9,10 +9,10 @@ from typing import cast
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from careerradar.core.database import Database
-from careerradar.core.migrations import migrate
-from careerradar.profile.adapter import ProfileAdapter
-from careerradar.profile.models import (
+from findajob.core.database import Database
+from findajob.core.migrations import migrate
+from findajob.profile.adapter import ProfileAdapter
+from findajob.profile.models import (
     MasterEducation,
     MasterProject,
     MasterRole,
@@ -21,7 +21,7 @@ from careerradar.profile.models import (
     RoleTargeting,
     WorkEligibility,
 )
-from careerradar.profile.render import (
+from findajob.profile.render import (
     render_profile,
     render_profile_for_resume,
     render_profile_for_scoring,
@@ -261,7 +261,7 @@ class StoreTests(unittest.TestCase):
         return cast(Database, self._Db(self.conn))
 
     def test_saving_and_loading_single_profile(self) -> None:
-        from careerradar.profile.repository import load_active, load_profile, save_profile
+        from findajob.profile.repository import load_active, load_profile, save_profile
 
         profile = Profile(
             name="Jane Doe",
@@ -287,7 +287,7 @@ class StoreTests(unittest.TestCase):
         self.assertIn("Architect", summary)
 
     def test_summary_text_persisted(self) -> None:
-        from careerradar.profile.repository import load_active, save_profile
+        from findajob.profile.repository import load_active, save_profile
 
         profile = Profile(
             name="Jane Doe",

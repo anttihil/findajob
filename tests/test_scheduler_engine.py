@@ -10,7 +10,7 @@ from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from careerradar.core.scheduler import PipelineScheduler, _now
+from findajob.core.scheduler import PipelineScheduler, _now
 
 
 class SchedulerEngineTests(unittest.IsolatedAsyncioTestCase):
@@ -55,7 +55,7 @@ class SchedulerEngineTests(unittest.IsolatedAsyncioTestCase):
 
         with (
             mock.patch("asyncio.create_subprocess_exec", return_value=mock_proc),
-            mock.patch("careerradar.core.scheduler.load_config", return_value=mock_cfg),
+            mock.patch("findajob.core.scheduler.load_config", return_value=mock_cfg),
         ):
             success = await self.scheduler._run_stage("search", manual=True)
             self.assertTrue(success)
@@ -111,7 +111,7 @@ class SchedulerEngineTests(unittest.IsolatedAsyncioTestCase):
         self.scheduler._running = True
 
         with (
-            mock.patch("careerradar.core.scheduler.DB_PATH", tmp_db.name),
+            mock.patch("findajob.core.scheduler.DB_PATH", tmp_db.name),
             mock.patch.object(self.scheduler, "_run_stage", return_value=True) as mock_run,
             mock.patch("asyncio.sleep", return_value=None),
         ):
@@ -130,7 +130,7 @@ class SchedulerEngineTests(unittest.IsolatedAsyncioTestCase):
 
         with (
             mock.patch("asyncio.create_subprocess_exec", return_value=mock_proc),
-            mock.patch("careerradar.core.scheduler.load_config", return_value=mock_cfg),
+            mock.patch("findajob.core.scheduler.load_config", return_value=mock_cfg),
         ):
             success = await self.scheduler._run_stage("search", manual=True)
             self.assertTrue(success)

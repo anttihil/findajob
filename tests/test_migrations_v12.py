@@ -26,7 +26,7 @@ from datetime import datetime, timedelta, timezone
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from careerradar.core.migrations import apply_pragmas, migrate
+from findajob.core.migrations import apply_pragmas, migrate
 
 
 def ago(**delta: float) -> str:
@@ -153,7 +153,7 @@ class LivenessWindowTests(unittest.TestCase):
         string alone fails here rather than in whichever half of the app happens to read
         the other one.
         """
-        from careerradar.core.database import Database
+        from findajob.core.database import Database
 
         rows = [
             (1, ago(hours=30), ago(hours=24), 24, ago(days=3)),  # likely_closed

@@ -24,8 +24,8 @@ from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from careerradar.core.migrations import apply_pragmas, migrate
-from careerradar.scoring import worker
+from findajob.core.migrations import apply_pragmas, migrate
+from findajob.scoring import worker
 
 MODEL = "deepseek-v4-flash"
 CONFIG: dict[str, Any] = {"scoring": {"model": MODEL, "concurrency": 2, "max_usd_per_run": None}}

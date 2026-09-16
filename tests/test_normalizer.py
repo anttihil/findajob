@@ -1,4 +1,4 @@
-"""Unit tests for careerradar.search.normalizer.
+"""Unit tests for findajob.search.normalizer.
 
 Tests all pure data normalizations: company names, locations, salaries, dates,
 deduplication hashing, description quality, and batch normalization.
@@ -7,7 +7,7 @@ deduplication hashing, description quality, and batch normalization.
 import unittest
 from datetime import datetime, timezone
 
-from careerradar.search.normalizer import (
+from findajob.search.normalizer import (
     _number,
     _text,
     content_hash,

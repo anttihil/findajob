@@ -14,7 +14,7 @@ from typing import Any
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from careerradar.core.status import COVERAGE_SKEW, render
+from findajob.core.status import COVERAGE_SKEW, render
 
 
 def _report(**overrides: Any) -> dict[str, Any]:

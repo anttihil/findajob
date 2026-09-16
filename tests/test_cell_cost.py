@@ -14,10 +14,10 @@ from typing import Any
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from careerradar.core.database import Database
-from careerradar.search.runner import _add_cost
-from careerradar.search.sources.base import BaseJobSource
-from careerradar.search.sources.jobspy_source import count_requests
+from findajob.core.database import Database
+from findajob.search.runner import _add_cost
+from findajob.search.sources.base import BaseJobSource
+from findajob.search.sources.jobspy_source import count_requests
 
 TASK: dict[str, Any] = {
     "cell_id": 1,

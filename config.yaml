@@ -1,5 +1,5 @@
 # Find a Job defaults that are useful to customize. Application mechanics live in
-# `careerradar/core/config.py`; place personal overrides in `config.local.yaml`.
+# `findajob/core/config.py`; place personal overrides in `config.local.yaml`.
 
 scraper:
   # Disable a board without removing its existing data.

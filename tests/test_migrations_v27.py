@@ -2,7 +2,7 @@
 
 import sqlite3
 
-from careerradar.core.migrations import current_version, migrate
+from findajob.core.migrations import current_version, migrate
 
 
 def _migrated() -> sqlite3.Connection:
@@ -23,6 +23,6 @@ def test_migration_v27_drops_taxonomy_hash():
 
 def test_migration_v27_is_idempotent_on_a_database_that_never_had_the_column():
     conn = _migrated()
-    from careerradar.core.migrations import _v27_drop_taxonomy_hash
+    from findajob.core.migrations import _v27_drop_taxonomy_hash
 
     _v27_drop_taxonomy_hash(conn.cursor())

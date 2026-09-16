@@ -2,7 +2,7 @@
 
 import sqlite3
 
-from careerradar.core.migrations import MIGRATIONS, SCHEMA_VERSION, current_version, migrate
+from findajob.core.migrations import MIGRATIONS, SCHEMA_VERSION, current_version, migrate
 
 
 def test_migration_v22_drops_legacy_tables_and_columns():

@@ -15,8 +15,8 @@ from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from careerradar.search import runner
-from careerradar.search.scheduler import CellState, ScrapeTask
+from findajob.search import runner
+from findajob.search.scheduler import CellState, ScrapeTask
 
 CONFIG: dict[str, Any] = {
     "scraper": {"sources": {"indeed": True}, "proxies": {"enabled": False}},

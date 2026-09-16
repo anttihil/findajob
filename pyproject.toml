@@ -22,7 +22,7 @@ dependencies = [
 ]
 
 [project.scripts]
-findajob = "careerradar.cli:main"
+findajob = "findajob.cli:main"
 
 [build-system]
 requires = ["hatchling"]
@@ -32,8 +32,8 @@ build-backend = "hatchling.build"
 allow-direct-references = true
 
 [tool.hatch.build.targets.wheel]
-packages = ["careerradar"]
-artifacts = ["careerradar/web/frontend/dist/**"]
+packages = ["findajob"]
+artifacts = ["findajob/web/frontend/dist/**"]
 
 [dependency-groups]
 dev = [
@@ -84,13 +84,13 @@ ignore = [
 # database path, so the handle is meant to outlive a `with` block.
 "tests/*" = ["ARG001", "ARG002", "SIM115", "SIM117"]
 # `Depends(...)` in a parameter default is the FastAPI dependency-injection idiom.
-"careerradar/web/app.py" = ["B008"]
+"findajob/web/app.py" = ["B008"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["careerradar"]
+known-first-party = ["findajob"]
 
 [tool.pyright]
-include = ["careerradar", "tests"]
+include = ["findajob", "tests"]
 venvPath = "."
 venv = ".venv"
 pythonVersion = "3.10"

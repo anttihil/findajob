@@ -19,7 +19,7 @@ from typing import Any
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from careerradar.search.guard import (
+from findajob.search.guard import (
     ERROR_BLOCKED,
     ERROR_FATAL,
     ERROR_RATE_LIMIT,
@@ -28,7 +28,7 @@ from careerradar.search.guard import (
     SourceTripped,
     classify_error,
 )
-from careerradar.search.scheduler import (
+from findajob.search.scheduler import (
     CellState,
     adaptive_hours_old,
     estimate_pages,
@@ -38,7 +38,7 @@ from careerradar.search.scheduler import (
     overdue_cells,
     select_cells,
 )
-from careerradar.search.targets import SearchTargets
+from findajob.search.targets import SearchTargets
 
 NOW = datetime(2026, 7, 29, 12, 0, tzinfo=timezone.utc)
 

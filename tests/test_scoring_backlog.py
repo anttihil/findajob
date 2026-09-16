@@ -27,10 +27,10 @@ from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from careerradar.core.database import Database
-from careerradar.core.migrations import apply_pragmas, migrate
-from careerradar.profile.models import VERDICT_SCHEMA_VERSION
-from careerradar.scoring.worker import _ineligible, _pending, _select
+from findajob.core.database import Database
+from findajob.core.migrations import apply_pragmas, migrate
+from findajob.profile.models import VERDICT_SCHEMA_VERSION
+from findajob.scoring.worker import _ineligible, _pending, _select
 
 PROFILE = 4
 LONG = "x" * 400
@@ -154,7 +154,7 @@ class SenioritySkipTests(_Fixture, unittest.TestCase):
     def setUp(self) -> None:
         super().setUp()
         patcher = mock.patch(
-            "careerradar.scoring.worker.load_config",
+            "findajob.scoring.worker.load_config",
             return_value={"scoring": {"skip_seniority": ["lead", "staff"]}},
         )
         patcher.start()
@@ -199,7 +199,7 @@ class EmptySenioritySkipTests(_Fixture, unittest.TestCase):
     def setUp(self) -> None:
         super().setUp()
         patcher = mock.patch(
-            "careerradar.scoring.worker.load_config",
+            "findajob.scoring.worker.load_config",
             return_value={"scoring": {"skip_seniority": []}},
         )
         patcher.start()
@@ -217,7 +217,7 @@ class EmptySenioritySkipTests(_Fixture, unittest.TestCase):
 class PostingAgeFilterTests(_Fixture, unittest.TestCase):
     def test_stale_postings_are_skipped(self) -> None:
         patcher = mock.patch(
-            "careerradar.scoring.worker.load_config",
+            "findajob.scoring.worker.load_config",
             return_value={"scoring": {"max_posting_age_days": 3, "skip_seniority": []}},
         )
         patcher.start()
@@ -252,14 +252,14 @@ class QuarantineTests(_Fixture, unittest.TestCase):
     def record_failures(
         self, job_id: int, times: int, error: str = "core_requirements is empty"
     ) -> None:
-        from careerradar.scoring.worker import _record_failure
+        from findajob.scoring.worker import _record_failure
 
         for _ in range(times):
             _record_failure(self.db, job_id, error)
         self.conn.commit()
 
     def test_posting_is_offered_until_the_threshold(self) -> None:
-        from careerradar.scoring.worker import MAX_SCORING_FAILURES
+        from findajob.scoring.worker import MAX_SCORING_FAILURES
 
         self.job(1)
         for n in range(MAX_SCORING_FAILURES):
@@ -270,7 +270,7 @@ class QuarantineTests(_Fixture, unittest.TestCase):
 
     def test_a_success_clears_the_counter(self) -> None:
         """Two failures then a verdict must not leave the posting one failure from exile."""
-        from careerradar.scoring.worker import MAX_SCORING_FAILURES, _persist
+        from findajob.scoring.worker import MAX_SCORING_FAILURES, _persist
 
         self.job(1)
         self.record_failures(1, MAX_SCORING_FAILURES - 1)
@@ -283,7 +283,7 @@ class QuarantineTests(_Fixture, unittest.TestCase):
         self.assertIsNone(row["last_scoring_error"])
 
     def test_quarantined_groups_by_reason(self) -> None:
-        from careerradar.scoring.worker import MAX_SCORING_FAILURES, _quarantined
+        from findajob.scoring.worker import MAX_SCORING_FAILURES, _quarantined
 
         self.job(1)
         self.job(2)
@@ -298,7 +298,7 @@ class QuarantineTests(_Fixture, unittest.TestCase):
         self.assertIn("core_requirements", rows[0]["reason"])
 
     def test_retry_clears_the_counter(self) -> None:
-        from careerradar.scoring.worker import MAX_SCORING_FAILURES
+        from findajob.scoring.worker import MAX_SCORING_FAILURES
 
         self.job(1)
         self.record_failures(1, MAX_SCORING_FAILURES)
@@ -315,7 +315,7 @@ class RecentVerdictsTests(_Fixture, unittest.TestCase):
     def test_count_recent_verdicts_handles_iso_timestamps(self) -> None:
         from datetime import datetime, timedelta, timezone
 
-        from careerradar.scoring.repository import count_recent_verdicts
+        from findajob.scoring.repository import count_recent_verdicts
 
         now = datetime.now(timezone.utc)
         self.job(1)
@@ -346,7 +346,7 @@ class RecentVerdictsTests(_Fixture, unittest.TestCase):
 
 class StatusReportBacklogTests(_Fixture, unittest.TestCase):
     def test_collect_status_report_counts_only_eligible_pending(self) -> None:
-        from careerradar.core.status_repository import collect_status_report
+        from findajob.core.status_repository import collect_status_report
 
         # 2 eligible pending jobs
         self.job(1)

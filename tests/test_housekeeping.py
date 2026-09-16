@@ -1,7 +1,7 @@
 """Log rotation.
 
 This checks that the *deployment* rotates the file, because the application
-deliberately does not -- see careerradar/core/logger.py.
+deliberately does not -- see findajob/core/logger.py.
 """
 
 import logging
@@ -12,7 +12,7 @@ from logging.handlers import RotatingFileHandler, TimedRotatingFileHandler
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from careerradar.core.logger import get_logger
+from findajob.core.logger import get_logger
 
 
 class LogRotationTests(unittest.TestCase):

@@ -38,7 +38,7 @@ mkdir -p "$INSTALL_ROOT" "$BIN_DIR"
 python3 -m venv "$VENV"
 
 wheel=""
-if compgen -G "dist/*.whl" >/dev/null 2>&1 && [[ -d careerradar/web/frontend/dist ]]; then
+if compgen -G "dist/*.whl" >/dev/null 2>&1 && [[ -d findajob/web/frontend/dist ]]; then
   wheel=$(printf '%s\n' dist/*.whl | head -n 1)
 else
   wheel="$INSTALL_ROOT/$APP_NAME.whl"
@@ -51,7 +51,7 @@ fi
 ln -sfn "$VENV/bin/findajob" "$BIN_DIR/findajob"
 "$VENV/bin/findajob" init >/dev/null
 
-env_path="$("$VENV/bin/python" -c 'from careerradar.core.paths import ENV_PATH; print(ENV_PATH)')"
+env_path="$("$VENV/bin/python" -c 'from findajob.core.paths import ENV_PATH; print(ENV_PATH)')"
 if [[ ! -f "$env_path" ]]; then
   cat >"$env_path" <<'EOF'
 # Add DEEPSEEK_API_KEY here, or authenticate a supported CLI provider.
@@ -71,12 +71,12 @@ if [[ -t 0 ]] && ! grep -q '^DEEPSEEK_API_KEY=.' "$env_path"; then
   fi
 fi
 
-pid_path="$("$VENV/bin/python" -c 'from careerradar.core.paths import STATE_DIR; print(STATE_DIR + "/findajob.pid")')"
+pid_path="$("$VENV/bin/python" -c 'from findajob.core.paths import STATE_DIR; print(STATE_DIR + "/findajob.pid")')"
 if [[ -f "$pid_path" ]] && kill -0 "$(cat "$pid_path")" 2>/dev/null; then
   echo "Find a Job is already running at http://127.0.0.1:8010"
   exit 0
 fi
-log_path="$("$VENV/bin/python" -c 'from careerradar.core.paths import LOG_PATH; print(LOG_PATH)')"
+log_path="$("$VENV/bin/python" -c 'from findajob.core.paths import LOG_PATH; print(LOG_PATH)')"
 nohup "$VENV/bin/findajob" start --port 8010 >>"$log_path" 2>&1 &
 echo $! >"$pid_path"
 

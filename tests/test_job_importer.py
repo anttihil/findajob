@@ -6,10 +6,10 @@ from unittest.mock import MagicMock, patch
 import pytest
 from fastapi.testclient import TestClient
 
-from careerradar.cli import build_parser
-from careerradar.core.database import Database
-from careerradar.profile.models import Profile
-from careerradar.search.importer import (
+from findajob.cli import build_parser
+from findajob.core.database import Database
+from findajob.profile.models import Profile
+from findajob.search.importer import (
     ExtractedJobPosting,
     clean_html_to_text,
     extract_job_from_text,
@@ -17,7 +17,7 @@ from careerradar.search.importer import (
     import_and_process_job,
     import_job_from_url,
 )
-from careerradar.web.app import app
+from findajob.web.app import app
 
 
 @pytest.fixture
@@ -141,7 +141,7 @@ def test_fetch_url_text_gzip(mock_urlopen: MagicMock):
     assert "Compressed content" in text
 
 
-@patch("careerradar.core.llm.structured_model")
+@patch("findajob.core.llm.structured_model")
 def test_extract_job_from_text(mock_model_fn: MagicMock):
     mock_chain = MagicMock()
     mock_chain.invoke.return_value = ExtractedJobPosting(
@@ -166,7 +166,7 @@ def test_extract_job_from_text(mock_model_fn: MagicMock):
     assert result["salary_min"] == 140000
 
 
-@patch("careerradar.search.importer.extract_job_from_text")
+@patch("findajob.search.importer.extract_job_from_text")
 def test_import_job_from_url(mock_extract: MagicMock, temp_db: Database):
     mock_extract.return_value = {
         "title": "Lead Software Architect",
@@ -210,15 +210,15 @@ def test_import_job_from_url(mock_extract: MagicMock, temp_db: Database):
     assert job_id_2 == job_id
 
 
-@patch("careerradar.scoring.worker.build_graph")
-@patch("careerradar.scoring.worker.load_active")
+@patch("findajob.scoring.worker.build_graph")
+@patch("findajob.scoring.worker.load_active")
 def test_score_job_success(
     mock_load_active: MagicMock,
     mock_build_graph: MagicMock,
     temp_db: Database,
 ):
-    from careerradar.scoring.worker import score_job
-    from careerradar.search.repository import upsert_posting
+    from findajob.scoring.worker import score_job
+    from findajob.search.repository import upsert_posting
 
     # Seed an active profile
     mock_load_active.return_value = (1, Profile(name="Jane"), "Candidate summary text")
@@ -261,9 +261,9 @@ def test_score_job_success(
     assert bool(job["fit"]) is True
 
 
-@patch("careerradar.search.importer.import_job_from_url")
-@patch("careerradar.scoring.worker.score_job")
-@patch("careerradar.profile.builder.build_resume_for_job")
+@patch("findajob.search.importer.import_job_from_url")
+@patch("findajob.scoring.worker.score_job")
+@patch("findajob.profile.builder.build_resume_for_job")
 def test_import_and_process_job(
     mock_resume: MagicMock,
     mock_score: MagicMock,
@@ -293,7 +293,7 @@ def test_import_and_process_job(
     mock_resume.assert_called_once_with(42, db=temp_db)
 
 
-@patch("careerradar.search.importer.import_and_process_job")
+@patch("findajob.search.importer.import_and_process_job")
 def test_api_import_job(mock_process: MagicMock):
     mock_process.return_value = {
         "job_id": 99,
@@ -314,7 +314,7 @@ def test_api_import_job(mock_process: MagicMock):
     assert data["job"]["title"] == "AI Engineer"
 
 
-@patch("careerradar.search.importer.import_and_process_job")
+@patch("findajob.search.importer.import_and_process_job")
 def test_api_import_job_value_error(mock_process: MagicMock):
     mock_process.side_effect = ValueError(
         "Could not extract sufficient text from https://example.com/job/bad"
@@ -330,7 +330,7 @@ def test_api_import_job_value_error(mock_process: MagicMock):
     assert "Could not extract sufficient text" in data["detail"]
 
 
-@patch("careerradar.search.importer.fetch_url_text")
+@patch("findajob.search.importer.fetch_url_text")
 def test_import_job_from_url_network_error(mock_fetch: MagicMock, temp_db: Database):
     import urllib.error
 

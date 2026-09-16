@@ -11,9 +11,9 @@ import sqlite3
 
 import pytest
 
-from careerradar.core.migrations import migrate
-from careerradar.search.repository import prune_cells, seed_cells
-from careerradar.search.targets import add_query, load_targets, save_location, update_query
+from findajob.core.migrations import migrate
+from findajob.search.repository import prune_cells, seed_cells
+from findajob.search.targets import add_query, load_targets, save_location, update_query
 
 
 def _migrated() -> sqlite3.Connection:
@@ -80,14 +80,14 @@ def test_query_rename_keeps_the_market_join_intact() -> None:
 def test_cli_target_edits_recompile_the_matrix(
     monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
 ) -> None:
-    import careerradar.cli as cli
+    import findajob.cli as cli
 
     db_path = str(tmp_path / "jobs.db")
     # DB_PATH is bound at import in each module that needs it, so every binding moves.
     for module in (
-        "careerradar.core.paths",
-        "careerradar.core.database",
-        "careerradar.search.targets",
+        "findajob.core.paths",
+        "findajob.core.database",
+        "findajob.search.targets",
     ):
         monkeypatch.setattr(f"{module}.DB_PATH", db_path)
 

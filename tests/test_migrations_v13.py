@@ -20,7 +20,7 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from careerradar.core.migrations import MIGRATIONS, apply_pragmas, current_version, migrate
+from findajob.core.migrations import MIGRATIONS, apply_pragmas, current_version, migrate
 
 
 class DropDenormalizedFitScoreTests(unittest.TestCase):

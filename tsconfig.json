@@ -20,7 +20,7 @@
   "include": [
     "vite.config.ts",
     "vitest.config.ts",
-    "careerradar/web/frontend-src/src/**/*",
-    "careerradar/web/frontend-src/tests/**/*"
+    "findajob/web/frontend-src/src/**/*",
+    "findajob/web/frontend-src/tests/**/*"
   ]
 }

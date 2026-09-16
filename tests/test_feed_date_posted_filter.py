@@ -14,8 +14,8 @@ from fastapi.testclient import TestClient
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from careerradar.core.database import Database
-from careerradar.web.app import app
+from findajob.core.database import Database
+from findajob.web.app import app
 
 
 def ago(**delta: float) -> str:
@@ -154,7 +154,7 @@ class DatePostedEndpointTests(unittest.TestCase):
         def _get_test_db() -> Database:
             return Database(self.tmp.name)
 
-        self.patcher = patch("careerradar.web.app.get_db", side_effect=_get_test_db)
+        self.patcher = patch("findajob.web.app.get_db", side_effect=_get_test_db)
         self.patcher.start()
         self.client = TestClient(app)
 

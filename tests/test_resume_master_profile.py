@@ -2,15 +2,15 @@
 
 import sqlite3
 
-from careerradar.core.migrations import migrate
-from careerradar.profile.models import (
+from findajob.core.migrations import migrate
+from findajob.profile.models import (
     MasterEducation,
     MasterProject,
     MasterRole,
     MasterSkillCategory,
     Profile,
 )
-from careerradar.profile.repository import load_profile, save_profile
+from findajob.profile.repository import load_profile, save_profile
 
 
 def test_master_profile_crud():

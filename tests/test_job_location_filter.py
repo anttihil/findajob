@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from careerradar.core.database import Database
+from findajob.core.database import Database
 
 
 def test_location_filter_matches_case_insensitive_substrings(tmp_path: Path) -> None:

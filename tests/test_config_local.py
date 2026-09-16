@@ -3,7 +3,7 @@
 from pathlib import Path
 from unittest import mock
 
-from careerradar.core import config
+from findajob.core import config
 
 
 def test_local_config_overrides_defaults_without_rewriting_them(tmp_path: Path):

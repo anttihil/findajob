@@ -54,9 +54,9 @@ For analysis, copy the database and query the copy—not the live database. SQLi
 so copy the `jobs.db`, `jobs.db-wal`, and `jobs.db-shm` files together when they exist.
 
 ```bash
-mkdir -p /tmp/careerradar-snapshot
-rsync -av <host>:<data-dir>/jobs.db* /tmp/careerradar-snapshot/
-sqlite3 /tmp/careerradar-snapshot/jobs.db 'pragma quick_check;'
+mkdir -p /tmp/findajob-snapshot
+rsync -av <host>:<data-dir>/jobs.db* /tmp/findajob-snapshot/
+sqlite3 /tmp/findajob-snapshot/jobs.db 'pragma quick_check;'
 ```
 
 Never rsync a snapshot back to the deployment, and do not commit it: it contains personal job

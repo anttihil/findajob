@@ -2,8 +2,8 @@
 
 import sqlite3
 
-from careerradar.core.migrations import current_version, migrate
-from careerradar.search.targets import (
+from findajob.core.migrations import current_version, migrate
+from findajob.search.targets import (
     add_query,
     delete_location,
     delete_query,

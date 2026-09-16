@@ -4,11 +4,11 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 
-from careerradar.core.database import Database
-from careerradar.core.migrations import migrate
-from careerradar.market.analytics import MarketAnalytics
-from careerradar.search.targets import SearchTargets
-from careerradar.web.app import app
+from findajob.core.database import Database
+from findajob.core.migrations import migrate
+from findajob.market.analytics import MarketAnalytics
+from findajob.search.targets import SearchTargets
+from findajob.web.app import app
 
 
 @pytest.fixture

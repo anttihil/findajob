@@ -9,8 +9,8 @@ from datetime import datetime, timedelta, timezone
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from careerradar.core.database import Database
-from careerradar.core.migrations import (
+from findajob.core.database import Database
+from findajob.core.migrations import (
     MIGRATIONS,
     SCHEMA_VERSION,
     apply_pragmas,

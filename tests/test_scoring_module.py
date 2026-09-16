@@ -13,14 +13,14 @@ from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from careerradar.profile.models import JobFitVerdict
-from careerradar.scoring.prompts import (
+from findajob.profile.models import JobFitVerdict
+from findajob.scoring.prompts import (
     MAX_DESCRIPTION_CHARS,
     build_system,
     prompt_hash,
     render_posting,
 )
-from careerradar.scoring.worker import EXPECTED_COMPLETION_TOKENS
+from findajob.scoring.worker import EXPECTED_COMPLETION_TOKENS
 
 PROFILE = "CANDIDATE PROFILE\n\nAn engineer who ships Python services.\n"
 
@@ -159,12 +159,12 @@ def bad_response() -> dict[str, Any]:
 
 class GraphTests(unittest.TestCase):
     def run_graph(self, responses: list[dict[str, Any]]) -> tuple[dict[str, Any], FakeChain]:
-        from careerradar.scoring.graph import build_graph
+        from findajob.scoring.graph import build_graph
 
         chain = FakeChain(responses)
         model = mock.Mock()
         model.with_structured_output.return_value = chain
-        with mock.patch("careerradar.scoring.graph.structured_model", return_value=model):
+        with mock.patch("findajob.scoring.graph.structured_model", return_value=model):
             state = build_graph().invoke(
                 {
                     "system": build_system(PROFILE),
@@ -188,7 +188,7 @@ class GraphTests(unittest.TestCase):
         self.assertTrue(state["verdict"]["fit"])
 
     def test_retries_are_bounded_and_give_up_cleanly(self) -> None:
-        from careerradar.scoring.graph import MAX_ATTEMPTS
+        from findajob.scoring.graph import MAX_ATTEMPTS
 
         state, chain = self.run_graph([bad_response()] * (MAX_ATTEMPTS + 3))
         self.assertEqual(len(chain.calls), MAX_ATTEMPTS)
@@ -196,13 +196,13 @@ class GraphTests(unittest.TestCase):
         self.assertIsNotNone(state.get("error"))
 
     def test_an_api_exception_is_caught_rather_than_killing_the_run(self) -> None:
-        from careerradar.scoring.graph import build_graph
+        from findajob.scoring.graph import build_graph
 
         chain = mock.Mock()
         chain.invoke.side_effect = RuntimeError("429 rate limited")
         model = mock.Mock()
         model.with_structured_output.return_value = chain
-        with mock.patch("careerradar.scoring.graph.structured_model", return_value=model):
+        with mock.patch("findajob.scoring.graph.structured_model", return_value=model):
             state = build_graph().invoke(
                 {"system": "s", "posting": posting(), "model": "deepseek-v4-flash"}
             )

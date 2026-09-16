@@ -3,7 +3,7 @@ import js from "@eslint/js";
 import tseslint from "typescript-eslint";
 import reactHooks from "eslint-plugin-react-hooks";
 
-// The `lint` script points eslint at `careerradar/web/frontend-src` directly (not `.`),
+// The `lint` script points eslint at `findajob/web/frontend-src` directly (not `.`),
 // so this config only ever sees files under that tree -- no repo-wide ignore list needed.
 const FRONTEND_FILES = ["**/*.{ts,tsx}"];
 

@@ -1,6 +1,6 @@
 """Unit tests for the Profile Copilot and resume parsing utilities."""
 
-from careerradar.profile.copilot import parse_resume_file
+from findajob.profile.copilot import parse_resume_file
 
 
 def test_parse_resume_file_txt():

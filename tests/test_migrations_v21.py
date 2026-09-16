@@ -2,8 +2,8 @@
 
 import sqlite3
 
-from careerradar.core.migrations import current_version, migrate
-from careerradar.profile.models import (
+from findajob.core.migrations import current_version, migrate
+from findajob.profile.models import (
     MasterEducation,
     MasterProject,
     MasterRole,
@@ -11,8 +11,8 @@ from careerradar.profile.models import (
     Profile,
     WorkEligibility,
 )
-from careerradar.profile.render import render_profile
-from careerradar.profile.repository import load_profile, save_profile
+from findajob.profile.render import render_profile
+from findajob.profile.repository import load_profile, save_profile
 
 
 def test_migration_v21_columns_and_defaults():

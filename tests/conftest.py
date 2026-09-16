@@ -1,6 +1,6 @@
 """Keep a test run out of the production database and log.
 
-`careerradar.core.logger` opens `LOG_PATH` at import time, so merely importing the package
+`findajob.core.logger` opens `LOG_PATH` at import time, so merely importing the package
 appended test records to the real `app.log` -- fixture circuit trips, throwaway migrations
 and imports of modules that no longer exist all landed in the file the operator reads to
 diagnose production.

@@ -6,7 +6,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from careerradar.core import paths as checkout_paths
+from findajob.core import paths as checkout_paths
 
 
 def test_source_checkout_keeps_its_repository_local_config() -> None:
@@ -22,7 +22,7 @@ def _installed_paths(home: Path) -> dict[str, object]:
     env["FIND_A_JOB_HOME"] = str(home)
     script = """
 import json
-from careerradar.core.paths import (
+from findajob.core.paths import (
     CONFIG_PATH, DB_PATH, GENERATED_RESUMES_DIR, GRAPH_DB_PATH, LOG_PATH,
     SOURCE_CHECKOUT, STATUS_PATH, generated_resumes_dir,
 )
@@ -42,7 +42,7 @@ print(json.dumps({
     return json.loads(result.stdout)
 
 
-def test_careerradar_home_uses_a_self_contained_installed_layout(tmp_path: Path) -> None:
+def test_findajob_home_uses_a_self_contained_installed_layout(tmp_path: Path) -> None:
     paths = _installed_paths(tmp_path / "career-home")
     root = tmp_path / "career-home"
     assert paths["source_checkout"] is False

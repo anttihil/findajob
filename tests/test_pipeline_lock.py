@@ -13,14 +13,14 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from careerradar.cli import build_parser
-from careerradar.core import pipeline_lock
+from findajob.cli import build_parser
+from findajob.core import pipeline_lock
 
 # A child that holds the lock for `seconds`, and says so on stdout once it has it.
 HOLDER = """
 import sys, time
 sys.path.insert(0, {root!r})
-from careerradar.core import pipeline_lock
+from findajob.core import pipeline_lock
 with pipeline_lock.hold("holder"):
     print("held", flush=True)
     time.sleep({seconds})

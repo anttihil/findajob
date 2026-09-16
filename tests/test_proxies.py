@@ -12,7 +12,7 @@ from typing import Any, ClassVar
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from careerradar.search.proxies import (
+from findajob.search.proxies import (
     ENV_VAR,
     apply_proxy_budgets,
     is_rotating,

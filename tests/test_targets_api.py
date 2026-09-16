@@ -3,7 +3,7 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 
-from careerradar.web.app import app
+from findajob.web.app import app
 
 
 @pytest.fixture

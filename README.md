@@ -147,14 +147,14 @@ candidate resume -> profile builder -> scoring workers -> verdicts (scored)
 FastAPI + Preact dashboard <-> the same SQLite data and configuration
 ```
 
-- `careerradar/search` plans target cells and retrieves/normalizes job-board results.
-- `careerradar/profile` extracts and versions the candidate profile from a resume.
-- `careerradar/scoring` sends postings and the active profile to the configured LLM and stores
+- `findajob/search` plans target cells and retrieves/normalizes job-board results.
+- `findajob/profile` extracts and versions the candidate profile from a resume.
+- `findajob/scoring` sends postings and the active profile to the configured LLM and stores
   verdicts with their profile and prompt provenance.
-- `careerradar/profile/renderer.py` generates tailored resumes and validates their layout.
-- `careerradar/market` provides aggregate demand, coverage, and skill-gap analysis.
-- `careerradar/web` contains the FastAPI application and the built React dashboard.
-- `careerradar/core` provides configuration, paths, SQLite access, migrations, scheduling, and
+- `findajob/profile/renderer.py` generates tailored resumes and validates their layout.
+- `findajob/market` provides aggregate demand, coverage, and skill-gap analysis.
+- `findajob/web` contains the FastAPI application and the built React dashboard.
+- `findajob/core` provides configuration, paths, SQLite access, migrations, scheduling, and
   pipeline coordination.
 
 Search and scoring are separate stages connected by posting state. This lets either stage be

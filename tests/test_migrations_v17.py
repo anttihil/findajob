@@ -2,7 +2,7 @@
 
 import sqlite3
 
-from careerradar.core.migrations import MIGRATIONS, apply_pragmas, current_version
+from findajob.core.migrations import MIGRATIONS, apply_pragmas, current_version
 
 
 def test_migration_v17():
