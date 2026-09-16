@@ -1,65 +1,36 @@
-import { useEffect, useRef } from "preact/hooks";
+import { useEffect } from "preact/hooks";
 import { getJSON, reportError } from "../../api/client";
 import type {
   PipelineScoreStatus,
   PipelineScrapeStatus,
   PipelineStatusResponse,
 } from "../../api/types";
-import { renderMeters } from "../../charts/charts";
 import { ago } from "../../lib/format";
 import { livePipelineStatus } from "../../state/liveEvents";
 
+function since(timestamp: string | null | undefined): string | null {
+  if (!timestamp) return null;
+  const elapsed = Date.now() - new Date(timestamp).getTime();
+  return Number.isFinite(elapsed) ? ago(Math.max(0, elapsed) / 3_600_000) : null;
+}
+
 function ScrapeStage({ scrape }: { scrape: PipelineScrapeStatus }) {
-  const meterRef = useRef<HTMLDivElement>(null);
   const running = scrape.in_progress;
-
-  useEffect(() => {
-    if (!meterRef.current) return;
-    if (running && scrape.cells_planned) {
-      renderMeters(
-        meterRef.current,
-        [
-          {
-            label: "cells",
-            value: scrape.cells_done ?? 0,
-            display: `${scrape.cells_done ?? 0}/${scrape.cells_planned}`,
-          },
-        ],
-        { max: scrape.cells_planned },
-      );
-    } else if (!running && scrape.previous_run?.cells) {
-      const [succeeded, planned] = scrape.previous_run.cells;
-      if (planned > 0) {
-        renderMeters(
-          meterRef.current,
-          [
-            {
-              label: "cells",
-              value: succeeded,
-              display: `${succeeded}/${planned}`,
-            },
-          ],
-          { max: planned },
-        );
-      } else {
-        meterRef.current.innerHTML = "";
-      }
-    } else {
-      meterRef.current.innerHTML = "";
-    }
-  }, [scrape, running]);
-
+  const [done, planned] = running
+    ? [scrape.cells_done ?? 0, scrape.cells_planned ?? 0]
+    : scrape.previous_run?.cells ?? [0, 0];
+  const percent = planned ? Math.round((done / planned) * 100) : null;
+  const elapsed = since(scrape.started_at);
   let detail: string;
   if (running && scrape.cells_planned) {
-    detail = `${scrape.cells_done} of ${scrape.cells_planned} planned cells scraped this run`;
+    detail = `${percent}% · ${done}/${planned} cells${elapsed ? ` · started ${elapsed}` : ""}`;
   } else if (running) {
-    detail = "starting up...";
+    detail = "Starting…";
   } else if (!scrape.previous_run?.last_run) {
-    detail = "never run";
+    detail = "Never run";
   } else {
     const prev = scrape.previous_run;
-    const [succeeded, planned] = prev.cells || [0, 0];
-    detail = `last run ${ago(prev.hours_since)} (${prev.status}): ${succeeded}/${planned} cells, ${prev.postings_new} new postings`;
+    detail = `${ago(prev.hours_since)} · ${percent ?? 0}% · ${done}/${planned} cells`;
   }
 
   return (
@@ -71,40 +42,19 @@ function ScrapeStage({ scrape }: { scrape: PipelineScrapeStatus }) {
           {running ? "running" : "idle"}
         </span>
       </div>
-      <div ref={meterRef}></div>
       <p class="card-note">{detail}</p>
     </div>
   );
 }
 
 function ScoreStage({ score }: { score: PipelineScoreStatus }) {
-  const meterRef = useRef<HTMLDivElement>(null);
   const active = score.recent_verdicts_5min > 0;
   const scoredFraction = 1 - (score.backlog_share || 0);
-
-  useEffect(() => {
-    if (!meterRef.current) return;
-    renderMeters(
-      meterRef.current,
-      [
-        {
-          label: "scored",
-          value: scoredFraction,
-          display: `${(scoredFraction * 100).toFixed(0)}%`,
-        },
-      ],
-      { max: 1 },
-    );
-  }, [scoredFraction]);
-
-  const detail = [`${score.backlog.toLocaleString()} unscored`];
-  detail.push(
-    score.last_verdict
-      ? `last verdict ${ago(score.hours_since)}`
-      : "no verdicts yet",
-  );
-  if (active)
-    detail.push(`${score.recent_verdicts_5min} scored in the last 5 minutes`);
+  const detail = [
+    `${(scoredFraction * 100).toFixed(0)}% scored`,
+    `${score.backlog.toLocaleString()} unscored`,
+    score.last_verdict ? ago(score.hours_since) : "Never",
+  ];
 
   return (
     <div class="pipeline-stage mt-4">
@@ -113,13 +63,12 @@ function ScoreStage({ score }: { score: PipelineScoreStatus }) {
         <span class="pipeline-stage-title">Scoring</span>
         <span class="pipeline-stage-status">{active ? "scoring" : "idle"}</span>
       </div>
-      <div ref={meterRef}></div>
       <p class="card-note">{detail.join(" · ")}</p>
     </div>
   );
 }
 
-export function PipelineStatus() {
+export function PipelineStatus({ compact = false }: { compact?: boolean }) {
   useEffect(() => {
     if (!livePipelineStatus.value) {
       getJSON<PipelineStatusResponse>("/api/pipeline/status")
@@ -133,11 +82,12 @@ export function PipelineStatus() {
   }, []);
 
   return (
-    <div class="glass-card mt-6">
-      <h3>
-        <i class="fa-solid fa-gauge-high"></i> Pipeline Progress
-      </h3>
-      <p>Live status for background scraping and scoring pipelines.</p>
+    <div class={compact ? "pipeline-status-compact" : "glass-card mt-6"}>
+      {!compact && (
+        <h3>
+          <i class="fa-solid fa-gauge-high"></i> Pipeline
+        </h3>
+      )}
       {livePipelineStatus.value && (
         <>
           <ScrapeStage scrape={livePipelineStatus.value.scrape} />

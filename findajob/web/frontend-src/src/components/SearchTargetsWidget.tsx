@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "preact/hooks";
+import type { ComponentChildren } from "preact";
 import { useStoredPreference } from "../lib/preferences";
 import { deleteJSON, getJSON, guard, postJSON, putJSON, reportError } from "../api/client";
 import type {
@@ -281,14 +282,16 @@ const LOCATION_PRESETS: PresetItem[] = [
 interface SearchTargetsWidgetProps {
   initialExpanded?: boolean;
   onTargetsChanged?: () => void;
+  operations?: ComponentChildren;
 }
 
 export function SearchTargetsWidget({
   initialExpanded = false,
   onTargetsChanged,
+  operations,
 }: SearchTargetsWidgetProps) {
   const [expanded, setExpanded] = useState(initialExpanded);
-  const [activeTab, setActiveTab] = useState<"queries" | "locations" | "sources" | "capacity">("queries");
+  const [activeTab, setActiveTab] = useState<"queries" | "locations" | "sources" | "capacity" | "operations">("queries");
 
   const [queries, setQueries] = useState<TargetQuery[]>([]);
   const [locations, setLocations] = useState<TargetLocation[]>([]);
@@ -595,7 +598,7 @@ export function SearchTargetsWidget({
       <div class="panel-section-header search-targets-header">
         <div class="search-targets-title-area">
           <span class="matrix-title">
-            <i class="fa-solid fa-satellite-dish text-green"></i> SEARCH MATRIX & TARGETS
+            <i class="fa-solid fa-satellite-dish text-green"></i> SEARCH SETTINGS
           </span>
           <div class="matrix-chips-summary">
             <span
@@ -698,6 +701,15 @@ export function SearchTargetsWidget({
               >
                 <i class="fa-solid fa-gauge-high"></i> Matrix Capacity & Sweep Health
               </button>
+              {operations && (
+                <button
+                  type="button"
+                  class={`action-pill ${activeTab === "operations" ? "active" : ""}`}
+                  onClick={() => setActiveTab("operations")}
+                >
+                  <i class="fa-solid fa-rotate-right"></i> Status & One-off
+                </button>
+              )}
             </div>
           </div>
 
@@ -1091,6 +1103,8 @@ export function SearchTargetsWidget({
 
                 </div>
               )}
+
+              {activeTab === "operations" && operations}
             </>
           )}
         </div>

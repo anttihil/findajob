@@ -321,22 +321,13 @@ export function DashboardPage() {
 
       <SearchTargetsWidget
         onTargetsChanged={() => setRefreshKey((k) => k + 1)}
+        operations={
+          <div class="dashboard-operations-body">
+            <PipelineStatus compact />
+            <SyncTrigger compact />
+          </div>
+        }
       />
-
-      <details class="dashboard-operations">
-        <summary>
-          <span>
-            <i class="fa-solid fa-rotate-right"></i> Sync & pipeline status
-          </span>
-          <span class="dashboard-operations-hint">
-            Run a scrape or check background progress
-          </span>
-        </summary>
-        <div class="dashboard-operations-body">
-          <SyncTrigger />
-          <PipelineStatus />
-        </div>
-      </details>
 
       <div class="feed-layout mt-4">
         <div class="feed-main">
