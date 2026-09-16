@@ -1106,11 +1106,15 @@ def get_scheduler_status():
 
 
 @app.get("/api/scheduler/preferences")
-def get_scheduler_preferences_endpoint(db: Database = Depends(get_db)):
+def get_scheduler_preferences_endpoint():
     """The user-owned automatic-run preference and current in-process status."""
     from findajob.core.scheduler import scheduler
 
-    return {**get_scheduler_preferences(db.conn), "status": scheduler.get_status()}
+    # This synchronous handler calls get_db itself, so the thread-local connection is
+    # created or reused in the same worker thread that uses it.
+    db = get_db()
+    preferences = get_scheduler_preferences(db.conn)
+    return {**preferences, "status": scheduler.get_status()}
 
 
 @app.put("/api/scheduler/preferences")

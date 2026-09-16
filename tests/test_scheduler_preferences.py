@@ -28,6 +28,10 @@ def test_scheduler_preference_defaults_to_disabled_and_persists() -> None:
 
 def test_scheduler_preference_api_persists_and_applies_change() -> None:
     client = TestClient(app)
+    current = client.get("/api/scheduler/preferences")
+    assert current.status_code == 200
+    assert isinstance(current.json()["enabled"], bool)
+
     with (
         patch.object(scheduler, "start", new_callable=AsyncMock) as start,
         patch.object(scheduler, "stop", new_callable=AsyncMock) as stop,
