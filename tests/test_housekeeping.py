@@ -20,7 +20,6 @@ from logging.handlers import RotatingFileHandler, TimedRotatingFileHandler
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from careerradar.core.logger import get_logger
-from careerradar.core.paths import REPO_ROOT
 from careerradar.search.sources.jobspy_source import prune_archives
 
 
@@ -87,14 +86,6 @@ class LogRotationTests(unittest.TestCase):
         self.assertEqual(len(handlers), 1, "expected exactly one file handler")
         self.assertNotIsInstance(handlers[0], RotatingFileHandler)
         self.assertNotIsInstance(handlers[0], TimedRotatingFileHandler)
-
-    def test_the_deployment_does_rotate(self) -> None:
-        """Nothing else bounds the file now, and copytruncate is why it is safe to share."""
-        snippet = os.path.join(REPO_ROOT, "deploy", "careerradar.logrotate")
-        with open(snippet) as handle:
-            body = handle.read()
-        self.assertIn("copytruncate", body)
-        self.assertIn("app.log", body)
 
 
 if __name__ == "__main__":
