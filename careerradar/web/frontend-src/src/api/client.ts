@@ -27,7 +27,10 @@ async function bodyText(res: Response): Promise<string> {
 }
 
 export async function getJSON<T>(url: string): Promise<T> {
-  const res = await fetch(url);
+  // Dashboard counters are updated by a separate scraper/scoring process. Explicitly
+  // bypass the browser (and any service-worker) cache so a fresh navigation cannot keep
+  // rendering an old `/api/stats` snapshot.
+  const res = await fetch(url, { cache: "no-store" });
   if (!res.ok) throw new ApiError(url, res.status, await bodyText(res));
   return res.json() as Promise<T>;
 }

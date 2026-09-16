@@ -1157,7 +1157,10 @@ def pipeline_status():
 # Vite's production build gives every asset a content hash in its filename, so a changed
 # file is a changed URL and caching the response body forever is always safe -- no mtime
 # stamping or revalidation trick needed, unlike the old hand-rolled scheme this replaced.
-CACHE_HEADERS = {"Cache-Control": "no-cache"}
+# API responses include database-backed counters that can change outside the web process.
+# `no-cache` still allows an intermediary to retain and reuse a response after a
+# revalidation, which made the dashboard badges appear stuck. Do not store API snapshots.
+CACHE_HEADERS = {"Cache-Control": "no-store"}
 IMMUTABLE_CACHE_HEADERS = {"Cache-Control": "public, max-age=31536000, immutable"}
 
 
