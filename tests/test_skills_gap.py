@@ -47,13 +47,13 @@ class GapAnalysisLabellingTests(unittest.TestCase):
         adapter = ProfileAdapter(profile)
         mock_db = mock.Mock()
         mock_db.conn = mock.Mock()
-        mock_roles = mock.Mock()
-        mock_roles.hash = "roles123"
+        mock_targets = mock.Mock()
+        mock_targets.fingerprint = "roles123"
 
         gap = GapAnalysis(
             db=mock_db,
             config={},
-            roles=mock_roles,
+            targets=mock_targets,
             profile=adapter,
         )
 

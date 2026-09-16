@@ -54,7 +54,7 @@ def _report(**overrides: Any) -> dict[str, Any]:
             }
         ],
         "quarantined": [],
-        "taxonomy": {"roles_hash": "def"},
+        "search_targets": {"search_targets_hash": "def"},
     }
     report.update(overrides)
     return report

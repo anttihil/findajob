@@ -168,9 +168,7 @@ def _reseed_cells() -> None:
     this on every mutation; the CLI has to do it too, or the next run scrapes the old plan.
     """
     from careerradar.search.seed import seed_cells
-    from careerradar.taxonomy import roles as roles_mod
 
-    roles_mod._CACHE.clear()
     seed_cells(prune=True)
 
 
@@ -179,8 +177,8 @@ def _cmd_target(args: argparse.Namespace) -> int:
 
     from careerradar.core.config import load_config
     from careerradar.core.paths import DB_PATH
+    from careerradar.search import targets as target_repo
     from careerradar.search.capacity import calculate_capacity
-    from careerradar.taxonomy import repository as target_repo
 
     sub = args.subcommand
     conn = sqlite3.connect(DB_PATH)

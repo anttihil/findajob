@@ -38,18 +38,18 @@ from careerradar.market.analytics import MarketAnalytics
 from careerradar.market.gap_analysis import GapAnalysis
 from careerradar.profile.adapter import load_profile
 from careerradar.search.scheduler import scrape_tasks
-from careerradar.taxonomy.roles import load_roles
+from careerradar.search.targets import load_targets
 from careerradar.web import rendering
 from careerradar.web.live import live_hub
 
 if TYPE_CHECKING:
     from careerradar.profile.adapter import ProfileAdapter
-    from careerradar.taxonomy.roles import RoleTaxonomy
+    from careerradar.search.targets import SearchTargets
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    # Auto-seed cells on startup to sync taxonomy changes without manual commands
+    # Auto-seed cells on startup to sync target changes without manual commands
     from careerradar.search.seed import seed_cells
 
     try:
@@ -187,15 +187,15 @@ def get_db() -> "_PooledDatabase":
 
 def analytics_context(
     db: Database,  # noqa: ARG001 - endpoint dependency signature
-) -> tuple[dict[str, Any], "RoleTaxonomy", "ProfileAdapter"]:
+) -> tuple[dict[str, Any], "SearchTargets", "ProfileAdapter"]:
     """Shared objects for the analytics endpoints."""
     config = load_config()
-    roles = load_roles()
+    targets = load_targets()
     profile = load_profile()
     # `required` defaults to True, so load_profile raises NoActiveProfile rather than
     # returning None -- this is here only to narrow the type for callers.
     assert profile is not None
-    return config, roles, profile
+    return config, targets, profile
 
 
 # --- Request/Response Models -----------------------------------------------------------
@@ -406,10 +406,10 @@ def market_query_yield(
     """
     db = get_db()
     try:
-        config, roles, profile = analytics_context(db)
-        if location and location not in roles.locations:
+        config, targets, profile = analytics_context(db)
+        if location and location not in targets.locations:
             raise HTTPException(status_code=400, detail=f"Unknown location: {location}")
-        return MarketAnalytics(db, config, roles, profile).query_yield(
+        return MarketAnalytics(db, config, targets, profile).query_yield(
             window_days=window_days,
             source=source,
             location_id=location,
@@ -422,17 +422,17 @@ def market_query_yield(
 
 @app.get("/api/market/locations")
 def market_locations():
-    roles = load_roles()
+    targets = load_targets()
     return {
-        "locations": [location.to_dict() for location in roles.locations.values()],
-        "queries": sorted(roles.queries),
+        "locations": [location.to_dict() for location in targets.locations.values()],
+        "queries": sorted(targets.queries),
     }
 
 
 @app.get("/api/targets/capacity")
 def get_target_capacity():
+    from careerradar.search import targets as target_repo
     from careerradar.search.capacity import calculate_capacity
-    from careerradar.taxonomy import repository as target_repo
 
     db = get_db()
     try:
@@ -444,21 +444,18 @@ def get_target_capacity():
         db.close()
 
 
-def _sync_taxonomy_cells() -> None:
-    from careerradar.taxonomy import roles as roles_mod
-
-    roles_mod._CACHE.clear()
+def _sync_target_cells() -> None:
     from careerradar.search.seed import seed_cells
 
     try:
         seed_cells(prune=True)
     except Exception as e:  # noqa: BLE001
-        logger.warning("Cell re-seeding failed after taxonomy update: %s", e)
+        logger.warning("Cell re-seeding failed after target update: %s", e)
 
 
 @app.get("/api/targets")
 def list_targets():
-    from careerradar.taxonomy import repository as target_repo
+    from careerradar.search import targets as target_repo
 
     db = get_db()
     try:
@@ -472,7 +469,7 @@ def list_targets():
 
 @app.post("/api/targets/queries")
 def create_target_query(payload: TargetQueryCreate):
-    from careerradar.taxonomy import repository as target_repo
+    from careerradar.search import targets as target_repo
 
     term = payload.query.strip()
     if not term:
@@ -481,7 +478,7 @@ def create_target_query(payload: TargetQueryCreate):
     db = get_db()
     try:
         query_id = target_repo.add_query(db.conn, query_term=term, enabled=payload.enabled)
-        _sync_taxonomy_cells()
+        _sync_target_cells()
         return {"success": True, "id": query_id}
     finally:
         db.close()
@@ -489,7 +486,7 @@ def create_target_query(payload: TargetQueryCreate):
 
 @app.put("/api/targets/queries/{query_id}")
 def update_target_query_endpoint(query_id: int, payload: TargetQueryUpdate):
-    from careerradar.taxonomy import repository as target_repo
+    from careerradar.search import targets as target_repo
 
     db = get_db()
     try:
@@ -499,7 +496,7 @@ def update_target_query_endpoint(query_id: int, payload: TargetQueryUpdate):
             query_term=payload.query.strip() if payload.query is not None else None,
             enabled=payload.enabled,
         )
-        _sync_taxonomy_cells()
+        _sync_target_cells()
         return {"success": True}
     finally:
         db.close()
@@ -507,12 +504,12 @@ def update_target_query_endpoint(query_id: int, payload: TargetQueryUpdate):
 
 @app.put("/api/targets/queries/{query_id}/toggle")
 def toggle_target_query_endpoint(query_id: int, payload: TargetToggle):
-    from careerradar.taxonomy import repository as target_repo
+    from careerradar.search import targets as target_repo
 
     db = get_db()
     try:
         target_repo.toggle_query(db.conn, query_id=query_id, enabled=payload.enabled)
-        _sync_taxonomy_cells()
+        _sync_target_cells()
         return {"success": True, "enabled": payload.enabled}
     finally:
         db.close()
@@ -520,12 +517,12 @@ def toggle_target_query_endpoint(query_id: int, payload: TargetToggle):
 
 @app.delete("/api/targets/queries/{query_id}")
 def delete_target_query_endpoint(query_id: int):
-    from careerradar.taxonomy import repository as target_repo
+    from careerradar.search import targets as target_repo
 
     db = get_db()
     try:
         target_repo.delete_query(db.conn, query_id=query_id)
-        _sync_taxonomy_cells()
+        _sync_target_cells()
         return {"success": True}
     finally:
         db.close()
@@ -533,7 +530,7 @@ def delete_target_query_endpoint(query_id: int):
 
 @app.post("/api/targets/locations")
 def create_target_location(payload: TargetLocationPayload):
-    from careerradar.taxonomy import repository as target_repo
+    from careerradar.search import targets as target_repo
 
     loc_id = payload.id.strip().lower().replace(" ", "_")
     if not loc_id:
@@ -556,7 +553,7 @@ def create_target_location(payload: TargetLocationPayload):
             distance=payload.distance,
             enabled=payload.enabled,
         )
-        _sync_taxonomy_cells()
+        _sync_target_cells()
         return {"success": True, "id": loc_id}
     finally:
         db.close()
@@ -564,7 +561,7 @@ def create_target_location(payload: TargetLocationPayload):
 
 @app.put("/api/targets/locations/{loc_id}")
 def update_target_location_endpoint(loc_id: str, payload: TargetLocationUpdate):
-    from careerradar.taxonomy import repository as target_repo
+    from careerradar.search import targets as target_repo
 
     db = get_db()
     try:
@@ -596,7 +593,7 @@ def update_target_location_endpoint(loc_id: str, payload: TargetLocationUpdate):
             distance=payload.distance if payload.distance is not None else loc["distance"],
             enabled=payload.enabled if payload.enabled is not None else bool(loc["enabled"]),
         )
-        _sync_taxonomy_cells()
+        _sync_target_cells()
         return {"success": True}
     finally:
         db.close()
@@ -604,12 +601,12 @@ def update_target_location_endpoint(loc_id: str, payload: TargetLocationUpdate):
 
 @app.put("/api/targets/locations/{loc_id}/toggle")
 def toggle_target_location_endpoint(loc_id: str, payload: TargetToggle):
-    from careerradar.taxonomy import repository as target_repo
+    from careerradar.search import targets as target_repo
 
     db = get_db()
     try:
         target_repo.toggle_location(db.conn, loc_id=loc_id, enabled=payload.enabled)
-        _sync_taxonomy_cells()
+        _sync_target_cells()
         return {"success": True, "enabled": payload.enabled}
     finally:
         db.close()
@@ -617,12 +614,12 @@ def toggle_target_location_endpoint(loc_id: str, payload: TargetToggle):
 
 @app.delete("/api/targets/locations/{loc_id}")
 def delete_target_location_endpoint(loc_id: str):
-    from careerradar.taxonomy import repository as target_repo
+    from careerradar.search import targets as target_repo
 
     db = get_db()
     try:
         target_repo.delete_location(db.conn, loc_id=loc_id)
-        _sync_taxonomy_cells()
+        _sync_target_cells()
         return {"success": True}
     finally:
         db.close()
@@ -630,10 +627,10 @@ def delete_target_location_endpoint(loc_id: str):
 
 @app.post("/api/targets/sync-cells")
 def sync_targets_cells_endpoint():
+    from careerradar.search import targets as target_repo
     from careerradar.search.capacity import calculate_capacity
-    from careerradar.taxonomy import repository as target_repo
 
-    _sync_taxonomy_cells()
+    _sync_target_cells()
     db = get_db()
     try:
         config, _, _ = analytics_context(db)
@@ -654,8 +651,8 @@ def market_coverage():
     """Per-cell scrape health. This is where a silently degrading scraper becomes visible."""
     db = get_db()
     try:
-        config, roles, profile = analytics_context(db)
-        return {"cells": MarketAnalytics(db, config, roles, profile).coverage_report()}
+        config, targets, profile = analytics_context(db)
+        return {"cells": MarketAnalytics(db, config, targets, profile).coverage_report()}
     finally:
         db.close()
 
@@ -671,8 +668,8 @@ def skills_gap(
 ):
     db = get_db()
     try:
-        config, roles, profile = analytics_context(db)
-        return GapAnalysis(db, config, roles, profile).analyse(
+        config, targets, profile = analytics_context(db)
+        return GapAnalysis(db, config, targets, profile).analyse(
             window_days=window_days,
             location_id=location,
             query=query,
@@ -689,11 +686,11 @@ def skill_detail(
 
     db = get_db()
     try:
-        config, roles, profile = analytics_context(db)
+        config, targets, profile = analytics_context(db)
         is_known = profile.has(skill) or market_repo.skill_exists(db.conn, skill)
         if not is_known:
             raise HTTPException(status_code=404, detail=f"Unknown skill: {skill}")
-        return GapAnalysis(db, config, roles, profile).skill_detail(
+        return GapAnalysis(db, config, targets, profile).skill_detail(
             skill, window_days=window_days, limit=limit
         )
     finally:
@@ -1261,7 +1258,7 @@ def filter_query(
 @app.get("/api/meta")
 def get_meta():
     return {
-        "countries": rendering.country_choices(load_roles()),
+        "countries": rendering.country_choices(load_targets()),
         "reason_types": rendering.REASON_TYPE_CHOICES,
     }
 

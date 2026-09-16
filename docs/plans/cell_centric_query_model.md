@@ -18,7 +18,7 @@ Three consequences:
    to `scrape_cells` on `(role_key = sc.role_family AND query = sc.query)` -- two text
    columns -- purely to get a `target_query_id`. Any query edit breaks it silently.
 
-2. **Dead mappings from the removed regex NLP** (commit `42179cd`). `RoleTaxonomy.classify`,
+2. **Dead mappings from the removed regex NLP** (commit `42179cd`). The former classifier,
    `classify_all`, `classify_access`, `is_excluded` and `seniority` have zero callers outside
    `taxonomy/roles.py`. `target_roles.aliases_json` is still written by `cli.py:183` and
    `web/app.py:702` but read by nothing. `runner.py:351` sets

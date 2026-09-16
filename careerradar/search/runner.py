@@ -30,13 +30,13 @@ from careerradar.search.scheduler import (
     overdue_cells,
     select_cells,
 )
-from careerradar.taxonomy.roles import load_roles
+from careerradar.search.targets import load_targets
 
 if TYPE_CHECKING:
     from careerradar.search.scheduler import ScrapeTask
     from careerradar.search.sources.base import BaseJobSource
     from careerradar.search.sources.jobspy_source import JobSpySource
-    from careerradar.taxonomy.roles import RoleTaxonomy
+    from careerradar.search.targets import SearchTargets
 
 logger = get_logger()
 
@@ -46,14 +46,14 @@ logger = get_logger()
 LOST_CELLS_PARTIAL = 0.2
 
 
-def plan_hash(roles: "RoleTaxonomy | None", config: dict[str, Any]) -> str:
+def plan_hash(targets: "SearchTargets | None", config: dict[str, Any]) -> str:
     """Identify the scrape plan, so trend queries can refuse to cross plan changes."""
     import hashlib
 
     scraper = config.get("scraper", {})
     payload = "|".join(
         [
-            roles.hash if roles else "default",
+            targets.fingerprint if targets else "default",
             ",".join(sorted(k for k, v in (scraper.get("sources") or {}).items() if v)),
             str(scraper.get("cadence_hours", 24)),
             str(sorted((scraper.get("budgets") or {}).keys())),
@@ -74,7 +74,7 @@ def run_sync(
     logger.info("=" * 60)
 
     config = load_config()
-    roles = load_roles()
+    targets = load_targets()
 
     # Proxies raise the LinkedIn budget substantially, so they are resolved before the
     # scheduler sees the config.
@@ -83,8 +83,8 @@ def run_sync(
     scraper_config["proxies_list"] = proxies
     rotating = bool(proxies) and is_rotating(config)
 
-    if roles:
-        problems = roles.validate()
+    if targets:
+        problems = targets.validate()
         if problems:
             logger.error("search targets are invalid; aborting:")
             for problem in problems:
@@ -123,7 +123,7 @@ def run_sync(
         if not dry_run:
             run_id = db.start_sync_run(
                 mode,
-                plan_hash=plan_hash(roles, config),
+                plan_hash=plan_hash(targets, config),
             )
 
         enabled = sources or [

@@ -6,7 +6,7 @@ already have, and which missing ones are worth acquiring next.
 `blocking_gap` is the centrepiece and the reason this is more useful than a popularity
 chart: it measures how often a skill the user lacks appears in postings they *otherwise*
 match well. Kubernetes being popular is not actionable; Kubernetes being the one thing
-standing between the user and 40% of the roles they'd otherwise be a strong fit for is.
+standing between the user and 40% of the targets they'd otherwise be a strong fit for is.
 
 Estimates are plain unweighted counts over the eligible corpus. Every suppressed figure
 carries a reason rather than silently vanishing.
@@ -28,7 +28,7 @@ from careerradar.market.analytics import (
 if TYPE_CHECKING:
     from careerradar.core.database import Database
     from careerradar.profile.adapter import ProfileAdapter
-    from careerradar.taxonomy.roles import RoleTaxonomy
+    from careerradar.search.targets import SearchTargets
 
 # A posting the user matches this well is "otherwise a good fit", so a missing skill in it
 # is genuinely blocking rather than incidental.
@@ -70,13 +70,13 @@ class GapAnalysis:
         self,
         db: "Database",
         config: dict[str, Any] | None,
-        roles: "RoleTaxonomy",
+        targets: "SearchTargets",
         profile: "ProfileAdapter | None" = None,
     ) -> None:
         self.db = db
         self.config = config or {}
         self.analytics_config = self.config.get("analytics", {}) or {}
-        self.roles = roles
+        self.targets = targets
         self.profile = profile or self._empty_profile()
 
     def _empty_profile(self) -> Any:
@@ -159,7 +159,7 @@ class GapAnalysis:
                     f"coverage >= {GOOD_FIT_COVERAGE} over >= "
                     f"{GOOD_FIT_MIN_REQUIREMENTS} recognised requirements"
                 ),
-                "roles_hash": self.roles.hash,
+                "search_targets_hash": self.targets.fingerprint,
                 "window_below_minimum": window_days
                 < self.analytics_config.get("min_window_days", 30),
                 # Counts reflect what the rotation scraped, not the market. A cell that

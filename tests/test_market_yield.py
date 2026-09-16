@@ -7,7 +7,7 @@ from fastapi.testclient import TestClient
 from careerradar.core.database import Database
 from careerradar.core.migrations import migrate
 from careerradar.market.analytics import MarketAnalytics
-from careerradar.taxonomy.roles import RoleTaxonomy
+from careerradar.search.targets import SearchTargets
 from careerradar.web.app import app
 
 
@@ -173,8 +173,8 @@ def test_market_analytics_query_yield_unit(tmp_path: Path) -> None:
     )
     db.conn.commit()
 
-    roles = RoleTaxonomy()
-    analytics = MarketAnalytics(db, config={}, roles=roles)
+    targets = SearchTargets([], {})
+    analytics = MarketAnalytics(db, config={}, targets=targets)
 
     result = analytics.query_yield(window_days=30)
     summary = result["summary"]

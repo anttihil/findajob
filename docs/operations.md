@@ -16,10 +16,9 @@ ssh <prod-host> 'cd <install-dir> && .venv/bin/careerradar status'
 It answers what nothing else does: how long since each stage last did anything, how big the
 scoring backlog is and how old its oldest posting is, whether verdict coverage is even
 across sources, whether cells are being revisited inside their tier's cadence, what is
-quarantined after repeated failures, and whether stored postings still agree with the
-taxonomy on disk.
+quarantined after repeated failures, and the active search-target fingerprint.
 
-**Read the coverage section first.** Every hit rate in this project — the target roles table
+**Read the coverage section first.** Every hit rate in this project — the target-query table
 included — is a ratio over *scored* postings. If one source is scored at
 67% and another at 27%, those ratios describe the scored subset rather than the market. The
 report prints a warning when the spread crosses 20 points.
@@ -57,7 +56,7 @@ ever bind a public interface, that gate is not sufficient on its own.**
 ## 3. A read-only snapshot, for analysis
 
 Anything heavier than a status check — corpus statistics, hit rates by title shape, testing
-a taxonomy edit against real postings — wants a local copy and ad-hoc SQL, not an endpoint.
+a search-target edit against real postings — wants a local copy and ad-hoc SQL, not an endpoint.
 
 ```bash
 # on the dev machine
@@ -150,14 +149,13 @@ sudo systemctl restart careerradar      # restarts dashboard and any enabled sch
 uv run careerradar status               # confirm the pipeline still reads healthy
 ```
 
-## Deploying a taxonomy change
+## Deploying a search-target change
  
 Skills are open-vocabulary and derived dynamically from the candidate's active profile and target domain.
 
-Target roles, queries, and locations are managed directly in SQLite via the web dashboard or CLI:
+Search queries and locations are managed directly in SQLite via the web dashboard or CLI:
  
 ```bash
-careerradar target add role "AI Engineer" --pattern "ai engineer|machine learning engineer"
 careerradar target add query "AI Engineer" "AI Engineer"
 careerradar search seed-cells --prune
 ```

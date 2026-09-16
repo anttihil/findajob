@@ -15,10 +15,10 @@ sqlite prompt:
     is verdict coverage even across sources, or are the analytics reading one board
     are cells being revisited inside their tier's cadence
     is anything quarantined after repeated failures
-    do the stored postings agree with the taxonomy on disk
+    do the stored postings agree with the configured search targets
 
 VERDICT COVERAGE IS THE ONE TO READ FIRST. Every hit-rate figure in the project -- the target
-roles table included -- is a ratio over SCORED postings. When one source is scored
+search-target table included -- is a ratio over SCORED postings. When one source is scored
 at 67% and another at 27%, those ratios describe the scored subset and not the market, and
 no amount of care downstream repairs it.
 """
@@ -114,8 +114,8 @@ def render(report: dict[str, Any]) -> str:
             out.append(f"      {(row['error'] or '')[:96]}")
         out.append("  retry with:  careerradar score retry")
 
-    out += ["", "TAXONOMY"]
-    out.append(f"  roles {report['taxonomy']['roles_hash']}")
+    out += ["", "SEARCH TARGETS"]
+    out.append(f"  fingerprint {report['search_targets']['search_targets_hash']}")
     return "\n".join(out)
 
 

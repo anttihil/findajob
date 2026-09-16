@@ -58,14 +58,14 @@ def _run(outcomes: list[str]) -> tuple[dict[str, Any], list[str], list[str]]:
     )
     db = mock.MagicMock()
     db.get_cells.return_value = [cell]
-    roles = mock.MagicMock()
-    roles.validate.return_value = []
-    roles.locations = {}
+    targets = mock.MagicMock()
+    targets.validate.return_value = []
+    targets.locations = {}
 
     with (
         mock.patch.object(runner, "Database", return_value=db),
         mock.patch.object(runner, "load_config", return_value=CONFIG),
-        mock.patch.object(runner, "load_roles", return_value=roles),
+        mock.patch.object(runner, "load_targets", return_value=targets),
         mock.patch.object(
             runner, "select_cells", return_value=[_task(i) for i in range(len(outcomes))]
         ),

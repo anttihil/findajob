@@ -14,7 +14,7 @@ from careerradar.market import repository as market_repo
 if TYPE_CHECKING:
     from careerradar.core.database import Database
     from careerradar.profile.adapter import ProfileAdapter
-    from careerradar.taxonomy.roles import RoleTaxonomy
+    from careerradar.search.targets import SearchTargets
 
 SUPPRESS_COVERAGE_GAP = "coverage_gap"
 SUPPRESS_TOO_FEW_OBSERVATIONS = "too_few_observations"
@@ -53,13 +53,13 @@ class MarketAnalytics:
         self,
         db: "Database",
         config: dict[str, Any] | None,
-        roles: "RoleTaxonomy",
+        targets: "SearchTargets",
         profile: "ProfileAdapter | None" = None,
     ) -> None:
         self.db = db
         self.config = config or {}
         self.analytics_config = self.config.get("analytics", {}) or {}
-        self.roles = roles
+        self.targets = targets
         self.profile = profile
 
     def _window(self, window_days: int) -> tuple[datetime, datetime]:
@@ -285,7 +285,7 @@ class MarketAnalytics:
             lc_tot = l_rec["scored_postings"]
             lc_fit = l_rec["strong_fits"]
             l_fr = (lc_fit / lc_tot * 100) if lc_tot > 0 else 0.0
-            loc_obj = getattr(self.roles, "locations", {}).get(l_rec["location_id"])
+            loc_obj = getattr(self.targets, "locations", {}).get(l_rec["location_id"])
             loc_label = loc_obj.label if loc_obj else l_rec["location_id"]
             by_location.append(
                 {
@@ -336,7 +336,7 @@ class MarketAnalytics:
                 "generated_at": datetime.now(timezone.utc).isoformat(),
                 "window_days": window_days,
                 "exclude_agencies": self.analytics_config.get("exclude_agencies", True),
-                "roles_hash": self.roles.hash,
+                "search_targets_hash": self.targets.fingerprint,
             },
         }
 
@@ -350,7 +350,7 @@ class MarketAnalytics:
             "total_rows": total,
             "suppressed_rows": total - published,
             "exclude_agencies": self.analytics_config.get("exclude_agencies", True),
-            "roles_hash": self.roles.hash,
+            "search_targets_hash": self.targets.fingerprint,
         }
 
 

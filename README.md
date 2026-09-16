@@ -1,6 +1,6 @@
 # CareerRadar
 
-Scrapes job boards by role family and location, then judges every posting against an
+Scrapes job boards by configured query and location, then judges every posting against an
 LLM-built profile of you.
 
 Four stages, each on its own timer, handing off through one column:
@@ -16,7 +16,7 @@ the work of another: a rate-limited board cannot stall scoring of the backlog, a
 expired API key cannot lose a scrape.
 
 Underneath, `market/` still answers the questions the earlier version was built for — which
-role families actually have hiring supply, which of your skills are in demand, and which
+queries and locations actually have hiring supply, which of your skills are in demand, and which
 missing skill most often blocks a posting you otherwise match.
 
 ## Setup
@@ -234,7 +234,10 @@ and every coverage figure downstream inherits the shortfall.
 
 ## How the search space is defined
 
-Target roles, query terms, and search locations are stored in SQLite (`target_roles`, `target_queries`, `target_locations` tables) and managed directly via the Web Dashboard or CLI (`careerradar target`). The search matrix holds the cross-product of enabled queries across enabled locations. The scheduler rotates through these cells as a request-budget control, with cycle times tracking within the analysis window.
+Search queries and locations are stored in SQLite (`search_queries`, `search_locations`) and
+managed directly via the Web Dashboard or CLI (`careerradar target`). The search matrix holds
+the cross-product of enabled queries across enabled locations. The scheduler rotates through
+these cells as a request-budget control, with cycle times tracking within the analysis window.
 
 Skills are open-vocabulary, derived dynamically from the candidate's active profile and
 target domain, allowing CareerRadar to generalize cleanly across any discipline.
@@ -363,9 +366,8 @@ loopback TCP port and have Serve proxy to a Unix socket (`tailscale serve unix:.
 ```
 careerradar/
 ├── core/       config, db, migrations, logging, paths, LLM construction + cost
-├── taxonomy/   role families and SQLite target taxonomy -- the shared vocabulary
+├── search/     targets, scheduler, sources, circuit breaker, proxies, normalizer
 ├── profile/    resume parsing, copilot refinement, canonicalization, versioned store
-├── search/     scheduler, sources, circuit breaker, proxies, normalizer
 ├── scoring/    prompts, per-posting graph, queue worker
 ├── market/     supply analytics, skill-gap analysis
 ├── web/        FastAPI app, owner gate, JSON API, SPA shell

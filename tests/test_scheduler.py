@@ -4,7 +4,7 @@ Two invariants get simulation tests rather than single-call assertions, because 
 silently in production and would be invisible in a spot check:
 
   Eventual coverage -- a rotating scheduler that permanently starves some cells produces a
-  dashboard where "no Kubernetes roles in Helsinki" and "my Helsinki query broke" look
+  dashboard where "no Kubernetes targets in Helsinki" and "my Helsinki query broke" look
   identical.
 
   hours_old >= 1.5x the revisit gap -- if violated, postings existed inside the unobserved
@@ -38,11 +38,11 @@ from careerradar.search.scheduler import (
     overdue_cells,
     select_cells,
 )
-from careerradar.taxonomy.roles import RoleTaxonomy
+from careerradar.search.targets import SearchTargets
 
 NOW = datetime(2026, 7, 29, 12, 0, tzinfo=timezone.utc)
 
-SCHEDULER_TEST_TAXONOMY_SPEC = {
+SCHEDULER_TEST_TARGETS_SPEC = {
     "queries": [
         "AI Engineer",
         "Machine Learning Engineer",
@@ -150,11 +150,11 @@ CONFIG = {
 }
 
 
-def make_cells(source: str = "indeed", roles: RoleTaxonomy | None = None) -> list[CellState]:
+def make_cells(source: str = "indeed", targets: SearchTargets | None = None) -> list[CellState]:
     """Build the real cell matrix for one source."""
-    roles = roles or RoleTaxonomy(spec_dict=SCHEDULER_TEST_TAXONOMY_SPEC)
+    targets = targets or SearchTargets.from_spec(SCHEDULER_TEST_TARGETS_SPEC)
     cells: list[CellState] = []
-    for index, spec in enumerate(roles.cell_specs(sources=(source,)), start=1):
+    for index, spec in enumerate(targets.cell_specs(sources=(source,)), start=1):
         cells.append(
             CellState(
                 id=index,
@@ -198,7 +198,7 @@ class OrderingTests(unittest.TestCase):
     """
 
     def setUp(self) -> None:
-        self.roles = RoleTaxonomy(spec_dict=SCHEDULER_TEST_TAXONOMY_SPEC)
+        self.targets = SearchTargets.from_spec(SCHEDULER_TEST_TARGETS_SPEC)
 
     def test_the_more_stale_cell_is_scheduled_first(self) -> None:
         fresh = CellState(1, "indeed", "la", "q", last_scraped_at=NOW.isoformat())
@@ -252,7 +252,7 @@ class OrderingTests(unittest.TestCase):
 
     def test_a_cell_skipped_for_budget_leads_the_next_run(self) -> None:
         """The self-correcting property that makes a priority function unnecessary."""
-        cells = make_cells("indeed", self.roles)
+        cells = make_cells("indeed", self.targets)
         first = select_cells(cells, CONFIG, "indeed", NOW)
         picked = {t.cell_id for t in first}
         skipped = {c.id for c in cells if c.id not in picked}
@@ -313,23 +313,23 @@ class AdaptiveHoursOldTests(unittest.TestCase):
 
 class BudgetTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.roles = RoleTaxonomy(spec_dict=SCHEDULER_TEST_TAXONOMY_SPEC)
+        self.targets = SearchTargets.from_spec(SCHEDULER_TEST_TARGETS_SPEC)
 
     def test_respects_searches_per_run(self) -> None:
-        cells = make_cells("indeed", self.roles)
+        cells = make_cells("indeed", self.targets)
         tasks = select_cells(cells, CONFIG, "indeed", NOW)
         self.assertLessEqual(
             (tasks and len(tasks)) or 0, CONFIG["budgets"]["indeed"]["searches_per_run"]
         )
 
     def test_respects_request_unit_budget(self) -> None:
-        cells = make_cells("indeed", self.roles)
+        cells = make_cells("indeed", self.targets)
         tasks = select_cells(cells, CONFIG, "indeed", NOW)
         units = sum(t.est_request_units for t in tasks)
         self.assertLessEqual(units, CONFIG["budgets"]["indeed"]["request_units"])
 
     def test_respects_linkedin_page_ceiling(self) -> None:
-        cells = make_cells("linkedin", self.roles)
+        cells = make_cells("linkedin", self.targets)
         cfg = dict(CONFIG)
         cfg["budgets"] = dict(
             CONFIG["budgets"],
@@ -340,21 +340,21 @@ class BudgetTests(unittest.TestCase):
         self.assertLessEqual(pages, 10)
 
     def test_indeed_tasks_request_a_description_census(self) -> None:
-        cells = make_cells("indeed", self.roles)
+        cells = make_cells("indeed", self.targets)
         tasks = select_cells(cells, CONFIG, "indeed", NOW)
         for task in tasks:
             self.assertTrue(task.fetch_description)
             self.assertEqual(task.desc_selection, "census")
 
     def test_linkedin_without_proxies_fetches_no_descriptions(self) -> None:
-        cells = make_cells("linkedin", self.roles)
+        cells = make_cells("linkedin", self.targets)
         tasks = select_cells(cells, CONFIG, "linkedin", NOW)
         for task in tasks:
             self.assertFalse(task.fetch_description)
             self.assertEqual(task.desc_selection, "none")
 
     def test_proxies_turn_linkedin_into_a_description_census(self) -> None:
-        cells = make_cells("linkedin", self.roles)
+        cells = make_cells("linkedin", self.targets)
         cfg = dict(CONFIG)
         cfg["budgets"] = dict(
             CONFIG["budgets"],
@@ -377,14 +377,14 @@ class BudgetTests(unittest.TestCase):
         )
 
     def test_tasks_carry_location_and_country_from_the_query(self) -> None:
-        cells = make_cells("indeed", self.roles)
+        cells = make_cells("indeed", self.targets)
         tasks = select_cells(cells, CONFIG, "indeed", NOW)
         for task in tasks:
             self.assertTrue(task.location_label)
             self.assertTrue(task.country)
 
     def test_backfill_maximises_results_and_window(self) -> None:
-        cells = make_cells("indeed", self.roles)
+        cells = make_cells("indeed", self.targets)
         tasks = select_cells(cells, CONFIG, "indeed", NOW, backfill=True)
         for task in tasks:
             self.assertEqual(task.results_wanted, CONFIG["budgets"]["indeed"]["max_results_wanted"])
@@ -393,7 +393,7 @@ class BudgetTests(unittest.TestCase):
 
 class StalenessFloorTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.roles = RoleTaxonomy(spec_dict=SCHEDULER_TEST_TAXONOMY_SPEC)
+        self.targets = SearchTargets.from_spec(SCHEDULER_TEST_TARGETS_SPEC)
 
     def test_overdue_keys_on_success_not_attempt(self) -> None:
         """A cell that keeps failing must still read as overdue.
@@ -447,10 +447,10 @@ class LongStaleCellTests(unittest.TestCase):
     """Cells the old priority product could push to the back of the queue."""
 
     def setUp(self) -> None:
-        self.roles = RoleTaxonomy(spec_dict=SCHEDULER_TEST_TAXONOMY_SPEC)
+        self.targets = SearchTargets.from_spec(SCHEDULER_TEST_TARGETS_SPEC)
 
     def test_a_long_stale_cell_is_scheduled_first(self) -> None:
-        cells = make_cells("indeed", self.roles)
+        cells = make_cells("indeed", self.targets)
         for cell in cells:
             cell.last_scraped_at = NOW.isoformat()
             cell.last_success_at = NOW.isoformat()
@@ -462,7 +462,7 @@ class LongStaleCellTests(unittest.TestCase):
 
     def test_backoff_still_wins_over_staleness(self) -> None:
         """A blocked source must not be hammered just because its cells went stale."""
-        cells = make_cells("indeed", self.roles)
+        cells = make_cells("indeed", self.targets)
         for cell in cells:
             cell.last_scraped_at = NOW.isoformat()
         blocked = cells[-1]
@@ -477,7 +477,7 @@ class EventualCoverageSimulationTests(unittest.TestCase):
     """Simulate many runs and assert the rotation actually covers the matrix."""
 
     def setUp(self) -> None:
-        self.roles = RoleTaxonomy(spec_dict=SCHEDULER_TEST_TAXONOMY_SPEC)
+        self.targets = SearchTargets.from_spec(SCHEDULER_TEST_TARGETS_SPEC)
 
     def _simulate(
         self,
@@ -485,7 +485,7 @@ class EventualCoverageSimulationTests(unittest.TestCase):
         source: str = "indeed",
         runs_per_day: int = 2,
     ) -> tuple[dict[int, int], list[CellState]]:
-        cells = make_cells(source, self.roles)
+        cells = make_cells(source, self.targets)
         by_id = {c.id: c for c in cells}
         visits = {c.id: 0 for c in cells}
         clock = NOW
@@ -517,7 +517,7 @@ class EventualCoverageSimulationTests(unittest.TestCase):
 
     def test_full_matrix_cycle_completes_in_about_five_days(self) -> None:
         """The derived constraint behind analytics.min_window_days = 30."""
-        cells = make_cells("indeed", self.roles)
+        cells = make_cells("indeed", self.targets)
         by_id = {c.id: c for c in cells}
         seen = set()
         clock = NOW

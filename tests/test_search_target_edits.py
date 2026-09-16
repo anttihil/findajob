@@ -13,8 +13,7 @@ import pytest
 
 from careerradar.core.migrations import migrate
 from careerradar.search.repository import prune_cells, seed_cells
-from careerradar.taxonomy.repository import add_query, save_location, update_query
-from careerradar.taxonomy.roles import RoleTaxonomy
+from careerradar.search.targets import add_query, load_targets, save_location, update_query
 
 
 def _migrated() -> sqlite3.Connection:
@@ -25,7 +24,7 @@ def _migrated() -> sqlite3.Connection:
 
 
 def _seed(conn: sqlite3.Connection) -> None:
-    specs = RoleTaxonomy(conn=conn).cell_specs(sources=("indeed",))
+    specs = load_targets(conn=conn).cell_specs(sources=("indeed",))
     seed_cells(conn, specs)
     prune_cells(conn, specs)
 
@@ -88,7 +87,7 @@ def test_cli_target_edits_recompile_the_matrix(
     for module in (
         "careerradar.core.paths",
         "careerradar.core.database",
-        "careerradar.taxonomy.roles",
+        "careerradar.search.targets",
     ):
         monkeypatch.setattr(f"{module}.DB_PATH", db_path)
 

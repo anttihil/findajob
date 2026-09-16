@@ -4,7 +4,8 @@ The dashboard's rendering -- URL-building, HTML escaping, markup -- moved to the
 (`careerradar/web/frontend-src/`) along with the templates it used to feed. What's left here
 is server-side-only: the filter's *parsing* (still needed to validate and normalise the query
 params `/api/jobs/{id}/context` accepts) and the two joins that have to stay server-side
-because their normalisation has to match `profile/models.py` and the role taxonomy exactly.
+because their normalisation has to match `profile/models.py` and the search-target
+configuration exactly.
 """
 
 from __future__ import annotations
@@ -13,7 +14,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from careerradar.taxonomy.roles import RoleTaxonomy
+    from careerradar.search.targets import SearchTargets
 
 # Every filter the dashboard can express, defaulted. The names match the query parameters
 # of `Database.query_jobs` exactly, which is the point -- a form field whose name is wrong
@@ -76,10 +77,10 @@ COUNTRY_LABELS = {
 }
 
 
-def country_choices(roles: RoleTaxonomy) -> list[tuple[str, str]]:
+def country_choices(targets: SearchTargets) -> list[tuple[str, str]]:
     """(code, label) for every country the configured locations cover."""
     codes: list[str] = []
-    for location in roles.locations.values():
+    for location in targets.locations.values():
         if location.country not in codes:
             codes.append(location.country)
     return [(code, COUNTRY_LABELS.get(code, code)) for code in codes]

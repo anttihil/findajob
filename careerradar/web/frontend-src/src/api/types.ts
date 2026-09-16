@@ -285,7 +285,7 @@ export interface MarketYieldResponse {
     generated_at: string;
     window_days: number | null;
     exclude_agencies: boolean;
-    roles_hash: string;
+    search_targets_hash: string;
   };
 }
 

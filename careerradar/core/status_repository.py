@@ -146,10 +146,10 @@ def collect_status_report(
         )
     ]
 
-    # -- role taxonomy ------------------------------------------------------------------
-    from careerradar.taxonomy.roles import load_roles
+    # -- search targets -----------------------------------------------------------------
+    from careerradar.search.targets import load_targets
 
-    report["taxonomy"] = {"roles_hash": load_roles().hash}
+    report["search_targets"] = {"search_targets_hash": load_targets().fingerprint}
     return report
 
 

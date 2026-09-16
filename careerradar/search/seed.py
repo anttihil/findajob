@@ -12,7 +12,7 @@ lists is what gets searched.
 
 from careerradar.core.config import load_config
 from careerradar.core.database import Database
-from careerradar.taxonomy.roles import load_roles
+from careerradar.search.targets import load_targets
 
 # Only used for the cycle-length line this command prints. The schedule lives in
 # config.yaml (scheduler.search.schedule), defaulting to 4 runs/day.
@@ -26,8 +26,8 @@ def seed_cells(prune: bool = False) -> int:
         "indeed",
     )
 
-    roles = load_roles()
-    problems = roles.validate()
+    targets = load_targets()
+    problems = targets.validate()
     if problems:
         print("Search targets have problems; fix these first:")
         for problem in problems:
@@ -35,7 +35,7 @@ def seed_cells(prune: bool = False) -> int:
         print("  (Tip: Configure targets via Dashboard or 'careerradar target')")
         return 1
 
-    specs = roles.cell_specs(sources=enabled_sources)
+    specs = targets.cell_specs(sources=enabled_sources)
 
     db = Database()
     try:
@@ -58,8 +58,8 @@ def seed_cells(prune: bool = False) -> int:
 
         from careerradar.search.capacity import calculate_capacity
 
-        active_queries = len(roles.queries)
-        active_locations = sum(1 for loc in roles.locations.values() if loc.enabled)
+        active_queries = len(targets.queries)
+        active_locations = sum(1 for loc in targets.locations.values() if loc.enabled)
         cap = calculate_capacity(active_queries, active_locations, config)
         print(
             f"\nmatrix: {active_queries} queries x {active_locations} locations "
