@@ -2,6 +2,7 @@ import { useEffect, useState } from "preact/hooks";
 import { getJSON, guard } from "../../api/client";
 import { useStoredPreference } from "../../lib/preferences";
 import type {
+  Meta,
   ObservabilityPromptResponse,
   ObservabilityReason,
   ObservabilityStats,
@@ -10,6 +11,7 @@ import type {
 } from "../../api/types";
 
 export function ObservabilityPage() {
+  const [fitThreshold, setFitThreshold] = useState(70);
   const [stats, setStats] = useState<ObservabilityStats | null>(null);
   const [verdictsData, setVerdictsData] =
     useState<ObservabilityVerdictsResponse | null>(null);
@@ -36,6 +38,10 @@ export function ObservabilityPage() {
   // Load overall stats and prompt info on mount
   useEffect(() => {
     let cancelled = false;
+    guard("Loading scoring configuration", () => getJSON<Meta>("/api/meta")).then((data) => {
+      if (!cancelled && data) setFitThreshold(data.fit_threshold);
+    });
+
     guard("Loading observability stats", () =>
       getJSON<ObservabilityStats>("/api/observability/stats"),
     ).then((data) => {
@@ -675,7 +681,7 @@ export function ObservabilityPage() {
                             item.fit ? "fa-circle-check" : "fa-circle-xmark"
                           }`}
                         ></i>{" "}
-                        {item.fit ? "FIT (≥90%)" : "NO FIT"}
+                        {item.fit ? `FIT (≥${fitThreshold}%)` : `NO FIT (<${fitThreshold}%)`}
                       </span>
                       <span class="obs-badge-reason">{item.reason_type}</span>
                     </div>

@@ -178,6 +178,7 @@ export interface Meta {
   countries: [string, string][];
   verdicts?: [string, string][];
   reason_types?: [string, string][];
+  fit_threshold: number;
 }
 
 export interface StatusCounts {
@@ -563,4 +564,3 @@ export interface TargetsResponse {
   queries: TargetQuery[];
   locations: TargetLocation[];
 }
-

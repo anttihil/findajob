@@ -1257,9 +1257,11 @@ def filter_query(
 
 @app.get("/api/meta")
 def get_meta():
+    scoring = load_config().get("scoring") or {}
     return {
         "countries": rendering.country_choices(load_targets()),
         "reason_types": rendering.REASON_TYPE_CHOICES,
+        "fit_threshold": int(scoring.get("fit_threshold", 70)),
     }
 
 

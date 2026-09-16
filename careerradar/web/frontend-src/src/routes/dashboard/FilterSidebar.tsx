@@ -32,10 +32,12 @@ const DATE_POSTED_OPTIONS: [string, string][] = [
 export function FilterSidebar({
   query,
   meta,
+  fitThreshold,
   onReset,
 }: {
   query: FilterQuery;
   meta: Meta | null;
+  fitThreshold: number;
   onReset: () => void;
 }) {
   const [, navigate] = useLocation();
@@ -125,8 +127,8 @@ export function FilterSidebar({
           }}
         >
           <option value="">All fits</option>
-          <option value="true">Fit only (≥90%)</option>
-          <option value="false">No fit (&lt;90%)</option>
+          <option value="true">Fit only (≥{fitThreshold}%)</option>
+          <option value="false">No fit (&lt;{fitThreshold}%)</option>
         </select>
       </div>
 

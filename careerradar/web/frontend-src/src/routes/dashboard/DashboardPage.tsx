@@ -437,6 +437,7 @@ export function DashboardPage() {
           <FilterSidebar
             query={query}
             meta={meta}
+            fitThreshold={meta?.fit_threshold ?? 70}
             onReset={() => clearPreference(DASHBOARD_FILTER_PREFERENCE)}
           />
         </div>
@@ -444,6 +445,7 @@ export function DashboardPage() {
 
       <JobDrawer
         context={drawerContext}
+        fitThreshold={meta?.fit_threshold ?? 70}
         onClose={() => navigate(query.withoutJob())}
         onStatusChange={handleStatusChange}
       />

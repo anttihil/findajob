@@ -9,10 +9,12 @@ import { VerdictPanel } from "./VerdictPanel";
 // version: a freshly-mounted element can't animate a slide-in, it just appears.
 export function JobDrawer({
   context,
+  fitThreshold = 70,
   onClose,
   onStatusChange,
 }: {
   context: JobContext | null;
+  fitThreshold?: number;
   onClose: () => void;
   onStatusChange: (jobId: number, status: JobStatus) => void;
 }) {
@@ -241,7 +243,7 @@ export function JobDrawer({
                 <div class="drawer-section">
                   <h4>Verdict</h4>
                   <div>
-                    <VerdictPanel job={job} />
+                    <VerdictPanel job={job} fitThreshold={fitThreshold} />
                   </div>
                 </div>
 

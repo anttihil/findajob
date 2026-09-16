@@ -1,12 +1,12 @@
 import type { Job } from "../../api/types";
 
-export function VerdictPanel({ job }: { job: Job }) {
+export function VerdictPanel({ job, fitThreshold = 70 }: { job: Job; fitThreshold?: number }) {
   if (job.fit !== null && job.fit !== undefined) {
     return (
       <>
         <div class="verdict-head">
           <span class={`match-badge ${job.fit ? "badge-top" : "badge-blocked"}`}>
-            {job.fit ? "Strong Fit (≥90%)" : "No Fit (<90%)"}
+            {job.fit ? `Strong Fit (≥${fitThreshold}%)` : `No Fit (<${fitThreshold}%)`}
           </span>
           {job.reason_type && (
             <span class="verdict-score">
