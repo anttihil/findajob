@@ -2,12 +2,11 @@ import { useEffect, useState } from "preact/hooks";
 import { useLocation } from "wouter-preact";
 
 const PAGE_SUBTITLES: Record<string, string> = {
-  "/": "Job Dashboard",
-  "/market": "Market Supply",
-  "/skills": "Skill Gap Analysis",
+  "/": "Jobs",
+  "/market": "Market",
+  "/skills": "Skills",
   "/observability": "Model Observability & Token Inspector",
-  "/resumes": "Resumes & Skill Profiles",
-  "/settings": "Settings & Configuration",
+  "/resumes": "Resumes",
 };
 
 export const Header = () => {
@@ -17,7 +16,7 @@ export const Header = () => {
     <header class="system-header-bar">
       <div class="system-title">
         <strong>CAREERRADAR</strong> -{" "}
-        {PAGE_SUBTITLES[location] ?? "Job Dashboard"}
+        {PAGE_SUBTITLES[location] ?? "Jobs"}
       </div>
       <Clock />
     </header>

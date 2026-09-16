@@ -8,7 +8,6 @@ import { MarketPage } from "./routes/market/MarketPage";
 import { SkillsPage } from "./routes/skills/SkillsPage";
 import { ResumesPage } from "./routes/resumes/ResumesPage";
 import { ObservabilityPage } from "./routes/observability/ObservabilityPage";
-import { SettingsPage } from "./routes/settings/SettingsPage";
 import { initLiveEvents } from "./state/liveEvents";
 import { Header } from "./components/Header";
 
@@ -35,7 +34,6 @@ export function App() {
               <Route path="/skills" component={SkillsPage} />
               <Route path="/observability" component={ObservabilityPage} />
               <Route path="/resumes" component={ResumesPage} />
-              <Route path="/settings" component={SettingsPage} />
               <Route>
                 <Redirect to="/" />
               </Route>

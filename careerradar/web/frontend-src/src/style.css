@@ -1868,6 +1868,78 @@ html, body {
   gap: 18px;
 }
 
+/* Dashboard operations are available close to search targets, but stay out of the
+   way until the user needs to run or inspect the pipeline. */
+.dashboard-operations {
+  margin-bottom: 18px;
+  border: 1px solid var(--ink-primary);
+  background-color: var(--bg-screen-alt);
+  font-family: var(--font-mono);
+}
+
+.dashboard-operations summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  cursor: pointer;
+  font-size: 12.5px;
+  font-weight: 800;
+  list-style: none;
+}
+
+.dashboard-operations summary::-webkit-details-marker {
+  display: none;
+}
+
+.dashboard-operations summary::before {
+  content: "+";
+  margin-right: 8px;
+}
+
+.dashboard-operations[open] summary::before {
+  content: "−";
+}
+
+.dashboard-operations summary > span:first-of-type {
+  margin-right: auto;
+}
+
+.dashboard-operations-hint {
+  color: var(--ink-muted);
+  font-size: 11.5px;
+  font-weight: 400;
+}
+
+.dashboard-operations-body {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  padding: 0 14px 14px;
+  border-top: 1px dashed var(--ink-primary);
+}
+
+.dashboard-operations-body .glass-card {
+  margin-top: 14px;
+  margin-bottom: 0;
+}
+
+@media (max-width: 760px) {
+  .dashboard-operations summary {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .dashboard-operations summary > span:first-of-type {
+    margin-right: 0;
+  }
+
+  .dashboard-operations-body {
+    grid-template-columns: 1fr;
+  }
+}
+
 .checkbox-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));

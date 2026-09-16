@@ -1089,7 +1089,7 @@ export function ResumesPage() {
           ) : resumesList.length === 0 ? (
             <div class="resume-card">
               <p style={{ color: "var(--ink-muted)" }}>
-                No tailored resumes generated yet. Open any job in the Dashboard and click{" "}
+                No tailored resumes generated yet. Open any job in Jobs and click{" "}
                 <strong>"Generate Resume"</strong>!
               </p>
             </div>
@@ -1130,7 +1130,7 @@ export function ResumesPage() {
                             <Link
                               href={`/?job=${res.job_id}`}
                               style={{ color: "inherit", textDecoration: "none" }}
-                              title="Open this job in the Dashboard"
+                              title="Open this job in Jobs"
                             >
                               <h3 style={{ margin: 0, display: "inline-flex", alignItems: "center", gap: "0.4rem" }}>
                                 {res.job_title || "Software Engineer"} @ {res.job_company || "Company"}

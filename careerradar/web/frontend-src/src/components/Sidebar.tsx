@@ -2,12 +2,11 @@ import { Link, useLocation } from "wouter-preact";
 import { SyncStatusWidget } from "./SyncStatusWidget";
 
 const NAV_ITEMS: { href: string; icon: string; label: string }[] = [
-  { href: "/", icon: "fa-satellite-dish", label: "DASHBOARD" },
-  { href: "/market", icon: "fa-chart-simple", label: "MARKET SUPPLY" },
-  { href: "/skills", icon: "fa-arrow-trend-up", label: "SKILL GAPS" },
+  { href: "/", icon: "fa-satellite-dish", label: "JOBS" },
+  { href: "/resumes", icon: "fa-file-invoice", label: "RESUMES" },
+  { href: "/market", icon: "fa-chart-simple", label: "MARKET" },
+  { href: "/skills", icon: "fa-arrow-trend-up", label: "SKILLS" },
   { href: "/observability", icon: "fa-gauge-high", label: "OBSERVABILITY" },
-  { href: "/resumes", icon: "fa-file-invoice", label: "RESUMES & SKILLS" },
-  { href: "/settings", icon: "fa-sliders", label: "SETTINGS & SYNC" },
 ];
 
 
@@ -56,4 +55,3 @@ export function Sidebar() {
     </aside>
   );
 }
-
