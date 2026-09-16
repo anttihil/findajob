@@ -1,178 +1,26 @@
-# Job Search Automation Configuration ("CareerRadar")
+# CareerRadar defaults that are useful to customize. Application mechanics live in
+# `careerradar/core/config.py`; place personal overrides in `config.local.yaml`.
 
-# Personal resumes are supplied from the dashboard or directly to `careerradar profile build`.
-# They are stored only in the local database and are never part of this repository.
-
-# ---------------------------------------------------------------------------------------
-# Scraping
-#
-# Work is organised as a matrix of CELLS. One cell is one (source, role family, location)
-# combination, and scraping it means running one search query against one job board. There
-# are 410 cells, 205 per source.
-#
-# A run does not sweep the matrix. It visits a subset, chosen by the scheduler in
-# careerradar/search/scheduler.py, and the settings below are what limit that subset. At the
-# current budgets and four runs a day, a full pass over the matrix takes about 1.3 days on
-# Indeed and 1.7 on LinkedIn. That pass time is why the minimum analysis window under
-# `analytics` is 30 days: comparing role families needs several complete passes, or one
-# family simply got looked at more often than another.
-# ---------------------------------------------------------------------------------------
 scraper:
+  # Disable a board without removing its existing data.
   sources:
     indeed: true
     linkedin: true
 
-  # How many results one page of search results holds. The scheduler uses this to work out
-  # how many HTTP requests a cell will cost before it spends them (estimate_pages and
-  # estimate_units in search/scheduler.py). These are what the boards actually return, not
-  # what the JobSpy library says it asks for, so check them with `careerradar search cost`
-  # rather than reading them off the library.
-  page_size:
-    indeed: 100
-    linkedin: 10
-
-  # Extra requests needed to read one posting's description. This is easy to forget and it
-  # dominates the cost: a LinkedIn cell that reads 50 descriptions spends about 56 requests,
-  # not the 6 its search pages cost.
-  requests_per_description:
-    indeed: 0 # descriptions arrive inside the search page, so reading them is free
-    linkedin: 1 # one extra request per posting
-
-  # How often an active search cell should be revisited (daily). Read by the plan hash and
-  # the dashboard's staleness flag, not by the scheduler: cells are visited
-  # oldest-attempt-first, so the real cadence is searches_per_run against the matrix size.
-  cadence_hours: 24
-
-  # Minimum recency window for scraping (72 hours).
-  hours_old_floor: 72
-  # Upper bound on the derived window (7 days).
-  max_hours_old: 168
-  # Window used when a cell has never been scraped successfully, and by backfill runs.
-  backfill_hours_old: 168
-
-  # If an enabled cell has had no successful visit within this many hours, the dashboard
-  # shows a coverage warning. It is a report, not a guarantee: nothing reschedules on it.
-  max_staleness_hours: 72
-
-  # Per-source limits on one run. Several caps apply at once and the SMALLEST one binds, so
-  # raising a single number often changes nothing -- check which one is actually stopping
-  # the run before tuning.
-  #
-  #   searches_per_run   how many cells the run may visit
-  #   request_units      total HTTP requests, search pages plus description fetches
-  #   max_pages_per_run  search pages only (LinkedIn)
-  #   results_wanted_*   how many postings to ask a cell for
-  #   fetch_descriptions whether to read each posting's description
+  # Per-run limits. Keep these conservative unless you understand the board's limits.
   budgets:
-    # Indeed carries the skill analytics, because descriptions come back inside the search
-    # page. Reading every description costs nothing extra, so every cell is a full census.
-    #
-    # A cell here costs 1-2 requests, so searches_per_run is the cap that binds and is meant
-    # to. request_units is sized for a backfill run (results_wanted=200, 3 requests a cell),
-    # so it stays out of the way of a normal one. If you raise searches_per_run, raise
-    # request_units with it or it becomes the binding cap instead.
     indeed:
-      # 44 = the whole enabled Indeed matrix, so every cell is visited every run and the
-      # ordering never has to choose. Keep this at or above the cell count, or trim the
-      # query list; ranking cells is not a substitute for not scraping the bad ones.
       searches_per_run: 44
       request_units: 130
       results_wanted_default: 75
       max_results_wanted: 200
-      min_seconds_between_searches: 2.0
-      jitter_seconds: [0.5, 2.5]
-      fetch_descriptions: true
-      desc_selection: census
-
-    # LinkedIn on a single IP: titles only.
-    #
-    # Descriptions cost one request each here, and sustained per-posting fetching from one
-    # address is the traffic shape most likely to get that address flagged. Plain search
-    # pagination has been probed and looks safe (see experiments/linkedin_page_wall/);
-    # description fetching has not, so it stays behind the proxy pool below.
-    #
-    # The consequence is worth understanding: these cells have desc_selection='none', so
-    # they count fully toward role SUPPLY -- title, company and location are complete -- but
-    # contribute nothing to skill DEMAND, which needs description text.
-    #
-    # Set SCRAPER_PROXIES and the with_proxies override below turns this into a full
-    # description census. See careerradar/search/proxies.py.
     linkedin:
-      # max_pages_per_run binds here. At page_size=10 a cell asking for 60 postings costs 7
-      # requests (6 pages, plus one that discovers the end), so 60 pages is about 8 cells.
-      # It is a traffic limit for one unproxied IP, and deliberately not raised to make
-      # searches_per_run reachable. No separate request_units: with descriptions off, every
-      # request this tier makes is a search page, so request_units would just be
-      # max_pages_per_run under a second name -- see estimate_units in search/scheduler.py.
       searches_per_run: 15
       results_wanted_default: 60
       max_results_wanted: 100
       max_pages_per_run: 60
-      min_seconds_between_searches: 6.0
-      jitter_seconds: [2.0, 6.0]
-      fetch_descriptions: false
-      desc_selection: none
 
-  # Rotating proxy pool. Credentials come from the environment, never from this file, since
-  # config.yaml is committed:
-  #
-  #   SCRAPER_PROXIES="user:pass@gate.example.net:7000"          # one rotating endpoint
-  #   SCRAPER_PROXIES="user:pass@a:7000,user:pass@b:7000"        # or an explicit list
-  #
-  # A rotating gateway gives a fresh exit IP per request. That changes what a 429 means: one
-  # exit IP was flagged, not the account. So with proxies the circuit breaker retries on a
-  # new IP before it trips the source, and LinkedIn can afford a much larger budget.
-  proxies:
-    enabled: true # only takes effect when SCRAPER_PROXIES is set
-    rotating: true # the gateway rotates exit IPs per request
-    # Budget overrides applied ONLY when proxies are actually available.
-    with_proxies:
-      linkedin:
-        # All three caps move together. Raising one alone just hands the constraint to the
-        # next: 30 cells need 30 x 6 = 180 pages and 30 x 56 = 1680 request units, because a
-        # census cell spends 6 search pages plus one request per posting.
-        #
-        # LinkedIn earns this budget. Postings from it reach a high fit score about 2.7x as
-        # often as Indeed's, so it is worth spending more per posting here.
-        #
-        # This is the expensive lever in wall-clock terms too: a census cell takes about 55
-        # seconds, so 30 cells is roughly 28 minutes of run time. careerradar-search.service
-        # sets TimeoutStartSec to 90min to allow for it.
-        #
-        # Traffic per exit IP still falls rather than rises, because a run's requests spread
-        # over a 100-endpoint pool. And the circuit breaker still trips the whole source on
-        # the first 429, so the worst case is a backoff rather than a ban.
-        searches_per_run: 30
-        request_units: 1700
-        results_wanted_default: 50
-        max_results_wanted: 75
-        max_pages_per_run: 180
-        min_seconds_between_searches: 2.0
-        jitter_seconds: [0.5, 2.0]
-        # This is what the proxy pool buys. One extra request per posting is unaffordable on
-        # a single IP, so unproxied LinkedIn gives titles only. With rotating exits it
-        # becomes a full description census and feeds the skill analytics as well as supply.
-        fetch_descriptions: true
-        desc_selection: census
-
-  # What to do when a board starts refusing. A cell that keeps failing is backed off on its
-  # own; a source that keeps failing is stopped entirely, and the backoff lengthens each
-  # time it trips again.
-  circuit_breaker:
-    consecutive_errors_to_trip: 3
-    # Retries on a fresh exit IP before tripping, when a rotating pool is configured.
-    proxy_rotation_retries: 3
-    # A 429 means this IP is flagged. Retrying in-run makes that worse, so the source is
-    # tripped at once instead of being retried with backoff.
-    http_429_trips_immediately: true
-    transient_retries: 2
-    source_backoff_minutes: [15, 60, 240, 1440]
-    cell_backoff_minutes: [60, 360, 1440]
-
-  # Staffing firms and consultancies post one job many times under different titles.
-  # Near-duplicate detection cannot catch it, because the descriptions really are different.
-  # Left out of analytics by default, since they would inflate supply for whatever they
-  # happen to be recruiting for. The dashboard has a toggle to put them back in.
+  # Excluded from market analytics by default.
   agencies:
     - Robert Half
     - Insight Global
@@ -196,9 +44,7 @@ scraper:
     - HiQ
     - Cygni
 
-  # Fixed rates, used only to put salaries on one annual-USD axis. They do not need to be
-  # current: salary comparisons are ratios computed inside a stratum, and a stratum includes
-  # the country, so two currencies never share a median.
+  # Annual-salary conversion rates to USD. Add currencies used by your targets.
   fx:
     USD: 1.00
     EUR: 1.08
@@ -208,126 +54,32 @@ scraper:
     GBP: 1.27
     CAD: 0.73
 
-# ---------------------------------------------------------------------------------------
-# Matching
-# ---------------------------------------------------------------------------------------
-# A cheap keyword pass over each posting, run before any LLM sees it. It measures how much
-# of the posting's stated requirements the profile COVERS -- it is not a fit judgement. Its
-# output feeds the skill hint in the scoring prompt, the gap analytics, and a coarse
-# tiebreak. It does not rank the dashboard. See careerradar/search/keyword_score.py.
-matching:
-  weights:
-    skill_coverage: 0.62
-    title_family: 0.24
-    seniority_fit: 0.14
-
-# ---------------------------------------------------------------------------------------
-# Analytics
-#
-# Turning a rotating, uneven scrape into numbers that can be compared. Most settings here
-# are guards against reporting something the data cannot support.
-# ---------------------------------------------------------------------------------------
+# Minimum evidence required before analytics publishes a result.
 analytics:
   windows: [30, 90]
-  # Shortest window the analytics will report over. A full pass across the matrix takes
-  # about 1.5 days, and comparing role families needs several complete passes, or coverage
-  # is too uneven to compare at all.
   min_window_days: 30
-
-  # Publication gates. A figure that fails one of these is suppressed WITH a stated reason
-  # and never silently dropped.
   min_postings_for_skill: 20
   min_companies_for_skill: 3
-  max_company_share: 0.40 # one employer dominating a skill is not market demand
+  max_company_share: 0.40
   min_postings_for_scope: 20
-  # Fraction of the analysis window a cell's scrapes must actually cover.
   min_coverage_fraction: 0.50
-  # How many separate scrapes of a cell are required. Keep this at 1. The scheduler rotates
-  # on purpose, so a cell gathers repeat observations only slowly, and coverage_fraction
-  # above already measures the thing that matters -- one scrape with a 336h window is a
-  # complete census of two weeks. Requiring more suppresses sound estimates.
   min_observations_per_cell: 1
   min_salary_samples: 12
-
   exclude_agencies: true
-
-  # How skills are ranked in the gap report. blocking_gap leads on purpose: "this skill is
-  # what stands between me and jobs I otherwise match" is more useful than "this skill is
-  # popular".
   gap_weights:
     blocking_gap: 0.40
     demand: 0.30
     adjacency: 0.20
     salary_lift: 0.10
 
-# ---------------------------------------------------------------------------------------
-# LLM Providers & Agents
-#
-# CareerRadar supports OS-level CLI providers (agy, claude, codex, opencode) using your
-# personal subscription sessions, as well as direct API keys (deepseek).
-# Set provider to 'auto' to automatically detect available authenticated CLI tools or API keys.
-# ---------------------------------------------------------------------------------------
-llm:
-  provider: auto
-  scoring_model: ""  # Blank uses provider default (or set custom model)
-  agent_model: ""    # Blank uses provider default (or set custom model)
-  timeout_seconds: 60
-
-profile:
-  # Your resume is supplied directly in the dashboard or as the required argument
-  # to `careerradar profile build`; no personal corpus is kept in this repository.
-  max_interview_questions: 15
-
 scoring:
-  # Evaluates scraped postings against the active profile.
   concurrency: 16
   fit_threshold: 70
-  include_skill_hint: false  # Default to false to eliminate prompt bias
-  # Pre-flight ceiling. If the estimated cost of the queue exceeds this, the run ABORTS
-  # instead of scoring part of it. A budget that quietly drops the tail produces a pass that
-  # looks complete, and every coverage figure downstream then inherits that.
-  #
-  # Because it aborts rather than trims, it has to be large enough to clear a COLD backlog
-  # in one pass -- if the scoring timer is off for a few days, the queue can reach five
-  # figures, and a ceiling below that deadlocks: every run aborts and nothing is ever
-  # scored. Treat it as a guard against a runaway queue, not as a spending target. At
-  # $0.0006 a posting, 8.00 covers about 13,000 postings.
+  include_skill_hint: false
   max_usd_per_run: 8.00
-  # Seniority levels never sent to the judge, to save calls and dashboard noise. These
-  # levels score close to zero: together they are about a third of all verdicts ever written
-  # for a handful of hits, and it is not a role-family effect -- they score just as badly
-  # inside the best families.
-  #
-  # Note what this catches beyond its literal name: the role taxonomy reads manager, director and
-  # head-of titles as `lead`, and those never hit at all. It is also why the tech_lead,
-  # eng_manager, tpm and product_manager families look dead.
-  #
-  # Seniority is read from the title, so this saves LLM calls only -- never scrape budget.
-  # The posting is still stored and classified, which keeps the supply analytics honest
-  # about demand the user is choosing not to pursue.
   skip_seniority: [lead, staff]
-  # Maximum age (in days) of postings to score with LLM. Postings older than this are skipped
-  # to preserve budget for fresh, actionable opportunities.
   max_posting_age_days: 3
 
-# ---------------------------------------------------------------------------------------
-# Scheduler
-#
-# Python-managed background pipeline scheduler. Executes each stage as an isolated
-# subprocess to maintain pristine memory boundaries and fault isolation.
-# ---------------------------------------------------------------------------------------
+# Automatic runs remain off until explicitly enabled in config.local.yaml.
 scheduler:
-  # Off until you explicitly opt in through config.local.yaml. The dashboard's
-  # "Run now" action remains available and runs search followed by scoring.
   enabled: false
-  search:
-    schedule: ["01:00", "07:00", "13:00", "19:00"]
-    jitter_minutes: 30
-    persistent_catchup: true
-    timeout_minutes: 90
-  score:
-    interval_minutes: 30
-    jitter_minutes: 3
-    timeout_minutes: 90
-  chaining:
-    search_triggers_score: true
