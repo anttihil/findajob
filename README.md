@@ -33,8 +33,8 @@ cp .env.example .env                          # add DEEPSEEK_API_KEY, or use an 
 cp config.local.example.yaml config.local.yaml
 
 # 3. Initialize schema, start the dashboard, and upload your resume
-uv run find-a-job migrate
-make start                                   # or: uv run find-a-job start --port 8010
+uv run findajob migrate
+make start                                   # or: uv run findajob start --port 8010
 # Open http://127.0.0.1:8010 and drop your PDF, TXT, or Markdown resume on the Resumes page.
 ```
 
@@ -44,9 +44,9 @@ For normal use, install Find a Job once and run it from any directory:
 
 ```bash
 uv tool install find-a-job
-find-a-job init
-find-a-job profile build /path/to/your-resume.pdf
-find-a-job start
+findajob init
+findajob profile build /path/to/your-resume.pdf
+findajob start
 ```
 
 An installed copy keeps configuration, databases, and logs in your operating system's normal
@@ -56,7 +56,7 @@ by default. Set `resumes.output_dir` in the generated configuration to choose an
 second profile; individual `FIND_A_JOB_*_PATH` variables remain available for precise control.
 
 Source checkouts retain their existing repository-local paths, so development commands such as
-`uv run find-a-job ...` continue to work without moving current data.
+`uv run findajob ...` continue to work without moving current data.
 
 ### Docker
 
@@ -71,11 +71,11 @@ make docker-up                               # or: docker compose up -d
 # Dashboard is live at http://localhost:8010
 ```
 
-The frontend is built output, not something FastAPI generates at request time -- `find-a-job start`
+The frontend is built output, not something FastAPI generates at request time -- `findajob start`
 serves whatever is in `careerradar/web/frontend/dist/` and 503s with a clear message if nothing has been
 built yet. Re-run `npm run build` after pulling changes that touch
 `careerradar/web/frontend-src/`, or run `npm run dev` for hot reload against a locally
-running `find-a-job start` (see `vite.config.ts` for the dev proxy target).
+running `findajob start` (see `vite.config.ts` for the dev proxy target).
 
 `python-jobspy` is pinned to a git commit rather than the PyPI wheel, which constrains
 numpy to 1.26.3 and has no cp313 wheel.
@@ -99,8 +99,8 @@ by the CLI drafts a profile, which you can refine with the profile copilot befor
 For a terminal-only setup, pass the resume explicitly:
 
 ```bash
-uv run find-a-job profile build /path/to/your-resume.pdf
-uv run find-a-job profile show
+uv run findajob profile build /path/to/your-resume.pdf
+uv run findajob profile show
 ```
 
 The CLI saves the extracted profile immediately. The dashboard lets you review and refine it
@@ -119,15 +119,15 @@ relying on brittle keyword checklist matching.
 
 ```bash
 # One manual run: scrape, then score the resulting backlog.
-uv run find-a-job run
+uv run findajob run
 
 # Individual stages remain available for troubleshooting and development.
-uv run find-a-job search run --dry-run
-uv run find-a-job search run
-uv run find-a-job score run --limit 200
+uv run findajob search run --dry-run
+uv run findajob search run
+uv run findajob score run --limit 200
 
 # Serve dashboard. Automatic scheduling is disabled until you opt in.
-uv run find-a-job start --port 8010
+uv run findajob start --port 8010
 ```
 
 The dashboard's **Sync Now** action also runs search followed by scoring. To enable automatic
@@ -142,22 +142,22 @@ on stdout; diagnostics remain on stderr. First build an active profile as descri
 
 ```bash
 # Search one board query outside the configured rotation.
-uv run find-a-job search query --query "Platform Engineer" \
+uv run findajob search query --query "Platform Engineer" \
   --location "Helsinki, Finland" --country FI --indeed-country finland --json
 
 # Inspect local normalized postings with stable filters and full descriptions.
-uv run find-a-job jobs list --pipeline-state new --source indeed --limit 25 --json
+uv run findajob jobs list --pipeline-state new --source indeed --limit 25 --json
 
 # Use the configured Find a Job LLM provider for selected postings.
-uv run find-a-job score jobs --job-id 123 --job-id 124 --json
+uv run findajob score jobs --job-id 123 --job-id 124 --json
 ```
 
 An external reviewer may score without a separately configured provider: request a packet
 containing the active-profile rules and posting text, then save its validated result.
 
 ```bash
-uv run find-a-job score packet --job-id 123 --json
-uv run find-a-job score verdict --job-id 123 --fit \
+uv run findajob score packet --job-id 123 --json
+uv run findajob score verdict --job-id 123 --fit \
   --reason-type match --reason-description "Strong relevant platform experience." --json
 ```
 
@@ -235,7 +235,7 @@ and every coverage figure downstream inherits the shortfall.
 ## How the search space is defined
 
 Search queries and locations are stored in SQLite (`search_queries`, `search_locations`) and
-managed directly via the Web Dashboard or CLI (`find-a-job target`). The search matrix holds
+managed directly via the Web Dashboard or CLI (`findajob target`). The search matrix holds
 the cross-product of enabled queries across enabled locations. The scheduler rotates through
 these cells as a request-budget control, with cycle times tracking within the analysis window.
 
@@ -321,7 +321,7 @@ cd ~/projects/find-a-job
 make setup
 cp .env.example .env                                   # configure API keys
 cp config.local.example.yaml config.local.yaml
-uv run find-a-job migrate                             # applies migrations & auto-seeds scrape cells
+uv run findajob migrate                             # applies migrations & auto-seeds scrape cells
 
 make build                                             # -> careerradar/web/frontend/dist/
 
@@ -334,7 +334,7 @@ service. Keep personal overrides in `config.local.yaml`; project defaults remain
 `config.yaml` and can update safely with Git.
 
 When enabled, the scheduler runs search and score as isolated worker subprocesses. Manual
-runs are always available through **Sync Now** or `uv run find-a-job run`.
+runs are always available through **Sync Now** or `uv run findajob run`.
 
 The web service binds `127.0.0.1:8010` and stays there. Tailscale fronts it:
 

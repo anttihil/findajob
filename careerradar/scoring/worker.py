@@ -128,7 +128,7 @@ def run_scoring(limit: int | None = None) -> int:
 
     loaded = load_active()
     if loaded is None:
-        logger.error("No active profile. Build one first: find-a-job profile build")
+        logger.error("No active profile. Build one first: findajob profile build")
         return 1
     profile_version, _profile, summary = loaded
 
@@ -244,7 +244,7 @@ def run_scoring(limit: int | None = None) -> int:
             total = sum(row["total"] for row in stuck)
             print(
                 f"quarantined: {total:,} withdrawn after {MAX_SCORING_FAILURES} failed "
-                f"runs  (`find-a-job score retry` to re-offer)"
+                f"runs  (`findajob score retry` to re-offer)"
             )
             for row in stuck:
                 print(f"  {row['total']:>4}x  job {row['example']}: {row['reason']}")
@@ -267,7 +267,7 @@ def score_job(
     """Score a single job posting by ID against the active profile."""
     loaded = load_active()
     if loaded is None:
-        raise NoActiveProfile("No active profile. Build one first: find-a-job profile build")
+        raise NoActiveProfile("No active profile. Build one first: findajob profile build")
     profile_version, _profile, summary = loaded
 
     config = load_config()
@@ -341,7 +341,7 @@ def review_packet(job_ids: list[int]) -> dict[str, Any]:
         raise ValueError("provide at least one --job-id")
     loaded = load_active()
     if loaded is None:
-        raise NoActiveProfile("No active profile. Build one first: find-a-job profile build")
+        raise NoActiveProfile("No active profile. Build one first: findajob profile build")
     profile_version, _profile, summary = loaded
     threshold = int((load_config().get("scoring") or {}).get("fit_threshold", 70))
     db = Database()
@@ -367,7 +367,7 @@ def save_reviewed_verdict(args: Any) -> dict[str, Any]:
     """Validate and persist a human or external review verdict."""
     loaded = load_active()
     if loaded is None:
-        raise NoActiveProfile("No active profile. Build one first: find-a-job profile build")
+        raise NoActiveProfile("No active profile. Build one first: findajob profile build")
     profile_version, _profile, summary = loaded
     verdict = JobFitVerdict(
         fit=args.fit, reason_type=args.reason_type, reason_description=args.reason_description

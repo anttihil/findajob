@@ -4,7 +4,7 @@ Re-runnable after every edit to the targets. Existing cells keep their scrape hi
 editing targets does not reset coverage; cells no longer in the matrix are disabled rather
 than deleted, which keeps cell_observations' foreign keys and past analytics auditable.
 
-    find-a-job search seed-cells [--prune]
+    findajob search seed-cells [--prune]
 
 Every query declared in search_queries is seeded: the matrix is the whole plan, and what it
 lists is what gets searched.
@@ -32,7 +32,7 @@ def seed_cells(prune: bool = False) -> int:
         print("Search targets have problems; fix these first:")
         for problem in problems:
             print(f"  - {problem}")
-        print("  (Tip: Configure targets via Dashboard or 'find-a-job target')")
+        print("  (Tip: Configure targets via Dashboard or 'findajob target')")
         return 1
 
     specs = targets.cell_specs(sources=enabled_sources)

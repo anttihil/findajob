@@ -8,7 +8,7 @@ build:
 	npm run build
 
 start: build
-	uv run find-a-job start --port 8010
+	uv run findajob start --port 8010
 
 test:
 	uv run pytest -q

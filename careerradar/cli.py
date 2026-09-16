@@ -1,4 +1,4 @@
-"""find-a-job -- one entry point for every stage of the pipeline.
+"""findajob -- one entry point for every stage of the pipeline.
 
 The pipeline is three stages that talk to each other only through `jobs.pipeline_state`:
 
@@ -259,7 +259,7 @@ def _cmd_migrate(args: argparse.Namespace) -> int:  # noqa: ARG001 - argparse ha
 
 
 _STARTER_CONFIG = """\
-# Personal Find a Job settings. This file is never overwritten by `find-a-job init`.
+# Personal Find a Job settings. This file is never overwritten by `findajob init`.
 #
 # llm:
 #   provider: deepseek
@@ -456,7 +456,7 @@ def _cmd_start(args: argparse.Namespace) -> int:
 
 def build_parser() -> argparse.ArgumentParser:
     doc = __doc__ or ""
-    parser = argparse.ArgumentParser(prog="find-a-job", description=doc.split("\n")[0])
+    parser = argparse.ArgumentParser(prog="findajob", description=doc.split("\n")[0])
     parser.set_defaults(stage=None)
     sub = parser.add_subparsers(dest="command", required=True)
 

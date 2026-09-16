@@ -22,7 +22,7 @@ dependencies = [
 ]
 
 [project.scripts]
-find-a-job = "careerradar.cli:main"
+findajob = "careerradar.cli:main"
 
 [build-system]
 requires = ["hatchling"]

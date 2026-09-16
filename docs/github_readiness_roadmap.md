@@ -35,8 +35,8 @@ flowchart TD
     end
 
     subgraph P1["P1: Developer Experience (DX)"]
-        B1["Remove obsolete commands & standardize on 'find-a-job start'"]
-        B2["Fix 'find-a-job profile build <file>' argparse"]
+        B1["Remove obsolete commands & standardize on 'findajob start'"]
+        B2["Fix 'findajob profile build <file>' argparse"]
         B3["Add Makefile for 1-command setup & build"]
         B4["Restructure README for 5-min Quickstart"]
     end
@@ -81,9 +81,9 @@ flowchart TD
 
 ### 1.3. Streamline Candidate Profile Ingestion
 - **Fixes**:
-  1. Update `careerradar/cli.py` so `find-a-job profile build` takes an optional file argument:
+  1. Update `careerradar/cli.py` so `findajob profile build` takes an optional file argument:
      ```bash
-     find-a-job profile build ./path/to/my_resume.pdf
+     findajob profile build ./path/to/my_resume.pdf
      ```
   2. Document the web UI's **Resume Dropzone** (`/resumes` route) as the visual alternative for profile extraction.
   3. Include a sanitized sample resume or template document in `examples/sample_resume.md` so users without an immediate PDF can test the pipeline immediately.
@@ -93,7 +93,7 @@ flowchart TD
 ## Phase 2: CLI Consistency & Build Automation (P1 — High)
 
 ### 2.1. Align CLI Subcommands with Documentation
-- **Action**: Standardize on `find-a-job start` across all documentation and purge obsolete commands (`web`, `score rescale`, `score audit`, `search cost`, `score stats`).
+- **Action**: Standardize on `findajob start` across all documentation and purge obsolete commands (`web`, `score rescale`, `score audit`, `search cost`, `score stats`).
 - **Audit**: All flags referenced in documentation (`search run --dry-run`, `score run --limit`, `migrate`, `status`) match `careerradar/cli.py` exactly.
 
 ### 2.2. Single-Step Setup & Build Automation (`Makefile`)
@@ -103,8 +103,8 @@ flowchart TD
 - Provide a clear, top-level **"⚡ Quickstart (5 Minutes)"** section:
   1. Clone & install dependencies (`make setup && make build`)
   2. Configure `.env` (`cp .env.example .env`)
-  3. Initialize database (`uv run find-a-job migrate`)
-  4. Ingest resume (`uv run find-a-job profile build examples/sample_resume.md`)
+  3. Initialize database (`uv run findajob migrate`)
+  4. Ingest resume (`uv run findajob profile build examples/sample_resume.md`)
   5. Start app (`make start`)
 - Move deep technical essays (DeepSeek pricing analysis, LinkedIn guest API pagination benchmarks, Pareto score theory) into dedicated subheadings or `docs/` files to keep the main README accessible.
 
@@ -137,7 +137,7 @@ flowchart TD
   ENV PATH="/app/.venv/bin:$PATH"
 
   EXPOSE 8010
-  CMD ["find-a-job", "start", "--host", "0.0.0.0", "--port", "8010"]
+  CMD ["findajob", "start", "--host", "0.0.0.0", "--port", "8010"]
   ```
 
 - **Action**: Provide a turn-key `docker-compose.yml`:
@@ -184,8 +184,8 @@ flowchart TD
 
 - [x] Add `LICENSE` (MIT).
 - [x] Add `.env.example`.
-- [x] Standardize on `find-a-job start` and remove obsolete commands from documentation.
-- [x] Fix `find-a-job profile build [file]` argument parsing in `careerradar/cli.py`.
+- [x] Standardize on `findajob start` and remove obsolete commands from documentation.
+- [x] Fix `findajob profile build [file]` argument parsing in `careerradar/cli.py`.
 - [x] Add `Makefile` for one-command install/build/start.
 - [x] Add `Dockerfile` and `docker-compose.yml`.
 - [x] Add optional Basic Auth / Bearer token gate in `careerradar/web/app.py`.

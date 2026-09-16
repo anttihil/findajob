@@ -3,7 +3,7 @@
 ARCHITECTURE HINTS & EXPLANATIONS:
 ----------------------------------
 1. Multi-Process Change Detection:
-   Because the scraper (`find-a-job search run`) and scoring worker (`find-a-job score run`)
+   Because the scraper (`findajob search run`) and scoring worker (`findajob score run`)
    run as separate CLI commands or systemd services, they write to SQLite without touching
    the web server process memory.
    SQLite provides `PRAGMA data_version`:

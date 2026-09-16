@@ -2,15 +2,15 @@
 
 Three ways to look at a running instance, in the order you should reach for them.
 
-## 1. `find-a-job status`
+## 1. `findajob status`
 
 One health report over the whole pipeline, straight from the database. No API calls, no
 network, safe to run at any time.
 
 ```bash
-find-a-job status
-find-a-job status --json          # for piping
-ssh <prod-host> 'cd <install-dir> && .venv/bin/find-a-job status'
+findajob status
+findajob status --json          # for piping
+ssh <prod-host> 'cd <install-dir> && .venv/bin/findajob status'
 ```
 
 It answers what nothing else does: how long since each stage last did anything, how big the
@@ -141,12 +141,12 @@ ssh <prod-host>
 cd <install-dir>
 git pull
 uv sync                                 # only if Python dependencies changed
-uv run find-a-job migrate              # applies migrations and auto-seeds/prunes cells
+uv run findajob migrate              # applies migrations and auto-seeds/prunes cells
 npm ci && npm run build                 # only if careerradar/web/frontend-src/ changed --
                                          # the built output is gitignored, so a pull alone
                                          # leaves the previous build in place until this runs
 sudo systemctl restart find-a-job      # restarts dashboard and any enabled scheduler
-uv run find-a-job status               # confirm the pipeline still reads healthy
+uv run findajob status               # confirm the pipeline still reads healthy
 ```
 
 ## Deploying a search-target change
@@ -156,8 +156,8 @@ Skills are open-vocabulary and derived dynamically from the candidate's active p
 Search queries and locations are managed directly in SQLite via the web dashboard or CLI:
  
 ```bash
-find-a-job target add query "AI Engineer" "AI Engineer"
-find-a-job search seed-cells --prune
+findajob target add query "AI Engineer" "AI Engineer"
+findajob search seed-cells --prune
 ```
  
 This syncs configured target queries into `scrape_cells` (with `--prune` to disable retired cells).

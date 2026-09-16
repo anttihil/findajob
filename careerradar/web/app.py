@@ -1133,7 +1133,7 @@ def get_sync_plan(source: str = "indeed"):
 def pipeline_status():
     """Live progress for the two background stages: scraping and scoring.
 
-    `find-a-job status` (careerradar/core/status.py) already answers "is each stage
+    `findajob status` (careerradar/core/status.py) already answers "is each stage
     stalled" from history alone -- last completed run, verdict backlog, verdict recency.
     This reuses that report and adds the two things it cannot show: how far the scrape
     *in progress right now* has gotten, and whether the scorer -- which has no lock file,

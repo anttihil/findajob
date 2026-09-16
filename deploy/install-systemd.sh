@@ -60,8 +60,8 @@ if [[ ! -d $INSTALL_DIR ]]; then
 fi
 
 INSTALL_DIR=$(realpath "$INSTALL_DIR")
-if [[ ! -x "$INSTALL_DIR/.venv/bin/find-a-job" ]]; then
-  echo "Expected $INSTALL_DIR/.venv/bin/find-a-job; run 'uv sync' first." >&2
+if [[ ! -x "$INSTALL_DIR/.venv/bin/findajob" ]]; then
+  echo "Expected $INSTALL_DIR/.venv/bin/findajob; run 'uv sync' first." >&2
   exit 1
 fi
 if [[ ! -f "$INSTALL_DIR/config.local.yaml" ]]; then
@@ -89,7 +89,7 @@ User=$RUN_USER
 Group=$RUN_GROUP
 WorkingDirectory=$INSTALL_DIR
 Environment="PATH=$USER_HOME/.local/bin:/usr/local/bin:/usr/bin:/bin"
-ExecStart=$INSTALL_DIR/.venv/bin/find-a-job start --host 127.0.0.1 --port 8010
+ExecStart=$INSTALL_DIR/.venv/bin/findajob start --host 127.0.0.1 --port 8010
 Restart=on-failure
 RestartSec=10s
 TimeoutStopSec=15s

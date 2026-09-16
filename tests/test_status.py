@@ -101,7 +101,7 @@ class StatusRenderTests(unittest.TestCase):
         quarantined = [{"id": 7, "title": "AI Engineer", "error": "validation error: status"}]
         out = render(_report(quarantined=quarantined))
         self.assertIn("#7", out)
-        self.assertIn("find-a-job score retry", out)
+        self.assertIn("findajob score retry", out)
 
 
 if __name__ == "__main__":
