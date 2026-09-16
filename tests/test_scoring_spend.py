@@ -24,7 +24,6 @@ from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from careerradar.core.llm import usage_cost
 from careerradar.core.migrations import apply_pragmas, migrate
 from careerradar.scoring import worker
 
@@ -33,10 +32,16 @@ CONFIG: dict[str, Any] = {"scoring": {"model": MODEL, "concurrency": 2, "max_usd
 
 # One attempt's tokens, at roughly the shape a real posting has.
 ATTEMPT = {"prompt": 6_000, "cache_hit": 4_800, "cache_miss": 1_200, "completion": 1_400}
+ATTEMPT_COST_USD = 0.01
 
 
 def usage(attempts: int) -> dict[str, int]:
     return {key: value * attempts for key, value in ATTEMPT.items()}
+
+
+def cost(attempts: int) -> float:
+    """A DeepSeek balance delta supplied by the graph for these canned calls."""
+    return ATTEMPT_COST_USD * attempts
 
 
 VERDICT = {
@@ -118,23 +123,44 @@ class RunSpendTests(unittest.TestCase):
     def test_the_retry_a_verdict_needed_is_stored_on_that_verdict(self) -> None:
         self.run_scoring(
             {
-                1: {"verdict": dict(VERDICT), "usage": usage(1), "attempts": 1},
-                2: {"verdict": dict(VERDICT), "usage": usage(3), "attempts": 3},
+                1: {
+                    "verdict": dict(VERDICT),
+                    "usage": usage(1),
+                    "attempts": 1,
+                    "cost_usd": cost(1),
+                },
+                2: {
+                    "verdict": dict(VERDICT),
+                    "usage": usage(3),
+                    "attempts": 3,
+                    "cost_usd": cost(3),
+                },
             }
         )
-        self.assertAlmostEqual(self.stored_cost(1), usage_cost(MODEL, usage(1)))
-        self.assertAlmostEqual(self.stored_cost(2), usage_cost(MODEL, usage(3)))
+        self.assertAlmostEqual(self.stored_cost(1), cost(1))
+        self.assertAlmostEqual(self.stored_cost(2), cost(3))
         # The whole point: the posting that took three calls is not billed as one.
         self.assertAlmostEqual(self.stored_cost(2), 3 * self.stored_cost(1))
 
     def test_a_posting_that_produced_no_verdict_is_still_charged_to_the_run(self) -> None:
         output = self.run_scoring(
             {
-                1: {"verdict": dict(VERDICT), "usage": usage(1), "attempts": 1},
-                2: {"verdict": None, "usage": usage(3), "attempts": 3, "error": "no tool call"},
+                1: {
+                    "verdict": dict(VERDICT),
+                    "usage": usage(1),
+                    "attempts": 1,
+                    "cost_usd": cost(1),
+                },
+                2: {
+                    "verdict": None,
+                    "usage": usage(3),
+                    "attempts": 3,
+                    "cost_usd": cost(3),
+                    "error": "no tool call",
+                },
             }
         )
-        self.assertAlmostEqual(self.printed_cost(output), usage_cost(MODEL, usage(4)), places=4)
+        self.assertAlmostEqual(self.printed_cost(output), cost(4), places=4)
         # And it says so, because no verdict row can: summing job_verdicts.cost_usd over
         # this run recovers a quarter of the bill.
         self.assertIn("bought no verdict at all", output)
@@ -142,8 +168,18 @@ class RunSpendTests(unittest.TestCase):
     def test_the_run_total_is_the_sum_of_the_verdict_rows_when_nothing_failed(self) -> None:
         output = self.run_scoring(
             {
-                1: {"verdict": dict(VERDICT), "usage": usage(1), "attempts": 1},
-                2: {"verdict": dict(VERDICT), "usage": usage(2), "attempts": 2},
+                1: {
+                    "verdict": dict(VERDICT),
+                    "usage": usage(1),
+                    "attempts": 1,
+                    "cost_usd": cost(1),
+                },
+                2: {
+                    "verdict": dict(VERDICT),
+                    "usage": usage(2),
+                    "attempts": 2,
+                    "cost_usd": cost(2),
+                },
             }
         )
         self.assertAlmostEqual(

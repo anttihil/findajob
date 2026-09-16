@@ -16,11 +16,10 @@ from careerradar.core.llm.factory import get_llm_provider, list_available_provid
 from careerradar.core.llm.providers.deepseek_api import (
     DEFAULT_DEEPSEEK_AGENT_MODEL,
     DEFAULT_DEEPSEEK_SCORING_MODEL,
-    PRICES,
+    BalanceMeasuredChat,
     no_tool_call_reason,
     require_api_key,
     token_usage,
-    usage_cost,
 )
 
 T = TypeVar("T", bound=BaseModel)
@@ -124,11 +123,13 @@ def structured_model(
         from langchain_deepseek import ChatDeepSeek
 
         require_api_key()
-        return ChatDeepSeek(
-            model=resolved_model,
-            reasoning_effort="none",
-            temperature=temperature,
-            **kwargs,
+        return BalanceMeasuredChat(
+            ChatDeepSeek(
+                model=resolved_model,
+                reasoning_effort="none",
+                temperature=temperature,
+                **kwargs,
+            )
         )
     return ModelAdapter(prov, model_name=resolved_model)
 
@@ -181,16 +182,9 @@ def estimate_cost(
     completion_tokens: int,
     cached_tokens: int = 0,
 ) -> float:
-    """Pre-flight estimate in USD."""
-    return usage_cost(
-        model,
-        {
-            "cache_hit": cached_tokens,
-            "cache_miss": max(prompt_tokens - cached_tokens, 0),
-            "completion": completion_tokens,
-            "prompt": prompt_tokens,
-        },
-    )
+    """Pre-flight pricing is unavailable; DeepSeek cost is measured after a call."""
+    del model, prompt_tokens, completion_tokens, cached_tokens
+    return 0.0
 
 
 class Spend:
@@ -211,7 +205,7 @@ class Spend:
             if message is not None
             else {"prompt": 0, "cache_hit": 0, "cache_miss": 0, "completion": 0}
         )
-        cost = usage_cost(self.model, usage)
+        cost = vars(message).get("careerradar_cost_usd", 0.0) if message is not None else 0.0
         self.usd += cost
         self.calls += 1
         self.tokens_in += usage.get("prompt", 0)
@@ -238,7 +232,6 @@ class Spend:
 __all__ = [
     "DEFAULT_AGENT_MODEL",
     "DEFAULT_SCORING_MODEL",
-    "PRICES",
     "BaseLLMProvider",
     "LLMError",
     "LLMResponse",
@@ -257,5 +250,4 @@ __all__ = [
     "require_api_key",
     "structured_model",
     "token_usage",
-    "usage_cost",
 ]

@@ -32,6 +32,7 @@ class ScoreState(TypedDict, total=False):
     rendered: str
     verdict: dict[str, Any] | None
     usage: dict[str, int] | None
+    cost_usd: float
     attempts: int
     error: str | None
     semantic: bool
@@ -74,6 +75,8 @@ def node_score(state: ScoreState) -> dict[str, Any]:
     from careerradar.core.llm import no_tool_call_reason, token_usage
 
     usage = _add(state.get("usage"), token_usage(raw) if raw is not None else None)
+    raw_cost = vars(raw).get("careerradar_cost_usd") if raw is not None else None
+    cost = _add_cost(state.get("cost_usd"), raw_cost)
 
     if parse_error is not None or parsed is None:
         reason = parse_error if parse_error is not None else no_tool_call_reason(raw)
@@ -91,6 +94,7 @@ def node_score(state: ScoreState) -> dict[str, Any]:
             "error": _rule_from(reason) + truncated,
             "verdict": None,
             "usage": usage,
+            "cost_usd": cost,
             "semantic": _is_semantic(parse_error),
         }
 
@@ -99,6 +103,7 @@ def node_score(state: ScoreState) -> dict[str, Any]:
         "attempts": attempts,
         "verdict": verdict,
         "usage": usage,
+        "cost_usd": cost,
         "error": None,
         "semantic": False,
     }
@@ -111,6 +116,10 @@ def _add(total: dict[str, int] | None, usage: dict[str, int] | None) -> dict[str
     if total is None:
         return usage
     return {key: total[key] + value for key, value in usage.items()}
+
+
+def _add_cost(total: float | None, cost: float | None) -> float:
+    return (total or 0.0) + (cost or 0.0)
 
 
 def _is_semantic(parse_error: Any) -> bool:

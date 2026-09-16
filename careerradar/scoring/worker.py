@@ -16,9 +16,7 @@ from careerradar.core.database import Database
 from careerradar.core.llm import (
     MissingApiKey,
     Spend,
-    estimate_cost,
     get_model_for_role,
-    usage_cost,
 )
 from careerradar.core.logger import get_logger
 from careerradar.profile.adapter import NoActiveProfile
@@ -144,33 +142,10 @@ def run_scoring(limit: int | None = None) -> int:
         system = build_system(summary, fit_threshold=fit_threshold)
         phash = prompt_hash(summary, fit_threshold=fit_threshold)
         system_tokens = int(len(system) / CHARS_PER_TOKEN)
-        posting_tokens = sum(int(len(render_posting(j)) / CHARS_PER_TOKEN) for j in jobs)
-
-        estimate = (
-            estimate_cost(model, system_tokens, 0)
-            + estimate_cost(
-                model, posting_tokens, EXPECTED_COMPLETION_TOKENS * len(jobs), cached_tokens=0
-            )
-            + estimate_cost(
-                model,
-                system_tokens * (len(jobs) - 1),
-                0,
-                cached_tokens=system_tokens * (len(jobs) - 1),
-            )
-        )
-
         print(f"profile v{profile_version} · model {model}")
         print(f"postings to score: {len(jobs):,}")
         print(f"cached prefix:     {system_tokens:,} tokens")
-        print(f"estimated cost:    ${estimate:.4f}")
-
-        if max_usd is not None and estimate > max_usd:
-            print()
-            print(
-                f"ABORT: estimate ${estimate:.2f} exceeds scoring.max_usd_per_run ${max_usd:.2f}."
-            )
-            print("Raise the ceiling in config.yaml, or scope the run with --limit.")
-            return 1
+        print("cost:              measured from DeepSeek balance after each API call")
 
         graph = build_graph()
         spend = Spend(model, max_usd=max_usd)
@@ -190,7 +165,7 @@ def run_scoring(limit: int | None = None) -> int:
             for job, state in pool.map(score_one, jobs):
                 verdict = state.get("verdict")
                 usage = state.get("usage")
-                cost = usage_cost(model, usage) if usage else 0.0
+                cost = state.get("cost_usd", 0.0)
                 spend.usd += cost
                 spend.calls += state.get("attempts", 0)
                 if usage:
@@ -323,7 +298,7 @@ def score_job(
 
         verdict = final_state.get("verdict")
         usage = final_state.get("usage")
-        cost = usage_cost(model_name, usage) if usage else 0.0
+        cost = final_state.get("cost_usd", 0.0)
 
         if verdict is None:
             _record_failure(database, job_id, final_state.get("error"))

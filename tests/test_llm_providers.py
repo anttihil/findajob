@@ -15,12 +15,12 @@ from careerradar.core.llm import (
     Spend,
     get_llm_provider,
     list_available_providers,
-    usage_cost,
 )
 from careerradar.core.llm.providers.agy_cli import AGYCLIProvider
 from careerradar.core.llm.providers.claude_cli import ClaudeCLIProvider
 from careerradar.core.llm.providers.cli_base import BaseCLIProvider
 from careerradar.core.llm.providers.codex_cli import CodexCLIProvider
+from careerradar.core.llm.providers.deepseek_api import BalanceMeasuredChat
 from careerradar.core.llm.providers.opencode_cli import OpenCodeCLIProvider
 
 
@@ -208,13 +208,6 @@ class AdapterTests(unittest.TestCase):
 
 
 class CostAndSpendTests(unittest.TestCase):
-    def test_usage_cost_deepseek(self) -> None:
-        cost = usage_cost(
-            "deepseek-v4-flash",
-            {"cache_miss": 1000, "cache_hit": 1000, "completion": 500},
-        )
-        self.assertGreater(cost, 0.0)
-
     def test_spend_tracker(self) -> None:
         spend = Spend("deepseek-v4-flash", max_usd=1.0)
         fake_msg = mock.Mock(
@@ -227,10 +220,24 @@ class CostAndSpendTests(unittest.TestCase):
                 }
             }
         )
+        fake_msg.careerradar_cost_usd = 0.01
         usage, _cost = spend.record(fake_msg)
         self.assertEqual(usage["cache_hit"], 800)
         self.assertEqual(spend.calls, 1)
         self.assertFalse(spend.exhausted())
+
+
+class DeepSeekBalanceTests(unittest.TestCase):
+    @mock.patch("careerradar.core.llm.providers.deepseek_api.usd_balance", side_effect=[10.0, 9.75])
+    def test_measures_cost_from_balance_delta(self, balance: mock.MagicMock) -> None:
+        chat = mock.MagicMock()
+        chat.invoke.return_value = "response"
+
+        response, cost = BalanceMeasuredChat(chat).invoke([("user", "hello")])
+
+        self.assertEqual(response, "response")
+        self.assertEqual(cost, 0.25)
+        self.assertEqual(balance.call_count, 2)
 
 
 if __name__ == "__main__":

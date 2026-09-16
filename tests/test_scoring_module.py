@@ -13,7 +13,6 @@ from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from careerradar.core.llm import estimate_cost, usage_cost
 from careerradar.profile.models import JobFitVerdict
 from careerradar.scoring.prompts import (
     MAX_DESCRIPTION_CHARS,
@@ -81,30 +80,8 @@ class PromptLayoutTests(unittest.TestCase):
 
 
 class CostTests(unittest.TestCase):
-    def test_cached_input_is_charged_at_the_cache_rate(self) -> None:
-        model = "deepseek-v4-flash"
-        cached = usage_cost(
-            model, {"prompt": 1000, "cache_hit": 1000, "cache_miss": 0, "completion": 0}
-        )
-        uncached = usage_cost(
-            model, {"prompt": 1000, "cache_hit": 0, "cache_miss": 1000, "completion": 0}
-        )
-        self.assertLess(cached, uncached)
-
-    def test_unknown_model_costs_zero_rather_than_raising(self) -> None:
-        self.assertEqual(
-            usage_cost(
-                "not-a-model", {"prompt": 1, "cache_hit": 0, "cache_miss": 1, "completion": 1}
-            ),
-            0.0,
-        )
-
     def test_expected_completion_tokens_is_compact(self) -> None:
         self.assertLessEqual(EXPECTED_COMPLETION_TOKENS, 100)
-
-    def test_estimate_cost_is_positive(self) -> None:
-        cost = estimate_cost("deepseek-v4-flash", 1000, EXPECTED_COMPLETION_TOKENS)
-        self.assertGreater(cost, 0.0)
 
 
 class JobFitVerdictModelTests(unittest.TestCase):
