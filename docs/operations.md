@@ -1,167 +1,106 @@
 # Operating a deployment
 
-Three ways to look at a running instance, in the order you should reach for them.
+This page covers routine checks and maintenance for a running Find a Job instance. See the
+root [README](../README.md) for installation and general usage.
 
-## 1. `findajob status`
+## Health checks
 
-One health report over the whole pipeline, straight from the database. No API calls, no
-network, safe to run at any time.
+`status` reads the local database and makes no API calls:
 
 ```bash
 findajob status
-findajob status --json          # for piping
-ssh <prod-host> 'cd <install-dir> && .venv/bin/findajob status'
+findajob status --json
 ```
 
-It answers what nothing else does: how long since each stage last did anything, how big the
-scoring backlog is and how old its oldest posting is, whether verdict coverage is even
-across sources, whether cells are being revisited inside their tier's cadence, what is
-quarantined after repeated failures, and the active search-target fingerprint.
-
-**Read the coverage section first.** Every hit rate in this project — the target-query table
-included — is a ratio over *scored* postings. If one source is scored at
-67% and another at 27%, those ratios describe the scored subset rather than the market. The
-report prints a warning when the spread crosses 20 points.
-
-Two failures it exists to catch, both of which happened:
-
-- A scoring service sitting disabled. `findajob.service` was disabled on the production
-  host for weeks; 62% of the corpus went unjudged, and every family hit rate silently
-  skewed toward whatever had been scored.
-- A cold backlog deadlocking against `scoring.max_usd_per_run`. The pre-flight aborts the
-  whole run rather than trimming the queue, by design — so a backlog whose estimate exceeds
-  the ceiling is never scored at all, on every run, forever. `status` shows the backlog; the
-  ceiling is in `config.yaml`.
-
-## 2. The JSON API, over SSH
-
-The dashboard already serves its data as JSON, and `uvicorn` binds `127.0.0.1`, so the
-endpoints are reachable through an SSH session without exposing anything:
+It reports recent search and scoring activity, the unscored backlog, cell health, verdict
+coverage, quarantined postings, and the active search-target fingerprint. A stalled scorer or
+quarantined posting can usually be investigated with:
 
 ```bash
-ssh <prod-host> curl -s localhost:8010/api/sync/status
-ssh <prod-host> curl -s localhost:8010/api/market/coverage
-ssh <prod-host> curl -s localhost:8010/api/stats
+systemctl status findajob.service
+findajob score retry
 ```
 
-`/api/sync/status` reports the scheduler's own view, including cells past their staleness
-floor. `/api/market/coverage` is per-cell health — one row per (source, family, location,
-query), with `ewma_new_per_scrape` and `ewma_fit_score`, which is how you tell whether a
-particular query phrasing is earning its cell.
+## Accessing a loopback deployment
 
-The owner gate (`restrict_to_owner`) checks a `tailscale-user-login` header and lets
-unheadered requests through. That is safe only because the process binds loopback. **If you
-ever bind a public interface, that gate is not sufficient on its own.**
-
-## 3. A read-only snapshot, for analysis
-
-Anything heavier than a status check — corpus statistics, hit rates by title shape, testing
-a search-target edit against real postings — wants a local copy and ad-hoc SQL, not an endpoint.
+The dashboard's JSON endpoints can be queried through SSH without exposing port 8010:
 
 ```bash
-# on the dev machine
-mkdir -p /tmp/careerradar-prod
-rsync -avz <prod-host>:<install-dir>/jobs.db /tmp/careerradar-prod/
-sqlite3 /tmp/careerradar-prod/jobs.db 'pragma quick_check;'
+ssh <host> 'curl -s http://127.0.0.1:8010/api/sync/status'
+ssh <host> 'curl -s http://127.0.0.1:8010/api/market/coverage'
+ssh <host> 'curl -s http://127.0.0.1:8010/api/stats'
 ```
 
-Rules that make this safe:
+If the dashboard is exposed through a reverse proxy or Tailscale, configure the application's
+authentication environment variables appropriately. Do not expose an unauthenticated
+instance on a public interface.
 
-- **Copy, never query in place.** The live database is in WAL mode and is being written by
-  four services. Open the copy, not the original; if you must touch the original, open it
-  `-readonly`.
-- **Pull the `-wal` and `-shm` files too**, or the copy is missing whatever has not been
-  checkpointed yet.
-- **Never rsync back.** There is no merge path — the copy diverges the moment the next
-  scrape lands.
-- **Do not commit the snapshot, or a script containing your hostnames and paths.** The
-  procedure is documented here on purpose and the script is deliberately not in the
-  repository; a snapshot is a copy of a personal job search, and a published repository is
-  the wrong place for either it or the map to it.
+## Logs
 
-Analysis done this way is why several historical benchmark figures carry a note saying
-which database produced them. A figure computed on a development copy and a figure computed
-on production have differed by up to 7x in this project, in both directions. Say which one
-you used.
-
-## The log file
-
-`app.log` in the install directory is still the one place to read. Every stage and the web
-server append to it at DEBUG level; the journal holds the same records at INFO under each
-unit's identifier, which is the faster way to read one run in isolation:
+The application writes to the configured `app.log` path. For a systemd deployment, use either
+the file or the journal:
 
 ```bash
-tail -f <install-dir>/app.log
+tail -f <app-log-path>
 journalctl -u findajob.service -S -1h
 ```
 
-**Rotation is logrotate's, not the application's.** Four processes hold `app.log` open at
-once, and the old in-process `RotatingFileHandler` assumed a single writer: when one stage
-rotated, the other three kept appending to the renamed file, which the next rotation
-deleted. `deploy/install-systemd.sh` generates a `copytruncate` policy so every open handle survives a
-rotation. It is a one-time install and nothing warns you if you skip it — the file simply
-grows until the disk does:
+`deploy/install-systemd.sh` also installs a logrotate rule using `copytruncate`. Run that
+installer for systemd deployments so the shared log remains bounded.
+
+## Database snapshots
+
+For analysis, copy the database and query the copy—not the live database. SQLite uses WAL mode,
+so copy the `jobs.db`, `jobs.db-wal`, and `jobs.db-shm` files together when they exist.
 
 ```bash
-sudo ./deploy/install-systemd.sh --user "$(id -un)" --install-dir "$PWD" --no-start
-sudo logrotate --debug /etc/logrotate.d/findajob   # dry run, prints what it would do
+mkdir -p /tmp/careerradar-snapshot
+rsync -av <host>:<data-dir>/jobs.db* /tmp/careerradar-snapshot/
+sqlite3 /tmp/careerradar-snapshot/jobs.db 'pragma quick_check;'
 ```
 
-## The stages queue, they do not overlap
+Never rsync a snapshot back to the deployment, and do not commit it: it contains personal job
+search data.
 
-`search`, `score`, `run` and `migrate` take an exclusive `flock` on `.pipeline.lock`
-before they touch the database, and hold it until the process exits. A stage that finds the
-lock taken says so on stderr and waits:
+## Concurrent stages
 
-```
-score: another pipeline stage holds the database; waiting.
-```
+The writing commands `search`, `score`, `run`, and `migrate` serialize through the shared
+`.pipeline.lock`. If another stage is running, the next one waits. The lock is released by the
+operating system when the process exits, including after a crash; no manual lock cleanup is
+needed.
 
-This is not a fault. The timers are independent -- a scrape takes ~20 minutes and scoring
-fires every half hour -- so an overlap is normal, and SQLite admits one writer at a time.
-Two stages writing together outlived the 30s `busy_timeout` and failed with `database is
-locked`. Waiting costs nothing: the queue lives in `jobs.pipeline_state`, so a stage that
-starts late still drains exactly what it would have drained.
+## Deploying updates
 
-The wait is unbounded here on purpose. `TimeoutStartSec` in each unit is the bound, and a
-second one in the code would only disagree with it. The dashboard's Sync button takes the
-same lock; read-only commands (`status`, `profile show`, `target list`) and `start` never do.
-
-Nothing needs to be cleaned up after a crash. The kernel drops an `flock` when the holder
-dies, unlike the `sync_status.json` lock, which needs `STALE_LOCK_MINUTES` to recover.
-
-## Deploying an update
-
-Prod is a plain git checkout, so a deploy is a pull plus whatever the change touched.
-Personal settings belong in the gitignored `config.local.yaml`; pulling updates changes only
-the tracked defaults in `config.yaml`.
+For a source-checkout deployment:
 
 ```bash
-ssh <prod-host>
 cd <install-dir>
 git pull
-uv sync                                 # only if Python dependencies changed
-uv run findajob migrate              # applies migrations and auto-seeds/prunes cells
-npm ci && npm run build                 # only if careerradar/web/frontend-src/ changed --
-                                         # the built output is gitignored, so a pull alone
-                                         # leaves the previous build in place until this runs
-sudo systemctl restart findajob        # restarts dashboard and any enabled scheduler
-uv run findajob status               # confirm the pipeline still reads healthy
+uv sync                              # if Python dependencies changed
+uv run findajob migrate
+npm ci && npm run build               # if frontend source changed
+sudo systemctl restart findajob.service
+uv run findajob status
 ```
 
-## Deploying a search-target change
- 
-Skills are open-vocabulary and derived dynamically from the candidate's active profile and target domain.
+Keep personal settings in the gitignored `config.local.yaml` and credentials in `.env`.
 
-Search queries and locations are managed directly in SQLite via the web dashboard or CLI:
- 
+To install or refresh the systemd service for a checkout:
+
 ```bash
-findajob target add query "AI Engineer" "AI Engineer"
+sudo ./deploy/install-systemd.sh \
+  --user "$(id -un)" --install-dir "$(pwd)"
+```
+
+## Changing search targets
+
+Queries can be changed from the dashboard or CLI. Locations are managed from the dashboard.
+After changing targets, refresh the scrape matrix:
+
+```bash
+findajob target add "AI Engineer"
 findajob search seed-cells --prune
 ```
- 
-This syncs configured target queries into `scrape_cells` (with `--prune` to disable retired cells).
- 
-And a pattern edit is **not retroactive**. `role_family` is written at ingest, and
-`--rescore-only` passes it through rather than re-deriving it, so a pattern edit applies to
-postings scraped after it lands and to nothing already stored.
+
+The next search pass uses the refreshed matrix. Existing postings are not reclassified merely
+because a search target changes.
