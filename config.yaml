@@ -79,7 +79,3 @@ scoring:
   max_usd_per_run: 8.00
   skip_seniority: [lead, staff]
   max_posting_age_days: 3
-
-# Automatic runs remain off until explicitly enabled in config.local.yaml.
-scheduler:
-  enabled: false

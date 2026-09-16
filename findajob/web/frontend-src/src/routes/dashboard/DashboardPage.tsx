@@ -21,6 +21,7 @@ import { SearchTargetsWidget } from "../../components/SearchTargetsWidget";
 import { openImportModal } from "../../state/modal";
 import { PipelineStatus } from "../settings/PipelineStatus";
 import { SyncTrigger } from "../settings/SyncTrigger";
+import { SchedulerControl } from "../settings/SchedulerControl";
 
 const SYNC_ERROR_ICONS: Record<string, string> = {
   error: "fa-circle-exclamation",
@@ -318,6 +319,8 @@ export function DashboardPage() {
           </ul>
         </div>
       )}
+
+      <SchedulerControl />
 
       <SearchTargetsWidget
         onTargetsChanged={() => setRefreshKey((k) => k + 1)}

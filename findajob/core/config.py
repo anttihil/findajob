@@ -117,7 +117,6 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "max_posting_age_days": 3,
     },
     "scheduler": {
-        "enabled": False,
         "search": {
             "schedule": ["01:00", "07:00", "13:00", "19:00"],
             "jitter_minutes": 30,

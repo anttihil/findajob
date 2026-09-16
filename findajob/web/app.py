@@ -30,6 +30,10 @@ from findajob.core.config import load_config, save_config
 from findajob.core.database import Database
 from findajob.core.logger import get_logger
 from findajob.core.paths import FRONTEND_DIR
+from findajob.core.scheduler_preferences import (
+    get_scheduler_preferences,
+    update_scheduler_preferences,
+)
 from findajob.core.status_manager import (
     is_sync_running,
     load_sync_status,
@@ -216,6 +220,10 @@ class ConfigUpdate(BaseModel):
     """
 
     model_config = ConfigDict(extra="allow")
+
+
+class SchedulerPreferencesUpdate(BaseModel):
+    enabled: bool
 
 
 class TargetQueryCreate(BaseModel):
@@ -1095,6 +1103,34 @@ def get_scheduler_status():
     from findajob.core.scheduler import scheduler
 
     return scheduler.get_status()
+
+
+@app.get("/api/scheduler/preferences")
+def get_scheduler_preferences_endpoint(db: Database = Depends(get_db)):
+    """The user-owned automatic-run preference and current in-process status."""
+    from findajob.core.scheduler import scheduler
+
+    return {**get_scheduler_preferences(db.conn), "status": scheduler.get_status()}
+
+
+@app.put("/api/scheduler/preferences")
+async def update_scheduler_preferences_endpoint(payload: SchedulerPreferencesUpdate):
+    """Persist and apply automatic-run consent without requiring a server restart."""
+    from findajob.core.scheduler import scheduler
+
+    # FastAPI resolves sync dependencies in a worker thread but executes this async
+    # endpoint on the event loop. Use a short-lived connection here rather than carrying
+    # the thread-local dashboard connection across that boundary.
+    db = Database()
+    try:
+        preferences = update_scheduler_preferences(db.conn, enabled=payload.enabled)
+    finally:
+        db.conn.close()
+    if payload.enabled:
+        await scheduler.start()
+    else:
+        await scheduler.stop()
+    return {**preferences, "status": scheduler.get_status()}
 
 
 @app.post("/api/scheduler/trigger/{stage}")

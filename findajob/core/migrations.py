@@ -2230,6 +2230,19 @@ def _v29_job_search_fts(cursor: sqlite3.Cursor) -> None:
     )
 
 
+def _v30_scheduler_preferences(cursor: sqlite3.Cursor) -> None:
+    """Persist user-controlled scheduler activation separately from deployment config."""
+    cursor.execute(
+        """
+        CREATE TABLE scheduler_preferences (
+            id INTEGER PRIMARY KEY CHECK (id = 1),
+            enabled INTEGER NOT NULL DEFAULT 0 CHECK (enabled IN (0, 1)),
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+        """
+    )
+
+
 MIGRATIONS: list[tuple[int, str, Callable[[sqlite3.Cursor], None]]] = [
     (1, "baseline jobs table", _v1_baseline),
     (2, "market analytics: cells, observations, skills, stats", _v2_analytics),
@@ -2320,6 +2333,7 @@ MIGRATIONS: list[tuple[int, str, Callable[[sqlite3.Cursor], None]]] = [
         _v28_drop_location_weight,
     ),
     (29, "FTS5 index for dashboard job search", _v29_job_search_fts),
+    (30, "persisted scheduler preferences", _v30_scheduler_preferences),
 ]
 
 

@@ -268,9 +268,6 @@ _STARTER_CONFIG = """\
 #   # Default: your platform's Documents/Find a Job directory.
 #   # output_dir: ~/Documents/My Job Applications
 #
-scheduler:
-  # Automatic runs are opt-in for a new standalone install.
-  enabled: false
 """
 
 

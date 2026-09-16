@@ -6,6 +6,19 @@
 
 export type Liveness = "live" | "stale" | "likely_closed" | "unknown";
 export type PipelineState = "new" | "scored";
+
+export interface SchedulerStatus {
+  enabled: boolean;
+  is_running: boolean;
+  active_stage: string | null;
+  next_runs: Record<string, string | null>;
+}
+
+export interface SchedulerPreferences {
+  enabled: boolean;
+  updated_at: string | null;
+  status: SchedulerStatus;
+}
 export type JobStatus = "unread" | "saved" | "applied" | "rejected";
 
 // A job row from `Database.query_jobs` (list or detail mode -- `/api/jobs` always uses

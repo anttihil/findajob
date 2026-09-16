@@ -16,6 +16,10 @@ from typing import Any
 from findajob.core.config import load_config
 from findajob.core.logger import get_logger
 from findajob.core.paths import DB_PATH
+from findajob.core.scheduler_preferences import (
+    get_scheduler_preferences,
+    update_scheduler_preferences,
+)
 
 logger = get_logger()
 
@@ -33,6 +37,7 @@ class PipelineScheduler:
 
     def __init__(self) -> None:
         self._running: bool = False
+        self._enabled: bool = False
         self._tasks: list[asyncio.Task[None]] = []
         self._bg_tasks: set[asyncio.Task[Any]] = set()
         self._active_stage: str | None = None
@@ -53,6 +58,7 @@ class PipelineScheduler:
     def get_status(self) -> dict[str, Any]:
         """Returns the current operational status of the scheduler."""
         return {
+            "enabled": self._enabled,
             "is_running": self._running,
             "active_stage": self._active_stage,
             "active_started_at": _iso(self._active_started_at),
@@ -67,8 +73,15 @@ class PipelineScheduler:
             return
 
         config = load_config().get("scheduler", {})
-        if not config.get("enabled", True):
-            logger.info("Pipeline scheduler is disabled in config.")
+        with sqlite3.connect(DB_PATH) as conn:
+            preferences = get_scheduler_preferences(conn)
+            # Preserve the opt-in choice of installations that used the pre-v30 YAML
+            # setting. Once imported, the database is authoritative.
+            if preferences["updated_at"] is None and config.get("enabled", False):
+                preferences = update_scheduler_preferences(conn, enabled=True)
+        self._enabled = preferences["enabled"]
+        if not self._enabled:
+            logger.info("Pipeline scheduler is disabled by user preference.")
             return
 
         self._running = True
@@ -82,6 +95,7 @@ class PipelineScheduler:
 
     async def stop(self) -> None:
         """Stops the scheduler and terminates any active worker subprocess."""
+        self._enabled = False
         if not self._running:
             return
 

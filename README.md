@@ -118,12 +118,9 @@ the profile, editing search targets and settings, browsing and filtering posting
 verdicts, importing jobs, and generating resumes. Use the **Sync Now** action for a manual
 search-and-score pass.
 
-Automatic scheduling is disabled by default. Enable it in `config.local.yaml`:
-
-```yaml
-scheduler:
-  enabled: true
-```
+Automatic scheduling is disabled by default. Enable it from the **Automatic updates**
+control in the dashboard; the choice is stored in the local application database. Schedule
+times, scrape budgets, and other operational limits remain configuration settings.
 
 The CLI is the alternative for terminal-only and automated workflows. `search`, `score`,
 `resume`, `import`, and inspection commands operate directly on the local data; they do not

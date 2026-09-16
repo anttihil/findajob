@@ -1827,6 +1827,35 @@ html, body {
   font-size: 11.5px;
 }
 
+.scheduler-control-compact,
+.scheduler-control-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.scheduler-control-compact {
+  flex: 1 1 320px;
+  justify-content: space-between;
+  padding: 7px 9px;
+  border: var(--border-line);
+}
+
+.scheduler-control-compact strong {
+  font-size: 12px;
+}
+
+.scheduler-control-compact .card-note {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  line-height: 1.2;
+}
+
+.scheduler-control-row {
+  justify-content: space-between;
+}
+
 @media (max-width: 760px) {
   .dashboard-operations-body {
     align-items: flex-start;
@@ -1835,6 +1864,10 @@ html, body {
 
   .pipeline-status-compact {
     flex: 0 1 auto;
+  }
+
+  .scheduler-control-compact {
+    width: 100%;
   }
 }
 
