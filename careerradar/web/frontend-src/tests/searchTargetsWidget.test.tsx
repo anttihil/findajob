@@ -67,6 +67,13 @@ describe("SearchTargetsWidget", () => {
             json: () => Promise.resolve(mockCapacity),
           });
         }
+        if (url === "/api/config") {
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            json: () => Promise.resolve({ scraper: { sources: { indeed: true, linkedin: false } } }),
+          });
+        }
         if (url.includes("/api/targets/queries") && opts?.method === "PUT") {
           return Promise.resolve({
             ok: true,
@@ -157,6 +164,19 @@ describe("SearchTargetsWidget", () => {
       expect(getByText("Active Locations")).toBeTruthy();
       expect(getByText("Search Pairs")).toBeTruthy();
       expect(getByText(/Estimated sweep: ~1.2 hours/)).toBeTruthy();
+    });
+  });
+
+  it("manages crawler sources within the search targets panel", async () => {
+    const { getByText, getByLabelText } = render(<SearchTargetsWidget initialExpanded={true} />);
+
+    await waitFor(() => expect(getByText("Crawler Sources")).toBeTruthy());
+    fireEvent.click(getByText("Crawler Sources"));
+
+    await waitFor(() => {
+      expect(getByText("Enabled Crawler Sources")).toBeTruthy();
+      expect(getByLabelText(/Indeed/)).toBeTruthy();
+      expect(getByLabelText(/LinkedIn/)).toBeTruthy();
     });
   });
 

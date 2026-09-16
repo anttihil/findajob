@@ -2,11 +2,17 @@ import { useEffect, useMemo, useState } from "preact/hooks";
 import { useStoredPreference } from "../lib/preferences";
 import { deleteJSON, getJSON, guard, postJSON, putJSON, reportError } from "../api/client";
 import type {
+  Config,
   TargetCapacity,
   TargetLocation,
   TargetQuery,
   TargetsResponse,
 } from "../api/types";
+
+const SOURCE_LABELS: Record<string, string> = {
+  indeed: "Indeed",
+  linkedin: "LinkedIn",
+};
 
 interface PresetItem {
   id: string;
@@ -286,7 +292,7 @@ export function SearchTargetsWidget({
   onTargetsChanged,
 }: SearchTargetsWidgetProps) {
   const [expanded, setExpanded] = useState(initialExpanded);
-  const [activeTab, setActiveTab] = useState<"queries" | "locations" | "capacity">("queries");
+  const [activeTab, setActiveTab] = useState<"queries" | "locations" | "sources" | "capacity">("queries");
 
   const [queries, setQueries] = useState<TargetQuery[]>([]);
   const [locations, setLocations] = useState<TargetLocation[]>([]);
@@ -294,6 +300,9 @@ export function SearchTargetsWidget({
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
+  const [sources, setSources] = useState<Record<string, boolean>>({});
+  const [sourcesLoading, setSourcesLoading] = useState(true);
+  const [savingSources, setSavingSources] = useState(false);
 
   // Queries Filter & Add Form State
   const [querySearchTerm, setQuerySearchTerm] = useStoredPreference("target-query-search", "");
@@ -342,6 +351,13 @@ export function SearchTargetsWidget({
 
   useEffect(() => {
     loadData();
+    guard("Loading crawler sources", () => getJSON<Config>("/api/config")).then((data) => {
+      if (data) {
+        const scraper = data.scraper as { sources?: Record<string, boolean> } | undefined;
+        setSources(scraper?.sources ?? {});
+      }
+      setSourcesLoading(false);
+    });
   }, []);
 
   const showNotification = (msg: string) => {
@@ -365,6 +381,20 @@ export function SearchTargetsWidget({
       reportError("Syncing search matrix", err);
     } finally {
       setSyncing(false);
+    }
+  };
+
+  const handleSaveSources = async () => {
+    setSavingSources(true);
+    try {
+      await postJSON("/api/config", { scraper: { sources } });
+      const cap = await getJSON<TargetCapacity>("/api/targets/capacity");
+      if (cap) setCapacity(cap);
+      showNotification("Crawler sources updated.");
+    } catch (err) {
+      reportError("Saving crawler sources", err);
+    } finally {
+      setSavingSources(false);
     }
   };
 
@@ -666,6 +696,13 @@ export function SearchTargetsWidget({
                 onClick={() => setActiveTab("locations")}
               >
                 <i class="fa-solid fa-location-dot"></i> Search Locations ({locations.length})
+              </button>
+              <button
+                type="button"
+                class={`action-pill ${activeTab === "sources" ? "active" : ""}`}
+                onClick={() => setActiveTab("sources")}
+              >
+                <i class="fa-solid fa-tower-broadcast"></i> Crawler Sources
               </button>
               <button
                 type="button"
@@ -986,6 +1023,42 @@ export function SearchTargetsWidget({
                       </tbody>
                     </table>
                   </div>
+                </div>
+              )}
+
+              {activeTab === "sources" && (
+                <div class="target-sources-tab">
+                  <h3>Enabled Crawler Sources</h3>
+                  <p class="form-hint">
+                    Sources determine which job boards the scraper visits for every active search pair.
+                  </p>
+                  <div class="checkbox-grid mt-4">
+                    {Object.entries(SOURCE_LABELS).map(([key, label]) => (
+                      <label key={key} class="checkbox-label">
+                        <input
+                          type="checkbox"
+                          checked={Boolean(sources[key])}
+                          disabled={sourcesLoading || savingSources}
+                          onChange={(e) =>
+                            setSources((previous) => ({
+                              ...previous,
+                              [key]: (e.target as HTMLInputElement).checked,
+                            }))
+                          }
+                        />{" "}
+                        {label}
+                      </label>
+                    ))}
+                  </div>
+                  <button
+                    type="button"
+                    class="btn btn-primary mt-4"
+                    disabled={sourcesLoading || savingSources}
+                    onClick={handleSaveSources}
+                  >
+                    <i class={`fa-solid ${savingSources ? "fa-spinner fa-spin" : "fa-floppy-disk"}`}></i>{" "}
+                    {savingSources ? "Saving..." : "Save Crawler Sources"}
+                  </button>
                 </div>
               )}
 
