@@ -68,9 +68,6 @@ STATUS_PATH = _expand(
 PIPELINE_LOCK_PATH = _expand(
     os.environ.get("CAREERRADAR_PIPELINE_LOCK_PATH", os.path.join(STATE_DIR, ".pipeline.lock"))
 )
-ARCHIVE_DIR = _expand(
-    os.environ.get("CAREERRADAR_ARCHIVE_DIR", os.path.join(DATA_DIR, "raw_payloads"))
-)
 RESUMES_DIR = _expand(os.environ.get("CAREERRADAR_RESUMES_DIR", _default_resumes_dir))
 
 # Kept for callers that need a static default. Runtime resume generation uses
@@ -83,7 +80,7 @@ TEMPLATES_DIR = os.path.join(PACKAGE_ROOT, "templates")
 
 # Logging and SQLite can be initialized before the CLI reaches `init`. Ensure their parent
 # directories exist at import time, while leaving visible resume output creation lazy.
-for _directory in (CONFIG_DIR, DATA_DIR, STATE_DIR, os.path.dirname(ARCHIVE_DIR)):
+for _directory in (CONFIG_DIR, DATA_DIR, STATE_DIR):
     Path(_directory).mkdir(parents=True, exist_ok=True)
 
 
@@ -116,7 +113,7 @@ def ensure_user_dirs() -> dict[str, str]:
     }
     for directory in directories.values():
         Path(directory).mkdir(parents=True, exist_ok=True)
-    file_paths = (DB_PATH, GRAPH_DB_PATH, LOG_PATH, STATUS_PATH, PIPELINE_LOCK_PATH, ARCHIVE_DIR)
+    file_paths = (DB_PATH, GRAPH_DB_PATH, LOG_PATH, STATUS_PATH, PIPELINE_LOCK_PATH)
     for file_path in file_paths:
         Path(file_path).parent.mkdir(parents=True, exist_ok=True)
     return directories

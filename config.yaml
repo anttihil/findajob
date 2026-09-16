@@ -38,13 +38,6 @@ scraper:
     indeed: 0 # descriptions arrive inside the search page, so reading them is free
     linkedin: 1 # one extra request per posting
 
-  # How long raw scrape payloads are kept in raw_payloads/, so a bug in the normalizer can
-  # be replayed against real data instead of re-scraping. Old payloads are pruned at the
-  # start of every non-dry run. A payload is roughly 0.65MB per Indeed cell and 0.4MB per
-  # LinkedIn cell, so 14 days holds about 2GB. Lower it if disk matters more than the replay
-  # window. Set to 0 to keep everything.
-  archive_retention_days: 14
-
   # How often an active search cell should be revisited (daily). Read by the plan hash and
   # the dashboard's staleness flag, not by the scheduler: cells are visited
   # oldest-attempt-first, so the real cadence is searches_per_run against the matrix size.

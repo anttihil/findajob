@@ -101,7 +101,6 @@ def test_explicit_query_honors_persisted_source_backoff() -> None:
         mock.patch.object(explicit, "SourceCircuit", return_value=circuit),
         mock.patch.object(explicit, "load_config", return_value={}),
         mock.patch.object(explicit, "load_proxies", return_value=[]),
-        mock.patch.object(explicit, "prune_archives"),
     ):
         with pytest.raises(ValueError, match="backoff until"):
             explicit.run_query(args)

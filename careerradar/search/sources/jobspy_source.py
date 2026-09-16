@@ -22,15 +22,12 @@ its README (which documents 11 columns; the actual output has 34):
   the skill-demand denominators must not contain.
 """
 
-import json
 import logging
-import os
 import re
 import time
 import warnings
 from collections.abc import Generator
 from contextlib import contextmanager
-from datetime import datetime, timezone
 from typing import Any, TypedDict
 
 from careerradar.core.logger import get_logger
@@ -253,10 +250,9 @@ EXPECTED_COLUMNS = {
 class JobSpySource(BaseJobSource):
     """Fetches postings for one scrape task."""
 
-    def __init__(self, archive_dir: str | None = None, description_format: str = "markdown"):
+    def __init__(self, description_format: str = "markdown"):
         super().__init__()
         self.description_format = description_format
-        self.archive_dir = archive_dir
         self._scrape: Any = None
 
     def _loader(self) -> Any:
@@ -310,10 +306,6 @@ class JobSpySource(BaseJobSource):
                     }
 
         rows = frame_to_rows(frame)
-        # Archive before raising: a truncated payload is exactly the one worth replaying.
-        if self.archive_dir:
-            self._archive(task, rows)
-
         if reported.messages:
             # Re-raise carrying JobSpy's own wording, because SourceCircuit classifies on
             # message text -- "Read timed out" lands as transient and gets retried on a
@@ -324,58 +316,6 @@ class JobSpySource(BaseJobSource):
                 board_messages=reported.messages,
             )
         return rows
-
-    def _archive(self, task: ScrapeTaskPayload, rows: list[dict[str, Any]]) -> None:
-        """Persist the raw payload so normalizer bugs can be replayed without re-scraping."""
-        if not self.archive_dir:
-            return
-        try:
-            os.makedirs(self.archive_dir, exist_ok=True)
-            stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
-            slug = _slug(f"{task['source']}-{task['query']}-{task['location_id']}")
-            path = os.path.join(self.archive_dir, f"{stamp}-{slug}.json")
-            with open(path, "w", encoding="utf-8") as handle:
-                json.dump({"task": task, "rows": rows}, handle, default=str)
-        except OSError as exc:
-            logger.warning(f"could not archive raw payload: {exc}")
-
-
-def prune_archives(archive_dir: str | None, max_age_days: float = 14) -> tuple[int, int]:
-    """Delete raw payloads older than the retention window. Returns (removed, freed_bytes).
-
-    The archive exists so a normalizer bug can be replayed without re-scraping, which is
-    worth real disk -- but only for as long as a payload could plausibly be replayed. At
-    ~0.6MB per cell and 280 cells a day, unbounded retention is tens of GB a year of files
-    nobody will ever open. Age is taken from mtime rather than the filename stamp so a
-    partially-written or hand-copied file is still collected.
-
-    Failures are logged and swallowed: housekeeping must never be the thing that fails a
-    scrape run.
-    """
-    if not archive_dir or not os.path.isdir(archive_dir) or not max_age_days:
-        return 0, 0
-
-    cutoff = datetime.now(timezone.utc).timestamp() - (float(max_age_days) * 86400)
-    removed = 0
-    freed = 0
-    for name in os.listdir(archive_dir):
-        path = os.path.join(archive_dir, name)
-        try:
-            if not os.path.isfile(path) or os.path.getmtime(path) >= cutoff:
-                continue
-            size = os.path.getsize(path)
-            os.remove(path)
-            removed += 1
-            freed += size
-        except OSError as exc:
-            logger.warning(f"could not prune archive {name}: {exc}")
-
-    if removed:
-        logger.info(
-            f"Pruned {removed} raw payload(s) older than {max_age_days}d "
-            f"({freed / 1048576:.1f} MB freed)"
-        )
-    return removed, freed
 
 
 class ScrapeJobsKwargs(TypedDict, total=False):
@@ -467,7 +407,3 @@ def frame_to_rows(frame: Any) -> list[dict[str, Any]]:
         )
 
     return frame.to_dict(orient="records")
-
-
-def _slug(text: Any) -> str:
-    return "".join(c if c.isalnum() or c in "-_" else "-" for c in str(text))[:80]

@@ -9,13 +9,12 @@ from typing import Any, cast
 
 from careerradar.core.config import load_config
 from careerradar.core.database import Database
-from careerradar.core.paths import ARCHIVE_DIR
 from careerradar.search.guard import SourceCircuit, SourceTripped
 from careerradar.search.normalizer import normalize_rows
 from careerradar.search.proxies import apply_proxy_budgets, is_rotating, load_proxies, pin_for
 from careerradar.search.runner import store_postings
 from careerradar.search.scheduler import ScrapeTaskPayload
-from careerradar.search.sources.jobspy_source import JobSpySource, prune_archives
+from careerradar.search.sources.jobspy_source import JobSpySource
 
 SUPPORTED_SOURCES = frozenset({"indeed", "linkedin"})
 
@@ -58,7 +57,7 @@ def run_query(args: Any) -> dict[str, Any]:
         db=db,
         rotating_proxies=bool(proxies) and is_rotating(config),
     )
-    client = JobSpySource(archive_dir=ARCHIVE_DIR)
+    client = JobSpySource()
     observed_at = datetime.now(timezone.utc)
     cost = {"duration_ms": 0, "requests_made": 0}
     try:
@@ -116,6 +115,4 @@ def run_query(args: Any) -> dict[str, Any]:
             db.finish_sync_run(run_id, "failed", error_summary=str(exc))
         raise
     finally:
-        with contextlib.suppress(Exception):
-            prune_archives(ARCHIVE_DIR, scraper_config.get("archive_retention_days", 14))
         db.close()

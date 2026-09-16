@@ -174,7 +174,7 @@ class FetchWiringTests(unittest.TestCase):
         import careerradar.search.sources.jobspy_source as module
 
         self.module = module
-        self.source = module.JobSpySource(archive_dir=None)
+        self.source = module.JobSpySource()
         self.board = logging.getLogger(JOBSPY_LOGGERS["linkedin"])
 
         self._real_frame_to_rows = module.frame_to_rows
@@ -231,23 +231,6 @@ class FetchWiringTests(unittest.TestCase):
 
         self.source._scrape = fake_scrape
         self.assertEqual(self.source.fetch_for_task(self._task()), [{"title": "a"}])
-
-    def test_payload_is_archived_before_raising(self) -> None:
-        """A truncated payload is exactly the one worth replaying."""
-        import tempfile
-
-        archive = tempfile.mkdtemp()
-        self.addCleanup(__import__("shutil").rmtree, archive, True)
-        source = self.module.JobSpySource(archive_dir=archive)
-
-        def fake_scrape(**kwargs: Any) -> list[dict[str, Any]]:
-            self.board.error(TIMEOUT_MESSAGE)
-            return [{"title": "partial"}]
-
-        source._scrape = fake_scrape
-        with self.assertRaises(ScraperReportedError):
-            source.fetch_for_task(self._task())
-        self.assertEqual(len(os.listdir(archive)), 1)
 
 
 class ScrapeKwargsTests(unittest.TestCase):

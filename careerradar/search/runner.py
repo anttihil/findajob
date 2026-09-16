@@ -9,7 +9,6 @@ from typing import TYPE_CHECKING, Any
 from careerradar.core.config import load_config
 from careerradar.core.database import Database
 from careerradar.core.logger import get_logger
-from careerradar.core.paths import ARCHIVE_DIR
 from careerradar.core.status_manager import (
     add_sync_error,
     clear_stale_lock,
@@ -130,12 +129,9 @@ def run_sync(
             name for name, on in (scraper_config.get("sources") or {}).items() if on
         ]
 
-        from careerradar.search.sources.jobspy_source import JobSpySource, prune_archives
+        from careerradar.search.sources.jobspy_source import JobSpySource
 
-        source_client = JobSpySource(archive_dir=None if dry_run else ARCHIVE_DIR)
-        if not dry_run:
-            # Before scraping, so a run that dies partway still leaves the archive bounded.
-            prune_archives(ARCHIVE_DIR, scraper_config.get("archive_retention_days", 14))
+        source_client = JobSpySource()
 
         for source in enabled:
             circuit = SourceCircuit(
