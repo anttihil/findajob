@@ -100,7 +100,7 @@ describe("SearchTargetsWidget", () => {
   it("renders collapsed header with live metrics", async () => {
     const { getByText, container } = render(<SearchTargetsWidget initialExpanded={false} />);
     await waitFor(() => {
-      expect(getByText(/SEARCH MATRIX & TARGETS/)).toBeTruthy();
+      expect(getByText(/SEARCH SETTINGS/)).toBeTruthy();
       expect(getByText(/Queries/)).toBeTruthy();
       expect(getByText(/Locations/)).toBeTruthy();
       expect(container.textContent).toContain("~1.2h sweep");

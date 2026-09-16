@@ -162,29 +162,6 @@ html, body {
   gap: 18px;
 }
 
-.retro-logo-container {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 0 14px 0;
-  border-bottom: 1px dashed var(--ink-primary);
-}
-
-.hatched-logo-box {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.hatched-logo-caption {
-  font-family: var(--font-mono);
-  font-size: 13px;
-  font-weight: 800;
-  letter-spacing: 1.5px;
-  text-align: center;
-}
-
 .nav-menu {
   display: flex;
   flex-direction: column;
