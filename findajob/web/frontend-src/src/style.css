@@ -2351,15 +2351,15 @@ html, body {
 }
 
 /* AI Copilot Chat Panel */
-.profile-copilot-column {
+.profile-copilot-modal {
   border: 2px solid var(--ink-primary);
   background-color: var(--bg-screen);
   display: flex;
   flex-direction: column;
-  height: fit-content;
-  max-height: 850px;
-  position: sticky;
-  top: 1rem;
+  width: min(760px, 100%);
+  height: min(850px, calc(100vh - 2rem));
+  box-shadow: 6px 6px 0 #000;
+  overflow: hidden;
 }
 
 .profile-chat-panel {

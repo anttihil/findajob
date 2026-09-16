@@ -246,7 +246,8 @@ export function ResumesPage() {
               <i class="fa-solid fa-spinner fa-spin"></i> Loading master profile...
             </div>
           ) : (
-            <div class={`profile-main-grid ${showCopilot ? "with-copilot" : ""}`}>
+            <>
+              <div class="profile-main-grid">
               <div class="profile-editor-column">
                 <div class="profile-header-card">
                   <div>
@@ -258,9 +259,9 @@ export function ResumesPage() {
                   <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", flexWrap: "wrap" }}>
                     <button
                       class={`action-pill ${showCopilot ? "active text-blue" : ""}`}
-                      onClick={() => setShowCopilot(!showCopilot)}
+                      onClick={() => setShowCopilot(true)}
                     >
-                      <i class="fa-solid fa-robot"></i> {showCopilot ? "Hide Copilot" : "AI Copilot"}
+                      <i class="fa-solid fa-robot"></i> AI Copilot
                     </button>
                     <button
                       class="action-pill text-green active"
@@ -1003,8 +1004,17 @@ export function ResumesPage() {
                 </div>
               </div>
 
-              {showCopilot && (
-                <div class="profile-copilot-column">
+            </div>
+            {showCopilot && (
+              <div
+                class="retro-modal-overlay profile-copilot-modal-overlay"
+                onClick={() => setShowCopilot(false)}
+                onKeyDown={(e) => {
+                  if (e.key === "Escape") setShowCopilot(false);
+                }}
+                tabIndex={-1}
+              >
+                <div class="profile-copilot-modal" onClick={(e) => e.stopPropagation()}>
                   <ProfileChatPanel
                     currentProfile={toProfilePayload(masterProfile)}
                     resumeText={uploadedResumeText}
@@ -1012,8 +1022,9 @@ export function ResumesPage() {
                     onClose={() => setShowCopilot(false)}
                   />
                 </div>
-              )}
-            </div>
+              </div>
+            )}
+            </>
           )}
         </div>
       )}
