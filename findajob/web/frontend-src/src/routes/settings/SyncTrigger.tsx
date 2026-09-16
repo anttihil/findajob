@@ -1,8 +1,5 @@
 import { syncBusy, triggerSync } from "../../state/sync";
 
-// Ported from the sync box in `templates/tabs/settings.html`. The sidebar's own sync widget
-// (`components/SyncStatusWidget.tsx`) shares the same `state/sync.ts` signals, so the two
-// can never disagree about whether a scrape is running.
 export function SyncTrigger({ compact = false }: { compact?: boolean }) {
   return (
     <div class={compact ? "sync-box-compact" : "glass-card sync-box"}>

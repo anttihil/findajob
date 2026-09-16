@@ -1,5 +1,4 @@
 import { Link, useLocation } from "wouter-preact";
-import { SyncStatusWidget } from "./SyncStatusWidget";
 
 const NAV_ITEMS: { href: string; icon: string; label: string }[] = [
   { href: "/", icon: "fa-satellite-dish", label: "JOBS" },
@@ -47,8 +46,6 @@ export function Sidebar() {
           </Link>
         ))}
       </nav>
-
-      <SyncStatusWidget />
     </aside>
   );
 }
