@@ -1,13 +1,5 @@
-// Ported from `rendering.highlight_terms`, but restructured for Preact: instead of building
-// an HTML string and injecting it via `dangerouslySetInnerHTML` (the direct translation of
-// the Python version's `Markup(text)`), this returns plain segments that a component renders
-// as ordinary Preact children. Preact escapes text children automatically, so this sidesteps
-// needing `dangerouslySetInnerHTML` at all -- strictly safer than the string-building
-// approach, not just an equivalent port of it.
-//
-// Also fixes a latent bug the sequential `re.sub` version had: highlighting one skill could
-// wrap text in a `<span>` that a later skill's regex would then partially match inside,
-// corrupting the markup. Matching all skills in one pass, longest-first, avoids that.
+// Return escaped text segments rather than injecting generated HTML. Matching all skills in
+// one pass, longest-first, also prevents overlapping terms from corrupting the markup.
 
 export interface HighlightSegment {
   text: string;

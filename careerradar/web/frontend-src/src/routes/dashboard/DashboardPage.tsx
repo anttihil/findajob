@@ -235,7 +235,6 @@ export function DashboardPage() {
 
   return (
     <section class="tab-pane active">
-      {/* Top Stats Cards Grid (Monochrome 1983 Style) */}
       <div class="stats-grid">
         <Link
           href={query.url({ status: "unread", fit: null })}
@@ -320,7 +319,6 @@ export function DashboardPage() {
         </div>
       )}
 
-      {/* Search Matrix & Target Queries / Locations Widget */}
       <SearchTargetsWidget
         onTargetsChanged={() => setRefreshKey((k) => k + 1)}
       />
@@ -340,9 +338,7 @@ export function DashboardPage() {
         </div>
       </details>
 
-      {/* Main Content Grid: Recent Posts (Left) & Connections/Filters (Right) */}
       <div class="feed-layout mt-4">
-        {/* Left Column: Recent Posts / Matched Postings */}
         <div class="feed-main">
           <div class="panel-section-box">
             <div class="panel-section-header">RECENT POSTS</div>
@@ -449,7 +445,6 @@ export function DashboardPage() {
           </div>
         </div>
 
-        {/* Right Column: Filter Controls / Connections */}
         <div class="feed-sidebar-col">
           <FilterSidebar
             query={query}

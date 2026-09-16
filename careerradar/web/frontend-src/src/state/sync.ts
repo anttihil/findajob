@@ -1,8 +1,4 @@
-// Scrape trigger and status polling, ported from `frontend/js/features/sync.js`.
-//
-// A shared signal rather than two separate pollers: the sidebar's sync widget and the
-// Settings tab's sync box are two views of the same in-flight scrape, and the old DOM-poking
-// version could not express that they must agree.
+// Shared scrape state keeps the sidebar and Settings views synchronized.
 
 import { signal } from "@preact/signals";
 import { getJSON, reportError } from "../api/client";
@@ -28,9 +24,7 @@ export const syncStatus = signal<SyncStatus | null>(null);
 export const syncBusy = signal(false);
 
 let pollHandle: ReturnType<typeof setInterval> | null = null;
-// Notified once a scrape that was in progress finishes, since the feed a poller's caller is
-// looking at may now be stale. Callers (the dashboard route) subscribe to this rather than
-// the previous version's unconditional `window.location.reload()`.
+// Notifies callers when a completed scrape may have made the current feed stale.
 let onSyncFinished: (() => void) | null = null;
 
 export function setSyncFinishedListener(fn: (() => void) | null): void {

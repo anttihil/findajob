@@ -48,19 +48,16 @@ def _v1_baseline(cursor: sqlite3.Cursor) -> None:
 # Columns added to `jobs` in v2. Kept as data so the migration is idempotent against
 # databases that may have been partially migrated by an interrupted run.
 _V2_JOB_COLUMNS = [
-    # --- normalization ---
     ("role_family", "TEXT"),  # re-derived from the TITLE, never trusted from the query
     ("role_family_hint", "TEXT"),  # which cell's query surfaced it; provenance only
     ("seniority", "TEXT"),  # junior|mid|senior|staff|unspecified
     ("is_remote", "INTEGER"),  # 1|0|NULL (NULL = could not determine)
     ("city", "TEXT"),
     ("region", "TEXT"),
-    # --- recency ---
     ("date_posted", "TEXT"),  # real date when the board provides one
     ("date_precision", "TEXT DEFAULT 'unknown'"),  # exact|interval|unknown
     ("posted_window_start", "TEXT"),
     ("posted_window_end", "TEXT"),
-    # --- salary, normalized to annual USD for comparison ---
     ("salary_min", "REAL"),
     ("salary_max", "REAL"),
     ("salary_currency", "TEXT"),
@@ -68,7 +65,6 @@ _V2_JOB_COLUMNS = [
     ("salary_annual_usd", "REAL"),
     ("salary_currency_inferred", "INTEGER DEFAULT 0"),
     ("salary_source", "TEXT"),
-    # --- corpus hygiene / eligibility ---
     ("description_quality", "TEXT DEFAULT 'unknown'"),  # full|snippet|missing
     ("desc_selection", "TEXT DEFAULT 'none'"),  # census|top_k|none -- see note below
     ("content_hash", "TEXT"),
@@ -77,7 +73,6 @@ _V2_JOB_COLUMNS = [
     ("company_normalized", "TEXT"),
     ("company_num_employees", "TEXT"),
     ("company_industry", "TEXT"),
-    # --- provenance ---
     ("site_job_id", "TEXT"),  # the board's own id, e.g. 'in-22cfed37fc0b9a12'
     ("url_direct", "TEXT"),
     ("sync_run_id", "INTEGER"),
@@ -1286,7 +1281,6 @@ def _v17_resume_builder(cursor: sqlite3.Cursor) -> None:
     )
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_resumes_job_id ON generated_resumes(job_id)")
 
-    # Seed master profile if empty
     existing = cursor.execute("SELECT COUNT(*) FROM resume_master_profile").fetchone()[0]
     if existing == 0:
         from datetime import datetime, timezone
@@ -1366,7 +1360,6 @@ def _v18_unified_master_profile(cursor: sqlite3.Cursor) -> None:
         if col_name not in existing:
             cursor.execute(f"ALTER TABLE resume_master_profile ADD COLUMN {col_name} {ddl}")
 
-    # If there is an active profile row, backfill existing values
     try:
         prof_row = cursor.execute(
             "SELECT profile_json FROM profiles WHERE is_active = 1 ORDER BY version DESC LIMIT 1"
@@ -1482,7 +1475,6 @@ def _v19_single_profile_table(cursor: sqlite3.Cursor) -> None:
         """
     )
 
-    # Migrate existing data from resume_master_profile if present
     tables = {
         r[0] for r in cursor.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
     }
@@ -1558,7 +1550,6 @@ def _v19_single_profile_table(cursor: sqlite3.Cursor) -> None:
         except (sqlite3.Error, ValueError, KeyError) as exc:
             logger.warning("Failed to migrate resume_master_profile to profile: %s", exc)
 
-    # Ensure default row 1 exists
     cursor.execute(
         f"""
         INSERT OR IGNORE INTO profile (
@@ -1634,7 +1625,6 @@ def _v21_profile_executive_summary_and_projects(cursor: sqlite3.Cursor) -> None:
     if "projects_json" not in cols:
         cursor.execute("ALTER TABLE profile ADD COLUMN projects_json TEXT NOT NULL DEFAULT '[]'")
 
-    # Backfill executive_summary from summary_guidance if empty
     cursor.execute(
         """
         UPDATE profile
@@ -1643,7 +1633,6 @@ def _v21_profile_executive_summary_and_projects(cursor: sqlite3.Cursor) -> None:
            AND summary_guidance IS NOT NULL AND summary_guidance != ''
         """
     )
-    # Backfill dealbreakers_json from targeting_json if empty
     row = cursor.execute(
         "SELECT id, targeting_json, dealbreakers_json FROM profile WHERE id = 1"
     ).fetchone()
@@ -1675,27 +1664,22 @@ def _v22_drop_legacy_tables_and_columns(cursor: sqlite3.Cursor) -> None:
       - scrape_cells.ewma_yield_per_day: unused 100% NULL column.
       - generated_resumes.profile_version: obsolete foreign key to legacy `profiles` table.
     """
-    # 1. Drop unused market analytics / candidate tables and indexes
     cursor.execute("DROP TABLE IF EXISTS role_market_stats")
     cursor.execute("DROP TABLE IF EXISTS skill_market_stats")
     cursor.execute("DROP TABLE IF EXISTS skill_candidates")
     cursor.execute("DROP INDEX IF EXISTS idx_rms_lookup")
     cursor.execute("DROP INDEX IF EXISTS idx_sms_lookup")
 
-    # 2. Drop legacy v5 / v17 profile tables
     cursor.execute("DROP TABLE IF EXISTS profile_documents")
     cursor.execute("DROP TABLE IF EXISTS interview_turns")
     cursor.execute("DROP TABLE IF EXISTS resume_master_profile")
 
-    # 3. Drop write-only job_blockers table
     cursor.execute("DROP TABLE IF EXISTS job_blockers")
 
-    # 4. Drop unused ewma_yield_per_day column on scrape_cells if present
     cells_cols = {row[1] for row in cursor.execute("PRAGMA table_info(scrape_cells)")}
     if "ewma_yield_per_day" in cells_cols:
         cursor.execute("ALTER TABLE scrape_cells DROP COLUMN ewma_yield_per_day")
 
-    # 5. Recreate generated_resumes to cleanly remove profile_version and its FK to profiles
     existing_gr = {row[1] for row in cursor.execute("PRAGMA table_info(generated_resumes)")}
     if existing_gr:
         cursor.execute(
@@ -1743,7 +1727,6 @@ def _v22_drop_legacy_tables_and_columns(cursor: sqlite3.Cursor) -> None:
         cursor.execute("ALTER TABLE generated_resumes_new RENAME TO generated_resumes")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_resumes_job_id ON generated_resumes(job_id)")
 
-    # 6. Drop legacy profiles table and index
     cursor.execute("DROP TABLE IF EXISTS profiles")
     cursor.execute("DROP INDEX IF EXISTS idx_profiles_one_active")
 
@@ -1788,7 +1771,6 @@ def _v24_cell_centric_queries(cursor: sqlite3.Cursor) -> None:
     for view in ("v_supply_eligible", "v_skill_eligible", "cell_cost", "v_job_liveness"):
         cursor.execute(f"DROP VIEW IF EXISTS {view}")
 
-    # 1. Embed the search parameters on the cell, backfilled from the locations table.
     cell_columns = {row[1] for row in cursor.execute("PRAGMA table_info(scrape_cells)")}
     for column, ddl in (
         ("search_label", "TEXT NOT NULL DEFAULT ''"),
@@ -1821,7 +1803,6 @@ def _v24_cell_centric_queries(cursor: sqlite3.Cursor) -> None:
         """
     )
 
-    # 2. Collapse cells that collide once role_family leaves the unique key.
     cursor.execute(
         """
         CREATE TEMP TABLE cell_merge AS
@@ -1846,7 +1827,6 @@ def _v24_cell_centric_queries(cursor: sqlite3.Cursor) -> None:
     cursor.execute("DELETE FROM scrape_cells WHERE id NOT IN (SELECT new_id FROM cell_merge)")
     cursor.execute("DROP TABLE cell_merge")
 
-    # 3. Rebuild scrape_cells without role_family and tier.
     cursor.execute(
         """
         CREATE TABLE scrape_cells_new (
@@ -1917,7 +1897,6 @@ def _v24_cell_centric_queries(cursor: sqlite3.Cursor) -> None:
         "ON scrape_cells(source, enabled, backoff_until, last_scraped_at)"
     )
 
-    # 4. Rebuild cell_observations without role_family and returned_on_topic.
     cursor.execute(
         """
         CREATE TABLE cell_observations_new (
@@ -1964,7 +1943,6 @@ def _v24_cell_centric_queries(cursor: sqlite3.Cursor) -> None:
     )
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_cellobs_run ON cell_observations(sync_run_id)")
 
-    # 5. Drop the posting columns the deleted features wrote.
     cursor.execute("DROP INDEX IF EXISTS idx_jobs_family_found")
     cursor.execute("DROP INDEX IF EXISTS idx_jobs_access")
     job_columns = {row[1] for row in cursor.execute("PRAGMA table_info(jobs)")}
@@ -1972,12 +1950,10 @@ def _v24_cell_centric_queries(cursor: sqlite3.Cursor) -> None:
         if column in job_columns:
             cursor.execute(f"ALTER TABLE jobs DROP COLUMN {column}")
 
-    # 6. Drop the research and role-taxonomy tables.
     cursor.execute("DROP INDEX IF EXISTS idx_dossiers_display")
     cursor.execute("DROP TABLE IF EXISTS company_dossiers")
     cursor.execute("DROP TABLE IF EXISTS research_runs")
 
-    # 7. target_queries -> search_queries: flat, keyed on the query string itself.
     cursor.execute(
         """
         CREATE TABLE search_queries (
@@ -1996,7 +1972,6 @@ def _v24_cell_centric_queries(cursor: sqlite3.Cursor) -> None:
     cursor.execute("DROP TABLE target_queries")
     cursor.execute("DROP TABLE IF EXISTS target_roles")
 
-    # 8. target_locations -> search_locations, without access.
     cursor.execute(
         """
         CREATE TABLE search_locations (
@@ -2024,7 +1999,6 @@ def _v24_cell_centric_queries(cursor: sqlite3.Cursor) -> None:
     )
     cursor.execute("DROP TABLE target_locations")
 
-    # 9. Recreate the views over the new shape.
     cursor.executescript(
         """
         CREATE VIEW v_supply_eligible AS

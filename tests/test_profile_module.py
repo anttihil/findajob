@@ -272,16 +272,13 @@ class StoreTests(unittest.TestCase):
 
         save_profile(profile, conn=self.conn)
 
-        # Direct load
         loaded = load_profile(conn=self.conn)
         self.assertEqual(loaded.name, "Jane Doe")
         self.assertEqual(loaded.skills[0].skills, ["Python", "Go"])
 
-        # Table row count must be exactly 1
         count = self.conn.execute("SELECT COUNT(*) FROM profile").fetchone()[0]
         self.assertEqual(count, 1)
 
-        # Active compatibility loader
         active = load_active(db=self._db())
         assert active is not None
         version, prof, summary = active

@@ -1,10 +1,5 @@
-// The dashboard's filter state, and the only copy of it. Ported from
-// `careerradar/web/rendering.py::FilterQuery`.
-//
-// Constructed fresh from the URL's search string on every render (via wouter's
-// `useSearch()`), the same way the Python version was constructed fresh from the request's
-// query string on every request -- there is no second copy of "the current filter" sitting
-// in component state to drift from what the address bar says.
+// Filter state is reconstructed from the URL on every render, matching the server-side
+// FilterQuery behavior and keeping the address bar as the source of truth.
 
 export type JobStatusFilter = "unread" | "saved" | "applied" | "rejected";
 

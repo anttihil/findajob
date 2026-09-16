@@ -1,4 +1,3 @@
-// Ported from `rendering.short_date` / `rendering.hostname`.
 
 const MONTHS = [
   "Jan", "Feb", "Mar", "Apr", "May", "Jun",
@@ -32,5 +31,4 @@ export function retroDate(value: string | null | undefined): string {
   const min = String(date.getUTCMinutes()).padStart(2, "0");
   return `${mm}-${dd}-${yy}  ${hh}:${min}`;
 }
-
 

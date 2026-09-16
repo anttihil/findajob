@@ -26,7 +26,6 @@ interface PresetItem {
 }
 
 const LOCATION_PRESETS: PresetItem[] = [
-  // Remote Work
   {
     id: "us_remote",
     label: "United States (remote)",
@@ -57,7 +56,6 @@ const LOCATION_PRESETS: PresetItem[] = [
     distance: 50,
     region: "Remote",
   },
-  // North America
   {
     id: "san_francisco",
     label: "San Francisco Bay Area, CA",
@@ -148,7 +146,6 @@ const LOCATION_PRESETS: PresetItem[] = [
     distance: 50,
     region: "North America",
   },
-  // Europe & UK
   {
     id: "london",
     label: "London, United Kingdom",
@@ -249,7 +246,6 @@ const LOCATION_PRESETS: PresetItem[] = [
     distance: 50,
     region: "Europe & UK",
   },
-  // Asia-Pacific
   {
     id: "singapore",
     label: "Singapore",
@@ -304,7 +300,6 @@ export function SearchTargetsWidget({
   const [sourcesLoading, setSourcesLoading] = useState(true);
   const [savingSources, setSavingSources] = useState(false);
 
-  // Queries Filter & Add Form State
   const [querySearchTerm, setQuerySearchTerm] = useStoredPreference("target-query-search", "");
   const [queryStatusFilter, setQueryStatusFilter] = useStoredPreference<"all" | "active" | "paused">("target-query-status-filter", "all");
 
@@ -312,11 +307,9 @@ export function SearchTargetsWidget({
   const [newQueryText, setNewQueryText] = useState("");
   const [newQueryEnabled, setNewQueryEnabled] = useState(true);
 
-  // Query Inline Editing State
   const [editingQueryId, setEditingQueryId] = useState<number | null>(null);
   const [editingQueryText, setEditingQueryText] = useState("");
 
-  // Location Form & Editing State
   const [showAddLocationModal, setShowAddLocationModal] = useState(false);
   const [selectedPresetRegion, setSelectedPresetRegion] = useState<string>("All");
   const [locId, setLocId] = useState("");
@@ -398,7 +391,6 @@ export function SearchTargetsWidget({
     }
   };
 
-  // --- Search Query Actions ---
   const handleToggleQuery = async (queryId: number, currentEnabled: boolean | number) => {
     const nextEnabled = !currentEnabled;
     try {
@@ -473,7 +465,6 @@ export function SearchTargetsWidget({
     }
   };
 
-  // --- Location Actions ---
   const handleToggleLocation = async (locIdVal: string, currentEnabled: boolean | number) => {
     const nextEnabled = !currentEnabled;
     try {
@@ -575,7 +566,6 @@ export function SearchTargetsWidget({
     }
   };
 
-  // Filtered queries
   const filteredQueries = useMemo(() => {
     return queries.filter((q) => {
       const matchesText =
@@ -602,7 +592,6 @@ export function SearchTargetsWidget({
 
   return (
     <div class="panel-section-box search-targets-panel mb-4">
-      {/* Top Header Bar */}
       <div class="panel-section-header search-targets-header">
         <div class="search-targets-title-area">
           <span class="matrix-title">
@@ -677,10 +666,8 @@ export function SearchTargetsWidget({
         </div>
       )}
 
-      {/* Expanded Management Body */}
       {expanded && (
         <div class="panel-section-body search-targets-body">
-          {/* Sub-Tabs Bar */}
           <div class="subtab-bar-container mb-4">
             <div class="subtab-bar">
               <button
@@ -720,7 +707,6 @@ export function SearchTargetsWidget({
             </div>
           ) : (
             <>
-              {/* TAB 1: SEARCH QUERY TERMS */}
               {activeTab === "queries" && (
                 <div class="target-queries-tab">
                   <div class="targets-toolbar">
@@ -769,7 +755,6 @@ export function SearchTargetsWidget({
                     </div>
                   </div>
 
-                  {/* Query Items List */}
                   <div class="target-queries-list mt-3">
                     {filteredQueries.length === 0 ? (
                       <div class="empty-queries-box">
@@ -879,10 +864,8 @@ export function SearchTargetsWidget({
                 </div>
               )}
 
-              {/* TAB 2: SEARCH LOCATIONS */}
               {activeTab === "locations" && (
                 <div class="target-locations-tab">
-                  {/* Location Presets & Quick Add Bar */}
                   <div class="location-presets-box mb-4">
                     <div class="presets-header">
                       <span>
@@ -897,7 +880,6 @@ export function SearchTargetsWidget({
                       </button>
                     </div>
 
-                    {/* Region Selector for Presets */}
                     <div class="preset-regions-bar mt-2">
                       {["All", "Remote", "North America", "Europe & UK", "Asia-Pacific"].map((reg) => (
                         <button
@@ -937,7 +919,6 @@ export function SearchTargetsWidget({
                     </div>
                   </div>
 
-                  {/* Configured Locations Table */}
                   <div class="locations-table-wrap">
                     <table class="retro-table">
                       <thead>
@@ -1062,7 +1043,6 @@ export function SearchTargetsWidget({
                 </div>
               )}
 
-              {/* TAB 3: MATRIX & SWEEP CAPACITY */}
               {activeTab === "capacity" && (
                 <div class="target-capacity-tab">
                   <div class="capacity-hero-card">
@@ -1116,7 +1096,6 @@ export function SearchTargetsWidget({
         </div>
       )}
 
-      {/* MODAL: ADD SEARCH QUERY */}
       {showAddQueryModal && (
         <div class="retro-modal-overlay" onClick={() => setShowAddQueryModal(false)}>
           <div class="retro-modal-box" onClick={(e) => e.stopPropagation()}>
@@ -1174,7 +1153,6 @@ export function SearchTargetsWidget({
         </div>
       )}
 
-      {/* MODAL: ADD / EDIT LOCATION */}
       {showAddLocationModal && (
         <div class="retro-modal-overlay" onClick={() => setShowAddLocationModal(false)}>
           <div class="retro-modal-box modal-wide" onClick={(e) => e.stopPropagation()}>

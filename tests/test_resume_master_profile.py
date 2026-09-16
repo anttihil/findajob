@@ -18,11 +18,9 @@ def test_master_profile_crud():
     conn.row_factory = sqlite3.Row
     migrate(conn)
 
-    # Initial profile seeded by migration
     p0 = load_profile(conn)
     assert p0 is not None
 
-    # Update profile
     p1 = Profile(
         name="Jane Doe",
         email="jane@example.com",

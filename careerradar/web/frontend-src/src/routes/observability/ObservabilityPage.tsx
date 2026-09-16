@@ -17,7 +17,6 @@ export function ObservabilityPage() {
     useState<ObservabilityVerdictsResponse | null>(null);
   const [loadingVerdicts, setLoadingVerdicts] = useState(false);
 
-  // Scoring prompt inspection state
   const [promptData, setPromptData] =
     useState<ObservabilityPromptResponse | null>(null);
   const [promptViewMode, setPromptViewMode] = useState<
@@ -26,7 +25,6 @@ export function ObservabilityPage() {
   const [promptExpanded, setPromptExpanded] = useState(false);
   const [copiedPrompt, setCopiedPrompt] = useState(false);
 
-  // Filters and pagination state
   const [searchTerm, setSearchTerm] = useStoredPreference("observability-search-term", "");
   const [activeQuery, setActiveQuery] = useStoredPreference("observability-active-query", "");
   const [fitFilter, setFitFilter] = useStoredPreference<"all" | "fit" | "no_fit">("observability-fit-filter", "all");
@@ -35,7 +33,6 @@ export function ObservabilityPage() {
   const [limit, setLimit] = useStoredPreference<number>("observability-limit", 20);
   const [offset, setOffset] = useState<number>(0);
 
-  // Load overall stats and prompt info on mount
   useEffect(() => {
     let cancelled = false;
     guard("Loading scoring configuration", () => getJSON<Meta>("/api/meta")).then((data) => {
@@ -63,7 +60,6 @@ export function ObservabilityPage() {
     };
   }, []);
 
-  // Fetch paginated & filtered verdicts
   useEffect(() => {
     let cancelled = false;
     setLoadingVerdicts(true);
@@ -139,9 +135,7 @@ export function ObservabilityPage() {
 
   return (
     <section class="tab-pane active observability-page">
-      {/* Top Metrics Cards */}
       <div class="stats-grid obs-stats-grid">
-        {/* Output Tokens Card */}
         <div class="stat-card obs-stat-card">
           <div class="stat-icon purple">
             <i class="fa-solid fa-microchip"></i>
@@ -162,7 +156,6 @@ export function ObservabilityPage() {
           </div>
         </div>
 
-        {/* Input & Cache Efficiency Card */}
         <div class="stat-card obs-stat-card">
           <div class="stat-icon blue">
             <i class="fa-solid fa-bolt"></i>
@@ -192,7 +185,6 @@ export function ObservabilityPage() {
           </div>
         </div>
 
-        {/* Total Cost Card */}
         <div class="stat-card obs-stat-card">
           <div class="stat-icon gold">
             <i class="fa-solid fa-dollar-sign"></i>
@@ -212,7 +204,6 @@ export function ObservabilityPage() {
           </div>
         </div>
 
-        {/* Verdict Breakdown Card */}
         <div class="stat-card obs-stat-card">
           <div class="stat-icon green">
             <i class="fa-solid fa-check-double"></i>
@@ -235,9 +226,7 @@ export function ObservabilityPage() {
         </div>
       </div>
 
-      {/* Observability Visual Analytics Row */}
       <div class="obs-analytics-row">
-        {/* Reason Type Breakdown Panel */}
         <div class="glass-card obs-panel">
           <div class="obs-panel-header">
             <h4>
@@ -285,7 +274,6 @@ export function ObservabilityPage() {
           </div>
         </div>
 
-        {/* Token Accounting & Model Insights Panel */}
         <div class="glass-card obs-panel">
           <div class="obs-panel-header">
             <h4>
@@ -295,7 +283,6 @@ export function ObservabilityPage() {
           </div>
 
           <div class="obs-diagnostics-content">
-            {/* Model Comparison Table */}
             {stats && stats.models.length > 0 && (
               <div class="obs-models-table-wrap">
                 <table class="obs-table">
@@ -328,7 +315,6 @@ export function ObservabilityPage() {
         </div>
       </div>
 
-      {/* Active Scoring Prompt & Cached System Prefix Inspector */}
       <div class="glass-card obs-panel" style={{ marginBottom: "18px" }}>
         <div
           class="obs-panel-header"
@@ -387,7 +373,6 @@ export function ObservabilityPage() {
 
         {promptExpanded && (
           <div style={{ marginTop: "1rem" }}>
-            {/* View Mode Toggle & Copy Button */}
             <div
               style={{
                 display: "flex",
@@ -436,7 +421,6 @@ export function ObservabilityPage() {
               </button>
             </div>
 
-            {/* Prompt Code Display */}
             <pre
               style={{
                 backgroundColor: "var(--bg-screen-alt)",
@@ -457,7 +441,6 @@ export function ObservabilityPage() {
         )}
       </div>
 
-      {/* Model Output & Token Inspection Explorer */}
       <div class="glass-card obs-explorer-card">
         <div class="obs-explorer-header">
           <div class="obs-explorer-title">
@@ -471,7 +454,6 @@ export function ObservabilityPage() {
             </span>
           </div>
 
-          {/* Search bar */}
           <form onSubmit={handleSearchSubmit} class="obs-search-form">
             <div class="obs-search-input-wrap">
               <i class="fa-solid fa-magnifying-glass obs-search-icon"></i>
@@ -504,7 +486,6 @@ export function ObservabilityPage() {
           </form>
         </div>
 
-        {/* Filter Controls Bar */}
         <div class="obs-controls-bar">
           <div class="obs-filter-group">
             <span class="obs-filter-label">Fit Verdict:</span>
@@ -530,7 +511,6 @@ export function ObservabilityPage() {
             </div>
           </div>
 
-          {/* Reason Type Selector */}
           <div class="obs-filter-group">
             <span class="obs-filter-label">Reason:</span>
             <select
@@ -551,7 +531,6 @@ export function ObservabilityPage() {
             </select>
           </div>
 
-          {/* Sort Selector */}
           <div class="obs-filter-group">
             <span class="obs-filter-label">Sort:</span>
             <select
@@ -573,7 +552,6 @@ export function ObservabilityPage() {
             </select>
           </div>
 
-          {/* Limit Selector */}
           <div class="obs-filter-group">
             <span class="obs-filter-label">Page size:</span>
             <select
@@ -590,7 +568,6 @@ export function ObservabilityPage() {
           </div>
         </div>
 
-        {/* Verdicts List */}
         <div class="obs-verdicts-container">
           {loadingVerdicts && (
             <div class="obs-loading-state">
@@ -611,7 +588,6 @@ export function ObservabilityPage() {
 
           {!loadingVerdicts &&
             items.map((item: ObservabilityVerdictItem) => {
-              // Token level styling
               const isOutlier = item.tokens_out > 250;
               const isElevated = item.tokens_out > 140 && !isOutlier;
               const tokenClass = isOutlier
@@ -669,7 +645,6 @@ export function ObservabilityPage() {
                       </div>
                     </div>
 
-                    {/* Verdict Outcome Badges */}
                     <div class="obs-verdict-badges">
                       <span
                         class={`obs-badge-verdict ${
@@ -687,7 +662,6 @@ export function ObservabilityPage() {
                     </div>
                   </div>
 
-                  {/* Model Generated Output */}
                   <div class="obs-explanation-box">
                     <div class="obs-explanation-label">
                       <i class="fa-solid fa-quote-left"></i> Model Output:
@@ -701,7 +675,6 @@ export function ObservabilityPage() {
                     </p>
                   </div>
 
-                  {/* Token & Cost Footer */}
                   <div class="obs-verdict-footer">
                     <div class="obs-token-pills">
                       <span class={`obs-token-pill ${tokenClass}`}>
@@ -730,7 +703,6 @@ export function ObservabilityPage() {
             })}
         </div>
 
-        {/* Pagination Controls */}
         {totalVerdicts > 0 && (
           <nav class="feed-pagination obs-pagination">
             <button

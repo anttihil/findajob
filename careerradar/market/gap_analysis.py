@@ -98,7 +98,6 @@ class GapAnalysis:
 
         return _StubProfile()
 
-    # -- corpus loading ---------------------------------------------------------------
     def _load_corpus(
         self,
         window_days: int,
@@ -129,7 +128,6 @@ class GapAnalysis:
         skills_by_job = market_repo.load_job_skills_chunked(self.db.conn, ids)
         return postings, skills_by_job
 
-    # -- main entry point --------------------------------------------------------------
     def analyse(
         self,
         window_days: int = 90,
@@ -401,7 +399,6 @@ class GapAnalysis:
             },
         }
 
-    # -- drill-down --------------------------------------------------------------------
     def skill_detail(self, skill: str, window_days: int = 90, limit: int = 40) -> dict[str, Any]:
         """Everything behind one skill's numbers, so a ranking can be audited."""
         window_start = datetime.now(timezone.utc) - timedelta(days=window_days)

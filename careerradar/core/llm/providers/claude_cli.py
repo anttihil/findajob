@@ -29,7 +29,6 @@ class ClaudeCLIProvider(BaseCLIProvider):
         if not path:
             return False, "Binary 'claude' not found in PATH."
 
-        # Check authentication status
         try:
             retcode, stdout, _ = self._run_subprocess(["claude", "auth", "status"], timeout=10.0)
             if retcode == 0:

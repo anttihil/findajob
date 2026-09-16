@@ -50,7 +50,6 @@ def set_sync_progress(
     status = load_sync_status()
     status["sync_in_progress"] = in_progress
     if in_progress:
-        # Clear old errors and set running stats to 0
         status["errors"] = []
         status["last_run_stats"] = {"total_fetched": 0, "total_evaluated": 0, "total_new": 0}
         status["owner_pid"] = os.getpid()
@@ -117,7 +116,6 @@ def add_sync_error(source: str, error_message: str, severity: str = "error") -> 
     identically. The dedupe key stays (source, error), so one 429 produces one banner line.
     """
     status = load_sync_status()
-    # Avoid repeating the same error for a source within the same run
     if not any(e["source"] == source and e["error"] == error_message for e in status["errors"]):
         status["errors"].append(
             {

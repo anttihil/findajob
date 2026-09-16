@@ -8,7 +8,6 @@ import yaml
 from careerradar.core.paths import CONFIG_LOCAL_PATH, CONFIG_PATH, ENV_PATH
 
 
-# Simple .env loader
 def load_env() -> None:
     env_path = ENV_PATH
     if os.path.exists(env_path):

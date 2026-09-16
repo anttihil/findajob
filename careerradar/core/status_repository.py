@@ -40,7 +40,6 @@ def collect_status_report(
 
     report: dict[str, Any] = {"generated_at": now.isoformat()}
 
-    # -- stages ---------------------------------------------------------------------
     run = conn.execute(
         "SELECT started_at, mode, status, cells_planned, cells_succeeded, postings_new "
         "FROM sync_runs WHERE status != 'running' ORDER BY id DESC LIMIT 1"
@@ -94,7 +93,6 @@ def collect_status_report(
         "oldest_unscored_days": (hours_since(oldest_new, now) or 0) / 24.0,
     }
 
-    # -- verdict coverage, by source ---------------------------------------------------
     report["coverage"] = [
         {
             "source": row["source"] or "unknown",
@@ -110,7 +108,6 @@ def collect_status_report(
         )
     ]
 
-    # -- cells ------------------------------------------------------------------------
     cadence_hours = int(cadence) if isinstance(cadence, (int, float)) else 24
     row = conn.execute(
         "SELECT COUNT(*) AS cells, "
@@ -137,7 +134,6 @@ def collect_status_report(
         )
     report["cells"] = cells
 
-    # -- quarantine ---------------------------------------------------------------------
     report["quarantined"] = [
         {"id": row["id"], "title": row["title"], "error": row["last_scoring_error"]}
         for row in conn.execute(
@@ -146,7 +142,6 @@ def collect_status_report(
         )
     ]
 
-    # -- search targets -----------------------------------------------------------------
     from careerradar.search.targets import load_targets
 
     report["search_targets"] = {"search_targets_hash": load_targets().fingerprint}
@@ -162,7 +157,6 @@ def get_pipeline_status(
     """Lightweight, low-latency pipeline progress report for web UI and live SSE events."""
     now = now or datetime.now(timezone.utc)
 
-    # 1. Scrape: query the latest completed run
     last_sync = conn.execute(
         "SELECT started_at, status, cells_succeeded, cells_planned, postings_new "
         "FROM sync_runs WHERE status != 'running' ORDER BY id DESC LIMIT 1"
@@ -214,7 +208,6 @@ def get_pipeline_status(
                 planned = sum(len(scrape_tasks(db_instance, config, source)) for source in enabled)
             scrape["cells_planned"] = planned or None
 
-    # 2. Score: single query for latest verdict timestamp and recent 5-min verdict count
     v_row = conn.execute(
         "SELECT MAX(created_at), "
         "SUM(CASE WHEN unixepoch(created_at) >= unixepoch('now', '-5 minutes') THEN 1 ELSE 0 END) "

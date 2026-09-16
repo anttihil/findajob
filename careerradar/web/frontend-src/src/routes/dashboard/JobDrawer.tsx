@@ -4,9 +4,7 @@ import type { GeneratedResumeRecord, JobContext, JobStatus } from "../../api/typ
 import { highlightTerms } from "../../lib/highlightTerms";
 import { VerdictPanel } from "./VerdictPanel";
 
-// Ported from `partials/job_drawer.html` + the permanent drawer chrome in `base.html`. The
-// chrome (overlay + panel) stays mounted even when closed, same reason as the Jinja
-// version: a freshly-mounted element can't animate a slide-in, it just appears.
+// Keep the drawer chrome mounted while closed so its slide-in animation can run.
 export function JobDrawer({
   context,
   fitThreshold = 70,
@@ -111,7 +109,6 @@ export function JobDrawer({
               </div>
 
               <div class="drawer-body">
-                {/* Tailored Resume Section */}
                 <div
                   class="drawer-section"
                   style={{

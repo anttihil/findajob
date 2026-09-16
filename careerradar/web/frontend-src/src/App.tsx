@@ -41,7 +41,6 @@ export function App() {
           </main>
         </div>
 
-        {/* Central Modals */}
         <ModalHost />
       </div>
     </div>

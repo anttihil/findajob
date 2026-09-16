@@ -1,5 +1,4 @@
-// One place where the browser talks to the API. Ported from `frontend/js/api.js`.
-//
+// One place where the browser talks to the API.
 // Failures are pushed into the `appErrors` signal instead of being logged and dropped, so
 // an analytics panel that renders nothing is distinguishable from one with nothing to show.
 

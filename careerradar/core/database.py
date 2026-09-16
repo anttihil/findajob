@@ -49,10 +49,6 @@ class Database:
 
         migrate(self.conn)
 
-    # =====================================================================================
-    # Job Feed Queries (delegating to core.job_repository)
-    # =====================================================================================
-
     def _select_columns(self, detail: bool) -> str:
         cols_sql, self._jobs_columns = job_repository.select_columns(
             self.conn, detail, self._jobs_columns
@@ -167,10 +163,6 @@ class Database:
     def _compute_stats(self) -> dict[str, Any]:
         return job_repository.compute_stats(self.conn)
 
-    # =====================================================================================
-    # Observability & Scoring (delegating to scoring.repository)
-    # =====================================================================================
-
     def get_observability_stats(self) -> dict[str, Any]:
         return scoring_repo.get_observability_stats(self.conn)
 
@@ -194,10 +186,6 @@ class Database:
             limit=limit,
             offset=offset,
         )
-
-    # =====================================================================================
-    # Scrape cells (delegating to search.repository)
-    # =====================================================================================
 
     def seed_cells(self, specs: list[dict[str, Any]]) -> tuple[int, int]:
         return search_repo.seed_cells(self.conn, specs)
@@ -238,10 +226,6 @@ class Database:
     def update_cell_quality(self, cell_id: int, fit: bool) -> None:
         search_repo.update_cell_quality(self.conn, cell_id, fit)
 
-    # =====================================================================================
-    # Source circuit-breaker state (delegating to search.repository)
-    # =====================================================================================
-
     def get_source_backoff(self, source: str) -> str | None:
         return search_repo.get_source_backoff(self.conn, source)
 
@@ -257,10 +241,6 @@ class Database:
 
     def reset_source_trips(self, source: str) -> None:
         search_repo.reset_source_trips(self.conn, source)
-
-    # =====================================================================================
-    # Sync runs and cell observations (delegating to search.repository)
-    # =====================================================================================
 
     def start_sync_run(
         self,
@@ -300,10 +280,6 @@ class Database:
             duration_ms=duration_ms,
             requests_made=requests_made,
         )
-
-    # =====================================================================================
-    # Enriched posting upsert & deduplication (delegating to search.repository)
-    # =====================================================================================
 
     def upsert_posting(
         self,

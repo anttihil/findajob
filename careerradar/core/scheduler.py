@@ -74,11 +74,9 @@ class PipelineScheduler:
         self._running = True
         logger.info("Starting Find a Job background scheduler...")
 
-        # 1. Startup catch-up check for search
         if config.get("search", {}).get("persistent_catchup", True):
             self._tasks.append(asyncio.create_task(self._boot_catchup_check()))
 
-        # 2. Main scheduling loops for stages
         self._tasks.append(asyncio.create_task(self._schedule_loop_daily("search")))
         self._tasks.append(asyncio.create_task(self._schedule_loop_interval("score")))
 
@@ -380,5 +378,4 @@ class PipelineScheduler:
                 self._active_started_at = None
 
 
-# Global singleton instance
 scheduler = PipelineScheduler()

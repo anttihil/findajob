@@ -132,21 +132,17 @@ export function ResumesPage() {
       ? "tailored"
       : "master";
 
-  // Master profile form state
   const [masterProfile, setMasterProfile] = useState<ProfileFormState | null>(null);
   const [masterLoading, setMasterLoading] = useState(true);
   const [saveStatus, setSaveStatus] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
-  // Copilot Chat State
   const [showCopilot, setShowCopilot] = useState(false);
   const [uploadedResumeText, setUploadedResumeText] = useState<string | null>(null);
 
-  // Tailored resumes list
   const [resumesList, setResumesList] = useState<GeneratedResumeRecord[]>([]);
   const [resumesLoading, setResumesLoading] = useState(false);
 
-  // Load master profile on mount
   useEffect(() => {
     guard("Loading master resume profile", () =>
       getJSONOrNull<Profile>("/api/resume-builder/profile")
@@ -156,7 +152,6 @@ export function ResumesPage() {
     });
   }, []);
 
-  // Load tailored resumes when switching subtabs
   useEffect(() => {
     if (activeSubTab === "tailored") {
       setResumesLoading(true);
@@ -169,7 +164,6 @@ export function ResumesPage() {
     }
   }, [activeSubTab]);
 
-  // Auto-scroll to targeted resume card when loaded
   useEffect(() => {
     if (activeSubTab === "tailored" && (targetJobId || targetResumeId) && resumesList.length > 0) {
       const match = resumesList.find(
@@ -226,7 +220,6 @@ export function ResumesPage() {
 
   return (
     <section class="tab-pane active" style={{ padding: "1.5rem" }}>
-      {/* Sub-tab navigation */}
       <div class="subtab-bar-container">
         <div class="subtab-bar">
           <Link
@@ -246,7 +239,6 @@ export function ResumesPage() {
         </div>
       </div>
 
-      {/* Sub-tab 1: Unified Master Profile */}
       {activeSubTab === "master" && (
         <div class="master-profile-layout">
           {masterLoading || !masterProfile ? (
@@ -255,9 +247,7 @@ export function ResumesPage() {
             </div>
           ) : (
             <div class={`profile-main-grid ${showCopilot ? "with-copilot" : ""}`}>
-              {/* Left Column: Form Editor */}
               <div class="profile-editor-column">
-                {/* Header Actions */}
                 <div class="profile-header-card">
                   <div>
                     <h3 style={{ margin: 0, fontSize: "1.25rem" }}>Master Candidate Profile</h3>
@@ -293,12 +283,10 @@ export function ResumesPage() {
                   </div>
                 )}
 
-                {/* Drag and Drop Resume Ingestion Zone */}
                 <div style={{ marginBottom: "1.5rem" }}>
                   <ResumeDropzone onUploadSuccess={handleResumeUploadSuccess} disabled={saving} />
                 </div>
 
-                {/* Section 1: Personal & Contact Information */}
                 <div class="resume-card" style={{ marginBottom: "1.5rem" }}>
                   <h4>1. Personal & Contact Information</h4>
                   <div class="profile-form-grid">
@@ -403,7 +391,6 @@ export function ResumesPage() {
                   </div>
                 </div>
 
-                {/* Section 2: Work Eligibility & Availability */}
                 <div class="resume-card" style={{ marginBottom: "1.5rem" }}>
                   <h4>2. Work Eligibility & Availability</h4>
                   <div class="profile-form-grid">
@@ -490,7 +477,6 @@ export function ResumesPage() {
                   </div>
                 </div>
 
-                {/* Section 3: Positioning, Executive Summary & AI Directives */}
                 <div class="resume-card" style={{ marginBottom: "1.5rem" }}>
                   <h4>3. Positioning, Executive Summary & AI Directives</h4>
                   <div class="profile-form-grid" style={{ marginBottom: "1rem" }}>
@@ -593,7 +579,6 @@ export function ResumesPage() {
                   </div>
                 </div>
 
-                {/* Section 4: Work Experience */}
                 <div class="resume-card" style={{ marginBottom: "1.5rem" }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                     <h4>4. Work Experience (Employment)</h4>
@@ -681,7 +666,6 @@ export function ResumesPage() {
                         </button>
                       </div>
 
-                      {/* Projects inside Role */}
                       <div style={{ marginTop: "0.75rem", paddingLeft: "0.5rem" }}>
                         {role.projects.map((proj, pIdx) => (
                           <div key={pIdx} class="project-card-block">
@@ -713,7 +697,6 @@ export function ResumesPage() {
                               </button>
                             </div>
 
-                            {/* Bullets */}
                             <div style={{ marginTop: "0.4rem", paddingLeft: "0.75rem" }}>
                               {proj.bullets.map((b, bIdx) => (
                                 <div key={bIdx} style={{ display: "flex", gap: "0.4rem", alignItems: "center", marginTop: "0.25rem" }}>
@@ -781,7 +764,6 @@ export function ResumesPage() {
                   ))}
                 </div>
 
-                {/* Section 5: Standalone Personal & Open Source Projects */}
                 <div class="resume-card" style={{ marginBottom: "1.5rem" }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                     <h4>5. Personal & Open Source Projects</h4>
@@ -843,7 +825,6 @@ export function ResumesPage() {
                         </button>
                       </div>
 
-                      {/* Bullets */}
                       <div style={{ marginTop: "0.5rem", paddingLeft: "0.5rem" }}>
                         {proj.bullets.map((b, bIdx) => (
                           <div key={bIdx} style={{ display: "flex", gap: "0.4rem", alignItems: "center", marginTop: "0.25rem" }}>
@@ -889,7 +870,6 @@ export function ResumesPage() {
                   ))}
                 </div>
 
-                {/* Section 6: Skills & Competencies */}
                 <div class="resume-card" style={{ marginBottom: "1.5rem" }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                     <h4>6. Skills & Competencies</h4>
@@ -944,7 +924,6 @@ export function ResumesPage() {
                   ))}
                 </div>
 
-                {/* Section 7: Education History */}
                 <div class="resume-card" style={{ marginBottom: "2rem" }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                     <h4>7. Education History</h4>
@@ -1011,7 +990,6 @@ export function ResumesPage() {
                   ))}
                 </div>
 
-                {/* Bottom Save Bar */}
                 <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: "2rem" }}>
                   <button
                     class="action-pill text-green active"
@@ -1025,7 +1003,6 @@ export function ResumesPage() {
                 </div>
               </div>
 
-              {/* Right Column: AI Copilot Chat Panel (when toggled open) */}
               {showCopilot && (
                 <div class="profile-copilot-column">
                   <ProfileChatPanel
@@ -1041,7 +1018,6 @@ export function ResumesPage() {
         </div>
       )}
 
-      {/* Sub-tab 2: Tailored Resumes Library */}
       {activeSubTab === "tailored" && (
         <div style={{ maxWidth: "1000px" }}>
           <div style={{ marginBottom: "1rem" }}>

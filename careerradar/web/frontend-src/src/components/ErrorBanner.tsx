@@ -1,6 +1,5 @@
 import { appErrors, dismissAppErrors } from "../state/errors";
 
-// Ported from `#app-error-banner` in base.html.
 export function ErrorBanner() {
   if (appErrors.value.length === 0) return null;
 

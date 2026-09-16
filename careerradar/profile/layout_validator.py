@@ -27,12 +27,10 @@ def calculate_resume_points(payload: TailoredResumePayload) -> tuple[float, list
     violations: list[str] = []
     total_pts = 0.0
 
-    # 1. Header (Name + Contact Line 1 + Contact Line 2)
     # Name: 28pt; Contact lines: 14pt + 16pt (includes after-spacing)
     header_pts = 58.0
     total_pts += header_pts
 
-    # 2. Summary
     sum_len = len(payload.summary.strip())
     if sum_len > 340:
         violations.append(
@@ -45,12 +43,10 @@ def calculate_resume_points(payload: TailoredResumePayload) -> tuple[float, list
     sum_pts = (sum_lines * 12.5) + 6.0
     total_pts += sum_pts
 
-    # 3. Section Headings (Experience, Skills, Education)
     # 11pt font + 10pt before + 2pt after = 23pt per section header
     section_headers_pts = 3 * 23.0
     total_pts += section_headers_pts
 
-    # 4. Experience Section
     total_bullets = 0
     if not payload.experience:
         violations.append("Experience section is empty (at least one role is required).")
@@ -96,7 +92,6 @@ def calculate_resume_points(payload: TailoredResumePayload) -> tuple[float, list
             f"Total bullet count ({total_bullets}) exceeds recommended 1-page maximum (11-13)."
         )
 
-    # 5. Skills Section
     if len(payload.skills) > 5:
         violations.append(f"Too many skill categories ({len(payload.skills)} > 5 max).")
     for cat in payload.skills:
@@ -104,7 +99,6 @@ def calculate_resume_points(payload: TailoredResumePayload) -> tuple[float, list
         cat_lines = estimate_visual_lines(cat_text, CHARS_PER_LINE_SKILL)
         total_pts += (cat_lines * 11.5) + 1.5
 
-    # 6. Education Section
     for edu in payload.education:
         edu_text = f"{edu.institution}, {edu.degree}"
         edu_lines = estimate_visual_lines(edu_text, CHARS_PER_LINE_EDU)

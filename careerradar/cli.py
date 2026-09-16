@@ -460,14 +460,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.set_defaults(stage=None)
     sub = parser.add_subparsers(dest="command", required=True)
 
-    # --- start -----------------------------------------------------------------------
     st_parser = sub.add_parser("start", help="start the web dashboard (and enabled scheduler)")
     st_parser.add_argument("--host", default="127.0.0.1")
     st_parser.add_argument("--port", type=int, default=8010)
     st_parser.add_argument("--reload", action="store_true", help="development autoreload")
     st_parser.set_defaults(func=_cmd_start)
 
-    # --- profile ---------------------------------------------------------------------
     p = sub.add_parser("profile", help="build or inspect the candidate profile")
     psub = p.add_subparsers(dest="subcommand", required=True)
     pb = psub.add_parser("build", help="extract a profile from a resume document")
@@ -479,7 +477,6 @@ def build_parser() -> argparse.ArgumentParser:
     run = sub.add_parser("run", help="run one manual search-and-score pass")
     run.set_defaults(func=_cmd_run, stage="run")
 
-    # --- search ----------------------------------------------------------------------
     s = sub.add_parser("search", help="scrape job boards")
     ssub = s.add_subparsers(dest="subcommand", required=True)
     sr = ssub.add_parser("run", help="run one scrape pass")
@@ -508,7 +505,6 @@ def build_parser() -> argparse.ArgumentParser:
     query.add_argument("--json", action="store_true", help="emit one machine-readable result")
     query.set_defaults(func=_cmd_shared, stage="search")
 
-    # --- score -----------------------------------------------------------------------
     sco = sub.add_parser("score", help="score postings against the profile")
     scosub = sco.add_subparsers(dest="subcommand", required=True)
     scr = scosub.add_parser("run", help="drain unscored postings")
@@ -542,7 +538,6 @@ def build_parser() -> argparse.ArgumentParser:
     verdict.add_argument("--json", action="store_true", help="emit one machine-readable result")
     verdict.set_defaults(func=_cmd_shared, stage="score")
 
-    # --- resume ----------------------------------------------------------------------
     res = sub.add_parser("resume", help="tailor, validate, and generate 1-page resumes")
     res_sub = res.add_subparsers(dest="subcommand", required=True)
     res_gen = res_sub.add_parser("generate", help="generate tailored resume for a specific job")
@@ -563,7 +558,6 @@ def build_parser() -> argparse.ArgumentParser:
     )
     res_batch.set_defaults(func=_cmd_resume)
 
-    # --- import ----------------------------------------------------------------------
     imp = sub.add_parser(
         "import", help="import a job from URL, score it, and optionally generate a resume"
     )
@@ -573,7 +567,6 @@ def build_parser() -> argparse.ArgumentParser:
     imp.add_argument("--model", help="Model to use for extraction/scoring/tailoring")
     imp.set_defaults(func=_cmd_import)
 
-    # --- target ----------------------------------------------------------------------
     tar = sub.add_parser(
         "target",
         help="manage search queries and check capacity (edit locations in the dashboard)",
@@ -595,7 +588,6 @@ def build_parser() -> argparse.ArgumentParser:
     tar_sub.add_parser("status", help="show capacity status and matrix cycle guidance")
     tar.set_defaults(func=_cmd_target)
 
-    # --- llm -------------------------------------------------------------------------
     llm_parser = sub.add_parser(
         "llm", help="inspect LLM providers, test connections, and authenticate"
     )
@@ -617,7 +609,6 @@ def build_parser() -> argparse.ArgumentParser:
     )
     llm_parser.set_defaults(func=_cmd_llm)
 
-    # --- db / status -----------------------------------------------------------------
     init = sub.add_parser("init", help="create standalone user directories and initialize storage")
     init.add_argument("--json", action="store_true", help="machine-readable path report")
     init.set_defaults(func=_cmd_init, stage="init")
@@ -629,7 +620,6 @@ def build_parser() -> argparse.ArgumentParser:
     st.add_argument("--json", action="store_true", help="machine-readable, for piping over ssh")
     st.set_defaults(func=_cmd_status)
 
-    # --- jobs ------------------------------------------------------------------------
     jobs_command = sub.add_parser("jobs", help="inspect stored normalized postings")
     jobs_sub = jobs_command.add_subparsers(dest="subcommand", required=True)
     jobs = jobs_sub.add_parser("list", help="list postings with stable filters")

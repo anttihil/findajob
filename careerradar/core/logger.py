@@ -4,16 +4,8 @@ from careerradar.core.paths import LOG_PATH
 
 LOG_FILE = LOG_PATH
 
-# A plain FileHandler, not RotatingFileHandler: four units -- three timers plus the
-# long-lived web server -- hold this file open at once, and RotatingFileHandler assumes a
-# single writer. When one process rotated, the others kept appending to the renamed inode,
-# whose next rotation deletes it. The evidence is in this checkout: app.log.3 is 74 bytes
-# over the old 2MB cap, which shouldRollover() makes impossible for one writer, and its last
-# line is 71 seconds *newer* than app.log.2's.
-#
-# Rotation is logrotate's job now, with `copytruncate` so every writer keeps the same inode
-# across a rotation. See deploy/install-systemd.sh -- without it installed, this file
-# grows without bound.
+# Use a plain FileHandler because multiple processes write concurrently; logrotate owns
+# rotation and must use copytruncate to preserve the inode held by each writer.
 logger = logging.getLogger("job_search")
 logger.setLevel(logging.DEBUG)
 

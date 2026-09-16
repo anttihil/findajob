@@ -1,11 +1,4 @@
-// Hand-rolled inline SVG charts, ported from `frontend/js/charts.js`.
-//
-// No chart library: every form needed here (horizontal bars, meters, a heatmap grid) is a
-// handful of <rect> elements, and a vendored library would be ~200KB to fight for control of
-// the glassmorphism styling. Kept as plain DOM-building functions rather than Preact
-// components: this code has no framework coupling today and needs no reactivity beyond
-// "re-render when the data changes," which callers already get by invoking it from a
-// `useEffect` keyed on that data.
+// Inline SVG charts, kept framework-independent so callers control when they re-render.
 
 import { CHART, esc } from "./palette";
 
@@ -28,8 +21,6 @@ export interface MeterOptions {
   max?: number;
 }
 
-/* Component meters for one skill. Sequential ramp + a direct label per row, so identity
- * never rests on color alone. */
 export function renderMeters(
   container: HTMLElement,
   components: MeterComponent[],

@@ -1,7 +1,6 @@
 import { Link } from "wouter-preact";
 import type { FilterQuery } from "../lib/filterQuery";
 
-// Ported from the pagination block in `templates/tabs/dashboard.html`.
 export function Pagination({ query, total, hasMore }: { query: FilterQuery; total: number; hasMore: boolean }) {
   if (total <= query.limit) return null;
 

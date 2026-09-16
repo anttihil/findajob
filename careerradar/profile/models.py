@@ -5,14 +5,11 @@ from typing import Any
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-# --- Core Profile Constants -------------------------------------------------------------
 # Database primary key for the singleton candidate profile record (`profile.id = 1`).
 MASTER_PROFILE_ID: int = 1
 
 # Canonical profile version integer for scoring evaluation (`job_verdicts.profile_version = 1`).
 DEFAULT_PROFILE_VERSION: int = 1
-
-# --- Core Profile Shapes (The Single Source of Truth) -----------------------------------
 
 
 class MasterEducation(BaseModel):
@@ -100,7 +97,6 @@ class RoleTargeting(BaseModel):
 class Profile(BaseModel):
     """The single canonical candidate profile powering scoring and resumes."""
 
-    # 1. Personal & Contact Info
     name: str = ""
     email: str = ""
     phone: str = ""
@@ -109,10 +105,8 @@ class Profile(BaseModel):
     linkedin: str = ""
     website: str = ""
 
-    # 2. Work Eligibility & Availability
     eligibility: WorkEligibility = Field(default_factory=WorkEligibility)
 
-    # 3. Positioning & AI Guidance
     seniority: str | None = "Mid / Senior"
     years_experience: float | None = 4.0
 
@@ -136,16 +130,12 @@ class Profile(BaseModel):
         description="Hard disqualifiers that trigger an immediate fit: false verdict.",
     )
 
-    # 4. Experience Pool (Work roles at organizations)
     experience: list[MasterRole] = Field(default_factory=list)
 
-    # 5. Standalone Personal / Open Source Projects
     projects: list[MasterProject] = Field(default_factory=list)
 
-    # 6. Skills & Categorized Tools
     skills: list[MasterSkillCategory] = Field(default_factory=list)
 
-    # 7. Education History
     education: list[MasterEducation] = Field(default_factory=list)
 
     # Backward compatibility shims for transitions
@@ -174,12 +164,9 @@ class Profile(BaseModel):
         return v or ""
 
 
-# Aliases for backward compatibility during transition
 MasterProfile = Profile
 ResumeMasterProfile = Profile
 
-
-# --- Profile Adapter Helpers (Keyword Scoring & Gap Analysis) ---------------------------
 
 LEVEL_STRONG = 3
 LEVEL_CLAIMED = 2
@@ -192,9 +179,6 @@ class Skill(BaseModel):
     level: int = Field(ge=0, le=3, description="0 to 3 proficiency rating")
     evidence: str = Field(default="", description="Bullet point evidence")
     recency: str | None = None
-
-
-# --- Tailored 1-Page Resume Shapes ------------------------------------------------------
 
 
 class ResumeSubsection(BaseModel):
@@ -286,8 +270,6 @@ class LayoutValidationResult(BaseModel):
     max_points: float = 635.0
     violations: list[str] = Field(default_factory=list)
 
-
-# --- Simplified Scoring Verdict ---------------------------------------------------------
 
 VERDICT_SCHEMA_VERSION = 3
 

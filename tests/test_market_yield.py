@@ -35,7 +35,6 @@ def test_market_yield_api(client: TestClient) -> None:
     assert summary["total_postings"] >= summary["total_scored"]
     assert summary["total_scored"] >= summary["total_strong_fits"]
 
-    # Verify query rollup structure
     for q in data["top_queries"][:5]:
         assert "query" in q
         assert "total_postings" in q
@@ -46,7 +45,6 @@ def test_market_yield_api(client: TestClient) -> None:
         assert "locations" in q
         assert "yield_category" in q
 
-    # Verify tuple structure
     for t in data["tuples"][:5]:
         assert "source" in t
         assert "query" in t
@@ -56,7 +54,6 @@ def test_market_yield_api(client: TestClient) -> None:
 
 
 def test_market_yield_api_filters(client: TestClient) -> None:
-    # Ensure test location exists
     client.post(
         "/api/targets/locations",
         json={
@@ -70,28 +67,24 @@ def test_market_yield_api_filters(client: TestClient) -> None:
         },
     )
 
-    # Filter by source
     res_indeed = client.get("/api/market/yield?source=indeed")
     assert res_indeed.status_code == 200
     data_indeed = res_indeed.json()
     for t in data_indeed["tuples"][:10]:
         assert t["source"] == "indeed"
 
-    # Filter by location
     res_loc = client.get("/api/market/yield?location=us_remote")
     assert res_loc.status_code == 200
     data_loc = res_loc.json()
     for t in data_loc["tuples"][:10]:
         assert t["location_id"] == "us_remote"
 
-    # Filter by query term
     res_q = client.get("/api/market/yield?query=Full%20Stack%20Engineer")
     assert res_q.status_code == 200
     data_q = res_q.json()
     for t in data_q["tuples"][:10]:
         assert t["query"] == "Full Stack Engineer"
 
-    # Invalid location returns 400
     res_bad = client.get("/api/market/yield?location=atlantis")
     assert res_bad.status_code == 400
 
@@ -102,7 +95,6 @@ def test_market_analytics_query_yield_unit(tmp_path: Path) -> None:
     migrate(db.conn)
 
     cur = db.conn.cursor()
-    # Insert scrape cell
     cur.execute(
         """
         INSERT INTO scrape_cells (
@@ -126,7 +118,6 @@ def test_market_analytics_query_yield_unit(tmp_path: Path) -> None:
         """
     )
 
-    # Insert jobs
     cur.execute(
         """
         INSERT INTO jobs (id, job_key, title, scrape_cell_id, source, date_found, description)
@@ -152,7 +143,6 @@ def test_market_analytics_query_yield_unit(tmp_path: Path) -> None:
         """
     )
 
-    # Insert verdicts (job 101 fit=1, job 102 fit=0, job 103 fit=0)
     cur.execute(
         """
         INSERT INTO job_verdicts (id, job_id, profile_version, model, fit, reason_type, created_at)
@@ -183,7 +173,6 @@ def test_market_analytics_query_yield_unit(tmp_path: Path) -> None:
     assert summary["total_strong_fits"] == 1
     assert summary["overall_fit_rate_pct"] == 33.3
 
-    # Check top queries
     assert len(result["top_queries"]) >= 2
     top_q = result["top_queries"][0]
     assert top_q["query"] == "Full Stack Engineer"
@@ -191,7 +180,6 @@ def test_market_analytics_query_yield_unit(tmp_path: Path) -> None:
     assert top_q["scored_postings"] == 2
     assert top_q["fit_rate_pct"] == 50.0
 
-    # Check tuples
     tuples = result["tuples"]
     fs_tuple = next(t for t in tuples if t["query"] == "Full Stack Engineer")
     assert fs_tuple["source"] == "linkedin"

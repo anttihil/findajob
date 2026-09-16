@@ -64,7 +64,6 @@ export interface JobContext {
   next_job_id: number | null;
 }
 
-// --- Resume Builder -------------------------------------------------------------------
 
 export interface MasterEducation {
   institution: string;
@@ -199,7 +198,6 @@ export interface Stats {
   liveness_counts: { live: number; stale: number; likely_closed: number; unknown: number };
 }
 
-// --- Market -------------------------------------------------------------------------
 
 export interface QueryYieldTuple {
   cell_id: number;
@@ -319,7 +317,6 @@ export interface MarketCoverageResponse {
   cells: CoverageCell[];
 }
 
-// --- Skills -------------------------------------------------------------------------
 
 export interface SkillGapRow {
   skill: string;
@@ -382,7 +379,6 @@ export interface SkillDetailResponse {
   }[];
 }
 
-// --- Profile --------------------------------------------------------------------------
 
 export interface ProfileSkill {
   key: string;
@@ -425,13 +421,11 @@ export interface ProfileRecord {
   documents?: ProfileDocument[];
 }
 
-// --- Config -----------------------------------------------------------------------------
 
 // `ConfigUpdate` on the backend is `extra="allow"`, so there is no reason for the client
 // side to be any stricter than the server it is posting to.
 export type Config = Record<string, unknown>;
 
-// --- Sync / pipeline --------------------------------------------------------------------
 
 export interface PipelineScrapeStatus {
   in_progress: boolean;
@@ -459,7 +453,6 @@ export interface PipelineStatusResponse {
   scrape: PipelineScrapeStatus;
   score: PipelineScoreStatus;
 }
-// --- Observability --------------------------------------------------------------------
 
 export interface ObservabilityReason {
   reason_type: string;

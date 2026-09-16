@@ -87,7 +87,6 @@ export function MarketPage() {
   const [loading, setLoading] = useState(false);
   const [showCoverage, setShowCoverage] = useState(false);
 
-  // Filters state
   const [viewMode, setViewMode] = useStoredPreference<"query" | "tuple">("market-view-mode", "query");
   const [windowDays, setWindowDays] = useStoredPreference<number | null>("market-window-days", null);
   const [sourceFilter, setSourceFilter] = useStoredPreference<string>("market-source-filter", "all");
@@ -100,21 +99,18 @@ export function MarketPage() {
   const chartRef = useRef<HTMLDivElement>(null);
   const stripRef = useRef<HTMLDivElement>(null);
 
-  // Load locations metadata on mount
   useEffect(() => {
     getJSON<MarketLocationsResponse>("/api/market/locations")
       .then(setLocations)
       .catch(() => setLocations({ locations: [], queries: [] }));
   }, []);
 
-  // Load coverage on mount
   useEffect(() => {
     getJSON<MarketCoverageResponse>("/api/market/coverage")
       .then((data) => setCoverageCells(data.cells))
       .catch(() => setCoverageCells([]));
   }, []);
 
-  // Fetch yield analytics data when filters change
   const fetchYieldData = () => {
     setLoading(true);
     const params = new URLSearchParams();
@@ -137,7 +133,6 @@ export function MarketPage() {
     fetchYieldData();
   }, [windowDays, sourceFilter, locationFilter, queryFilter]);
 
-  // Render Yield Bar Chart
   useEffect(() => {
     if (!chartRef.current || !yieldData) return;
 
@@ -165,7 +160,6 @@ export function MarketPage() {
     );
   }, [yieldData]);
 
-  // Render Provenance Strip
   useEffect(() => {
     if (!stripRef.current || !yieldData) return;
     const s = yieldData.summary;
@@ -178,7 +172,6 @@ export function MarketPage() {
     ]);
   }, [yieldData]);
 
-  // Toggle Query enabled/disabled status
   const handleToggleQuery = async (queryId: number) => {
     setTogglingQueryId(queryId);
     try {
@@ -191,7 +184,6 @@ export function MarketPage() {
     }
   };
 
-  // Filtered queries for the table
   const filteredQueries = useMemo(() => {
     if (!yieldData) return [];
     return yieldData.top_queries.filter((q) => {
@@ -206,7 +198,6 @@ export function MarketPage() {
     });
   }, [yieldData, searchQuery, categoryFilter]);
 
-  // Filtered tuples for the table
   const filteredTuples = useMemo(() => {
     if (!yieldData) return [];
     return yieldData.tuples.filter((t) => {
@@ -228,7 +219,6 @@ export function MarketPage() {
 
   return (
     <section class="tab-pane active market-yield-page">
-      {/* Header */}
       <div class="glass-card">
         <div class="card-header-row">
           <div>
@@ -244,7 +234,6 @@ export function MarketPage() {
           </a>
         </div>
 
-        {/* Top Summary Stat Grid */}
         <div class="stats-grid obs-stats-grid" style="margin-top: 14px;">
           <div class="stat-card obs-stat-card">
             <div class="stat-info">
@@ -287,14 +276,11 @@ export function MarketPage() {
           </div>
         </div>
 
-        {/* Provenance strip */}
         <div class="coverage-strip" ref={stripRef}></div>
       </div>
 
-      {/* Filter Toolbar */}
       <div class="glass-card">
         <div class="yield-filter-bar">
-          {/* View Mode Toggle */}
           <div class="yield-view-toggle">
             <button
               type="button"
@@ -312,7 +298,6 @@ export function MarketPage() {
             </button>
           </div>
 
-          {/* Time Window */}
           <div class="yield-filter-item">
             <label>Window:</label>
             <select
@@ -330,7 +315,6 @@ export function MarketPage() {
             </select>
           </div>
 
-          {/* Job Source */}
           <div class="yield-filter-item">
             <label>Source:</label>
             <select
@@ -344,7 +328,6 @@ export function MarketPage() {
             </select>
           </div>
 
-          {/* Location */}
           <div class="yield-filter-item">
             <label>Location:</label>
             <select
@@ -361,7 +344,6 @@ export function MarketPage() {
             </select>
           </div>
 
-          {/* Query Term */}
           <div class="yield-filter-item">
             <label>Query:</label>
             <select
@@ -378,7 +360,6 @@ export function MarketPage() {
             </select>
           </div>
 
-          {/* Category Filter */}
           <div class="yield-filter-item">
             <label>Yield Tier:</label>
             <select
@@ -393,7 +374,6 @@ export function MarketPage() {
             </select>
           </div>
 
-          {/* Text Search Filter */}
           <div class="yield-filter-item" style="flex: 1; min-width: 160px;">
             <input
               type="text"
@@ -406,9 +386,7 @@ export function MarketPage() {
           </div>
         </div>
 
-        {/* Visual Charts Row */}
         <div class="yield-grid-2">
-          {/* Left Chart: Top High-Yield Query Terms */}
           <div>
             <div class="card-header-row" style="margin-bottom: 8px;">
               <h4>
@@ -421,7 +399,6 @@ export function MarketPage() {
             <div ref={chartRef}></div>
           </div>
 
-          {/* Right Cards: Distribution by Source & Location */}
           <div>
             <div class="card-header-row" style="margin-bottom: 8px;">
               <h4>
@@ -429,7 +406,6 @@ export function MarketPage() {
               </h4>
             </div>
 
-            {/* By Source */}
             <div style="margin-bottom: 14px;">
               <span class="stat-label" style="font-size: 11px;">BY JOB SOURCE</span>
               <div class="yield-dist-list">
@@ -444,7 +420,6 @@ export function MarketPage() {
               </div>
             </div>
 
-            {/* By Location */}
             <div>
               <span class="stat-label" style="font-size: 11px;">BY TARGET LOCATION</span>
               <div class="yield-dist-list">
@@ -461,7 +436,6 @@ export function MarketPage() {
           </div>
         </div>
 
-        {/* Zero-Yield / Pruning Candidates Callout */}
         {yieldData && yieldData.zero_yield_queries.length > 0 && (
           <div class="yield-prune-callout">
             <div class="yield-prune-head">
@@ -497,7 +471,6 @@ export function MarketPage() {
           </div>
         )}
 
-        {/* Main Data Table */}
         <div style="margin-top: 18px;">
           <div class="card-header-row" style="margin-bottom: 10px;">
             <h4>
@@ -511,7 +484,6 @@ export function MarketPage() {
           {loading ? (
             <p class="chart-empty">Loading query yield analytics…</p>
           ) : viewMode === "query" ? (
-            /* Grouped by Query Term Table */
             <div class="table-responsive">
               <table class="data-table">
                 <thead>
@@ -576,7 +548,6 @@ export function MarketPage() {
               </table>
             </div>
           ) : (
-            /* Granular Tuple Table (Source, Query, Location) */
             <div class="table-responsive">
               <table class="data-table">
                 <thead>
@@ -633,7 +604,6 @@ export function MarketPage() {
         </div>
       </div>
 
-      {/* Collapsible Scrape Coverage & Cell Status */}
       <div class="glass-card">
         <div class="card-header-row" style="cursor: pointer;" onClick={() => setShowCoverage(!showCoverage)}>
           <h3>

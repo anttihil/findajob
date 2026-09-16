@@ -19,12 +19,10 @@ def test_get_master_profile(mock_load: MagicMock):
     assert data["name"] == "Jane Doe"
     assert data["email"] == "jane.doe@example.com"
 
-    # Also test /api/profile endpoint
     resp2 = client.get("/api/profile")
     assert resp2.status_code == 200
     assert resp2.json()["name"] == "Jane Doe"
 
-    # Also test /api/profile/vector endpoint
     resp3 = client.get("/api/profile/vector")
     assert resp3.status_code == 200
     vdata = resp3.json()

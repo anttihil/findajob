@@ -28,7 +28,6 @@ def test_targets_list_and_capacity(client: TestClient) -> None:
 
 
 def test_target_query_crud(client: TestClient) -> None:
-    # Add new query
     add_res = client.post(
         "/api/targets/queries",
         json={"query": "Test AI Agent Specialist", "enabled": True},
@@ -36,19 +35,16 @@ def test_target_query_crud(client: TestClient) -> None:
     assert add_res.status_code == 200
     qid: int = add_res.json()["id"]
 
-    # Verify present
     res = client.get("/api/targets")
     queries = res.json()["queries"]
     assert any(q["id"] == qid and q["query"] == "Test AI Agent Specialist" for q in queries)
 
-    # Update query
     up_res = client.put(
         f"/api/targets/queries/{qid}",
         json={"query": "Test AI Agent Specialist Updated"},
     )
     assert up_res.status_code == 200
 
-    # Toggle query
     tog_res = client.put(
         f"/api/targets/queries/{qid}/toggle",
         json={"enabled": False},
@@ -56,7 +52,6 @@ def test_target_query_crud(client: TestClient) -> None:
     assert tog_res.status_code == 200
     assert tog_res.json()["enabled"] is False
 
-    # Delete query
     del_res = client.delete(f"/api/targets/queries/{qid}")
     assert del_res.status_code == 200
 
@@ -66,7 +61,6 @@ def test_target_query_crud(client: TestClient) -> None:
 
 def test_target_location_crud(client: TestClient) -> None:
     loc_id = "test_city"
-    # Add location
     add_res = client.post(
         "/api/targets/locations",
         json={
@@ -82,19 +76,16 @@ def test_target_location_crud(client: TestClient) -> None:
     )
     assert add_res.status_code == 200
 
-    # Verify present
     res = client.get("/api/targets")
     locs = res.json()["locations"]
     assert any(loc["id"] == loc_id and loc["label"] == "Test City, TC" for loc in locs)
 
-    # Update location
     up_res = client.put(
         f"/api/targets/locations/{loc_id}",
         json={"distance": 40},
     )
     assert up_res.status_code == 200
 
-    # Toggle location
     tog_res = client.put(
         f"/api/targets/locations/{loc_id}/toggle",
         json={"enabled": False},
@@ -102,7 +93,6 @@ def test_target_location_crud(client: TestClient) -> None:
     assert tog_res.status_code == 200
     assert tog_res.json()["enabled"] is False
 
-    # Delete location
     del_res = client.delete(f"/api/targets/locations/{loc_id}")
     assert del_res.status_code == 200
 
