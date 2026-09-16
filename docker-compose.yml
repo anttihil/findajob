@@ -7,7 +7,7 @@ services:
     env_file:
       - .env
     volumes:
-      - ./jobs.db:/app/jobs.db
+      - ./data/jobs.db:/app/data/jobs.db
       - ./graphs.db:/app/graphs.db
       - ./config.local.yaml:/app/config.local.yaml
       - ./resumes:/app/resumes
