@@ -42,9 +42,9 @@ const mockCapacity = {
   cycle_days: 0.05,
   cycle_hours: 1.2,
   zone: "optimal",
-  message: "Optimal freshness",
-  optimal_threshold: 20,
-  balanced_threshold: 40,
+  message: "Every active search pair is checked within a day.",
+  optimal_threshold_hours: 24,
+  balanced_threshold_hours: 48,
 };
 
 describe("SearchTargetsWidget", () => {
@@ -96,7 +96,7 @@ describe("SearchTargetsWidget", () => {
       expect(getByText(/SEARCH MATRIX & TARGETS/)).toBeTruthy();
       expect(getByText(/Queries/)).toBeTruthy();
       expect(getByText(/Locations/)).toBeTruthy();
-      expect(container.querySelector(".matrix-chip-badge")).toBeTruthy();
+      expect(container.textContent).toContain("~1.2h sweep");
     });
   });
 
@@ -156,7 +156,7 @@ describe("SearchTargetsWidget", () => {
       expect(getByText("Active Search Queries")).toBeTruthy();
       expect(getByText("Active Locations")).toBeTruthy();
       expect(getByText("Search Pairs")).toBeTruthy();
-      expect(getByText(/STATUS: OPTIMAL/)).toBeTruthy();
+      expect(getByText(/Estimated sweep: ~1.2 hours/)).toBeTruthy();
     });
   });
 

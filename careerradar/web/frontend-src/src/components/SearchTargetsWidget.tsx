@@ -570,13 +570,6 @@ export function SearchTargetsWidget({
     return LOCATION_PRESETS.filter((p) => p.region === selectedPresetRegion);
   }, [selectedPresetRegion]);
 
-  const zoneBadgeClass =
-    capacity?.zone === "optimal"
-      ? "badge-success"
-      : capacity?.zone === "balanced"
-        ? "badge-info"
-        : "badge-warning";
-
   return (
     <div class="panel-section-box search-targets-panel mb-4">
       {/* Top Header Bar */}
@@ -620,11 +613,7 @@ export function SearchTargetsWidget({
               <strong>{capacity?.search_pairs ?? activeQueriesCount * activeLocationsCount}</strong> Pairs (
               {capacity?.total_cells ?? (activeQueriesCount * activeLocationsCount * 2)} cells)
             </span>
-            {capacity && (
-              <span class={`matrix-chip-badge ${zoneBadgeClass}`}>
-                {capacity.zone.toUpperCase()} (~{capacity.cycle_hours}h sweep)
-              </span>
-            )}
+            {capacity && <span class="matrix-chip-badge">~{capacity.cycle_hours}h sweep</span>}
           </div>
         </div>
 
@@ -1032,11 +1021,7 @@ export function SearchTargetsWidget({
 
                     <div class="capacity-status-banner mt-4">
                       <div class="capacity-banner-left">
-                        <span class={`status-zone-pill zone-${capacity?.zone || "optimal"}`}>
-                          STATUS: {capacity?.zone?.toUpperCase() || "OPTIMAL"}
-                        </span>
-                        <h4>Estimated Matrix Sweep Cycle: ~{capacity?.cycle_hours || 0} Hours (~{capacity?.cycle_days || 0} Days)</h4>
-                        <p class="capacity-message">{capacity?.message}</p>
+                        <h4>Estimated sweep: ~{capacity?.cycle_hours || 0} hours</h4>
                       </div>
                       <div class="capacity-banner-right">
                         <button
@@ -1051,20 +1036,6 @@ export function SearchTargetsWidget({
                     </div>
                   </div>
 
-                  <div class="capacity-guidance-grid mt-4">
-                    <div class="guidance-card">
-                      <h5><i class="fa-solid fa-circle-check text-green"></i> Optimal Zone (≤ 20 Pairs)</h5>
-                      <p>Full matrix swept in under 24 hours. Every newly posted job across all boards is caught at maximum freshness.</p>
-                    </div>
-                    <div class="guidance-card">
-                      <h5><i class="fa-solid fa-triangle-exclamation text-gold"></i> Balanced Zone (21 - 40 Pairs)</h5>
-                      <p>Full matrix swept in 24 - 48 hours. Jobs are found comfortably within the 3-day optimal application window.</p>
-                    </div>
-                    <div class="guidance-card">
-                      <h5><i class="fa-solid fa-skull-crossbones text-red"></i> Overloaded Zone (&gt; 40 Pairs)</h5>
-                      <p>Cycle times exceed 2 days. The scraper must rotate through a large cell backlog. Pause low-yield queries or locations.</p>
-                    </div>
-                  </div>
                 </div>
               )}
             </>

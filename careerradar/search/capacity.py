@@ -2,9 +2,11 @@
 
 from typing import Any
 
-# Recommended thresholds for active search pairs (queries x locations)
-OPTIMAL_THRESHOLD_PAIRS = 20  # <= 20 pairs -> swept within <= 24 hours
-BALANCED_THRESHOLD_PAIRS = 40  # 21-40 pairs -> swept within 24-48 hours
+# Sweep health is determined by the estimated time to revisit every search pair.
+# Pair counts alone are not meaningful here: a matrix that is large for one
+# schedule may still be swept quickly with a higher per-run budget.
+OPTIMAL_THRESHOLD_HOURS = 24
+BALANCED_THRESHOLD_HOURS = 48
 
 
 def calculate_capacity(
@@ -47,24 +49,15 @@ def calculate_capacity(
     if search_pairs == 0:
         zone = "empty"
         message = "No active search targets configured."
-    elif search_pairs <= OPTIMAL_THRESHOLD_PAIRS:
+    elif cycle_hours <= OPTIMAL_THRESHOLD_HOURS:
         zone = "optimal"
-        message = (
-            f"Optimal freshness: Full matrix swept in ~{cycle_hours}h. "
-            "All new postings discovered within 24 hours."
-        )
-    elif search_pairs <= BALANCED_THRESHOLD_PAIRS:
+        message = "Every active search pair is checked within a day."
+    elif cycle_hours <= BALANCED_THRESHOLD_HOURS:
         zone = "balanced"
-        message = (
-            f"Balanced: Full matrix swept in ~{cycle_hours}h. "
-            "Postings discovered well within the 3-day window."
-        )
+        message = "Every active search pair is checked within two days."
     else:
         zone = "overloaded"
-        message = (
-            f"Capacity Warning: Full sweep takes ~{cycle_days} days. "
-            "Postings may pass the optimal application window. Consider pruning queries."
-        )
+        message = "Consider pausing low-yield queries or locations."
 
     return {
         "active_queries": active_queries_count,
@@ -77,6 +70,6 @@ def calculate_capacity(
         "cycle_hours": cycle_hours,
         "zone": zone,
         "message": message,
-        "optimal_threshold": OPTIMAL_THRESHOLD_PAIRS,
-        "balanced_threshold": BALANCED_THRESHOLD_PAIRS,
+        "optimal_threshold_hours": OPTIMAL_THRESHOLD_HOURS,
+        "balanced_threshold_hours": BALANCED_THRESHOLD_HOURS,
     }

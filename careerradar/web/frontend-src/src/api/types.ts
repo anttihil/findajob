@@ -556,8 +556,8 @@ export interface TargetCapacity {
   cycle_hours: number;
   zone: "optimal" | "balanced" | "overloaded" | "empty" | string;
   message: string;
-  optimal_threshold: number;
-  balanced_threshold: number;
+  optimal_threshold_hours: number;
+  balanced_threshold_hours: number;
 }
 
 export interface TargetsResponse {

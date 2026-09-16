@@ -11,7 +11,7 @@ def test_capacity_empty():
 
 
 def test_capacity_optimal_zone():
-    # 4 queries x 3 locations = 12 search pairs (<= 20)
+    # 4 queries x 3 locations = 12 pairs, swept in less than 24 hours.
     res = calculate_capacity(active_queries_count=4, active_locations_count=3)
     assert res["search_pairs"] == 12
     assert res["total_cells"] == 24
@@ -21,21 +21,21 @@ def test_capacity_optimal_zone():
 
 
 def test_capacity_balanced_zone():
-    # 7 queries x 4 locations = 28 search pairs (21-40)
-    res = calculate_capacity(active_queries_count=7, active_locations_count=4)
-    assert res["search_pairs"] == 28
-    assert res["total_cells"] == 56
+    # 70 pairs take 42 hours at the default 40-pair daily throughput.
+    res = calculate_capacity(active_queries_count=14, active_locations_count=5)
+    assert res["search_pairs"] == 70
+    assert res["total_cells"] == 140
     assert res["zone"] == "balanced"
     assert res["cycle_days"] <= 2.0
 
 
 def test_capacity_overloaded_zone():
-    # 15 queries x 5 locations = 75 search pairs (> 40)
-    res = calculate_capacity(active_queries_count=15, active_locations_count=5)
-    assert res["search_pairs"] == 75
-    assert res["total_cells"] == 150
+    # 100 pairs take 60 hours at the default 40-pair daily throughput.
+    res = calculate_capacity(active_queries_count=20, active_locations_count=5)
+    assert res["search_pairs"] == 100
+    assert res["total_cells"] == 200
     assert res["zone"] == "overloaded"
-    assert res["cycle_days"] > 1.5
+    assert res["cycle_hours"] > 48
 
 
 def test_custom_budget_and_schedule():
@@ -59,3 +59,4 @@ def test_custom_budget_and_schedule():
     assert res["search_pairs"] == 50
     assert res["daily_capacity_pairs"] == 120
     assert res["cycle_days"] == 0.42
+    assert res["zone"] == "optimal"
