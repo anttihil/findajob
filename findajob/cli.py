@@ -265,8 +265,8 @@ _STARTER_CONFIG = """\
 #   provider: deepseek
 #
 # resumes:
-#   # Default: your platform's Documents/Find a Job directory.
-#   # output_dir: ~/Documents/My Job Applications
+#   # Default: Find a Job's application-data directory.
+#   # Optional override, for example: /path/to/generated-resumes
 #
 """
 

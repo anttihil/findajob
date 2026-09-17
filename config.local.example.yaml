@@ -7,8 +7,8 @@
 #   provider: deepseek
 
 # resumes:
-#   # Default outside a source checkout: your platform's Documents/Find a Job directory.
-#   # output_dir: ~/Documents/My Job Applications
+#   # Default outside a source checkout: Find a Job's application-data directory.
+#   # Optional override, for example: /path/to/generated-resumes
 
 # scheduler:
 #   enabled: true

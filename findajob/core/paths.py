@@ -9,7 +9,7 @@ import os
 from pathlib import Path
 from typing import Any
 
-from platformdirs import user_config_dir, user_data_dir, user_documents_dir, user_state_dir
+from platformdirs import user_config_dir, user_data_dir, user_state_dir
 
 # findajob/core/paths.py -> findajob/core -> findajob -> project/package root
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -42,9 +42,7 @@ else:
     CONFIG_DIR = _under_home("config") or user_config_dir(APP_NAME)
     DATA_DIR = _under_home("data") or user_data_dir(APP_NAME)
     STATE_DIR = _under_home("state") or user_state_dir(APP_NAME)
-    _default_resumes_dir = _under_home("resumes") or os.path.join(
-        user_documents_dir(), "Find a Job"
-    )
+    _default_resumes_dir = _under_home("resumes") or os.path.join(DATA_DIR, "resumes")
 
 CONFIG_DIR = _expand(os.environ.get("FIND_A_JOB_CONFIG_DIR", CONFIG_DIR))
 DATA_DIR = _expand(os.environ.get("FIND_A_JOB_DATA_DIR", DATA_DIR))
