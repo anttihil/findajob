@@ -8,7 +8,7 @@ RELEASE_REPO="findajob"
 INSTALL_ROOT="${FIND_A_JOB_INSTALL_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/$APP_NAME}"
 VENV="$INSTALL_ROOT/venv"
 BIN_DIR="${XDG_BIN_HOME:-$HOME/.local/bin}"
-WHEEL_URL="${FIND_A_JOB_WHEEL_URL:-https://github.com/$RELEASE_OWNER/$RELEASE_REPO/releases/latest/download/find_a_job-${APP_VERSION}-py3-none-any.whl}"
+WHEEL_URL="${FIND_A_JOB_WHEEL_URL:-https://github.com/$RELEASE_OWNER/$RELEASE_REPO/releases/latest/download/findajob-${APP_VERSION}-py3-none-any.whl}"
 
 die() { echo "install: $*" >&2; exit 1; }
 
