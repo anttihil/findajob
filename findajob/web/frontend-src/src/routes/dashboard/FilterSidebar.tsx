@@ -102,17 +102,22 @@ export function FilterSidebar({
       </div>
 
       <div class="filter-group">
-        <label for="filter-location">Location</label>
-        <input
+        <label for="filter-location">Search Location</label>
+        <select
           id="filter-location"
           class="form-select"
-          type="search"
-          placeholder="City, region, or Remote"
           value={query.location}
-          onInput={(e) =>
-            navigate(query.url({ location: (e.target as HTMLInputElement).value }))
+          onChange={(e) =>
+            navigate(query.url({ location: (e.target as HTMLSelectElement).value }))
           }
-        />
+        >
+          <option value="">All Search Locations</option>
+          {meta?.locations.map((location) => (
+            <option key={location.id} value={location.id}>
+              {location.label}{location.enabled ? "" : " (disabled)"}
+            </option>
+          ))}
+        </select>
       </div>
 
       <div class="filter-group">

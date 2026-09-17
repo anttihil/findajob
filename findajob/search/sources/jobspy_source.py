@@ -374,14 +374,17 @@ def build_scrape_kwargs(
 
     if source == "indeed":
         kwargs["country_indeed"] = task["indeed_country"] or "usa"
-        if not task["is_remote"] and task["distance"]:
-            kwargs["distance"] = task["distance"]
     elif source == "linkedin":
         # All-or-nothing, matching the cell's desc_selection: 'census' when the budget
         # affords a description per posting, 'none' otherwise. Never a top-scoring subset
         # -- selecting on pre-score correlates with the user's own skills, which is exactly
         # the bias the skill-demand denominators must not contain.
         kwargs["linkedin_fetch_description"] = task["fetch_description"]
+
+    if not task["is_remote"] and task["distance"]:
+        # JobSpy sends this through to both Indeed and LinkedIn.  Keeping it outside
+        # the board branch avoids silently broadening LinkedIn searches.
+        kwargs["distance"] = task["distance"]
 
     if task["proxies"]:
         kwargs["proxies"] = task["proxies"]

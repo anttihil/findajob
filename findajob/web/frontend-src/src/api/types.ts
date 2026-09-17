@@ -188,6 +188,7 @@ export interface GeneratedResumeRecord {
 // GET /api/meta
 export interface Meta {
   countries: [string, string][];
+  locations: { id: string; label: string; enabled: boolean }[];
   verdicts?: [string, string][];
   reason_types?: [string, string][];
   fit_threshold: number;

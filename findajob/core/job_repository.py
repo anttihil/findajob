@@ -156,8 +156,11 @@ def feed_filters(
             sql += f" AND {column} = ?"
             params.append(value)
     if location and location.strip():
-        sql += " AND lower(jobs.location) LIKE ?"
-        params.append(f"%{location.strip().lower()}%")
+        # Dashboard locations are configured search targets.  A posting's reported
+        # location is free text and cannot reliably represent the radius used to find
+        # it; scrape-cell provenance can.
+        sql += " AND cell.location_id = ?"
+        params.append(location.strip())
     if fit is not None:
         sql += " AND v.fit = ?"
         params.append(1 if fit else 0)
