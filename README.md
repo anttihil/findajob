@@ -2,7 +2,8 @@
 
 Find a Job is a personal job-search application. It collects postings from configured job
 boards, builds a candidate profile from your resume, scores postings against that profile,
-and can generate tailored one-page resumes.
+and can generate tailored one-page resumes. The job posting collection can happen on a schedule
+or via one-off runs. You can use the app via a web interface or via a CLI.
 
 The application stores postings, profiles, verdicts, search targets, and generated resumes
 locally. It is intended for one user and does not require a hosted service.
