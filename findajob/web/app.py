@@ -727,6 +727,30 @@ def update_profile_endpoint(profile_data: dict[str, Any]):
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+@app.get("/api/profile/download")
+@app.get("/api/resume-builder/profile/download")
+def download_master_profile(format: str = Query("pdf", pattern="^(pdf|typst)$")):
+    """Download the full master profile as a general-purpose resume."""
+    from findajob.core.paths import generated_resumes_dir
+    from findajob.profile.renderer import compile_typst_to_pdf, render_master_profile_typst
+    from findajob.profile.repository import load_profile
+
+    output_dir = generated_resumes_dir()
+    typst_path = os.path.join(output_dir, "master_profile.typ")
+    typst_path = render_master_profile_typst(load_profile(), typst_path)
+    if format == "pdf":
+        file_path = compile_typst_to_pdf(typst_path, output_dir)
+        media_type = "application/pdf"
+    else:
+        file_path = typst_path
+        media_type = "text/plain; charset=utf-8"
+    if not file_path or not os.path.exists(file_path):
+        raise HTTPException(
+            status_code=500, detail=f"Unable to generate master profile {format.upper()}"
+        )
+    return FileResponse(file_path, media_type=media_type, filename=os.path.basename(file_path))
+
+
 @app.get("/api/profile/versions")
 def get_profile_versions():
     from findajob.profile.repository import list_versions

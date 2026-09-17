@@ -8,7 +8,7 @@ from pypdf.errors import PdfReadError
 
 from findajob.core.logger import get_logger
 from findajob.core.paths import generated_resumes_dir
-from findajob.profile.models import TailoredResumePayload
+from findajob.profile.models import Profile, TailoredResumePayload
 
 logger = get_logger()
 
@@ -142,6 +142,96 @@ def generate_typst_source(payload: TailoredResumePayload) -> str:
     return "\n".join(lines)
 
 
+def generate_master_profile_typst_source(profile: Profile) -> str:
+    """Generate a general-purpose resume from the complete master profile.
+
+    Unlike tailored resumes, this deliberately includes all saved experience and
+    standalone projects. It is therefore suitable for a general application or
+    as an editable starting point for a bespoke resume.
+    """
+    contact = " | ".join(part for part in (profile.location, profile.email, profile.phone) if part)
+    links = " | ".join(part for part in (profile.github, profile.linkedin, profile.website) if part)
+    lines = [
+        "// ============================================================================",
+        f"// General-purpose Master Profile Resume: {escape_typst(profile.name)}",
+        "// Generated from the complete CareerRadar master profile",
+        "// ============================================================================",
+        "",
+        '#set page(paper: "us-letter", margin: (x: 0.65in, top: 0.55in, bottom: 0.55in))',
+        (
+            '#set text(font: ("Arial", "Liberation Sans", "DejaVu Sans"), '
+            'size: 10.5pt, fill: rgb("#000000"))'
+        ),
+        "#set par(justify: false, leading: 0.5em)",
+        "",
+        (
+            "#let section-heading(title) = block(width: 100%, stroke: "
+            '(bottom: 1pt + rgb("#000000")), inset: (bottom: 2pt), '
+            'above: 14pt, below: 8pt)[#text(11pt, weight: "bold")[#upper(title)]]'
+        ),
+        "",
+        f'#align(center)[#text(20pt, weight: "bold")[{escape_typst(profile.name)}]]',
+    ]
+    if contact:
+        lines.append(f"#align(center)[{escape_typst(contact)}]")
+    if links:
+        lines.append(f"#align(center)[{escape_typst(links)}]")
+    if profile.executive_summary:
+        lines.extend(["", '#section-heading("SUMMARY")', escape_typst(profile.executive_summary)])
+
+    if profile.experience:
+        lines.extend(["", '#section-heading("EXPERIENCE")'])
+        for role in profile.experience:
+            lines.extend(
+                [
+                    "#grid(columns: (1fr, auto),",
+                    f"  [*{escape_typst(role.title)}*, {escape_typst(role.company)}],",
+                    f"  [{escape_typst(role.dates)}],",
+                    ")",
+                ]
+            )
+            if role.location:
+                lines.append(f'#text(size: 9pt, style: "italic")[{escape_typst(role.location)}]')
+            for project in role.projects:
+                if project.heading:
+                    lines.append(f'#text(style: "italic")[{escape_typst(project.heading)}]')
+                if project.url:
+                    lines.append(f"#text(size: 9pt)[{escape_typst(project.url)}]")
+                if project.bullets:
+                    lines.extend(["#list(tight: true,"])
+                    lines.extend(f"  [{escape_typst(bullet)}]," for bullet in project.bullets)
+                    lines.append(")")
+
+    if profile.projects:
+        lines.extend(["", '#section-heading("PROJECTS")'])
+        for project in profile.projects:
+            if project.heading:
+                lines.append(f"*{escape_typst(project.heading)}*")
+            if project.url:
+                lines.append(f"#text(size: 9pt)[{escape_typst(project.url)}]")
+            if project.bullets:
+                lines.extend(["#list(tight: true,"])
+                lines.extend(f"  [{escape_typst(bullet)}]," for bullet in project.bullets)
+                lines.append(")")
+
+    if profile.skills:
+        lines.extend(["", '#section-heading("SKILLS")'])
+        for category in profile.skills:
+            category_name = escape_typst(category.category)
+            skills = escape_typst(", ".join(category.skills))
+            lines.append(f"*{category_name}:* {skills} \\")
+
+    if profile.education:
+        lines.extend(["", '#section-heading("EDUCATION")'])
+        for education in profile.education:
+            detail = f", {escape_typst(education.details)}" if education.details else ""
+            institution = escape_typst(education.institution)
+            degree = escape_typst(education.degree)
+            lines.append(f"*{institution}*, {degree}{detail}")
+
+    return "\n".join(lines) + "\n"
+
+
 def render_typst(
     payload: TailoredResumePayload,
     output_path: str,
@@ -152,6 +242,15 @@ def render_typst(
     out_p.parent.mkdir(parents=True, exist_ok=True)
     out_p.write_text(source, encoding="utf-8")
     logger.info("Rendered resume typst saved to %s", output_path)
+    return str(out_p)
+
+
+def render_master_profile_typst(profile: Profile, output_path: str) -> str:
+    """Render a general-purpose master-profile resume to a Typst file."""
+    out_p = Path(output_path)
+    out_p.parent.mkdir(parents=True, exist_ok=True)
+    out_p.write_text(generate_master_profile_typst_source(profile), encoding="utf-8")
+    logger.info("Rendered master profile Typst saved to %s", output_path)
     return str(out_p)
 
 

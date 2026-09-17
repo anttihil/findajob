@@ -76,6 +76,9 @@ Build and inspect the profile used for scoring:
 ```bash
 findajob profile build /path/to/resume.pdf
 findajob profile show
+# Export the complete profile as a general-purpose resume (PDF or editable Typst)
+findajob profile export
+findajob profile export --format typst
 ```
 
 Configure and inspect search targets:

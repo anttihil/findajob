@@ -469,6 +469,9 @@ def build_parser() -> argparse.ArgumentParser:
     pb.add_argument("file", help="path to your resume (PDF, Markdown, or plain text)")
     psub.add_parser("show", help="print the active profile")
     psub.add_parser("history", help="list every profile version")
+    pe = psub.add_parser("export", help="export the full profile as a general-purpose resume")
+    pe.add_argument("--format", choices=["pdf", "typst"], default="pdf")
+    pe.add_argument("--output-dir", help="directory for master_profile.typ and PDF")
     p.set_defaults(func=_cmd_profile)
 
     run = sub.add_parser("run", help="run one manual search-and-score pass")

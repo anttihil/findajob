@@ -2,13 +2,21 @@ import os
 from pathlib import Path
 
 from findajob.profile.models import (
+    MasterProject,
+    MasterRole,
+    Profile,
     ResumeEducation,
     ResumeRole,
     ResumeSkillCategory,
     ResumeSubsection,
     TailoredResumePayload,
 )
-from findajob.profile.renderer import compile_typst_to_pdf, render_typst, verify_page_count
+from findajob.profile.renderer import (
+    compile_typst_to_pdf,
+    render_master_profile_typst,
+    render_typst,
+    verify_page_count,
+)
 
 
 def test_render_typst_and_compile_pdf(tmp_path: Path):
@@ -72,3 +80,28 @@ def test_render_typst_and_compile_pdf(tmp_path: Path):
     assert os.path.exists(pdf_path)
     pages = verify_page_count(pdf_path)
     assert pages == 1
+
+
+def test_render_master_profile_typst_includes_full_profile(tmp_path: Path):
+    profile = Profile(
+        name="Jane Doe",
+        executive_summary="General-purpose engineering leader.",
+        experience=[
+            MasterRole(
+                title="Engineer",
+                company="Acme",
+                dates="2020 - Present",
+                projects=[MasterProject(heading="Platform", bullets=["Built resilient systems."])],
+            )
+        ],
+        projects=[
+            MasterProject(
+                heading="Open source", url="example.dev", bullets=["Maintained a library."]
+            )
+        ],
+    )
+    output = render_master_profile_typst(profile, str(tmp_path / "master_profile.typ"))
+    content = Path(output).read_text(encoding="utf-8")
+    assert "General-purpose Master Profile Resume" in content
+    assert "Built resilient systems." in content
+    assert "Open source" in content

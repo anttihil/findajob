@@ -11,6 +11,7 @@ from findajob.core.llm import get_model_for_role
 from findajob.core.logger import get_logger
 from findajob.profile.copilot import extract_profile_from_resume_text, parse_resume_file
 from findajob.profile.render import render_profile
+from findajob.profile.renderer import compile_typst_to_pdf, render_master_profile_typst
 from findajob.profile.repository import list_versions, load_profile, save_profile
 
 logger = get_logger()
@@ -107,7 +108,30 @@ def cmd_history(_args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_export(args: argparse.Namespace) -> int:
+    """Export the entire master profile as a general-purpose resume."""
+    from findajob.core.paths import generated_resumes_dir
+
+    profile = load_profile()
+    if not profile.name:
+        print("Error: no active profile configured. Build or save a profile first.")
+        return 1
+    output_dir = os.path.abspath(args.output_dir or generated_resumes_dir())
+    typst_path = render_master_profile_typst(
+        profile, os.path.join(output_dir, "master_profile.typ")
+    )
+    print(f"Typst: {typst_path}")
+    if args.format == "typst":
+        return 0
+    pdf_path = compile_typst_to_pdf(typst_path, output_dir)
+    if not pdf_path:
+        print("Error: could not compile the master-profile PDF.")
+        return 1
+    print(f"PDF:   {pdf_path}")
+    return 0
+
+
 def run_profile_command(args: argparse.Namespace) -> int:
-    handlers = {"show": cmd_show, "build": cmd_build, "history": cmd_history}
+    handlers = {"show": cmd_show, "build": cmd_build, "history": cmd_history, "export": cmd_export}
     handler = handlers.get(getattr(args, "subcommand", "show") or "show", cmd_show)
     return handler(args)

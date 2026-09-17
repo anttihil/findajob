@@ -271,6 +271,12 @@ export function ResumesPage() {
                       <i class={`fa-solid ${saving ? "fa-spinner fa-spin" : "fa-floppy-disk"}`}></i>{" "}
                       {saving ? "Saving..." : "Save & Sync Profile"}
                     </button>
+                    <a class="action-pill" href="/api/profile/download?format=typst" title="Download the complete profile as editable Typst">
+                      <i class="fa-solid fa-code"></i> Master Typst
+                    </a>
+                    <a class="action-pill" href="/api/profile/download?format=pdf" title="Download the complete profile as a general-purpose PDF resume">
+                      <i class="fa-solid fa-file-pdf"></i> Master PDF
+                    </a>
                   </div>
                 </div>
 
