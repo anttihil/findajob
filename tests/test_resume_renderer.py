@@ -91,6 +91,7 @@ def test_render_master_profile_typst_includes_full_profile(tmp_path: Path):
                 title="Engineer",
                 company="Acme",
                 dates="2020 - Present",
+                location="San Francisco, CA",
                 projects=[MasterProject(heading="Platform", bullets=["Built resilient systems."])],
             )
         ],
@@ -105,8 +106,11 @@ def test_render_master_profile_typst_includes_full_profile(tmp_path: Path):
     assert "General-purpose Master Profile Resume" in content
     assert "Built resilient systems." in content
     assert "Open source" in content
+    assert "San Francisco, CA" not in content
+    assert '#section-heading("SUMMARY")' not in content
     # Master profile exports use the same visual system as tailored resumes.
     assert "margin: (x: 0.5in, top: 0.5in, bottom: 0.5in)" in content
+    assert 'font: "Liberation Sans"' in content
     assert "size: 11pt," in content
     assert "row-gutter: 3pt," in content
     assert '#line(length: 100%, stroke: 1pt + rgb("#000000"))' in content

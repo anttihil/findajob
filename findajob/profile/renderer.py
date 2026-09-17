@@ -40,7 +40,7 @@ def _resume_layout_preamble() -> list[str]:
         "  margin: (x: 0.5in, top: 0.5in, bottom: 0.5in),",
         ")",
         "#set text(",
-        '  font: ("Arial", "Liberation Sans", "DejaVu Sans"),',
+        '  font: "Liberation Sans",',
         "  size: 11pt,",
         '  fill: rgb("#000000"),',
         ")",
@@ -73,7 +73,6 @@ def _resume_header(name: str, contact_lines: list[str]) -> list[str]:
         [
             ")",
             "",
-            "#v(2pt)",
             '#line(length: 100%, stroke: 1pt + rgb("#000000"))',
             "#v(2pt)",
         ]
@@ -181,7 +180,7 @@ def generate_master_profile_typst_source(profile: Profile) -> str:
     lines.extend(_resume_layout_preamble())
     lines.extend(_resume_header(profile.name, [line for line in (contact, links) if line]))
     if profile.executive_summary:
-        lines.extend(["", '#section-heading("SUMMARY")', escape_typst(profile.executive_summary)])
+        lines.extend(["", escape_typst(profile.executive_summary)])
 
     if profile.experience:
         lines.extend(["", '#section-heading("EXPERIENCE")'])
@@ -197,8 +196,6 @@ def generate_master_profile_typst_source(profile: Profile) -> str:
                     ")",
                 ]
             )
-            if role.location:
-                lines.append(f'#text(size: 9pt, style: "italic")[{escape_typst(role.location)}]')
             for project in role.projects:
                 if project.heading:
                     lines.append(f'#text(style: "italic")[{escape_typst(project.heading)}]')
