@@ -39,7 +39,6 @@ EXPECTED_COMPLETION_TOKENS = 60
 
 
 MAX_SCORING_FAILURES = scoring_repo.MAX_SCORING_FAILURES
-_seniority_clause = scoring_repo._seniority_clause
 _age_clause = scoring_repo._age_clause
 _live_clause = scoring_repo._live_clause
 _ELIGIBLE = scoring_repo._ELIGIBLE
@@ -235,8 +234,7 @@ def run_scoring(limit: int | None = None) -> int:
                 f"excluded:   {skipped['total']:,} never scoreable  "
                 f"({skipped['duplicate']:,} duplicate, "
                 f"{skipped['thin']:,} no description, "
-                f"{skipped['closed']:,} closed, "
-                f"{skipped['seniority'] or 0:,} seniority)"
+                f"{skipped['closed']:,} closed)"
             )
 
         stuck = _quarantined(db)

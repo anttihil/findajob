@@ -148,77 +148,21 @@ class BacklogAccountingTests(_Fixture, unittest.TestCase):
         self.assertEqual(_ineligible(self.db)["total"], len(excluded))
 
 
-class SenioritySkipTests(_Fixture, unittest.TestCase):
-    """`scoring.skip_seniority` must move rows from pending to excluded, never lose them."""
-
-    def setUp(self) -> None:
-        super().setUp()
-        patcher = mock.patch(
-            "findajob.scoring.worker.load_config",
-            return_value={"scoring": {"skip_seniority": ["lead", "staff"]}},
-        )
-        patcher.start()
-        self.addCleanup(patcher.stop)
-
-    def test_skipped_levels_leave_the_queue(self) -> None:
-        self.job(1, seniority="mid")
-        self.job(2, seniority="unspecified")
-        self.job(3, seniority=None)  # NULL reads as unspecified, not as skipped
-        self.job(4, seniority="lead")
-        self.job(5, seniority="staff")
-
-        queued = {row["id"] for row in _select(self.db, None, PROFILE)}
-        self.assertEqual(queued, {1, 2, 3})
-        self.assertEqual(_pending(self.db, PROFILE), len(queued))
-
-    def test_skipped_rows_are_reported_not_dropped(self) -> None:
-        self.job(1, seniority="mid")
-        self.job(2, seniority="lead")
-        self.job(3, seniority="staff", duplicate_of=1)  # duplicate wins on precedence
-
-        row = _ineligible(self.db)
-        self.assertEqual(row["total"], 2)
-        self.assertEqual(row["seniority"], 1)
-        self.assertEqual(row["duplicate"], 1)
-        self.assertEqual(
-            row["duplicate"] + row["thin"] + row["closed"] + row["seniority"], row["total"]
-        )
-
-    def test_skipped_and_pending_stay_disjoint(self) -> None:
+class SeniorityEligibilityTests(_Fixture, unittest.TestCase):
+    def test_seniority_never_excludes_a_posting_from_scoring(self) -> None:
         for job_id, level in enumerate(("mid", "lead", "staff", "senior"), start=1):
             self.job(job_id, seniority=level)
 
         queued = {row["id"] for row in _select(self.db, None, PROFILE)}
-        self.assertEqual(queued, {1, 4})
-        self.assertEqual(_ineligible(self.db)["total"], 2)
-
-
-class EmptySenioritySkipTests(_Fixture, unittest.TestCase):
-    """An empty list must be a no-op, not a clause that excludes everything."""
-
-    def setUp(self) -> None:
-        super().setUp()
-        patcher = mock.patch(
-            "findajob.scoring.worker.load_config",
-            return_value={"scoring": {"skip_seniority": []}},
-        )
-        patcher.start()
-        self.addCleanup(patcher.stop)
-
-    def test_no_level_is_skipped(self) -> None:
-        self.job(1, seniority="lead")
-        self.job(2, seniority="staff")
-
-        self.assertEqual(len(_select(self.db, None, PROFILE)), 2)
-        self.assertEqual(_pending(self.db, PROFILE), 2)
-        self.assertEqual(_ineligible(self.db)["total"], 0)
+        self.assertEqual(queued, {1, 2, 3, 4})
+        self.assertEqual(_pending(self.db, PROFILE), len(queued))
 
 
 class PostingAgeFilterTests(_Fixture, unittest.TestCase):
     def test_stale_postings_are_skipped(self) -> None:
         patcher = mock.patch(
             "findajob.scoring.worker.load_config",
-            return_value={"scoring": {"max_posting_age_days": 3, "skip_seniority": []}},
+            return_value={"scoring": {"max_posting_age_days": 3}},
         )
         patcher.start()
         self.addCleanup(patcher.stop)

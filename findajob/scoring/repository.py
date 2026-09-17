@@ -14,18 +14,6 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _seniority_clause() -> str:
-    import sys
-
-    worker = sys.modules.get("findajob.scoring.worker")
-    cfg_fn = getattr(worker, "load_config", load_config) if worker else load_config
-    levels = (cfg_fn().get("scoring") or {}).get("skip_seniority") or []
-    if not levels:
-        return ""
-    quoted = ", ".join("'" + level.replace("'", "''") + "'" for level in levels)
-    return f"AND (j.seniority IS NULL OR j.seniority NOT IN ({quoted}))"
-
-
 def _age_clause() -> str:
     import sys
 
@@ -48,7 +36,6 @@ _ELIGIBLE = """
        AND j.description IS NOT NULL AND length(j.description) > 200
        AND COALESCE(j.scoring_failures, 0) < {max_failures}
        {live_clause}
-       {seniority_clause}
        {age_clause}
 """
 
@@ -75,7 +62,6 @@ def select_scoring_backlog(
     where = _ELIGIBLE.format(
         live_clause=_live_clause(include_closed),
         max_failures=MAX_SCORING_FAILURES,
-        seniority_clause=_seniority_clause(),
         age_clause=_age_clause(),
     )
 
@@ -97,7 +83,6 @@ def get_pending_scoring_stats(
         + _ELIGIBLE.format(
             live_clause=_live_clause(include_closed),
             max_failures=MAX_SCORING_FAILURES,
-            seniority_clause=_seniority_clause(),
             age_clause=_age_clause(),
         )
         + _NO_VERDICT
@@ -117,7 +102,6 @@ def count_pending_scoring(
         + _ELIGIBLE.format(
             live_clause=_live_clause(include_closed),
             max_failures=MAX_SCORING_FAILURES,
-            seniority_clause=_seniority_clause(),
             age_clause=_age_clause(),
         )
         + _NO_VERDICT
@@ -137,9 +121,7 @@ def get_oldest_pending_date(
 
 def get_ineligible_breakdown(conn: sqlite3.Connection) -> sqlite3.Row:
     """Postings left in 'new' that no run will ever select, by reason."""
-    seniority = _seniority_clause()
-    seniority_hit = f"NOT ({seniority[4:]})" if seniority else "0"
-    return conn.execute(f"""
+    return conn.execute("""
         SELECT
           COUNT(*) AS total,
           SUM(j.duplicate_of IS NOT NULL) AS duplicate,
@@ -147,18 +129,13 @@ def get_ineligible_breakdown(conn: sqlite3.Connection) -> sqlite3.Row:
               AND (j.description IS NULL OR length(j.description) <= 200)) AS thin,
           SUM(j.duplicate_of IS NULL
               AND j.description IS NOT NULL AND length(j.description) > 200
-              AND COALESCE(l.liveness, 'unknown') = 'likely_closed') AS closed,
-          SUM(j.duplicate_of IS NULL
-              AND j.description IS NOT NULL AND length(j.description) > 200
-              AND COALESCE(l.liveness, 'unknown') != 'likely_closed'
-              AND {seniority_hit}) AS seniority
+              AND COALESCE(l.liveness, 'unknown') = 'likely_closed') AS closed
           FROM jobs j
           LEFT JOIN v_job_liveness l ON l.job_id = j.id
          WHERE j.pipeline_state = 'new'
            AND (j.duplicate_of IS NOT NULL
                 OR j.description IS NULL OR length(j.description) <= 200
-                OR COALESCE(l.liveness, 'unknown') = 'likely_closed'
-                OR {seniority_hit})
+                OR COALESCE(l.liveness, 'unknown') = 'likely_closed')
     """).fetchone()
 
 

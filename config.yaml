@@ -77,5 +77,4 @@ scoring:
   fit_threshold: 70
   include_skill_hint: false
   max_usd_per_run: 8.00
-  skip_seniority: [lead, staff]
   max_posting_age_days: 3

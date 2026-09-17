@@ -113,7 +113,6 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "fit_threshold": 70,
         "include_skill_hint": False,
         "max_usd_per_run": 8.00,
-        "skip_seniority": ["lead", "staff"],
         "max_posting_age_days": 3,
     },
     "scheduler": {
