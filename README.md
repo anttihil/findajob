@@ -8,6 +8,8 @@ or via one-off runs. You can use the app via a web interface or via a CLI.
 The application stores postings, profiles, verdicts, search targets, and generated resumes
 locally. It is intended for one user and does not require a hosted service.
 
+<img width="1627" height="1165" alt="findajob" src="https://github.com/user-attachments/assets/50f6d5e0-3776-4cbd-ba01-cd3ea6c820f5" />
+
 ## Installation
 
 ### Standalone installation
