@@ -105,3 +105,13 @@ def test_render_master_profile_typst_includes_full_profile(tmp_path: Path):
     assert "General-purpose Master Profile Resume" in content
     assert "Built resilient systems." in content
     assert "Open source" in content
+    # Master profile exports use the same visual system as tailored resumes.
+    assert "margin: (x: 0.5in, top: 0.5in, bottom: 0.5in)" in content
+    assert "size: 11pt," in content
+    assert "row-gutter: 3pt," in content
+    assert '#line(length: 100%, stroke: 1pt + rgb("#000000"))' in content
+    assert "#align(center)" not in content
+
+    pdf_path = compile_typst_to_pdf(output, str(tmp_path))
+    assert pdf_path is not None
+    assert verify_page_count(pdf_path) == 1

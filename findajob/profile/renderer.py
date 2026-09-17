@@ -32,14 +32,9 @@ def escape_typst(text: str) -> str:
     return text
 
 
-def generate_typst_source(payload: TailoredResumePayload) -> str:
-    """Generate high-fidelity 1-page Typst markup source code from resume payload."""
-    lines: list[str] = [
-        "// ============================================================================",
-        f"// Tailored 1-Page Resume: {escape_typst(payload.name)}",
-        "// Generated with Typst - Fast, deterministic typesetting engine",
-        "// ============================================================================",
-        "",
+def _resume_layout_preamble() -> list[str]:
+    """Return the shared Typst layout rules for every resume export."""
+    return [
         "#set page(",
         '  paper: "us-letter",',
         "  margin: (x: 0.5in, top: 0.5in, bottom: 0.5in),",
@@ -62,14 +57,18 @@ def generate_typst_source(payload: TailoredResumePayload) -> str:
         '  )[#text(11pt, weight: "bold")[#upper(title)]]',
         "}",
         "",
+    ]
+
+
+def _resume_header(name: str, contact_lines: list[str]) -> list[str]:
+    """Return the shared left-aligned resume header and divider."""
+    lines = [
         "// --- Header ---",
         "#grid(",
         "  row-gutter: 3pt,",
-        f'  text(20pt, weight: "bold")[{escape_typst(payload.name)}],',
-        f"  text()[{escape_typst(payload.contact_line_1)}],",
+        f'  text(20pt, weight: "bold")[{escape_typst(name)}],',
     ]
-    if payload.contact_line_2 and payload.contact_line_2.strip():
-        lines.append(f"  text()[{escape_typst(payload.contact_line_2)}],")
+    lines.extend(f"  text()[{escape_typst(contact_line)}]," for contact_line in contact_lines)
     lines.extend(
         [
             ")",
@@ -77,6 +76,27 @@ def generate_typst_source(payload: TailoredResumePayload) -> str:
             "#v(2pt)",
             '#line(length: 100%, stroke: 1pt + rgb("#000000"))',
             "#v(2pt)",
+        ]
+    )
+    return lines
+
+
+def generate_typst_source(payload: TailoredResumePayload) -> str:
+    """Generate high-fidelity 1-page Typst markup source code from resume payload."""
+    lines: list[str] = [
+        "// ============================================================================",
+        f"// Tailored 1-Page Resume: {escape_typst(payload.name)}",
+        "// Generated with Typst - Fast, deterministic typesetting engine",
+        "// ============================================================================",
+        "",
+    ]
+    contact_lines = [payload.contact_line_1]
+    if payload.contact_line_2 and payload.contact_line_2.strip():
+        contact_lines.append(payload.contact_line_2)
+    lines.extend(_resume_layout_preamble())
+    lines.extend(_resume_header(payload.name, contact_lines))
+    lines.extend(
+        [
             "",
             "// --- Summary ---",
             f"#text()[{escape_typst(payload.summary)}]",
@@ -157,36 +177,23 @@ def generate_master_profile_typst_source(profile: Profile) -> str:
         "// Generated from the complete CareerRadar master profile",
         "// ============================================================================",
         "",
-        '#set page(paper: "us-letter", margin: (x: 0.65in, top: 0.55in, bottom: 0.55in))',
-        (
-            '#set text(font: ("Arial", "Liberation Sans", "DejaVu Sans"), '
-            'size: 10.5pt, fill: rgb("#000000"))'
-        ),
-        "#set par(justify: false, leading: 0.5em)",
-        "",
-        (
-            "#let section-heading(title) = block(width: 100%, stroke: "
-            '(bottom: 1pt + rgb("#000000")), inset: (bottom: 2pt), '
-            'above: 14pt, below: 8pt)[#text(11pt, weight: "bold")[#upper(title)]]'
-        ),
-        "",
-        f'#align(center)[#text(20pt, weight: "bold")[{escape_typst(profile.name)}]]',
     ]
-    if contact:
-        lines.append(f"#align(center)[{escape_typst(contact)}]")
-    if links:
-        lines.append(f"#align(center)[{escape_typst(links)}]")
+    lines.extend(_resume_layout_preamble())
+    lines.extend(_resume_header(profile.name, [line for line in (contact, links) if line]))
     if profile.executive_summary:
         lines.extend(["", '#section-heading("SUMMARY")', escape_typst(profile.executive_summary)])
 
     if profile.experience:
         lines.extend(["", '#section-heading("EXPERIENCE")'])
-        for role in profile.experience:
+        for role_index, role in enumerate(profile.experience):
+            if role_index > 0:
+                lines.append("#v(4pt)")
             lines.extend(
                 [
-                    "#grid(columns: (1fr, auto),",
+                    "#grid(",
+                    "  columns: (1fr, auto),",
                     f"  [*{escape_typst(role.title)}*, {escape_typst(role.company)}],",
-                    f"  [{escape_typst(role.dates)}],",
+                    f"  text()[{escape_typst(role.dates)}],",
                     ")",
                 ]
             )
@@ -227,7 +234,15 @@ def generate_master_profile_typst_source(profile: Profile) -> str:
             detail = f", {escape_typst(education.details)}" if education.details else ""
             institution = escape_typst(education.institution)
             degree = escape_typst(education.degree)
-            lines.append(f"*{institution}*, {degree}{detail}")
+            lines.extend(
+                [
+                    "#grid(",
+                    "  columns: (1fr, auto),",
+                    f"  [*{institution}*, {degree}{detail}],",
+                    "  [],",
+                    ")",
+                ]
+            )
 
     return "\n".join(lines) + "\n"
 
