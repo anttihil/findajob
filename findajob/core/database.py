@@ -18,6 +18,7 @@ from findajob.core.job_repository import (
 from findajob.core.paths import DB_PATH
 from findajob.scoring import repository as scoring_repo
 from findajob.search import repository as search_repo
+from findajob.search.normalizer import normalize_company, normalize_title
 
 if TYPE_CHECKING:
     from findajob.search.scheduler import CellState
@@ -40,6 +41,10 @@ class Database:
         self.db_path = db_path or DB_PATH
         self.conn = sqlite3.connect(self.db_path)
         self.conn.row_factory = sqlite3.Row
+        # Feed grouping is query-only: registering these deterministic helpers avoids a
+        # schema migration while keeping its identity rules identical to ingestion.
+        self.conn.create_function("normalize_company", 1, normalize_company, deterministic=True)
+        self.conn.create_function("normalize_title", 1, normalize_title, deterministic=True)
         self._jobs_columns: list[str] | None = None
         self.create_tables()
 

@@ -145,6 +145,18 @@ def normalize_company(name: Any) -> str:
     return re.sub(r"\s+", " ", text).strip().lower()
 
 
+def normalize_title(title: Any) -> str:
+    """Canonicalize a job title for exact role-family comparisons.
+
+    This deliberately mirrors the title component of :func:`content_hash`, but is
+    exposed separately for feed-level grouping across location variants.
+    """
+    text = _text(title).lower()
+    text = re.sub(r"\(.*?\)", " ", text)
+    text = re.sub(r"[^\w\s]", " ", text)
+    return re.sub(r"\s+", " ", text).strip()
+
+
 def is_agency(company: Any, agency_names: list[str] | None) -> bool:
     """Whether a company is a staffing agency or consultancy.
 
@@ -342,10 +354,7 @@ def content_hash(company: Any, title: Any, location: Any) -> str:
     decoration from the title makes the collision happen.
     """
     company_key = normalize_company(company)
-    title_key = _text(title).lower()
-    title_key = re.sub(r"\(.*?\)", " ", title_key)
-    title_key = re.sub(r"[^\w\s]", " ", title_key)
-    title_key = re.sub(r"\s+", " ", title_key).strip()
+    title_key = normalize_title(title)
     location_key = re.sub(r"[^\w]", "", _text(location).lower())
     payload = f"{company_key}|{title_key}|{location_key}"
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:32]

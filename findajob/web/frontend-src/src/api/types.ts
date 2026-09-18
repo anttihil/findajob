@@ -59,6 +59,8 @@ export interface Job {
   // Computed server-side, not raw columns.
   liveness: Liveness;
   tailored_resume_id?: number | null;
+  // Number of raw postings represented by this normalized company/title feed row.
+  listing_count?: number;
 }
 
 export interface JobsPage {

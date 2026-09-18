@@ -23,6 +23,11 @@ export function JobCard({ job, query }: { job: Job; query: FilterQuery }) {
           <span>
             <i class="fa-solid fa-server"></i> {job.source}
           </span>
+          {(job.listing_count ?? 1) > 1 && (
+            <span title="Same company and normalized title; other listings remain available in the database">
+              <i class="fa-solid fa-layer-group"></i> {job.listing_count} listings
+            </span>
+          )}
         </div>
         <div class="matched-skills-preview">
           {job.matched_skills.slice(0, 5).map((skill) => (
@@ -52,4 +57,3 @@ export function JobCard({ job, query }: { job: Job; query: FilterQuery }) {
     </Link>
   );
 }
-
