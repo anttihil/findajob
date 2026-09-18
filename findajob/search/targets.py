@@ -9,6 +9,8 @@ from typing import Any
 
 from findajob.core.paths import DB_PATH
 
+SCHEDULED_SOURCES = ("indeed", "linkedin")
+
 
 @dataclass
 class Location:
@@ -36,6 +38,7 @@ class SearchTargets:
 
     queries: list[str]
     locations: dict[str, Location]
+    query_sources: dict[str, tuple[str, ...]] | None = None
 
     @classmethod
     def from_spec(cls, data: dict[str, Any]) -> "SearchTargets":
@@ -43,13 +46,20 @@ class SearchTargets:
             location.id: location
             for location in (Location(**spec) for spec in data.get("locations") or [])
         }
-        return cls(queries=list(data.get("queries") or []), locations=locations)
+        queries = list(data.get("queries") or [])
+        return cls(
+            queries=queries,
+            locations=locations,
+            query_sources=dict.fromkeys(queries, SCHEDULED_SOURCES),
+        )
 
     @property
     def fingerprint(self) -> str:
         """Stable identity of the active target matrix, before sources are added."""
         payload = {
-            "queries": self.queries,
+            "queries": [
+                {"query": query, "sources": self.sources_for(query)} for query in self.queries
+            ],
             "locations": [
                 location.to_dict()
                 for location in sorted(self.locations.values(), key=lambda location: location.id)
@@ -68,8 +78,12 @@ class SearchTargets:
                 problems.append(f"location '{location.id}': search_label contains a parenthetical")
         return problems
 
-    def cell_specs(self, sources: tuple[str, ...] = ("indeed", "linkedin")) -> list[dict[str, Any]]:
-        """Build the active query × location × source scrape matrix."""
+    def sources_for(self, query: str) -> tuple[str, ...]:
+        """Return a query's board scope, defaulting legacy in-memory plans to both."""
+        return (self.query_sources or {}).get(query, SCHEDULED_SOURCES)
+
+    def cell_specs(self, sources: tuple[str, ...] = SCHEDULED_SOURCES) -> list[dict[str, Any]]:
+        """Build the active query × location × mapped-and-enabled-source matrix."""
         return [
             {
                 "source": source,
@@ -83,16 +97,29 @@ class SearchTargets:
             }
             for location in self.locations.values()
             if location.enabled
-            for source in sources
             for query in self.queries
+            for source in sources
+            if source in self.sources_for(query)
         ]
 
 
 def get_queries(conn: sqlite3.Connection, enabled_only: bool = False) -> list[dict[str, Any]]:
-    query = "SELECT id, query, enabled FROM search_queries"
+    query = """
+        SELECT sq.id, sq.query, sq.enabled,
+               COALESCE(json_group_array(sqs.source), '[]') AS sources_json
+          FROM search_queries sq
+          LEFT JOIN search_query_sources sqs ON sqs.query_id = sq.id
+    """
     if enabled_only:
-        query += " WHERE enabled = 1"
-    return [dict(row) for row in conn.execute(query + " ORDER BY id ASC").fetchall()]
+        query += " WHERE sq.enabled = 1"
+    query += " GROUP BY sq.id ORDER BY sq.id ASC"
+    records = []
+    for row in conn.execute(query).fetchall():
+        record = dict(row)
+        sources = json.loads(record.pop("sources_json"))
+        record["sources"] = sorted(source for source in sources if source)
+        records.append(record)
+    return records
 
 
 def get_locations(conn: sqlite3.Connection, enabled_only: bool = False) -> list[dict[str, Any]]:
@@ -111,6 +138,9 @@ def load_targets(path: str | None = None, conn: sqlite3.Connection | None = None
         return SearchTargets(
             queries=[row["query"] for row in get_queries(conn, enabled_only=True)],
             locations={row["id"]: Location(**row) for row in get_locations(conn)},
+            query_sources={
+                row["query"]: tuple(row["sources"]) for row in get_queries(conn, enabled_only=True)
+            },
         )
 
     db_path = path or DB_PATH
@@ -121,17 +151,44 @@ def load_targets(path: str | None = None, conn: sqlite3.Connection | None = None
         return load_targets(conn=db)
 
 
-def add_query(conn: sqlite3.Connection, query_term: str, enabled: bool = True) -> int:
+def _validate_sources(sources: list[str] | tuple[str, ...] | None) -> tuple[str, ...]:
+    requested = SCHEDULED_SOURCES if sources is None else tuple(dict.fromkeys(sources))
+    invalid = set(requested) - set(SCHEDULED_SOURCES)
+    if invalid:
+        raise ValueError(f"Unsupported scheduled source(s): {', '.join(sorted(invalid))}")
+    if not requested:
+        raise ValueError("A scheduled query must target at least one source")
+    return requested
+
+
+def _save_query_sources(conn: sqlite3.Connection, query_id: int, sources: tuple[str, ...]) -> None:
+    conn.execute("DELETE FROM search_query_sources WHERE query_id = ?", (query_id,))
+    conn.executemany(
+        "INSERT INTO search_query_sources (query_id, source) VALUES (?, ?)",
+        [(query_id, source) for source in sources],
+    )
+
+
+def add_query(
+    conn: sqlite3.Connection,
+    query_term: str,
+    enabled: bool = True,
+    sources: list[str] | tuple[str, ...] | None = None,
+) -> int:
+    sources = _validate_sources(sources)
     row = conn.execute("SELECT id FROM search_queries WHERE query = ?", (query_term,)).fetchone()
     if row:
         conn.execute("UPDATE search_queries SET enabled = ? WHERE id = ?", (int(enabled), row[0]))
+        _save_query_sources(conn, row[0], sources)
         conn.commit()
         return row[0]
     cursor = conn.execute(
         "INSERT INTO search_queries (query, enabled) VALUES (?, ?)", (query_term, int(enabled))
     )
+    query_id = cursor.lastrowid or 0
+    _save_query_sources(conn, query_id, sources)
     conn.commit()
-    return cursor.lastrowid or 0
+    return query_id
 
 
 def update_query(
@@ -139,6 +196,7 @@ def update_query(
     query_id: int,
     query_term: str | None = None,
     enabled: bool | None = None,
+    sources: list[str] | tuple[str, ...] | None = None,
 ) -> None:
     updates: list[str] = []
     params: list[Any] = []
@@ -151,14 +209,17 @@ def update_query(
     if enabled is not None:
         updates.append("enabled = ?")
         params.append(int(enabled))
-    if not updates:
+    if not updates and sources is None:
         return
-    conn.execute(
-        f"UPDATE search_queries SET {', '.join(updates)} WHERE id = ?",
-        [*params, query_id],
-    )
+    if updates:
+        conn.execute(
+            f"UPDATE search_queries SET {', '.join(updates)} WHERE id = ?",
+            [*params, query_id],
+        )
     if old_term is not None and old_term != query_term:
         conn.execute("UPDATE scrape_cells SET query = ? WHERE query = ?", (query_term, old_term))
+    if sources is not None:
+        _save_query_sources(conn, query_id, _validate_sources(sources))
     conn.commit()
 
 

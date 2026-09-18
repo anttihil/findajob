@@ -305,10 +305,12 @@ export function SearchTargetsWidget({
 
   const [querySearchTerm, setQuerySearchTerm] = useStoredPreference("target-query-search", "");
   const [queryStatusFilter, setQueryStatusFilter] = useStoredPreference<"all" | "active" | "paused">("target-query-status-filter", "all");
+  const [querySourceFilter, setQuerySourceFilter] = useStoredPreference("target-query-source-filter", "all");
 
   const [showAddQueryModal, setShowAddQueryModal] = useState(false);
   const [newQueryText, setNewQueryText] = useState("");
   const [newQueryEnabled, setNewQueryEnabled] = useState(true);
+  const [newQuerySource, setNewQuerySource] = useState("indeed");
 
   const [editingQueryId, setEditingQueryId] = useState<number | null>(null);
   const [editingQueryText, setEditingQueryText] = useState("");
@@ -427,6 +429,19 @@ export function SearchTargetsWidget({
     setEditingQueryText(q.query);
   };
 
+  const handleSetQuerySource = async (q: TargetQuery, source: string) => {
+    const nextSources = [source];
+    try {
+      await putJSON(`/api/targets/queries/${q.id}`, { sources: nextSources });
+      setQueries((prev) => prev.map((item) => (item.id === q.id ? { ...item, sources: nextSources } : item)));
+      getJSON<TargetCapacity>("/api/targets/capacity").then((c) => c && setCapacity(c));
+      showNotification("Query source scope updated.");
+      if (onTargetsChanged) onTargetsChanged();
+    } catch (err) {
+      reportError("Updating query sources", err);
+    }
+  };
+
   const handleSaveEditQuery = async (queryId: number) => {
     if (!editingQueryText.trim()) return;
     try {
@@ -456,7 +471,9 @@ export function SearchTargetsWidget({
 
     try {
       for (const term of terms) {
-        await postJSON("/api/targets/queries", { query: term, enabled: newQueryEnabled });
+        await postJSON("/api/targets/queries", {
+          query: term, enabled: newQueryEnabled, sources: [newQuerySource],
+        });
       }
       setShowAddQueryModal(false);
       setNewQueryText("");
@@ -578,9 +595,11 @@ export function SearchTargetsWidget({
         queryStatusFilter === "all" ||
         (queryStatusFilter === "active" && isEnabled) ||
         (queryStatusFilter === "paused" && !isEnabled);
-      return matchesText && matchesStatus;
+      const querySources = q.sources || ["indeed", "linkedin"];
+      const matchesSource = querySourceFilter === "all" || querySources.includes(querySourceFilter);
+      return matchesText && matchesStatus && matchesSource;
     });
-  }, [queries, querySearchTerm, queryStatusFilter]);
+  }, [queries, querySearchTerm, queryStatusFilter, querySourceFilter]);
 
   const activeQueriesCount = useMemo(() => queries.filter((q) => Boolean(q.enabled)).length, [queries]);
   const activeLocationsCount = useMemo(
@@ -632,8 +651,8 @@ export function SearchTargetsWidget({
               title="Click to view capacity analysis"
             >
               <i class="fa-solid fa-layer-group"></i>{" "}
-              <strong>{capacity?.search_pairs ?? activeQueriesCount * activeLocationsCount}</strong> Pairs (
-              {capacity?.total_cells ?? (activeQueriesCount * activeLocationsCount * 2)} cells)
+              <strong>{capacity?.search_pairs ?? activeQueriesCount * activeLocationsCount}</strong> Query × Location (
+              {capacity?.total_cells ?? (activeQueriesCount * activeLocationsCount)} cells)
             </span>
             {capacity && <span class="matrix-chip-badge">~{capacity.cycle_hours}h sweep</span>}
           </div>
@@ -756,6 +775,15 @@ export function SearchTargetsWidget({
                         <option value="active">Active Only ({activeQueriesCount})</option>
                         <option value="paused">Paused Only ({queries.length - activeQueriesCount})</option>
                       </select>
+                      <select
+                        class="form-select"
+                        value={querySourceFilter}
+                        onChange={(e) => setQuerySourceFilter((e.target as HTMLSelectElement).value)}
+                      >
+                        <option value="all">All Sources</option>
+                        <option value="indeed">Indeed</option>
+                        <option value="linkedin">LinkedIn</option>
+                      </select>
 
                       <button
                         type="button"
@@ -779,6 +807,7 @@ export function SearchTargetsWidget({
                             <tr>
                               <th style={{ width: "110px" }}>STATUS</th>
                               <th>SEARCH QUERY TERM</th>
+                              <th style={{ width: "190px" }}>SCHEDULED SOURCES</th>
                               <th style={{ width: "130px", textAlign: "right" }}>ACTIONS</th>
                             </tr>
                           </thead>
@@ -786,6 +815,7 @@ export function SearchTargetsWidget({
                             {filteredQueries.map((q) => {
                               const isEditing = editingQueryId === q.id;
                               const isEnabled = Boolean(q.enabled);
+                              const querySources = q.sources || ["indeed", "linkedin"];
 
                               return (
                                 <tr key={q.id} class={isEnabled ? "row-active" : "row-paused"}>
@@ -823,6 +853,23 @@ export function SearchTargetsWidget({
                                         <strong>{q.query}</strong>
                                       </span>
                                     )}
+                                  </td>
+                                  <td>
+                                    {querySources.length > 1 && (
+                                      <span class="text-faint" style={{ fontSize: "11px", marginRight: "8px" }}>
+                                        Legacy: choose one
+                                      </span>
+                                    )}
+                                    {Object.entries(SOURCE_LABELS).map(([source, label]) => (
+                                      <label class="checkbox-label" key={source} style={{ marginRight: "10px" }}>
+                                        <input
+                                          type="radio"
+                                          name={`query-source-${q.id}`}
+                                          checked={querySources.length === 1 && querySources[0] === source}
+                                          onChange={() => handleSetQuerySource(q, source)}
+                                        /> {label}
+                                      </label>
+                                    ))}
                                   </td>
                                   <td style={{ textAlign: "right" }}>
                                     {isEditing ? (
@@ -1073,14 +1120,14 @@ export function SearchTargetsWidget({
                         <span class="metric-num">
                           {capacity?.search_pairs ?? activeQueriesCount * activeLocationsCount}
                         </span>
-                        <span class="metric-lbl">Search Pairs</span>
+                        <span class="metric-lbl">Query × Location Combinations</span>
                       </div>
                       <div class="metric-operator">→</div>
                       <div class="capacity-metric-box">
                         <span class="metric-num">
-                          {capacity?.total_cells ?? activeQueriesCount * activeLocationsCount * 2}
+                          {capacity?.total_cells ?? activeQueriesCount * activeLocationsCount}
                         </span>
-                        <span class="metric-lbl">Total Scrape Cells (Indeed + LinkedIn)</span>
+                        <span class="metric-lbl">Scheduled Scrape Cells</span>
                       </div>
                     </div>
 
@@ -1135,8 +1182,29 @@ export function SearchTargetsWidget({
                   required
                 ></textarea>
                 <span class="form-hint">
-                  These terms are sent directly to job boards (Indeed, LinkedIn) in the scraper rotation.
+                  Add board-specific terms here. Create separate query records for Indeed and LinkedIn.
                 </span>
+              </div>
+
+              <div class="form-group mb-3">
+                <label class="form-label">Job Board</label>
+                {Object.entries(SOURCE_LABELS).map(([source, label]) => (
+                  <label class="checkbox-label" key={source} style={{ marginRight: "16px" }}>
+                    <input
+                      type="radio"
+                      name="new-query-source"
+                      checked={newQuerySource === source}
+                      onChange={() => setNewQuerySource(source)}
+                    /> {label}
+                  </label>
+                ))}
+                {newQuerySource === "indeed" && (
+                  <span class="form-hint" style={{ display: "block", marginTop: "8px" }}>
+                    <strong>Indeed search tips:</strong> Indeed also searches descriptions. Use
+                    <code>"quoted phrases"</code> for exact matches, <code>-word</code> to exclude
+                    noise, and <code>(python OR go)</code> for alternatives. Example: <code>"platform engineer" (python OR go) -marketing</code>.
+                  </span>
+                )}
               </div>
 
               <div class="form-group mb-4">

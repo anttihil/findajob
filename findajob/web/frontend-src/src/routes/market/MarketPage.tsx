@@ -145,7 +145,7 @@ export function MarketPage() {
     renderYieldBarChart(
       chartRef.current,
       topQueries.map((q) => ({
-        label: q.query,
+        label: `${q.source}: ${q.query}`,
         totalPostings: q.total_postings,
         scoredPostings: q.scored_postings,
         strongFits: q.strong_fits,
@@ -451,8 +451,8 @@ export function MarketPage() {
             </p>
             <div class="yield-prune-tags">
               {yieldData.zero_yield_queries.slice(0, 10).map((zq) => (
-                <span key={zq.query} class="yield-prune-tag">
-                  <strong>{zq.query}</strong>
+                <span key={`${zq.source}:${zq.query}`} class="yield-prune-tag">
+                  <strong>{zq.source}: {zq.query}</strong>
                   <span class="yield-tag-badge">{zq.scored_postings} scored · 0 fits</span>
                   {zq.search_query_id && (
                     <button
@@ -506,9 +506,9 @@ export function MarketPage() {
                     </tr>
                   ) : (
                     filteredQueries.map((q) => (
-                      <tr key={q.query} class={q.yield_category === "high_yield" ? "row-highlight" : ""}>
+                      <tr key={`${q.source}:${q.query}`} class={q.yield_category === "high_yield" ? "row-highlight" : ""}>
                         <td>
-                          <strong>{q.query}</strong>
+                          <strong>{q.source}: {q.query}</strong>
                         </td>
                         <td>
                           <span style="font-size: 11.5px;">{q.sources.join(", ") || "—"}</span>

@@ -229,11 +229,13 @@ class SchedulerPreferencesUpdate(BaseModel):
 class TargetQueryCreate(BaseModel):
     query: str
     enabled: bool = True
+    sources: list[str] | None = None
 
 
 class TargetQueryUpdate(BaseModel):
     query: str | None = None
     enabled: bool | None = None
+    sources: list[str] | None = None
 
 
 class TargetToggle(BaseModel):
@@ -447,7 +449,18 @@ def get_target_capacity():
         config, _, _ = analytics_context(db)
         queries = target_repo.get_queries(db.conn, enabled_only=True)
         locs = target_repo.get_locations(db.conn, enabled_only=True)
-        return calculate_capacity(len(queries), len(locs), config)
+        enabled_sources = tuple(
+            source
+            for source, enabled in (config.get("scraper", {}).get("sources") or {}).items()
+            if enabled
+        )
+        targets = load_targets(conn=db.conn)
+        return calculate_capacity(
+            len(queries),
+            len(locs),
+            config,
+            scheduled_cells=len(targets.cell_specs(sources=enabled_sources)),
+        )
     finally:
         db.close()
 
@@ -485,7 +498,12 @@ def create_target_query(payload: TargetQueryCreate):
 
     db = get_db()
     try:
-        query_id = target_repo.add_query(db.conn, query_term=term, enabled=payload.enabled)
+        try:
+            query_id = target_repo.add_query(
+                db.conn, query_term=term, enabled=payload.enabled, sources=payload.sources
+            )
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e)) from e
         _sync_target_cells()
         return {"success": True, "id": query_id}
     finally:
@@ -498,12 +516,16 @@ def update_target_query_endpoint(query_id: int, payload: TargetQueryUpdate):
 
     db = get_db()
     try:
-        target_repo.update_query(
-            db.conn,
-            query_id=query_id,
-            query_term=payload.query.strip() if payload.query is not None else None,
-            enabled=payload.enabled,
-        )
+        try:
+            target_repo.update_query(
+                db.conn,
+                query_id=query_id,
+                query_term=payload.query.strip() if payload.query is not None else None,
+                enabled=payload.enabled,
+                sources=payload.sources,
+            )
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e)) from e
         _sync_target_cells()
         return {"success": True}
     finally:

@@ -238,6 +238,7 @@ export interface QueryYieldTuple {
 }
 
 export interface QueryTermYield {
+  source: string;
   query: string;
   search_query_id: number | null;
   total_postings: number;
@@ -541,6 +542,7 @@ export interface TargetQuery {
   id: number;
   query: string;
   enabled: number | boolean;
+  sources: string[];
 }
 
 export interface TargetLocation {

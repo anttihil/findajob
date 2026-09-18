@@ -13,14 +13,13 @@ def calculate_capacity(
     active_queries_count: int,
     active_locations_count: int,
     config: dict[str, Any] | None = None,
+    scheduled_cells: int | None = None,
 ) -> dict[str, Any]:
     """Calculate search matrix size, daily throughput, cycle time, and freshness health.
 
-    Formula:
-      Active Search Pairs = Active Target Queries x Active Target Locations
-      Total Scrape Cells = Active Search Pairs x 2 (Indeed + LinkedIn)
-      Daily Capacity Pairs = Bottleneck Daily Searches across Enabled Sources
-      Cycle Days = Active Search Pairs / Daily Capacity Pairs
+    ``search_pairs`` counts query × location combinations for continuity with existing
+    capacity reports. ``total_cells`` is the actual scheduled matrix: each query is scoped
+    to one or more enabled boards, so it is not necessarily twice the pair count.
     """
     config = config or {}
     scraper_cfg = config.get("scraper", {})
@@ -41,7 +40,7 @@ def calculate_capacity(
     bottleneck_daily_pairs = min(daily_linkedin, daily_indeed)
 
     search_pairs = active_queries_count * active_locations_count
-    total_cells = search_pairs * 2
+    total_cells = scheduled_cells if scheduled_cells is not None else search_pairs * 2
 
     cycle_days = round(search_pairs / max(bottleneck_daily_pairs, 1), 2)
     cycle_hours = round(cycle_days * 24, 1)

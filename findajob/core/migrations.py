@@ -13,7 +13,7 @@ from findajob.core.logger import get_logger
 
 logger = get_logger()
 
-SCHEMA_VERSION = 30
+SCHEMA_VERSION = 31
 
 
 def _v1_baseline(cursor: sqlite3.Cursor) -> None:
@@ -2243,6 +2243,27 @@ def _v30_scheduler_preferences(cursor: sqlite3.Cursor) -> None:
     )
 
 
+def _v31_search_query_sources(cursor: sqlite3.Cursor) -> None:
+    """Scope scheduled query terms to boards without changing existing coverage."""
+    cursor.executescript(
+        """
+        CREATE TABLE search_query_sources (
+            query_id INTEGER NOT NULL REFERENCES search_queries(id) ON DELETE CASCADE,
+            source   TEXT NOT NULL,
+            PRIMARY KEY (query_id, source)
+        );
+        CREATE INDEX idx_search_query_sources_source ON search_query_sources(source);
+
+        -- Legacy query terms were scheduled on both boards. Backfill both mappings so
+        -- deploying this migration preserves the existing matrix exactly.
+        INSERT OR IGNORE INTO search_query_sources (query_id, source)
+        SELECT id, 'indeed' FROM search_queries;
+        INSERT OR IGNORE INTO search_query_sources (query_id, source)
+        SELECT id, 'linkedin' FROM search_queries;
+        """
+    )
+
+
 MIGRATIONS: list[tuple[int, str, Callable[[sqlite3.Cursor], None]]] = [
     (1, "baseline jobs table", _v1_baseline),
     (2, "market analytics: cells, observations, skills, stats", _v2_analytics),
@@ -2334,6 +2355,7 @@ MIGRATIONS: list[tuple[int, str, Callable[[sqlite3.Cursor], None]]] = [
     ),
     (29, "FTS5 index for dashboard job search", _v29_job_search_fts),
     (30, "persisted scheduler preferences", _v30_scheduler_preferences),
+    (31, "source-scoped scheduled search queries", _v31_search_query_sources),
 ]
 
 

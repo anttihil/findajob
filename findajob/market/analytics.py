@@ -98,7 +98,7 @@ class MarketAnalytics:
         )
 
         tuples: list[dict[str, Any]] = []
-        query_map: dict[str, dict[str, Any]] = {}
+        query_map: dict[tuple[str, str], dict[str, Any]] = {}
         source_map: dict[str, dict[str, Any]] = {}
         location_map: dict[str, dict[str, Any]] = {}
 
@@ -161,9 +161,11 @@ class MarketAnalytics:
             }
             tuples.append(tuple_item)
 
-            # Aggregate by query text
-            if q not in query_map:
-                query_map[q] = {
+            # A term can have very different signal per board; never blend the two.
+            query_key = (src, q)
+            if query_key not in query_map:
+                query_map[query_key] = {
+                    "source": src,
                     "query": q,
                     "search_query_id": r["search_query_id"],
                     "total_postings": 0,
@@ -176,7 +178,7 @@ class MarketAnalytics:
                     "locations": set(),
                     "cells_count": 0,
                 }
-            q_rec = query_map[q]
+            q_rec = query_map[query_key]
             q_rec["total_postings"] += tot
             q_rec["unique_postings"] += uniq
             q_rec["scored_postings"] += scored
@@ -235,6 +237,7 @@ class MarketAnalytics:
 
             top_queries.append(
                 {
+                    "source": q_rec["source"],
                     "query": q_rec["query"],
                     "search_query_id": q_rec["search_query_id"],
                     "total_postings": tot,

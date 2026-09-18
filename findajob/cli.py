@@ -190,10 +190,11 @@ def _cmd_target(args: argparse.Namespace) -> int:
             if not queries:
                 print("No search queries configured.")
             else:
-                print(f"{'Id':<6} {'Status':<10} {'Query'}")
+                print(f"{'Id':<6} {'Status':<10} {'Sources':<20} {'Query'}")
                 print("-" * 60)
                 for q in queries:
-                    print(f"{q['id']:<6} {'ACTIVE' if q['enabled'] else 'PAUSED':<10} {q['query']}")
+                    status = "ACTIVE" if q["enabled"] else "PAUSED"
+                    print(f"{q['id']:<6} {status:<10} {', '.join(q['sources']):<20} {q['query']}")
             print()
             print(f"{'Id':<16} {'Status':<10} {'Search label'}")
             print("-" * 60)
@@ -205,7 +206,7 @@ def _cmd_target(args: argparse.Namespace) -> int:
         if sub == "add":
             queries = [q.strip() for q in args.queries.split(",") if q.strip()]
             for query in queries:
-                target_repo.add_query(conn, query_term=query)
+                target_repo.add_query(conn, query_term=query, sources=args.sources)
             print(f"Added {len(queries)} search queries.")
             _reseed_cells()
             return 0
@@ -214,6 +215,17 @@ def _cmd_target(args: argparse.Namespace) -> int:
             enabled = not getattr(args, "disable", False)
             target_repo.toggle_query(conn, query_id=args.id, enabled=enabled)
             print(f"Search query {args.id} is now {'ACTIVE' if enabled else 'PAUSED'}.")
+            _reseed_cells()
+            return 0
+
+        if sub == "edit":
+            target_repo.update_query(
+                conn,
+                query_id=args.id,
+                query_term=args.query,
+                sources=args.sources,
+            )
+            print(f"Updated search query {args.id}.")
             _reseed_cells()
             return 0
 
@@ -577,6 +589,24 @@ def build_parser() -> argparse.ArgumentParser:
 
     tar_add = tar_sub.add_parser("add", help="add search queries")
     tar_add.add_argument("queries", help="comma-separated search queries")
+    tar_add.add_argument(
+        "--source",
+        dest="sources",
+        action="append",
+        choices=["indeed", "linkedin"],
+        help="board to schedule (repeat for both; defaults to both)",
+    )
+
+    tar_edit = tar_sub.add_parser("edit", help="edit a query term or its board scope")
+    tar_edit.add_argument("id", type=int, help="search query id (see 'target list')")
+    tar_edit.add_argument("--query", help="replacement query term")
+    tar_edit.add_argument(
+        "--source",
+        dest="sources",
+        action="append",
+        choices=["indeed", "linkedin"],
+        help="replacement board scope (repeat for both)",
+    )
 
     tar_tog = tar_sub.add_parser("toggle", help="enable or pause a search query")
     tar_tog.add_argument("id", type=int, help="search query id (see 'target list')")

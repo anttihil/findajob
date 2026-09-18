@@ -60,10 +60,12 @@ def seed_cells(prune: bool = False) -> int:
 
         active_queries = len(targets.queries)
         active_locations = sum(1 for loc in targets.locations.values() if loc.enabled)
-        cap = calculate_capacity(active_queries, active_locations, config)
+        cap = calculate_capacity(
+            active_queries, active_locations, config, scheduled_cells=len(specs)
+        )
         print(
             f"\nmatrix: {active_queries} queries x {active_locations} locations "
-            f"= {cap['search_pairs']} search pairs"
+            f"= {cap['search_pairs']} query-location combinations ({cap['total_cells']} cells)"
         )
         print(f"status: [{cap['zone'].upper()}] - {cap['message']}")
     finally:
