@@ -114,6 +114,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "include_skill_hint": False,
         "max_usd_per_run": 8.00,
         "max_posting_age_days": 3,
+        "review": {"enabled": True, "model": "deepseek-v4-pro"},
     },
     "scheduler": {
         "search": {

@@ -158,7 +158,7 @@ def score_prompt(
     from findajob.scoring.graph import build_graph
 
     state = build_graph().invoke(
-        {"system": system, "posting": job, "model": model, "provider": provider}
+        {"system": system, "posting": job, "model": model, "provider": provider, "review_model": ""}
     )
     verdict = state.get("verdict")
     return {

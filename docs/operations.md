@@ -21,6 +21,42 @@ systemctl status findajob.service
 findajob score retry
 ```
 
+## Secondary verdict review
+
+Production scoring uses a two-stage LangGraph workflow:
+`render → score → capture → review`. Both positive and negative first-line decisions
+are checked. Each model gets up to three structured-output attempts. The reviewer's
+decision becomes the final verdict used by the dashboard, analytics, and scrape-cell quality.
+
+The defaults are enabled with `deepseek-v4-pro`. Override them in `config.local.yaml`:
+
+```yaml
+scoring:
+  review:
+    enabled: true
+    model: deepseek-v4-pro
+```
+
+The reviewer uses the configured LLM provider. Batch scoring, selected-job scoring, and
+import-time scoring all use this workflow. Prompt evaluations in the labeler explicitly
+use the first-line stage only to preserve single-model comparisons.
+
+Migration v32 adds `verdict_reviews`. It preserves the first-line verdict and its usage,
+plus the latest review state with cumulative costs, errors, and attempts. The worker
+commits the first-line result before starting review. A failed review publishes no new
+final verdict; the next scoring run resumes review without repeating the first-line call.
+Recovery requires matching profile/rules, rendered posting, and model configuration;
+changing these starts a fresh assessment. Repeated failures use the existing quarantine
+and `findajob score retry` mechanism.
+
+Run spending includes both stages and their retries, charging only new calls when resuming.
+Work is submitted in batches bounded by `scoring.concurrency`; a batch already started
+finishes and is fully accounted for before the budget stops the next batch. Consequently,
+the measured spending ceiling may be exceeded by the current batch.
+
+The CLI reports reviewed, overturned, and review-failure counts. Existing stored verdicts
+are reviewed when explicitly rescored, rather than automatically backfilled.
+
 ## Accessing a loopback deployment
 
 The dashboard's JSON endpoints can be queried through SSH without exposing port 8010:

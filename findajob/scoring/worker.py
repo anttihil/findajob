@@ -7,6 +7,7 @@ process.
 """
 
 import sqlite3
+from collections.abc import Generator
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from typing import Any
@@ -117,6 +118,101 @@ def run_retry(job_id: int | None = None) -> int:
         db.close()
 
 
+def _review_model(scoring_config: dict[str, Any]) -> str:
+    review = scoring_config.get("review") or {}
+    return (review.get("model") or "deepseek-v4-pro") if review.get("enabled", True) else ""
+
+
+def _score_states(
+    db: Database,
+    jobs: list[dict[str, Any]],
+    system: str,
+    model: str,
+    review_model: str,
+    profile_version: int,
+    phash: str,
+    concurrency: int,
+) -> Generator[tuple[dict[str, Any], dict[str, Any]], None, None]:
+    """Run bounded batches, persisting LangGraph's capture boundary on the DB thread."""
+    graph = build_graph()
+    with ThreadPoolExecutor(max_workers=concurrency) as pool:
+        for offset in range(0, len(jobs), concurrency):
+            batch = jobs[offset : offset + concurrency]
+            inputs = []
+            priors = []
+            for job in batch:
+                prior = (
+                    scoring_repo.load_pending_review(
+                        db.conn, job, profile_version, phash, model, review_model
+                    )
+                    if review_model
+                    else None
+                )
+                priors.append(prior or {})
+                inputs.append(
+                    {
+                        **(prior or {}),
+                        "system": system,
+                        "posting": job,
+                        "model": model,
+                        "review_model": review_model,
+                    }
+                )
+
+            def first_stage(state: dict[str, Any]) -> dict[str, Any]:
+                if state.get("first_line"):
+                    return state
+                if review_model:
+                    return graph.invoke(state, interrupt_after=["capture"])
+                return graph.invoke(state)
+
+            states = list(pool.map(first_stage, inputs))
+            for job, state, prior in zip(batch, states, priors, strict=True):
+                if state.get("first_line") and not prior:
+                    scoring_repo.save_review_stage(
+                        db.conn,
+                        job,
+                        state,
+                        profile_version,
+                        phash,
+                        model,
+                        review_model,
+                        first_line=True,
+                    )
+            db.conn.commit()
+
+            def second_stage(state: dict[str, Any]) -> dict[str, Any]:
+                if review_model and state.get("first_line") and state.get("verdict") is None:
+                    return graph.invoke(state)
+                return state
+
+            completed = pool.map(second_stage, states)
+            for job, state, prior in zip(batch, completed, priors, strict=True):
+                if state.get("first_line"):
+                    scoring_repo.save_review_stage(
+                        db.conn,
+                        job,
+                        state,
+                        profile_version,
+                        phash,
+                        model,
+                        review_model,
+                        first_line=False,
+                    )
+                    db.conn.commit()
+                # Persist lifetime totals, but charge only this run's calls to its budget.
+                state["run_cost_usd"] = state.get("cost_usd", 0.0) - prior.get("cost_usd", 0.0)
+                state["run_calls"] = state.get("attempts", 0) - prior.get("attempts", 0)
+                usage = state.get("usage")
+                prior_usage = prior.get("usage") or {}
+                state["run_usage"] = (
+                    {key: value - prior_usage.get(key, 0) for key, value in usage.items()}
+                    if usage
+                    else None
+                )
+                yield job, state
+
+
 def run_scoring(limit: int | None = None) -> int:
     config = load_config()
     scoring_config = config.get("scoring") or {}
@@ -124,6 +220,7 @@ def run_scoring(limit: int | None = None) -> int:
     concurrency = int(scoring_config.get("concurrency", 8))
     max_usd = scoring_config.get("max_usd_per_run")
     fit_threshold = int(scoring_config.get("fit_threshold", 70))
+    review_model = _review_model(scoring_config)
 
     loaded = load_active()
     if loaded is None:
@@ -139,42 +236,51 @@ def run_scoring(limit: int | None = None) -> int:
             return 0
 
         system = build_system(summary, fit_threshold=fit_threshold)
-        phash = prompt_hash(summary, fit_threshold=fit_threshold)
+        phash = prompt_hash(summary, fit_threshold=fit_threshold, review_model=review_model)
         system_tokens = int(len(system) / CHARS_PER_TOKEN)
         print(f"profile v{profile_version} · model {model}")
+        if review_model:
+            print(f"secondary review: {review_model} · all verdicts")
         print(f"postings to score: {len(jobs):,}")
         print(f"cached prefix:     {system_tokens:,} tokens")
         print("cost:              measured from DeepSeek balance after each API call")
 
-        graph = build_graph()
         spend = Spend(model, max_usd=max_usd)
-        results = {"scored": 0, "failed": 0, "retried": 0, "retry_usd": 0.0}
+        if spend.exhausted():
+            print("Scoring budget is exhausted; no model calls made.")
+            return 0
+        results = {
+            "scored": 0,
+            "failed": 0,
+            "retried": 0,
+            "retry_usd": 0.0,
+            "reviewed": 0,
+            "overturned": 0,
+            "review_failed": 0,
+        }
         first_usage = []
 
-        def score_one(job: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
-            return job, graph.invoke(
-                {
-                    "system": system,
-                    "posting": job,
-                    "model": model,
-                }
-            )
-
-        with ThreadPoolExecutor(max_workers=concurrency) as pool:
-            for job, state in pool.map(score_one, jobs):
+        states = _score_states(
+            db, jobs, system, model, review_model, profile_version, phash, max(1, concurrency)
+        )
+        try:
+            for job, state in states:
                 verdict = state.get("verdict")
                 usage = state.get("usage")
-                cost = state.get("cost_usd", 0.0)
+                cost = state.get("run_cost_usd", state.get("cost_usd", 0.0))
                 spend.usd += cost
-                spend.calls += state.get("attempts", 0)
-                if usage:
-                    spend.tokens_in += usage["prompt"]
-                    spend.tokens_cached += usage["cache_hit"]
-                    spend.tokens_out += usage["completion"]
+                spend.calls += state.get("run_calls", state.get("attempts", 0))
+                run_usage = state.get("run_usage", usage)
+                if run_usage:
+                    spend.tokens_in += run_usage["prompt"]
+                    spend.tokens_cached += run_usage["cache_hit"]
+                    spend.tokens_out += run_usage["completion"]
                     if len(first_usage) < 4:
                         first_usage.append(usage)
 
                 if verdict is None:
+                    if state.get("first_line"):
+                        results["review_failed"] += 1
                     results["failed"] += 1
                     results["retry_usd"] += cost
                     _record_failure(db, job["id"], state.get("error"))
@@ -186,24 +292,43 @@ def run_scoring(limit: int | None = None) -> int:
                         state.get("error"),
                     )
                 else:
-                    if state.get("attempts", 1) > 1:
+                    if state.get("attempts", 1) > (2 if state.get("first_line") else 1):
                         results["retried"] += 1
-                    _persist(db, job, verdict, usage, cost, model, profile_version, phash)
+                    if state.get("first_line"):
+                        results["reviewed"] += 1
+                        results["overturned"] += verdict["fit"] != state["first_line"]["fit"]
+                    _persist(
+                        db,
+                        job,
+                        verdict,
+                        usage,
+                        state.get("cost_usd", 0.0),
+                        review_model if state.get("first_line") else model,
+                        profile_version,
+                        phash,
+                    )
                     db.conn.commit()
                     results["scored"] += 1
 
                     if results["scored"] % 25 == 0:
                         print(f"  {results['scored']:,}/{len(jobs):,} scored  ${spend.usd:.4f}")
 
-                if spend.exhausted():
+                # Finish accounting/persisting the current bounded batch before stopping.
+                processed = results["scored"] + results["failed"]
+                if spend.exhausted() and processed % max(1, concurrency) == 0:
                     print(f"\nStopping: spent ${spend.usd:.2f}, ceiling is ${max_usd:.2f}.")
                     break
+        finally:
+            states.close()
 
         db.conn.commit()
 
         summary_stats = spend.summary()
         print()
         print(f"scored:     {results['scored']:,}")
+        if review_model:
+            print(f"reviewed:   {results['reviewed']:,} · overturned: {results['overturned']:,}")
+            print(f"review failures: {results['review_failed']:,} (first-line verdict saved)")
         if results["failed"]:
             print(f"failed:     {results['failed']:,}  (left as 'new'; the next run retries)")
         print(f"cost:       ${summary_stats['usd']:.4f}")
@@ -283,16 +408,15 @@ def score_job(
         job = jobs[0]
 
         system = build_system(summary, fit_threshold=fit_threshold)
-        phash = prompt_hash(summary, fit_threshold=fit_threshold)
-
-        graph = build_graph()
-        final_state: dict[str, Any] = graph.invoke(
-            {
-                "system": system,
-                "posting": job,
-                "model": model_name,
-            }
+        review_model = _review_model(scoring_config)
+        phash = prompt_hash(summary, fit_threshold=fit_threshold, review_model=review_model)
+        states = _score_states(
+            database, [job], system, model_name, review_model, profile_version, phash, 1
         )
+        try:
+            _, final_state = next(states)
+        finally:
+            states.close()
 
         verdict = final_state.get("verdict")
         usage = final_state.get("usage")
@@ -303,7 +427,16 @@ def score_job(
             database.conn.commit()
             raise RuntimeError(f"Scoring failed for job {job_id}: {final_state.get('error')}")
 
-        _persist(database, job, verdict, usage, cost, model_name, profile_version, phash)
+        _persist(
+            database,
+            job,
+            verdict,
+            usage,
+            cost,
+            review_model if final_state.get("first_line") else model_name,
+            profile_version,
+            phash,
+        )
         database.conn.commit()
         return verdict
     finally:

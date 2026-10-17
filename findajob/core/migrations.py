@@ -13,7 +13,7 @@ from findajob.core.logger import get_logger
 
 logger = get_logger()
 
-SCHEMA_VERSION = 31
+SCHEMA_VERSION = 32
 
 
 def _v1_baseline(cursor: sqlite3.Cursor) -> None:
@@ -2264,6 +2264,25 @@ def _v31_search_query_sources(cursor: sqlite3.Cursor) -> None:
     )
 
 
+def _v32_verdict_reviews(cursor: sqlite3.Cursor) -> None:
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS verdict_reviews (
+            job_id INTEGER NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+            profile_version INTEGER NOT NULL,
+            prompt_hash TEXT NOT NULL,
+            posting_hash TEXT NOT NULL,
+            model TEXT NOT NULL,
+            review_model TEXT NOT NULL,
+            first_line_state TEXT NOT NULL,
+            review_state TEXT,
+            finalized INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            PRIMARY KEY (job_id, profile_version)
+        )
+    """)
+
+
 MIGRATIONS: list[tuple[int, str, Callable[[sqlite3.Cursor], None]]] = [
     (1, "baseline jobs table", _v1_baseline),
     (2, "market analytics: cells, observations, skills, stats", _v2_analytics),
@@ -2356,6 +2375,7 @@ MIGRATIONS: list[tuple[int, str, Callable[[sqlite3.Cursor], None]]] = [
     (29, "FTS5 index for dashboard job search", _v29_job_search_fts),
     (30, "persisted scheduler preferences", _v30_scheduler_preferences),
     (31, "source-scoped scheduled search queries", _v31_search_query_sources),
+    (32, "durable first-line verdicts and secondary reviews", _v32_verdict_reviews),
 ]
 
 

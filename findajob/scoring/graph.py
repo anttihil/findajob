@@ -1,8 +1,7 @@
 """The per-posting scoring graph.
 
-render -> score -> validate --ok--> done
-             ^         |
-             +- retry -+   (bounded)
+render -> score -> capture -> review -> done (each model has bounded retries).
+Production workers persist the capture boundary before resuming at review.
 """
 
 from typing import Any, TypedDict
@@ -10,7 +9,7 @@ from typing import Any, TypedDict
 from findajob.core.llm import structured_model
 from findajob.core.logger import get_logger
 from findajob.profile.models import JobFitVerdict
-from findajob.scoring.prompts import render_posting
+from findajob.scoring.prompts import REVIEW_RULES, render_posting, render_review
 
 logger = get_logger()
 
@@ -40,27 +39,26 @@ class ScoreState(TypedDict, total=False):
     model: str
     provider: str
     profile: Any
+    review_model: str
+    first_line: dict[str, Any]
+    review_attempts: int
+    first_line_usage: dict[str, int] | None
+    first_line_cost_usd: float
+    first_line_attempts: int
 
 
 def node_render(state: ScoreState) -> dict[str, Any]:
     return {
         "rendered": render_posting(state.get("posting") or {}),
-        "attempts": 0,
+        "attempts": state.get("attempts", 0) if state.get("first_line") else 0,
+        "review_attempts": 0,
+        "verdict": None,
+        "error": None,
+        "semantic": False,
     }
 
 
 def node_score(state: ScoreState) -> dict[str, Any]:
-    model_name = state.get("model") or None
-    provider = state.get("provider")
-    model = (
-        structured_model(model_name, role="scoring", provider=provider)
-        if provider
-        else structured_model(model_name, role="scoring")
-    )
-    chain = model.with_structured_output(
-        JobFitVerdict, method="function_calling", strict=True, include_raw=True
-    )
-
     messages = [("system", state.get("system") or ""), ("user", state.get("rendered") or "")]
     if state.get("attempts", 0):
         previous = state.get("error") or ""
@@ -70,6 +68,16 @@ def node_score(state: ScoreState) -> dict[str, Any]:
 
     attempts = state.get("attempts", 0) + 1
     try:
+        model_name = state.get("model") or None
+        provider = state.get("provider")
+        model = (
+            structured_model(model_name, role="scoring", provider=provider)
+            if provider
+            else structured_model(model_name, role="scoring")
+        )
+        chain = model.with_structured_output(
+            JobFitVerdict, method="function_calling", strict=True, include_raw=True
+        )
         result: dict[str, Any] = chain.invoke(messages)
     except Exception as exc:  # noqa: BLE001 - network, rate limit, 400
         logger.warning("Scoring call failed (attempt %d): %s", attempts, exc)
@@ -159,10 +167,44 @@ def _rule_from(parse_error: Any) -> str:
 
 def route_after_score(state: ScoreState) -> str:
     if state.get("verdict") is not None:
-        return "__end__"
+        return "capture" if state.get("review_model") else "__end__"
     if state.get("attempts", 0) >= MAX_ATTEMPTS:
         return "__end__"
     return "score"
+
+
+def node_capture(state: ScoreState) -> dict[str, Any]:
+    return {
+        "first_line": state.get("verdict"),
+        "first_line_usage": state.get("usage"),
+        "first_line_cost_usd": state.get("cost_usd", 0.0),
+        "first_line_attempts": state.get("attempts", 0),
+        "verdict": None,
+    }
+
+
+def node_review(state: ScoreState) -> dict[str, Any]:
+    review_state: ScoreState = {
+        **state,
+        "system": f"{state.get('system') or ''}\n{REVIEW_RULES}",
+        "rendered": render_review(state.get("rendered") or "", state.get("first_line") or {}),
+        "model": state.get("review_model") or "",
+        "attempts": state.get("review_attempts", 0),
+    }
+    result = node_score(review_state)
+    result["review_attempts"] = result["attempts"]
+    result["attempts"] = state.get("attempts", 0) + 1
+    return result
+
+
+def route_after_render(state: ScoreState) -> str:
+    return "review" if state.get("first_line") and state.get("review_model") else "score"
+
+
+def route_after_review(state: ScoreState) -> str:
+    if state.get("verdict") is not None or state.get("review_attempts", 0) >= MAX_ATTEMPTS:
+        return "__end__"
+    return "review"
 
 
 def build_graph() -> Any:
@@ -171,7 +213,15 @@ def build_graph() -> Any:
     builder = StateGraph(ScoreState)
     builder.add_node("render", node_render)
     builder.add_node("score", node_score)
+    builder.add_node("capture", node_capture)
+    builder.add_node("review", node_review)
     builder.add_edge(START, "render")
-    builder.add_edge("render", "score")
-    builder.add_conditional_edges("score", route_after_score, {"score": "score", "__end__": END})
+    builder.add_conditional_edges("render", route_after_render)
+    builder.add_conditional_edges(
+        "score", route_after_score, {"score": "score", "capture": "capture", "__end__": END}
+    )
+    builder.add_edge("capture", "review")
+    builder.add_conditional_edges(
+        "review", route_after_review, {"review": "review", "__end__": END}
+    )
     return builder.compile()

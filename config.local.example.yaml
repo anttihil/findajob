@@ -6,6 +6,11 @@
 # llm:
 #   provider: deepseek
 
+# scoring:
+#   review:
+#     enabled: true
+#     model: deepseek-v4-pro
+
 # resumes:
 #   # Default outside a source checkout: Find a Job's application-data directory.
 #   # Optional override, for example: /path/to/generated-resumes

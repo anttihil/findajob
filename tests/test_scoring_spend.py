@@ -28,7 +28,14 @@ from findajob.core.migrations import apply_pragmas, migrate
 from findajob.scoring import worker
 
 MODEL = "deepseek-v4-flash"
-CONFIG: dict[str, Any] = {"scoring": {"model": MODEL, "concurrency": 2, "max_usd_per_run": None}}
+CONFIG: dict[str, Any] = {
+    "scoring": {
+        "model": MODEL,
+        "concurrency": 2,
+        "max_usd_per_run": None,
+        "review": {"enabled": False},
+    }
+}
 
 # One attempt's tokens, at roughly the shape a real posting has.
 ATTEMPT = {"prompt": 6_000, "cache_hit": 4_800, "cache_miss": 1_200, "completion": 1_400}

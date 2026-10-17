@@ -1,11 +1,14 @@
 """Scoring repository: backlog queries, verdict persistence, and observability analytics."""
 
+import hashlib
+import json
 import sqlite3
 from datetime import datetime, timezone
 from typing import Any
 
 from findajob.core.config import load_config
 from findajob.profile.models import DEFAULT_PROFILE_VERSION, VERDICT_SCHEMA_VERSION
+from findajob.scoring.prompts import render_posting
 
 MAX_SCORING_FAILURES = 3
 
@@ -40,11 +43,15 @@ _ELIGIBLE = """
 """
 
 _NO_VERDICT = """
-       AND NOT EXISTS (
+       AND (NOT EXISTS (
              SELECT 1 FROM job_verdicts v
               WHERE v.job_id = j.id AND v.profile_version = ?
                 AND COALESCE(v.verdict_schema_version, 1) >= ?
-            )
+             ) OR EXISTS (
+                 SELECT 1 FROM verdict_reviews r
+                  WHERE r.job_id = j.id AND r.profile_version = ?
+                    AND r.finalized = 0
+             ))
 """
 
 
@@ -66,7 +73,7 @@ def select_scoring_backlog(
     )
 
     query = "SELECT j.*" + where + _NO_VERDICT + " ORDER BY j.date_found DESC"
-    params: list[Any] = [profile_version, VERDICT_SCHEMA_VERSION]
+    params: list[Any] = [profile_version, VERDICT_SCHEMA_VERSION, profile_version]
 
     if limit:
         query += " LIMIT ?"
@@ -87,7 +94,7 @@ def get_pending_scoring_stats(
         )
         + _NO_VERDICT
     )
-    row = conn.execute(sql, [profile_version, VERDICT_SCHEMA_VERSION]).fetchone()
+    row = conn.execute(sql, [profile_version, VERDICT_SCHEMA_VERSION, profile_version]).fetchone()
     if row is None:
         return 0, None
     return row[0], row[1]
@@ -106,7 +113,8 @@ def count_pending_scoring(
         )
         + _NO_VERDICT
     )
-    return conn.execute(sql, [profile_version, VERDICT_SCHEMA_VERSION]).fetchone()[0]
+    params = [profile_version, VERDICT_SCHEMA_VERSION, profile_version]
+    return conn.execute(sql, params).fetchone()[0]
 
 
 def get_oldest_pending_date(
@@ -181,6 +189,85 @@ def reset_scoring_failures(conn: sqlite3.Connection, job_id: int | None = None) 
     return cursor.rowcount
 
 
+def _posting_hash(job: dict[str, Any]) -> str:
+    return hashlib.sha256(render_posting(job).encode()).hexdigest()
+
+
+def load_pending_review(
+    conn: sqlite3.Connection,
+    job: dict[str, Any],
+    profile_version: int,
+    phash: str,
+    model: str,
+    review_model: str,
+) -> dict[str, Any] | None:
+    row = conn.execute(
+        "SELECT first_line_state, review_state FROM verdict_reviews "
+        "WHERE job_id = ? AND profile_version = ? AND prompt_hash = ? "
+        "AND posting_hash = ? AND model = ? AND review_model = ? AND finalized = 0",
+        (job["id"], profile_version, phash, _posting_hash(job), model, review_model),
+    ).fetchone()
+    if row is None:
+        return None
+    return json.loads(row["review_state"] or row["first_line_state"])
+
+
+def save_review_stage(
+    conn: sqlite3.Connection,
+    job: dict[str, Any],
+    state: dict[str, Any],
+    profile_version: int,
+    phash: str,
+    model: str,
+    review_model: str,
+    *,
+    first_line: bool,
+) -> None:
+    """Persist the graph boundary or its review result, including failed-call spending."""
+    keys = (
+        "first_line",
+        "first_line_usage",
+        "first_line_cost_usd",
+        "first_line_attempts",
+        "verdict",
+        "usage",
+        "cost_usd",
+        "cost_recorded",
+        "attempts",
+        "review_attempts",
+        "error",
+    )
+    payload = json.dumps({key: state[key] for key in keys if key in state})
+    if first_line:
+        conn.execute(
+            "INSERT INTO verdict_reviews "
+            "(job_id, profile_version, prompt_hash, posting_hash, model, review_model, "
+            "first_line_state, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) "
+            "ON CONFLICT(job_id, profile_version) DO UPDATE SET "
+            "prompt_hash=excluded.prompt_hash, posting_hash=excluded.posting_hash, "
+            "model=excluded.model, review_model=excluded.review_model, "
+            "first_line_state=excluded.first_line_state, review_state=NULL, finalized=0, "
+            "created_at=excluded.created_at, updated_at=excluded.updated_at",
+            (
+                job["id"],
+                profile_version,
+                phash,
+                _posting_hash(job),
+                model,
+                review_model,
+                payload,
+                _now(),
+                _now(),
+            ),
+        )
+    else:
+        conn.execute(
+            "UPDATE verdict_reviews SET review_state = ?, updated_at = ? "
+            "WHERE job_id = ? AND profile_version = ?",
+            (payload, _now(), job["id"], profile_version),
+        )
+
+
 def save_verdict(
     conn: sqlite3.Connection,
     job: dict[str, Any],
@@ -236,6 +323,10 @@ def save_verdict(
         "UPDATE jobs SET scored_at = ?, pipeline_state = 'scored', "
         "scoring_failures = 0, last_scoring_error = NULL WHERE id = ?",
         (_now(), job["id"]),
+    )
+    conn.execute(
+        "UPDATE verdict_reviews SET finalized = 1 WHERE job_id = ? AND profile_version = ?",
+        (job["id"], profile_version),
     )
     if job.get("scrape_cell_id"):
         from findajob.search.repository import update_cell_quality
