@@ -134,6 +134,16 @@ need the dashboard to be running. LLM providers may be API-based or authenticate
 providers. Use `findajob llm status`, `findajob llm test`, and `findajob llm auth <provider>`
 to inspect or authenticate providers.
 
+### Private verdict labeling
+
+The separate `findajob-labeler` application creates blinded Apply / Stretch / Pass /
+Insufficient-information labels for scorer evaluation. It reads the production database
+without writing to it, stores
+immutable job/profile/verdict snapshots in `labeler.db`, supports deterministic family-level
+dataset splits, manually curated held-out cases, and consistency re-labeling, and exports
+versioned JSONL datasets. See
+[the verdict labeler guide](docs/verdict_labeler.md) for setup and keyboard shortcuts.
+
 ## Architecture
 
 The application is a Python package with a Preact frontend:

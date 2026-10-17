@@ -23,6 +23,7 @@ dependencies = [
 
 [project.scripts]
 findajob = "findajob.cli:main"
+findajob-labeler = "findajob.labeler.cli:main"
 
 [build-system]
 requires = ["hatchling"]

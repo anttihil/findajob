@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="light" />
+    <title>Verdict Lab · CareerRadar</title>
+    <link rel="stylesheet" href="/assets/style.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <a class="brand" href="/" aria-label="Verdict Lab home">
+        <span class="brand-mark">V</span>
+        <span><strong>Verdict Lab</strong><small>CareerRadar quality review</small></span>
+      </a>
+      <div class="queue-controls">
+        <label for="queue-select">Review queue</label>
+        <select id="queue-select" aria-label="Review queue"></select>
+        <div class="progress-copy" id="progress-copy">Loading…</div>
+        <button class="text-button" id="compare-button" type="button">Compare labels</button>
+      </div>
+    </header>
+
+    <main id="workspace" class="workspace" hidden>
+      <section class="posting-column" aria-labelledby="job-title">
+        <div class="eyebrow-row">
+          <span class="eyebrow" id="review-position">Blinded review</span>
+          <label class="split-control">
+            Dataset
+            <select id="split-select">
+              <option value="optimization">Optimization</option>
+              <option value="validation">Validation</option>
+              <option value="held_out">Held-out</option>
+            </select>
+          </label>
+        </div>
+        <h1 id="job-title"></h1>
+        <div class="job-meta" id="job-meta"></div>
+        <article class="description" id="job-description"></article>
+      </section>
+
+      <aside class="review-column">
+        <section class="profile-card card">
+          <div class="card-heading">
+            <div>
+              <span class="eyebrow">Candidate evidence</span>
+              <h2>Scoring profile</h2>
+            </div>
+            <button class="text-button" id="profile-toggle" type="button">Expand</button>
+          </div>
+          <pre id="profile-text" class="profile-text collapsed"></pre>
+        </section>
+
+        <section class="decision-card card" id="decision-card">
+          <span class="eyebrow">Your decision</span>
+          <h2>Would you pursue this role?</h2>
+          <p class="hint">Judge the whole role from the evidence shown. The model stays hidden.</p>
+          <div class="outcome-grid" id="outcome-grid">
+            <button class="outcome apply" data-outcome="apply" type="button">
+              <kbd>A</kbd><strong>Apply</strong><span>Actively pursue</span>
+            </button>
+            <button class="outcome stretch" data-outcome="stretch" type="button">
+              <kbd>S</kbd><strong>Stretch</strong><span>Worth a closer look</span>
+            </button>
+            <button class="outcome pass" data-outcome="pass" type="button">
+              <kbd>P</kbd><strong>Pass</strong><span>Would not pursue</span>
+            </button>
+            <button class="outcome insufficient" data-outcome="insufficient" type="button">
+              <kbd>I</kbd><strong>Insufficient</strong><span>Evidence is inadequate</span>
+            </button>
+          </div>
+          <p class="error" id="error" role="alert"></p>
+        </section>
+
+        <section class="reveal-card card" id="reveal-card" hidden>
+          <div class="reveal-heading">
+            <div>
+              <span class="eyebrow">Prediction revealed</span>
+              <h2 id="model-outcome"></h2>
+            </div>
+            <span class="agreement" id="agreement"></span>
+          </div>
+          <p class="reason-type" id="model-reason-type"></p>
+          <p class="model-reason" id="model-reason"></p>
+
+          <div id="reason-section" class="annotation-section" hidden>
+            <label>Decisive reason <span>optional</span></label>
+            <div class="reason-chips" id="reason-chips">
+              <button data-reason="eligibility" type="button">Eligibility / dealbreaker</button>
+              <button data-reason="specialization" type="button">Role specialization</button>
+              <button data-reason="seniority" type="button">Seniority / scope</button>
+              <button data-reason="role_domain" type="button">Role or domain mismatch</button>
+              <button data-reason="location_compensation" type="button">Location / compensation</button>
+              <button data-reason="preference" type="button">Personal preference</button>
+              <button data-reason="other" type="button">Other</button>
+            </div>
+          </div>
+
+          <div class="annotation-section confidence-row">
+            <label>Confidence <span>optional</span></label>
+            <div class="confidence" id="confidence">
+              <button data-confidence="1" type="button">1</button>
+              <button data-confidence="2" type="button">2</button>
+              <button data-confidence="3" type="button">3</button>
+              <button data-confidence="4" type="button">4</button>
+              <button data-confidence="5" type="button">5</button>
+            </div>
+          </div>
+
+          <label class="note-label" for="notes">Pattern note <span>optional</span></label>
+          <textarea id="notes" rows="3" maxlength="5000"
+            placeholder="Capture only a novel or reusable observation…"></textarea>
+          <div class="review-actions">
+            <span id="save-state">Label saved</span>
+            <button class="next-button" id="next-button" type="button">Next <kbd>N</kbd></button>
+          </div>
+        </section>
+      </aside>
+    </main>
+
+    <section class="comparison-view" id="comparison-view" aria-labelledby="comparison-title" hidden>
+      <div class="card-heading">
+        <h1 id="comparison-title">Label consistency</h1>
+        <button class="text-button" id="back-button" type="button">Back to queue</button>
+      </div>
+      <p class="hint">First-round and blinded second-round human labels. Disagreements appear first.
+        Only completed review pairs are shown.</p>
+      <p id="comparison-summary" role="status"></p>
+      <p class="hint">Expand a posting to compare reasons, confidence, notes, and source evidence.
+        For each disagreement, choose the first or second label as the final dataset label and save.
+        Add a rationale to clarify your criteria. Both original reviews remain unchanged;
+        the consistency score measures their original agreement.</p>
+      <p class="error" id="comparison-error" role="alert"></p>
+      <div id="comparison-list"></div>
+    </section>
+
+    <section class="empty-state" id="empty-state" hidden>
+      <div class="empty-icon">✓</div>
+      <h1>Queue complete</h1>
+      <p>There are no pending examples in this review queue.</p>
+    </section>
+
+    <script type="module" src="/assets/app.js"></script>
+  </body>
+</html>
