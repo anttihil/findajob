@@ -1,6 +1,7 @@
 import json
 import sqlite3
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -8,6 +9,52 @@ from findajob.labeler.app import _public_example
 from findajob.labeler.database import LabelerDatabase, family_split
 from findajob.labeler.exporter import export_dataset
 from findajob.labeler.importer import import_examples
+
+
+def test_evaluation_api_freezes_and_uses_registered_export(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from fastapi.testclient import TestClient
+
+    from findajob.labeler.app import create_app
+
+    source = tmp_path / "jobs.db"
+    labeler = tmp_path / "labeler.db"
+    _source_database(source)
+    import_examples(source_db_path=str(source), labeler_db_path=str(labeler), job_ids=[1])
+    with LabelerDatabase(str(labeler)) as db:
+        example = db.next_example("initial")
+        assert example is not None
+        db.annotate(example_id=example["id"], review_round=1, outcome="pass")
+        db.create_relabel_queue("consistency", percent=100)
+        db.annotate(example_id=example["id"], review_round=2, outcome="apply")
+    app = create_app(str(labeler))
+    client = TestClient(app)
+    assert client.post("/api/exports", json={"version": "baseline-v1"}).status_code == 422
+    with LabelerDatabase(str(labeler)) as db:
+        db.resolve_consistency(example["id"], 1)
+    assert client.post("/api/exports", json={"version": "../escape"}).status_code == 422
+    assert client.post("/api/exports", json={"version": "baseline-v1"}).status_code == 201
+    assert client.post("/api/exports", json={"version": "baseline-v1"}).status_code == 422
+    body = client.get("/api/evaluations").json()
+    assert body["exports"][0]["manifest"]["example_count"] == 1
+    assert body["runs"] == []
+    received = {}
+
+    def start(**kwargs: Any) -> dict[str, str]:
+        received.update(kwargs)
+        return {"id": "test-run"}
+
+    monkeypatch.setattr(app.state.evaluation_runner, "start", start)
+    response = client.post("/api/evaluations", json={"version": "baseline-v1", "split": "all"})
+    assert response.status_code == 202
+    assert received["dataset_path"] == str(tmp_path / "labeler_exports" / "baseline-v1")
+    assert received["split"] == "all"
+    assert received["provider"] == ""
+    assert received["model"] == ""
+    assert client.post("/api/evaluations", json={"version": "unknown"}).status_code == 404
+    assert client.get("/api/evaluations/invalid").status_code == 404
 
 
 def _source_database(path: Path) -> None:

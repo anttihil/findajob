@@ -6,6 +6,8 @@ const state = {
   modelVerdict: null,
   saving: false,
   comparing: false,
+  evaluating: false,
+  evaluationId: null,
 };
 
 const $ = (selector) => document.querySelector(selector);
@@ -98,6 +100,7 @@ function renderExample() {
 }
 
 async function loadNext() {
+  leaveEvaluation();
   state.comparing = false;
   $("#comparison-view").hidden = true;
   state.current = null;
@@ -127,6 +130,7 @@ function outcomeLabel(outcome) {
 }
 
 async function showComparisons() {
+  leaveEvaluation();
   state.comparing = true;
   workspace.hidden = true;
   emptyState.hidden = true;
@@ -257,6 +261,194 @@ function renderReveal() {
   $("#save-state").textContent = "Label saved";
 }
 
+let evaluationTimer;
+function leaveEvaluation() {
+  state.evaluating = false;
+  clearTimeout(evaluationTimer);
+  $("#evaluation-view").hidden = true;
+}
+
+async function loadEvaluations() {
+  const body = await request("/api/evaluations");
+  const datasets = $("#evaluation-dataset");
+  const selected = datasets.value;
+  datasets.replaceChildren();
+  for (const item of body.exports) {
+    const option = comparisonText("option", `${item.version} · ${item.example_count} labels · ${JSON.stringify(item.manifest.split_counts)}`);
+    option.value = item.version;
+    datasets.append(option);
+  }
+  if (body.exports.some((item) => item.version === selected)) datasets.value = selected;
+  if (!$("#candidate-rules").dataset.initialized) {
+    $("#candidate-rules").value = body.default_candidate_rules;
+    $("#evaluation-model").value = body.default_model;
+    $("#evaluation-provider").value = body.default_provider;
+    $("#candidate-rules").dataset.initialized = "true";
+  }
+  $("#evaluation-start").disabled = !body.exports.length;
+  const list = $("#evaluation-runs");
+  list.replaceChildren();
+  for (const run of body.runs) {
+    const button = comparisonText("button", `${run.dataset_version} · ${run.split} · ${run.model} · ${run.status} (${run.completed}/${run.total}) · ${run.created_at}`, "text-button");
+    button.type = "button";
+    button.addEventListener("click", () => openEvaluation(run.id));
+    list.append(button);
+  }
+  if (!body.runs.length) list.append(comparisonText("p", "No evaluations yet.", "hint"));
+}
+
+async function showEvaluations() {
+  state.evaluating = true;
+  state.comparing = false;
+  workspace.hidden = true;
+  emptyState.hidden = true;
+  $("#comparison-view").hidden = true;
+  $("#evaluation-view").hidden = false;
+  $("#evaluation-error").textContent = "";
+  try {
+    await loadEvaluations();
+    if (state.evaluationId) await openEvaluation(state.evaluationId);
+  } catch (error) {
+    $("#evaluation-error").textContent = error.message;
+  }
+}
+
+const percent = (value) => value == null ? "—" : `${(100 * value).toFixed(1)}%`;
+
+function evaluationTable(headers, rows) {
+  const table = document.createElement("table");
+  table.className = "evaluation-table";
+  const heading = document.createElement("tr");
+  for (const header of headers) heading.append(comparisonText("th", header));
+  table.append(heading);
+  for (const cells of rows) {
+    const row = document.createElement("tr");
+    for (const cell of cells) row.append(comparisonText("td", String(cell)));
+    table.append(row);
+  }
+  return table;
+}
+
+function renderEvaluation(run) {
+  const result = $("#evaluation-result");
+  result.replaceChildren();
+  result.append(comparisonText("h2", `${run.dataset_version} · ${run.split} · ${run.status}`));
+  result.append(comparisonText("p", `${run.completed}/${run.total} evaluations · ${run.provider}/${run.model} · ${run.created_at}`));
+  if (run.error) result.append(comparisonText("p", run.error, "error"));
+  result.append(comparisonText("p", run.metric_policy, "hint"));
+  const variants = ["baseline", "candidate"];
+  if (run.summary.baseline) {
+    const fields = [
+      ["Agreement", (m) => percent(m.agreement)],
+      ["Weighted agreement", (m) => percent(m.weighted_agreement)],
+      ["False-positive matches / predicted matches", (m) => `${m.false_positive_matches} · ${percent(m.false_positive_match_rate)}`],
+      ["False negatives / human Apply or Stretch", (m) => `${m.false_negatives} · ${percent(m.false_negative_rate)}`],
+      ["Scored / eligible", (m) => `${m.scored}/${m.eligible}`],
+      ["Failed or pending", (m) => m.failed],
+      ["Insufficient (excluded)", (m) => m.insufficient],
+      ["Provider attempts", (m) => m.calls],
+      ["Prompt / completion tokens (recorded)", (m) => `${m.tokens.prompt} / ${m.tokens.completion} (${m.usage_recorded} evaluations)`],
+      ["Measured cost", (m) => m.cost_usd == null ? "Unavailable" : `$${m.cost_usd.toFixed(6)} (${m.cost_recorded} evaluations)`],
+      ["Cost / evaluation (recorded)", (m) => m.cost_per_evaluation_usd == null ? "Unavailable" : `$${m.cost_per_evaluation_usd.toFixed(6)}`],
+    ];
+    result.append(evaluationTable(["Metric", "Baseline", "Candidate"], fields.map(([name, format]) =>
+      [name, ...variants.map((v) => format(run.summary[v]))])));
+    for (const variant of variants) {
+      const metric = run.summary[variant];
+      result.append(comparisonText("h3", `${variant} confusion matrix`));
+      result.append(evaluationTable(["Human ↓ / predicted →", "Apply", "Stretch", "Pass"],
+        ["apply", "stretch", "pass"].map((human) => [outcomeLabel(human),
+          ...["apply", "stretch", "pass"].map((p) => metric.confusion_matrix[human][p])])));
+    }
+    const strata = document.createElement("details");
+    strata.append(comparisonText("summary", "Metrics by split, original model reason, and human decisive reason"));
+    for (const field of ["split", "model_reason_type", "human_reason"]) {
+      strata.append(comparisonText("h3", field));
+      strata.append(evaluationTable(["Group", "Labels", "Baseline agreement", "Candidate agreement", "Baseline FP / FN", "Candidate FP / FN"],
+        Object.keys(run.summary.baseline.strata[field]).map((key) => {
+          const a = run.summary.baseline.strata[field][key];
+          const b = run.summary.candidate.strata[field][key];
+          return [key, a.eligible, percent(a.agreement), percent(b.agreement),
+            `${a.false_positive_matches} / ${a.false_negatives}`, `${b.false_positive_matches} / ${b.false_negatives}`];
+        })));
+    }
+    result.append(strata);
+  }
+  result.append(comparisonText("h3", "Per-example predictions"));
+  const examples = [...run.examples].sort((a, b) => {
+    const disagrees = (r) => variants.some((v) => r[v] && r[v].outcome !== r.human_outcome);
+    return Number(disagrees(b)) - Number(disagrees(a));
+  });
+  for (const row of examples) {
+    const details = document.createElement("details");
+    details.className = "card comparison-item";
+    details.append(comparisonText("summary", `#${row.example_id} ${row.job.title} · Human: ${outcomeLabel(row.human_outcome)} · Baseline: ${outcomeLabel(row.baseline?.outcome) || "—"} · Candidate: ${outcomeLabel(row.candidate?.outcome) || "—"}`));
+    details.append(comparisonText("p", `Split: ${row.split} · Human reason: ${row.human_reason} · ${row.human_notes || ""}`));
+    for (const variant of variants) {
+      details.append(comparisonText("h3", variant));
+      details.append(comparisonText("p", row[variant]?.error || row[variant]?.verdict?.reason_description || "Not evaluated"));
+      const prompt = document.createElement("details");
+      prompt.append(comparisonText("summary", `Exact system prompt · ${row.prompt_hashes[variant]}`));
+      prompt.append(comparisonText("pre", row.prompts[variant], "profile-text"));
+      details.append(prompt);
+    }
+    const evidence = document.createElement("details");
+    evidence.append(comparisonText("summary", "Exact rendered posting"));
+    evidence.append(comparisonText("pre", row.rendered_posting, "profile-text"));
+    details.append(evidence);
+    result.append(details);
+  }
+}
+
+async function openEvaluation(id) {
+  clearTimeout(evaluationTimer);
+  state.evaluationId = id;
+  try {
+    const run = await request(`/api/evaluations/${encodeURIComponent(id)}`);
+    if (!state.evaluating || state.evaluationId !== id) return;
+    renderEvaluation(run);
+    if (["queued", "running"].includes(run.status)) {
+      evaluationTimer = setTimeout(() => openEvaluation(id), 1500);
+    } else await loadEvaluations();
+  } catch (error) {
+    $("#evaluation-error").textContent = error.message;
+  }
+}
+
+$("#evaluate-button").addEventListener("click", showEvaluations);
+$("#evaluation-back").addEventListener("click", () => {
+  leaveEvaluation();
+  renderExample();
+});
+$("#export-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  $("#evaluation-error").textContent = "";
+  try {
+    const version = $("#export-version").value.trim();
+    await request("/api/exports", { method: "POST", body: JSON.stringify({ version }) });
+    await loadEvaluations();
+    $("#evaluation-dataset").value = version;
+    $("#export-version").value = "";
+  } catch (error) { $("#evaluation-error").textContent = error.message; }
+});
+$("#evaluation-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  $("#evaluation-start").disabled = true;
+  $("#evaluation-error").textContent = "";
+  try {
+    const body = await request("/api/evaluations", { method: "POST", body: JSON.stringify({
+      version: $("#evaluation-dataset").value, split: $("#evaluation-split").value,
+      model: $("#evaluation-model").value.trim(), candidate_rules: $("#candidate-rules").value,
+      provider: $("#evaluation-provider").value.trim(),
+      profile_boundary: $("#profile-boundary").value,
+      fit_threshold: Number($("#evaluation-threshold").value),
+    }) });
+    await loadEvaluations();
+    await openEvaluation(body.id);
+  } catch (error) { $("#evaluation-error").textContent = error.message; }
+  finally { $("#evaluation-start").disabled = false; }
+});
+
 async function label(outcome) {
   if (!state.current || state.saving) return;
   state.saving = true;
@@ -354,7 +546,7 @@ $("#profile-toggle").addEventListener("click", () => {
 });
 
 document.addEventListener("keydown", (event) => {
-  if (state.comparing) return;
+  if (state.comparing || state.evaluating) return;
   const tag = event.target.tagName;
   if (["INPUT", "TEXTAREA", "SELECT"].includes(tag)) return;
   const key = event.key.toLowerCase();

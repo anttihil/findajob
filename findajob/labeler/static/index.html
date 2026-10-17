@@ -18,6 +18,7 @@
         <select id="queue-select" aria-label="Review queue"></select>
         <div class="progress-copy" id="progress-copy">Loading…</div>
         <button class="text-button" id="compare-button" type="button">Compare labels</button>
+        <button class="text-button" id="evaluate-button" type="button">Evaluate prompts</button>
       </div>
     </header>
 
@@ -132,6 +133,45 @@
         the consistency score measures their original agreement.</p>
       <p class="error" id="comparison-error" role="alert"></p>
       <div id="comparison-list"></div>
+    </section>
+
+    <section class="comparison-view" id="evaluation-view" aria-labelledby="evaluation-title" hidden>
+      <div class="card-heading">
+        <h1 id="evaluation-title">Prompt evaluation</h1>
+        <button class="text-button" id="evaluation-back" type="button">Back to queue</button>
+      </div>
+      <p class="hint">Compare the current one-call scorer with revised instructions on frozen human labels.
+        Both variants use the same model and snapshotted profile/posting. Match maps to Apply and Reject
+        to Pass; the current schema cannot predict Stretch. Insufficient-information labels are excluded.</p>
+      <form id="export-form" class="card evaluation-form">
+        <h2>Freeze dataset</h2>
+        <label>New immutable version <input id="export-version" required maxlength="80" placeholder="baseline-v1" /></label>
+        <button class="next-button" type="submit">Create export</button>
+      </form>
+      <form id="evaluation-form" class="card evaluation-form">
+        <h2>Compare prompts</h2>
+        <label>Frozen dataset <select id="evaluation-dataset" required></select></label>
+        <label>Split <select id="evaluation-split">
+          <option value="validation">Validation</option><option value="held_out">Held-out regression</option>
+          <option value="optimization">Optimization</option><option value="all">All (exploratory)</option>
+        </select></label>
+        <p class="hint">Use validation for iteration. Reserve held-out runs for final comparisons;
+          do not tune candidate instructions using held-out results.</p>
+        <label>Provider <input id="evaluation-provider" placeholder="From .env" maxlength="100" /></label>
+        <label>Model <input id="evaluation-model" placeholder="From .env" maxlength="200" /></label>
+        <label>Fit threshold <input id="evaluation-threshold" type="number" min="1" max="100" value="70" required /></label>
+        <label>Candidate instructions <textarea id="candidate-rules" rows="7" maxlength="20000"></textarea></label>
+        <label>Candidate profile boundary (optional)
+          <textarea id="profile-boundary" rows="4" maxlength="10000" placeholder="Add only factual scope clarifications supported by this candidate's profile."></textarea>
+        </label>
+        <p class="hint">Starting a run makes paid provider calls for both variants. Results and exact prompts
+          are saved locally; you can leave this view while the run continues.</p>
+        <button id="evaluation-start" class="next-button" type="submit">Run comparison</button>
+      </form>
+      <p class="error" id="evaluation-error" role="alert"></p>
+      <h2>Saved runs</h2>
+      <div id="evaluation-runs" class="evaluation-runs"></div>
+      <div id="evaluation-result" aria-live="polite"></div>
     </section>
 
     <section class="empty-state" id="empty-state" hidden>

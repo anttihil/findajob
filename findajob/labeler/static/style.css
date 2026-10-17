@@ -250,3 +250,14 @@ textarea:focus, select:focus, button:focus-visible { outline: 3px solid rgba(18,
   .posting-column h1 { font-size: 34px; }
   .outcome-grid { grid-template-columns: 1fr; }
 }
+/* Offline evaluation workbench. */
+.evaluation-form { margin: 1.2rem 0; display: grid; gap: 1rem; }
+.evaluation-form label { display: grid; gap: .4rem; }
+.evaluation-form input { width: 100%; padding: .7rem; border: 1px solid #d5dce5; border-radius: 8px; font: inherit; }
+.evaluation-form button { justify-self: start; }
+.evaluation-runs { display: grid; gap: .6rem; margin-bottom: 1.5rem; }
+.evaluation-runs button { text-align: left; }
+.evaluation-table { width: 100%; border-collapse: collapse; margin: 1rem 0 1.5rem; font-size: .9rem; }
+.evaluation-table th, .evaluation-table td { padding: .65rem; text-align: left; border-bottom: 1px solid #d5dce5; overflow-wrap: anywhere; }
+#evaluation-result > details { margin: 1rem 0; }
+#evaluation-result .profile-text { max-height: 32rem; overflow: auto; }

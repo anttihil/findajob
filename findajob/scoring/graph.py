@@ -33,10 +33,12 @@ class ScoreState(TypedDict, total=False):
     verdict: dict[str, Any] | None
     usage: dict[str, int] | None
     cost_usd: float
+    cost_recorded: int
     attempts: int
     error: str | None
     semantic: bool
     model: str
+    provider: str
     profile: Any
 
 
@@ -49,7 +51,12 @@ def node_render(state: ScoreState) -> dict[str, Any]:
 
 def node_score(state: ScoreState) -> dict[str, Any]:
     model_name = state.get("model") or None
-    model = structured_model(model_name, role="scoring")
+    provider = state.get("provider")
+    model = (
+        structured_model(model_name, role="scoring", provider=provider)
+        if provider
+        else structured_model(model_name, role="scoring")
+    )
     chain = model.with_structured_output(
         JobFitVerdict, method="function_calling", strict=True, include_raw=True
     )
@@ -77,6 +84,7 @@ def node_score(state: ScoreState) -> dict[str, Any]:
     usage = _add(state.get("usage"), token_usage(raw) if raw is not None else None)
     raw_cost = vars(raw).get("findajob_cost_usd") if raw is not None else None
     cost = _add_cost(state.get("cost_usd"), raw_cost)
+    cost_recorded = state.get("cost_recorded", 0) + (raw_cost is not None)
 
     if parse_error is not None or parsed is None:
         reason = parse_error if parse_error is not None else no_tool_call_reason(raw)
@@ -95,6 +103,7 @@ def node_score(state: ScoreState) -> dict[str, Any]:
             "verdict": None,
             "usage": usage,
             "cost_usd": cost,
+            "cost_recorded": cost_recorded,
             "semantic": _is_semantic(parse_error),
         }
 
@@ -104,6 +113,7 @@ def node_score(state: ScoreState) -> dict[str, Any]:
         "verdict": verdict,
         "usage": usage,
         "cost_usd": cost,
+        "cost_recorded": cost_recorded,
         "error": None,
         "semantic": False,
     }

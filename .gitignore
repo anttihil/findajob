@@ -46,6 +46,8 @@ experiments/
 # labeler database itself, these are local evaluation data rather than source artifacts.
 /data/labeler_exports/
 /labeler_exports/
+/data/labeler_evaluations/
+/labeler_evaluations/
 
 # Runtime state: rewritten on every sync and holds the PID lock. Tracked in the old repo by
 # accident, which made every run show up as a dirty working tree.

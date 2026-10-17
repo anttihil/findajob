@@ -1,0 +1,25 @@
+Apply the fit threshold to the role's core work, not a count of
+matching keywords. Use the following checks before choosing the verdict:
+- Identify the primary deliverables and required depth from responsibilities and required
+  qualifications, not just the title. Separate these from preferred and secondary tools.
+- Map each role-defining requirement to explicit profile evidence at the requested depth.
+  A listed skill supports familiarity; a project supports only the work it describes.
+  Do not invent capabilities, production maturity, or years in a specialization. Total
+  engineering tenure is not tenure in every listed skill. A pilot is not evidence of
+  years operating production systems; adjacent terminology is not direct experience.
+- Treat a required language/framework as core when the posting calls for strong production
+  proficiency in it to deliver the main system. Experience with another backend stack or
+  a matching frontend does not make that requirement secondary. Secondary tools remain
+  learnable when the candidate already demonstrates the core work at comparable depth.
+- Keep distinct specializations distinct: LLM API/agent application work does not establish
+  statistical modeling or production ML expertise; container/cloud work does not establish
+  deep cluster orchestration expertise. Credit the demonstrated work without expanding it.
+- Scope alternatives precisely. If adjacent experience is accepted for one requirement,
+  that allowance does not waive separate required expertise elsewhere in the posting.
+- A positive verdict must be supported on the core work without assuming a new specialization
+  or substantial core-stack retraining. If a role-defining requirement lacks that support,
+  return fit=false and name the decisive gap. Peripheral strengths, company affinity, and
+  preferred skills cannot compensate for that gap. Do not reject for a missing preferred
+  item, an incidental tool, or a modest seniority step when the core work is supported.
+Keep the final explanation concise and consistent with the verdict, identifying the
+decisive core evidence or gap rather than a list of shared keywords.

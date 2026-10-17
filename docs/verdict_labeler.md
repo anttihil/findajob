@@ -73,3 +73,81 @@ manually promote a whole family into the held-out set for curated regression cas
 
 Both the database and default export directory are ignored by Git because they contain full
 profile and posting text.
+
+## Offline prompt evaluation
+
+Click **Evaluate prompts** in the top bar to freeze a dataset and compare the current scorer
+with candidate prompt instructions. Resolve all consistency disagreements before using
+**Create export**. Existing CLI-created exports registered in the same labeler database also
+appear in the frozen dataset selector.
+
+Choose a dataset and split, edit the candidate instructions, and optionally add a factual
+candidate-profile boundary. The default instructions require evidence for role-defining
+skills and their depth, distinguish secondary tools from core stack requirements, and keep
+specialized tenure and allowances for adjacent experience scoped to the evidence. They do
+not add candidate-specific claims. Both variants use
+the same snapshotted profile and posting, fit threshold, provider, and model. Defaults come
+from **`LLM_PROVIDER`** and **`LLM_SCORING_MODEL`** in `.env`, using the application's shared
+LLM resolver. For Codex with GPT Sol 6.1, set:
+
+```dotenv
+LLM_PROVIDER=codex
+LLM_SCORING_MODEL=gpt-6.1-sol
+```
+
+Restart the labeler after changing `.env`. The UI displays the resolved defaults; explicit
+UI or CLI selections override them for both variants. When these environment variables are
+unset, the shared resolver falls back to application configuration/provider defaults.
+The baseline rebuilds the **current**
+production prompt; it is not the old model verdict captured during labeling.
+
+Use **Validation** for prompt iteration and **Held-out regression** for final comparisons.
+The **All** split is exploratory and includes optimization data. Never select a prompt by
+its performance on optimization examples or repeatedly tune it against held-out results.
+
+Click **Run comparison** to start provider calls in the background. Progress and saved runs
+remain available when you return to the view. Keep the labeler server running; stopping it
+interrupts unfinished runs, which can be inspected afterward. Start a new run to retry.
+Each eligible example gets a baseline and candidate evaluation, alternating their call order
+across examples. The production scorer's bounded retry policy applies to each evaluation.
+Scoring failures are retained per example and do not abort the remaining comparisons.
+
+The results show agreement, weighted agreement, false positives/negatives, confusion matrices,
+metrics by dataset split/original model reason/human decisive reason, and available token and
+cost measurements. Expand a posting to see explanations, exact prompts, and rendered input.
+
+Metric definitions:
+
+- Match maps to human **Apply**, Reject to **Pass**. The current production schema cannot
+  predict **Stretch**, so exact three-class agreement exposes that limitation.
+- **Insufficient information** is excluded from scoring and accuracy denominators.
+- Exact agreement divides correct predictions by all eligible labels. Failures count as
+  incorrect. Weighted agreement gives human Pass labels weight 2 and Apply/Stretch weight 1,
+  emphasizing false-positive matches.
+- False-positive match rate is human Pass / all predicted Matches. The saved report also
+  includes the false-positive rate among human Pass cases.
+- False-negative rate is predicted Reject / human Apply-or-Stretch cases. Both error rates
+  use successfully scored examples; inspect failure counts alongside them.
+- Tokens and cost include recorded retry attempts. Missing provider measurements are
+  unavailable rather than assumed free; totals and averages identify measurement coverage.
+
+The same runner is available from the CLI:
+
+```bash
+uv run findajob-labeler evaluate \
+  --dataset data/labeler_exports/baseline-v1 \
+  --split validation
+```
+
+Use `--candidate-rules-file instructions.txt` and/or `--profile-boundary-file boundary.txt`
+to supply UTF-8 candidate changes, `--model` and `--provider` to override both variants'
+model/provider defaults from `.env`, and
+`--fit-threshold` to change their shared threshold (default 70). Exit status is nonzero
+if any evaluation failed.
+
+Runs are saved as JSON under `labeler_evaluations/` beside the labeler database (normally
+`data/labeler_evaluations/`). CLI `--output-dir` overrides this location. Each run retains
+the dataset manifest/checksum, split, model/provider, schema, source-code checksums, exact
+prompts and hashes, original record provenance, per-example predictions/errors, and metrics.
+The default evaluation directories are ignored by Git because these artifacts contain
+full candidate and posting text. Evaluations never update production job verdicts.

@@ -1,5 +1,6 @@
 """Unified LLM subsystem and provider interface for Find a Job."""
 
+import os
 from typing import Any, Generic, TypeVar
 
 from pydantic import BaseModel
@@ -86,6 +87,11 @@ def get_model_for_role(
     if override:
         return override
     from findajob.core.config import load_config
+
+    env_key = "LLM_SCORING_MODEL" if role == "scoring" else "LLM_AGENT_MODEL"
+    env_model = os.environ.get(env_key, "").strip()
+    if env_model:
+        return env_model
 
     config = load_config()
     llm_cfg = config.get("llm") or {}

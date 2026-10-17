@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+from pathlib import Path
 from typing import Any
 
 from findajob.core.paths import DATA_DIR, DB_PATH
@@ -42,6 +43,22 @@ def build_parser() -> argparse.ArgumentParser:
     export = commands.add_parser("export", help="write a new versioned JSONL dataset")
     export.add_argument("--output-dir", default=os.path.join(DATA_DIR, "labeler_exports"))
     export.add_argument("--version")
+
+    evaluate = commands.add_parser(
+        "evaluate", help="compare baseline and candidate on frozen labels"
+    )
+    evaluate.add_argument("--dataset", required=True, help="export version directory")
+    evaluate.add_argument(
+        "--split", choices=["optimization", "validation", "held_out", "all"], default="validation"
+    )
+    evaluate.add_argument("--model", default="", help="override LLM_SCORING_MODEL from .env")
+    evaluate.add_argument("--provider", default="", help="override LLM_PROVIDER from .env")
+    evaluate.add_argument("--candidate-rules-file", help="UTF-8 instructions appended to candidate")
+    evaluate.add_argument("--profile-boundary-file", help="UTF-8 candidate profile clarification")
+    evaluate.add_argument("--fit-threshold", type=int, default=70)
+    evaluate.add_argument(
+        "--output-dir", help="default: labeler_evaluations beside labeler database"
+    )
 
     commands.add_parser("status", help="show queue progress")
     return parser
@@ -91,6 +108,42 @@ def main(argv: list[str] | None = None) -> int:
             result: dict[str, Any] = {"database": db.path, "queues": db.queue_summaries()}
         print(json.dumps(result, indent=2, sort_keys=True))
         return 0
+    if args.command == "evaluate":
+        from findajob.labeler.evaluation import DEFAULT_CANDIDATE_RULES, EvaluationRunner
+
+        runner = EvaluationRunner(
+            args.output_dir or str(Path(args.label_db).resolve().parent / "labeler_evaluations")
+        )
+        try:
+            run = runner.create(
+                dataset_path=args.dataset,
+                split=args.split,
+                model=args.model,
+                provider=args.provider,
+                candidate_rules=Path(args.candidate_rules_file).read_text(encoding="utf-8")
+                if args.candidate_rules_file
+                else DEFAULT_CANDIDATE_RULES,
+                profile_boundary=Path(args.profile_boundary_file).read_text(encoding="utf-8")
+                if args.profile_boundary_file
+                else "",
+                fit_threshold=args.fit_threshold,
+            )
+            run = runner.execute(run["id"])
+        except (ValueError, OSError) as exc:
+            print(str(exc))
+            return 1
+        print(
+            json.dumps(
+                {
+                    "id": run["id"],
+                    "status": run["status"],
+                    "summary": run["summary"],
+                    "output_path": str(runner.root / f"{run['id']}.json"),
+                },
+                indent=2,
+            )
+        )
+        return 0 if run["status"] == "completed" else 1
     return 1
 
 

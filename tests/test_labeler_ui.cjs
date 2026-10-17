@@ -8,12 +8,13 @@ const source = readFileSync(
   join(__dirname, "../findajob/labeler/static/app.js"), "utf8",
 );
 
-async function openLabeler(queues, consistencyReport = {}) {
+async function openLabeler(queues, consistencyReport = {}, evaluation = {}) {
   const nodes = new Map();
   const requests = [];
   function makeNode() {
     return {
       children: [],
+      dataset: {},
       listeners: {},
       replaceChildren() { this.children = []; },
       append(...children) { this.children.push(...children); },
@@ -22,6 +23,8 @@ async function openLabeler(queues, consistencyReport = {}) {
     };
   }
   const context = {
+    clearTimeout,
+    setTimeout,
     document: {
       querySelector(selector) {
         if (!nodes.has(selector)) {
@@ -38,7 +41,10 @@ async function openLabeler(queues, consistencyReport = {}) {
         ok: true,
         async json() {
           if (url.endsWith("/resolution")) return { resolution: JSON.parse(options.body) };
-          if (url === "/api/consistency") return consistencyReport;
+           if (url === "/api/consistency") return consistencyReport;
+           if (url === "/api/evaluations" && options?.method === "POST") return { id: "run-1" };
+           if (url === "/api/evaluations") return evaluation.catalog;
+           if (url === "/api/evaluations/run-1") return evaluation.run;
           return url === "/api/queues" ? { queues } : { example: null };
         },
       };
@@ -141,4 +147,50 @@ test("comparison view explains when no review pairs are complete", async () => {
   await runInNewContext("showComparisons()", context);
   assert.match(nodes.get("#comparison-summary").textContent, /No completed review pairs/);
   assert.equal(nodes.get("#comparison-list").children.length, 0);
+});
+
+test("evaluation form starts a comparison and renders saved evidence without HTML injection", async () => {
+  const evaluation = {
+    catalog: {
+      exports: [{ version: "baseline-v1", example_count: 2, manifest: { split_counts: { validation: 2 } } }],
+      runs: [], default_candidate_rules: "Specialization guidance",
+      default_model: "gpt-6.1-sol", default_provider: "codex",
+    },
+    run: {
+      id: "run-1", dataset_version: "baseline-v1", split: "validation", status: "completed",
+      completed: 4, total: 4, provider: "test", model: "test-model", created_at: "today",
+      metric_policy: "Exact agreement", summary: {},
+      examples: [{ example_id: 1, job: { title: "<script>example</script>" }, human_outcome: "pass",
+        human_reason: "specialization", split: "validation", rendered_posting: "Frozen posting",
+        prompts: { baseline: "Frozen baseline", candidate: "Frozen candidate" },
+        prompt_hashes: { baseline: "hash-a", candidate: "hash-b" },
+        baseline: { outcome: "apply", verdict: { reason_description: "Adjacent" } },
+        candidate: { outcome: "pass", verdict: { reason_description: "Core gap" } } }],
+    },
+  };
+  const { context, nodes, requests } = await openLabeler([], {}, evaluation);
+  await runInNewContext("showEvaluations()", context);
+  assert.equal(nodes.get("#evaluation-view").hidden, false);
+  assert.equal(nodes.get("#workspace").hidden, true);
+  assert.equal(nodes.get("#candidate-rules").value, "Specialization guidance");
+  assert.equal(nodes.get("#evaluation-model").value, "gpt-6.1-sol");
+  assert.equal(nodes.get("#evaluation-provider").value, "codex");
+  for (const selector of ["#evaluation-split", "#evaluation-model", "#profile-boundary", "#evaluation-threshold"]) {
+    context.document.querySelector(selector);
+  }
+  nodes.get("#evaluation-dataset").value = "baseline-v1";
+  nodes.get("#evaluation-split").value = "validation";
+  nodes.get("#evaluation-model").value = "test-model";
+  nodes.get("#profile-boundary").value = "Boundary";
+  nodes.get("#evaluation-threshold").value = "70";
+  await nodes.get("#evaluation-form").listeners.submit({ preventDefault() {} });
+  assert.ok(requests.includes("/api/evaluations/run-1"));
+  const children = nodes.get("#evaluation-result").children;
+  const details = children[children.length - 1];
+  assert.match(details.children[0].textContent, /<script>example<\/script>/);
+  assert.equal(details.children[2].textContent, "baseline");
+  assert.equal(details.children[4].children[1].textContent, "Frozen baseline");
+  assert.equal(nodes.get("#evaluation-start").disabled, false);
+  await nodes.get("#evaluation-back").listeners.click();
+  assert.equal(nodes.get("#evaluation-view").hidden, true);
 });

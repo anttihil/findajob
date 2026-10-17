@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any
@@ -12,6 +13,12 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from findajob.labeler.database import LabelerDatabase, default_labeler_db_path
+from findajob.labeler.evaluation import (
+    DEFAULT_CANDIDATE_RULES,
+    EvaluationRunner,
+    evaluation_defaults,
+)
+from findajob.labeler.exporter import export_dataset
 
 STATIC_DIR = Path(__file__).with_name("static")
 
@@ -37,6 +44,20 @@ class SplitPayload(BaseModel):
 class ConsistencyResolutionPayload(BaseModel):
     selected_round: int = Field(ge=1, le=2)
     notes: str = Field(default="", max_length=5000)
+
+
+class ExportPayload(BaseModel):
+    version: str = Field(min_length=1, max_length=80)
+
+
+class EvaluationPayload(BaseModel):
+    version: str
+    split: str = "validation"
+    model: str = Field(default="", max_length=200)
+    provider: str = Field(default="", max_length=100)
+    candidate_rules: str = Field(default=DEFAULT_CANDIDATE_RULES, max_length=20000)
+    profile_boundary: str = Field(default="", max_length=10000)
+    fit_threshold: int = Field(default=70, ge=1, le=100)
 
 
 def _public_example(row: dict[str, Any]) -> dict[str, Any]:
@@ -82,6 +103,9 @@ def create_app(labeler_db_path: str | None = None) -> FastAPI:
 
     app = FastAPI(title="CareerRadar Verdict Labeler", docs_url=None, redoc_url=None)
     app.state.labeler_db_path = db_path
+    export_root = Path(db_path).resolve().parent / "labeler_exports"
+    runner = EvaluationRunner(str(Path(db_path).resolve().parent / "labeler_evaluations"))
+    app.state.evaluation_runner = runner
     app.mount("/assets", StaticFiles(directory=STATIC_DIR), name="labeler-assets")
 
     @app.middleware("http")
@@ -98,6 +122,62 @@ def create_app(labeler_db_path: str | None = None) -> FastAPI:
     async def queues() -> dict[str, Any]:
         with LabelerDatabase(db_path) as db:
             return {"queues": db.queue_summaries()}
+
+    @app.get("/api/evaluations")
+    def evaluations() -> dict[str, Any]:
+        with LabelerDatabase(db_path) as db:
+            exports = [
+                dict(row)
+                for row in db.conn.execute(
+                    "SELECT version, output_path, created_at, example_count, manifest_json "
+                    "FROM export_runs ORDER BY created_at DESC"
+                ).fetchall()
+            ]
+
+        for item in exports:
+            item["manifest"] = json.loads(item.pop("manifest_json"))
+        defaults = evaluation_defaults()
+        return {
+            "exports": exports,
+            "runs": runner.list_runs(),
+            "default_candidate_rules": DEFAULT_CANDIDATE_RULES,
+            "default_model": defaults["model"],
+            "default_provider": defaults["provider"],
+        }
+
+    @app.post("/api/exports", status_code=201)
+    def freeze_export(payload: ExportPayload) -> dict[str, Any]:
+        try:
+            with LabelerDatabase(db_path) as db:
+                if db.consistency_report()["unresolved"]:
+                    raise ValueError("Resolve label disagreements before freezing a dataset.")
+            return export_dataset(
+                labeler_db_path=db_path, output_dir=str(export_root), version=payload.version
+            )
+        except (ValueError, FileExistsError) as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @app.post("/api/evaluations", status_code=202)
+    def start_evaluation(payload: EvaluationPayload) -> dict[str, Any]:
+        with LabelerDatabase(db_path) as db:
+            export = db.conn.execute(
+                "SELECT output_path FROM export_runs WHERE version = ?", (payload.version,)
+            ).fetchone()
+        if export is None:
+            raise HTTPException(status_code=404, detail="Export version not found.")
+        try:
+            values = payload.model_dump(exclude={"version"})
+            run = runner.start(dataset_path=export["output_path"], **values)
+            return {"id": run["id"]}
+        except (ValueError, OSError) as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @app.get("/api/evaluations/{run_id}")
+    def evaluation(run_id: str) -> dict[str, Any]:
+        try:
+            return runner.get(run_id)
+        except (ValueError, FileNotFoundError) as exc:
+            raise HTTPException(status_code=404, detail="Evaluation run not found.") from exc
 
     @app.get("/api/consistency")
     async def consistency() -> dict[str, Any]:
