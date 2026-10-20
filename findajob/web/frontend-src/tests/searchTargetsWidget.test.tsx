@@ -160,9 +160,10 @@ describe("SearchTargetsWidget", () => {
     fireEvent.click(capTabBtn);
 
     await waitFor(() => {
-      expect(getByText("Active Search Queries")).toBeTruthy();
-      expect(getByText("Active Locations")).toBeTruthy();
-      expect(getByText("Search Pairs")).toBeTruthy();
+      expect(getByText("Active Search Queries").previousElementSibling?.textContent).toBe("2");
+      expect(getByText("Active Locations").previousElementSibling?.textContent).toBe("1");
+      expect(getByText("Query × Location Combinations").previousElementSibling?.textContent).toBe("2");
+      expect(getByText("Scheduled Scrape Cells").previousElementSibling?.textContent).toBe("4");
       expect(getByText(/Estimated sweep: ~1.2 hours/)).toBeTruthy();
     });
   });

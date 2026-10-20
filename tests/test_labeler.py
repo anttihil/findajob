@@ -19,6 +19,10 @@ def test_evaluation_api_freezes_and_uses_registered_export(
 
     from findajob.labeler.app import create_app
 
+    monkeypatch.setattr(
+        "findajob.labeler.app.evaluation_defaults",
+        lambda: {"provider": "test-provider", "model": "test-model"},
+    )
     source = tmp_path / "jobs.db"
     labeler = tmp_path / "labeler.db"
     _source_database(source)
@@ -40,6 +44,8 @@ def test_evaluation_api_freezes_and_uses_registered_export(
     body = client.get("/api/evaluations").json()
     assert body["exports"][0]["manifest"]["example_count"] == 1
     assert body["runs"] == []
+    assert body["default_provider"] == "test-provider"
+    assert body["default_model"] == "test-model"
     received = {}
 
     def start(**kwargs: Any) -> dict[str, str]:
