@@ -50,6 +50,17 @@ def smoke_test(root: Path) -> None:
             if not key.startswith("FIND_A_JOB_")
             and key not in {"PYTHONPATH", "PYTHONHOME", "VIRTUAL_ENV", "UV_PROJECT_ENVIRONMENT"}
         }
+        # Resolve uv's configured cache before leaving the checkout, so commands
+        # in the temporary directory share it and respect environment overrides.
+        cache_dir = subprocess.run(
+            ["uv", "cache", "dir"],
+            cwd=root,
+            env=environment,
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.strip()
+        environment["UV_CACHE_DIR"] = str((root / cache_dir).resolve())
         venv = work / ".venv"
         environment["UV_PROJECT_ENVIRONMENT"] = str(venv)
         environment["FIND_A_JOB_HOME"] = str(work / "app-home")

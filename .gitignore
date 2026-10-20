@@ -3,6 +3,7 @@ __pycache__/
 *.py[cod]
 .venv/
 .pytest_cache/
+/.cache/uv/
 
 # Any database, by glob rather than by name: production copies pulled down for diagnosis
 # (prod_jobs.db and friends) are the ones most worth keeping out, and they are exactly the

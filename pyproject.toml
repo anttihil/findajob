@@ -46,6 +46,10 @@ dev = [
 ]
 
 
+[tool.uv]
+# Keep dependency operations inside the checkout's sandbox write boundary.
+cache-dir = ".cache/uv"
+
 [tool.ruff]
 line-length = 100
 target-version = "py310"
