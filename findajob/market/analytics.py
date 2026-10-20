@@ -70,6 +70,50 @@ class MarketAnalytics:
         """Per-cell scrape health and statistics."""
         return market_repo.get_coverage_report_cells(self.db.conn)
 
+    def tuple_progression(
+        self, cell_id: int, window_days: int | None = None
+    ) -> dict[str, Any] | None:
+        """Daily discovery cohorts, including zero days, for one search tuple."""
+        cell = self.db.conn.execute(
+            "SELECT id, query, source, location_id FROM scrape_cells WHERE id = ?", (cell_id,)
+        ).fetchone()
+        if cell is None:
+            return None
+        _, end = self._window(window_days or 1)
+        # Use complete UTC calendar dates, including today, for an N-day window.
+        start = (end - timedelta(days=(window_days or 1) - 1)).replace(
+            hour=0, minute=0, second=0, microsecond=0
+        )
+        rows = market_repo.get_tuple_daily_yield(
+            self.db.conn, cell_id, start.isoformat() if window_days else None, end.isoformat()
+        )
+        by_date = {row["date"]: row for row in rows}
+        first_day = start.date() if window_days else end.date()
+        if not window_days and rows:
+            first_day = datetime.fromisoformat(rows[0]["date"]).date()
+        points = []
+        day = first_day
+        while day <= end.date():
+            date = day.isoformat()
+            points.append(
+                by_date.get(
+                    date,
+                    {"date": date, "total_postings": 0, "scored_postings": 0, "strong_fits": 0},
+                )
+            )
+            day += timedelta(days=1)
+        return {
+            "tuple": dict(cell),
+            "window_days": window_days,
+            "start_date": first_day.isoformat(),
+            "end_date": end.date().isoformat(),
+            "points": points,
+            "totals": {
+                key: sum(point[key] for point in points)
+                for key in ("total_postings", "scored_postings", "strong_fits")
+            },
+        }
+
     def query_yield(
         self,
         window_days: int | None = None,
@@ -85,7 +129,10 @@ class MarketAnalytics:
         """
         window_start = None
         if window_days and window_days > 0:
-            start_dt, _ = self._window(window_days)
+            _, end_dt = self._window(window_days)
+            start_dt = (end_dt - timedelta(days=window_days - 1)).replace(
+                hour=0, minute=0, second=0, microsecond=0
+            )
             window_start = start_dt.isoformat()
 
         raw_cells = market_repo.get_query_yield_cells(

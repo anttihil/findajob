@@ -47,6 +47,7 @@ function ScrapeStage({ scrape }: { scrape: PipelineScrapeStatus }) {
 
 function ScoreStage({ score }: { score: PipelineScoreStatus }) {
   const active = score.recent_verdicts_5min > 0;
+  const failure = score.error;
   const scoredFraction = 1 - (score.backlog_share || 0);
   const detail = [
     `${(scoredFraction * 100).toFixed(0)}% scored`,
@@ -55,12 +56,19 @@ function ScoreStage({ score }: { score: PipelineScoreStatus }) {
   ];
 
   return (
-    <div class="pipeline-stage mt-4">
+    <div class={`pipeline-stage mt-4${failure ? " pipeline-stage-blocked" : ""}`}>
       <div class="pipeline-stage-header">
-        <span class={`status-dot ${active ? "orange" : "green"}`}></span>
+        <span class={`status-dot ${failure ? "red" : active ? "orange" : "green"}`}></span>
         <span class="pipeline-stage-title">Scoring</span>
-        <span class="pipeline-stage-status">{active ? "scoring" : "idle"}</span>
+        <span class="pipeline-stage-status">
+          {failure ? "blocked" : active ? "scoring" : "idle"}
+        </span>
       </div>
+      {failure && (
+        <p class="card-note text-red" role="alert">
+          {failure.message}
+        </p>
+      )}
       <p class="card-note">{detail.join(" · ")}</p>
     </div>
   );

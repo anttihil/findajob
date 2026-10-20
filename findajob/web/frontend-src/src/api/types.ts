@@ -236,6 +236,22 @@ export interface QueryYieldTuple {
     "high_yield" | "moderate_yield" | "zero_yield" | "low_yield" | "unscored" | "unscraped";
 }
 
+export interface MarketProgressionPoint {
+  date: string;
+  total_postings: number;
+  scored_postings: number;
+  strong_fits: number;
+}
+
+export interface MarketProgressionResponse {
+  tuple: { id: number; query: string; source: string; location_id: string };
+  window_days: number | null;
+  start_date: string;
+  end_date: string;
+  points: MarketProgressionPoint[];
+  totals: Omit<MarketProgressionPoint, "date">;
+}
+
 export interface QueryTermYield {
   source: string;
   query: string;
@@ -460,6 +476,7 @@ export interface PipelineScoreStatus {
   last_verdict?: string | null;
   hours_since?: number;
   recent_verdicts_5min: number;
+  error?: { message: string; occurred_at: string } | null;
 }
 
 export interface PipelineStatusResponse {

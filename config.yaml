@@ -77,7 +77,6 @@ scoring:
   fit_threshold: 70
   include_skill_hint: false
   max_usd_per_run: 8.00
-  max_posting_age_days: 3
   review:
     enabled: true
     model: deepseek-v4-pro

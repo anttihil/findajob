@@ -242,5 +242,8 @@ FastAPI + Preact dashboard <-> the same SQLite data and configuration
 - `findajob/core` provides configuration, paths, SQLite access, migrations, scheduling, and
   pipeline coordination.
 
-Search and scoring are separate stages connected by posting state. This lets either stage be
-run independently, while `findajob run` and the dashboard's sync action chain them together.
+Search and scoring run independently, while `findajob run` and the dashboard's sync action
+chain them together. Automatic scoring considers postings of any age and scores each job
+once: a finalized verdict under any profile or schema prevents automatic re-scoring.
+Unfinished first-pass reviews can resume when no final verdict exists. Use
+`findajob score jobs --job-id ID` for an explicit re-assessment.

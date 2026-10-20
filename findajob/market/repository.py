@@ -82,8 +82,11 @@ def get_query_yield_cells(
         -- market page's "disable this query" action needs to target.
         LEFT JOIN search_queries sq ON sq.query = sc.query
         LEFT JOIN jobs j ON j.scrape_cell_id = sc.id
-             AND (? IS NULL OR j.date_found >= ?)
-        LEFT JOIN job_verdicts v ON v.job_id = j.id
+             AND (? IS NULL OR julianday(j.date_found) >= julianday(?))
+        LEFT JOIN job_verdicts v ON v.id = (
+            SELECT latest.id FROM job_verdicts latest WHERE latest.job_id = j.id
+            ORDER BY latest.profile_version DESC, latest.id DESC LIMIT 1
+        )
         WHERE (? IS NULL OR sc.source = ?)
           AND (? IS NULL OR sc.location_id = ?)
           AND (? IS NULL OR sc.query = ?)
@@ -104,6 +107,35 @@ def get_query_yield_cells(
     ]
     rows = conn.execute(sql, params).fetchall()
     return [dict(r) for r in rows]
+
+
+def get_tuple_daily_yield(
+    conn: sqlite3.Connection, cell_id: int, window_start: str | None, window_end: str
+) -> list[dict[str, Any]]:
+    """Jobs by UTC discovery day, with their latest profile verdict.
+
+    A fit belongs to the job's discovery cohort, not the day scoring finished.
+    This keeps daily totals comparable to the tuple overview.
+    """
+    rows = conn.execute(
+        """
+        SELECT date(j.date_found) AS date, COUNT(*) AS total_postings,
+               COUNT(v.job_id) AS scored_postings,
+               SUM(CASE WHEN v.fit = 1 THEN 1 ELSE 0 END) AS strong_fits
+          FROM jobs j
+          LEFT JOIN job_verdicts v ON v.id = (
+              SELECT latest.id FROM job_verdicts latest WHERE latest.job_id = j.id
+              ORDER BY latest.profile_version DESC, latest.id DESC LIMIT 1
+          )
+         WHERE j.scrape_cell_id = ?
+           AND (? IS NULL OR julianday(j.date_found) >= julianday(?))
+           AND julianday(j.date_found) <= julianday(?)
+         GROUP BY date(j.date_found)
+         ORDER BY date
+        """,
+        (cell_id, window_start, window_start, window_end),
+    ).fetchall()
+    return [dict(row) for row in rows]
 
 
 # =====================================================================================

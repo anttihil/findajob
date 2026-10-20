@@ -13,7 +13,7 @@ from findajob.core.logger import get_logger
 
 logger = get_logger()
 
-SCHEMA_VERSION = 33
+SCHEMA_VERSION = 34
 
 
 def _v1_baseline(cursor: sqlite3.Cursor) -> None:
@@ -2331,6 +2331,24 @@ def _v33_resume_workspace(cursor: sqlite3.Cursor) -> None:
     """)
 
 
+def _v34_scoring_provider_status(cursor: sqlite3.Cursor) -> None:
+    cursor.execute(
+        "CREATE TABLE IF NOT EXISTS scoring_provider_status ("
+        "id INTEGER PRIMARY KEY CHECK (id = 1), message TEXT NOT NULL, occurred_at TEXT NOT NULL)"
+    )
+    # Surface an unresolved outage on upgrade, even if its jobs have already aged out.
+    from findajob.scoring.repository import BALANCE_ERROR_MESSAGE
+
+    cursor.execute(
+        "INSERT OR IGNORE INTO scoring_provider_status (id, message, occurred_at) "
+        "SELECT 1, ?, MAX(last_scoring_failure_at) FROM jobs "
+        "WHERE last_scoring_error LIKE '%Insufficient Balance%' "
+        "HAVING MAX(unixepoch(last_scoring_failure_at)) > COALESCE("
+        "(SELECT MAX(unixepoch(created_at)) FROM job_verdicts), 0)",
+        (BALANCE_ERROR_MESSAGE,),
+    )
+
+
 MIGRATIONS: list[tuple[int, str, Callable[[sqlite3.Cursor], None]]] = [
     (1, "baseline jobs table", _v1_baseline),
     (2, "market analytics: cells, observations, skills, stats", _v2_analytics),
@@ -2425,6 +2443,7 @@ MIGRATIONS: list[tuple[int, str, Callable[[sqlite3.Cursor], None]]] = [
     (31, "source-scoped scheduled search queries", _v31_search_query_sources),
     (32, "durable first-line verdicts and secondary reviews", _v32_verdict_reviews),
     (33, "versioned career memo and persistent resume workspaces", _v33_resume_workspace),
+    (34, "persistent scoring provider failure status", _v34_scoring_provider_status),
 ]
 
 

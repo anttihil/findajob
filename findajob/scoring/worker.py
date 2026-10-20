@@ -40,10 +40,13 @@ EXPECTED_COMPLETION_TOKENS = 60
 
 
 MAX_SCORING_FAILURES = scoring_repo.MAX_SCORING_FAILURES
-_age_clause = scoring_repo._age_clause
 _live_clause = scoring_repo._live_clause
 _ELIGIBLE = scoring_repo._ELIGIBLE
 _NO_VERDICT = scoring_repo._NO_VERDICT
+
+
+class ScoringBalanceError(RuntimeError):
+    """Scoring cannot continue until the provider has API credits."""
 
 
 def _now() -> str:
@@ -53,21 +56,17 @@ def _now() -> str:
 def _select(
     db: Database,
     limit: int | None,
-    profile_version: int,
     include_closed: bool = False,
 ) -> list[dict[str, Any]]:
     return scoring_repo.select_scoring_backlog(
         db.conn,
-        profile_version=profile_version,
         limit=limit,
         include_closed=include_closed,
     )
 
 
-def _pending(db: Database, profile_version: int, include_closed: bool = False) -> int:
-    return scoring_repo.count_pending_scoring(
-        db.conn, profile_version=profile_version, include_closed=include_closed
-    )
+def _pending(db: Database, include_closed: bool = False) -> int:
+    return scoring_repo.count_pending_scoring(db.conn, include_closed=include_closed)
 
 
 def _ineligible(db: Database) -> sqlite3.Row:
@@ -186,7 +185,7 @@ def _score_states(
                     return graph.invoke(state)
                 return state
 
-            completed = pool.map(second_stage, states)
+            completed = list(pool.map(second_stage, states))
             for job, state, prior in zip(batch, completed, priors, strict=True):
                 if state.get("first_line"):
                     scoring_repo.save_review_stage(
@@ -211,6 +210,9 @@ def _score_states(
                     else None
                 )
                 yield job, state
+            # Finish/persist this bounded batch, but never start another during an outage.
+            if any(state.get("balance_exhausted") for state in completed):
+                return
 
 
 def run_scoring(limit: int | None = None) -> int:
@@ -230,8 +232,12 @@ def run_scoring(limit: int | None = None) -> int:
 
     db = Database()
     try:
-        jobs = _select(db, limit, profile_version)
+        jobs = _select(db, limit)
         if not jobs:
+            failure = scoring_repo.get_provider_failure(db.conn)
+            if failure:
+                logger.error(failure["message"])
+                return 1
             print("Nothing to score. The backlog is drained.")
             return 0
 
@@ -259,6 +265,8 @@ def run_scoring(limit: int | None = None) -> int:
             "review_failed": 0,
         }
         first_usage = []
+        provider_blocked = False
+        provider_recovered = False
 
         states = _score_states(
             db, jobs, system, model, review_model, profile_version, phash, max(1, concurrency)
@@ -283,7 +291,11 @@ def run_scoring(limit: int | None = None) -> int:
                         results["review_failed"] += 1
                     results["failed"] += 1
                     results["retry_usd"] += cost
-                    _record_failure(db, job["id"], state.get("error"))
+                    if state.get("balance_exhausted"):
+                        scoring_repo.record_balance_failure(db.conn)
+                        provider_blocked = True
+                    else:
+                        _record_failure(db, job["id"], state.get("error"))
                     db.conn.commit()
                     logger.warning(
                         "No verdict for job %s (%s): %s",
@@ -309,6 +321,7 @@ def run_scoring(limit: int | None = None) -> int:
                     )
                     db.conn.commit()
                     results["scored"] += 1
+                    provider_recovered |= state.get("run_calls", state.get("attempts", 1)) > 0
 
                     if results["scored"] % 25 == 0:
                         print(f"  {results['scored']:,}/{len(jobs):,} scored  ${spend.usd:.4f}")
@@ -321,6 +334,8 @@ def run_scoring(limit: int | None = None) -> int:
         finally:
             states.close()
 
+        if provider_recovered and not provider_blocked:
+            scoring_repo.clear_provider_failure(db.conn)
         db.conn.commit()
 
         summary_stats = spend.summary()
@@ -352,7 +367,7 @@ def run_scoring(limit: int | None = None) -> int:
                 summary_stats["calls"],
             )
 
-        print(f"remaining:  {_pending(db, profile_version):,} unscored")
+        print(f"remaining:  {_pending(db):,} unscored")
         skipped = _ineligible(db)
         if skipped["total"]:
             print(
@@ -371,6 +386,9 @@ def run_scoring(limit: int | None = None) -> int:
             )
             for row in stuck:
                 print(f"  {row['total']:>4}x  job {row['example']}: {row['reason']}")
+        if provider_blocked:
+            logger.error(scoring_repo.BALANCE_ERROR_MESSAGE)
+            return 1
         return 0
     except MissingApiKey as exc:
         logger.error(str(exc))
@@ -423,6 +441,10 @@ def score_job(
         cost = final_state.get("cost_usd", 0.0)
 
         if verdict is None:
+            if final_state.get("balance_exhausted"):
+                scoring_repo.record_balance_failure(database.conn)
+                database.conn.commit()
+                raise ScoringBalanceError(scoring_repo.BALANCE_ERROR_MESSAGE)
             _record_failure(database, job_id, final_state.get("error"))
             database.conn.commit()
             raise RuntimeError(f"Scoring failed for job {job_id}: {final_state.get('error')}")
@@ -437,6 +459,8 @@ def score_job(
             profile_version,
             phash,
         )
+        if final_state.get("run_calls", final_state.get("attempts", 1)) > 0:
+            scoring_repo.clear_provider_failure(database.conn)
         database.conn.commit()
         return verdict
     finally:
@@ -449,12 +473,19 @@ def score_selected(job_ids: list[int], model: str | None = None) -> dict[str, An
     if not job_ids:
         raise ValueError("provide at least one --job-id")
     results: list[dict[str, Any]] = []
+    blocked = False
     for job_id in dict.fromkeys(job_ids):
+        if blocked:
+            results.append(
+                {"job_id": job_id, "status": "error", "error": scoring_repo.BALANCE_ERROR_MESSAGE}
+            )
+            continue
         try:
             results.append(
                 {"job_id": job_id, "status": "ok", "verdict": score_job(job_id, model=model)}
             )
         except Exception as exc:  # noqa: BLE001 - report every requested ID.
+            blocked = isinstance(exc, ScoringBalanceError)
             results.append({"job_id": job_id, "status": "error", "error": str(exc)})
     failed = sum(result["status"] == "error" for result in results)
     return {

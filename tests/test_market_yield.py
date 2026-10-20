@@ -1,3 +1,4 @@
+from collections.abc import Iterator
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -193,3 +194,113 @@ def test_market_analytics_query_yield_unit(tmp_path: Path, monkeypatch: pytest.M
     assert fs_tuple["fit_rate_pct"] == 50.0
 
     db.close()
+
+
+@pytest.fixture
+def progression_analytics(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> Iterator[MarketAnalytics]:
+    db = Database(str(tmp_path / "progression.db"))
+    migrate(db.conn)
+    for cell_id, source, location in [
+        (1, "indeed", "remote"),
+        (2, "linkedin", "remote"),
+        (3, "indeed", "helsinki"),
+        (4, "indeed", "empty"),
+    ]:
+        db.conn.execute(
+            """INSERT INTO scrape_cells
+               (id, source, location_id, query, search_label, country, enabled, created_at)
+               VALUES (?, ?, ?, 'Engineer', 'Remote', 'US', 1, '2026-08-01')""",
+            (cell_id, source, location),
+        )
+    jobs = [
+        (1, 1, "2026-08-23T23:59:59Z"),  # Outside the three-day window.
+        (2, 1, "2026-08-24T00:00:00Z"),  # Included calendar-day boundary.
+        (3, 1, "2026-08-24T11:00:00Z"),
+        (4, 1, "2026-08-26T01:00:00Z"),  # Unscored.
+        (5, 2, "2026-08-24T01:00:00Z"),  # Different provider.
+        (6, 3, "2026-08-24T01:00:00Z"),  # Different location.
+        (7, 1, "2026-08-24T01:00:00+02:00"),  # UTC date is Aug 23.
+    ]
+    for job_id, cell_id, date in jobs:
+        db.conn.execute(
+            """INSERT INTO jobs (id, job_key, title, scrape_cell_id, date_found)
+               VALUES (?, ?, 'Engineer', ?, ?)""",
+            (job_id, str(job_id), cell_id, date),
+        )
+    for job_id, profile, fit in [
+        (1, 1, 1),
+        (2, 1, 1),
+        (2, 2, 0),
+        (3, 1, 0),
+        (3, 2, 1),
+        (5, 1, 1),
+        (6, 1, 1),
+    ]:
+        db.conn.execute(
+            """INSERT INTO job_verdicts (job_id, profile_version, model, fit, created_at)
+               VALUES (?, ?, 'test', ?, '2026-08-26T02:00:00Z')""",
+            (job_id, profile, fit),
+        )
+    db.conn.commit()
+    analytics = MarketAnalytics(db, {}, SearchTargets([], {}))
+    end = datetime(2026, 8, 26, 12, tzinfo=timezone.utc)
+    monkeypatch.setattr(analytics, "_window", lambda days: (end - timedelta(days=days), end))
+    yield analytics
+    db.close()
+
+
+def test_tuple_progression_daily_cohorts(progression_analytics: MarketAnalytics) -> None:
+    result = progression_analytics.tuple_progression(1, 3)
+    assert result is not None
+    assert result["tuple"] == {
+        "id": 1,
+        "query": "Engineer",
+        "source": "indeed",
+        "location_id": "remote",
+    }
+    assert result["points"] == [
+        {"date": "2026-08-24", "total_postings": 2, "scored_postings": 2, "strong_fits": 1},
+        {"date": "2026-08-25", "total_postings": 0, "scored_postings": 0, "strong_fits": 0},
+        {"date": "2026-08-26", "total_postings": 1, "scored_postings": 0, "strong_fits": 0},
+    ]
+    assert result["totals"] == {"total_postings": 3, "scored_postings": 2, "strong_fits": 1}
+    overview = progression_analytics.query_yield(
+        3, source="indeed", location_id="remote", query="Engineer"
+    )
+    assert len(overview["tuples"]) == 1
+    for key, value in result["totals"].items():
+        assert overview["tuples"][0][key] == value
+
+
+def test_tuple_progression_all_time_and_empty(progression_analytics: MarketAnalytics) -> None:
+    result = progression_analytics.tuple_progression(1)
+    assert result is not None
+    assert result["start_date"] == "2026-08-23"
+    assert result["end_date"] == "2026-08-26"
+    assert result["totals"] == {"total_postings": 5, "scored_postings": 3, "strong_fits": 2}
+    for window in (None, 3):
+        empty = progression_analytics.tuple_progression(4, window)
+        assert empty is not None
+        assert len(empty["points"]) == (window or 1)
+        assert empty["totals"] == {"total_postings": 0, "scored_postings": 0, "strong_fits": 0}
+    assert progression_analytics.tuple_progression(999) is None
+
+
+def test_tuple_progression_api(
+    progression_analytics: MarketAnalytics, monkeypatch: pytest.MonkeyPatch, client: TestClient
+) -> None:
+    db_path = str(progression_analytics.db.db_path)
+    monkeypatch.setattr("findajob.web.app.get_db", lambda: Database(db_path))
+    monkeypatch.setattr(
+        "findajob.web.app.analytics_context", lambda _db: ({}, SearchTargets([], {}), None)
+    )
+    response = client.get("/api/market/tuples/1/progression")
+    assert response.status_code == 200
+    assert response.json()["totals"]["total_postings"] == 5
+    assert client.get("/api/market/tuples/999/progression").status_code == 404
+    for window in (0, -1, 366):
+        assert (
+            client.get(f"/api/market/tuples/1/progression?window_days={window}").status_code == 422
+        )

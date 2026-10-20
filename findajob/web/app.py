@@ -432,6 +432,24 @@ def market_query_yield(
         db.close()
 
 
+@app.get("/api/market/tuples/{cell_id}/progression")
+def market_tuple_progression(
+    cell_id: int,
+    window_days: int | None = Query(None, ge=1, le=365),
+):
+    db = get_db()
+    try:
+        config, targets, profile = analytics_context(db)
+        result = MarketAnalytics(db, config, targets, profile).tuple_progression(
+            cell_id, window_days
+        )
+        if result is None:
+            raise HTTPException(status_code=404, detail="Search tuple not found")
+        return result
+    finally:
+        db.close()
+
+
 @app.get("/api/market/locations")
 def market_locations():
     targets = load_targets()

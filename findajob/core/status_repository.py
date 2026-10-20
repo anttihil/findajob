@@ -6,10 +6,10 @@ from typing import Any
 
 from findajob.core.config import load_config
 from findajob.core.status_manager import load_sync_status
-from findajob.profile.models import DEFAULT_PROFILE_VERSION, VERDICT_SCHEMA_VERSION
 from findajob.scoring.repository import (
     count_pending_scoring,
     get_pending_scoring_stats,
+    get_provider_failure,
 )
 
 STALL_MULTIPLE = 2.0
@@ -66,15 +66,9 @@ def collect_status_report(
     }
 
     verdict = conn.execute("SELECT MAX(created_at) FROM job_verdicts").fetchone()[0]
-    profile_version = DEFAULT_PROFILE_VERSION
-
     try:
-        backlog, oldest_new = get_pending_scoring_stats(conn, profile_version=profile_version)
-        scored_count = conn.execute(
-            "SELECT COUNT(*) FROM job_verdicts WHERE profile_version = ? "
-            "AND COALESCE(verdict_schema_version, 1) >= ?",
-            (profile_version, VERDICT_SCHEMA_VERSION),
-        ).fetchone()[0]
+        backlog, oldest_new = get_pending_scoring_stats(conn)
+        scored_count = conn.execute("SELECT COUNT(DISTINCT job_id) FROM job_verdicts").fetchone()[0]
         total_eligible = scored_count + backlog
         backlog_share = (backlog / total_eligible) if total_eligible else 0.0
     except (sqlite3.OperationalError, sqlite3.DatabaseError):
@@ -216,15 +210,9 @@ def get_pipeline_status(
     last_verdict = v_row[0] if v_row else None
     recent_verdicts = int(v_row[1] or 0) if v_row else 0
 
-    profile_version = DEFAULT_PROFILE_VERSION
-
     try:
-        backlog = count_pending_scoring(conn, profile_version=profile_version)
-        scored_count = conn.execute(
-            "SELECT COUNT(*) FROM job_verdicts WHERE profile_version = ? "
-            "AND COALESCE(verdict_schema_version, 1) >= ?",
-            (profile_version, VERDICT_SCHEMA_VERSION),
-        ).fetchone()[0]
+        backlog = count_pending_scoring(conn)
+        scored_count = conn.execute("SELECT COUNT(DISTINCT job_id) FROM job_verdicts").fetchone()[0]
         total_eligible = scored_count + backlog
         backlog_share = (backlog / total_eligible) if total_eligible else 0.0
     except (sqlite3.OperationalError, sqlite3.DatabaseError):
@@ -240,6 +228,7 @@ def get_pipeline_status(
         "backlog": backlog,
         "backlog_share": backlog_share,
         "recent_verdicts_5min": recent_verdicts,
+        "error": get_provider_failure(conn),
     }
 
     return {

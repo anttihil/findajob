@@ -6,30 +6,38 @@ import sqlite3
 from datetime import datetime, timezone
 from typing import Any
 
-from findajob.core.config import load_config
 from findajob.profile.models import DEFAULT_PROFILE_VERSION, VERDICT_SCHEMA_VERSION
 from findajob.scoring.prompts import render_posting
 
 MAX_SCORING_FAILURES = 3
+BALANCE_ERROR_MESSAGE = (
+    "Scoring is blocked because the AI provider has insufficient balance. "
+    "Add API credits, then retry scoring."
+)
 
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _age_clause() -> str:
-    import sys
-
-    worker = sys.modules.get("findajob.scoring.worker")
-    cfg_fn = getattr(worker, "load_config", load_config) if worker else load_config
-    max_days = (cfg_fn().get("scoring") or {}).get("max_posting_age_days")
-    if not max_days:
-        return ""
-    max_seconds = int(max_days * 86400)
-    return (
-        f"AND (COALESCE(j.date_posted, j.date_found) IS NULL "
-        f"OR unixepoch('now') - unixepoch(COALESCE(j.date_posted, j.date_found)) <= {max_seconds})"
+def record_balance_failure(conn: sqlite3.Connection) -> None:
+    """Keep provider outages visible without penalizing individual postings."""
+    conn.execute(
+        "INSERT INTO scoring_provider_status (id, message, occurred_at) VALUES (1, ?, ?) "
+        "ON CONFLICT(id) DO UPDATE SET message=excluded.message, occurred_at=excluded.occurred_at",
+        (BALANCE_ERROR_MESSAGE, _now()),
     )
+
+
+def get_provider_failure(conn: sqlite3.Connection) -> dict[str, Any] | None:
+    row = conn.execute(
+        "SELECT message, occurred_at FROM scoring_provider_status WHERE id = 1"
+    ).fetchone()
+    return dict(row) if row else None
+
+
+def clear_provider_failure(conn: sqlite3.Connection) -> None:
+    conn.execute("DELETE FROM scoring_provider_status WHERE id = 1")
 
 
 _ELIGIBLE = """
@@ -39,19 +47,13 @@ _ELIGIBLE = """
        AND j.description IS NOT NULL AND length(j.description) > 200
        AND COALESCE(j.scoring_failures, 0) < {max_failures}
        {live_clause}
-       {age_clause}
 """
 
 _NO_VERDICT = """
-       AND (NOT EXISTS (
+       AND NOT EXISTS (
              SELECT 1 FROM job_verdicts v
-              WHERE v.job_id = j.id AND v.profile_version = ?
-                AND COALESCE(v.verdict_schema_version, 1) >= ?
-             ) OR EXISTS (
-                 SELECT 1 FROM verdict_reviews r
-                  WHERE r.job_id = j.id AND r.profile_version = ?
-                    AND r.finalized = 0
-             ))
+              WHERE v.job_id = j.id
+           )
 """
 
 
@@ -61,19 +63,20 @@ def _live_clause(include_closed: bool) -> str:
 
 def select_scoring_backlog(
     conn: sqlite3.Connection,
-    profile_version: int,
     limit: int | None = None,
     include_closed: bool = False,
 ) -> list[dict[str, Any]]:
-    """Postings needing a verdict under the active profile."""
+    """Postings never finalized under any profile, regardless of posting age.
+
+    Unfinished first passes live in verdict_reviews, not job_verdicts, and remain eligible.
+    """
     where = _ELIGIBLE.format(
         live_clause=_live_clause(include_closed),
         max_failures=MAX_SCORING_FAILURES,
-        age_clause=_age_clause(),
     )
 
     query = "SELECT j.*" + where + _NO_VERDICT + " ORDER BY j.date_found DESC"
-    params: list[Any] = [profile_version, VERDICT_SCHEMA_VERSION, profile_version]
+    params: list[Any] = []
 
     if limit:
         query += " LIMIT ?"
@@ -82,7 +85,7 @@ def select_scoring_backlog(
 
 
 def get_pending_scoring_stats(
-    conn: sqlite3.Connection, profile_version: int, include_closed: bool = False
+    conn: sqlite3.Connection, include_closed: bool = False
 ) -> tuple[int, str | None]:
     """How many postings are pending scoring and the date found of the oldest one."""
     sql = (
@@ -90,40 +93,31 @@ def get_pending_scoring_stats(
         + _ELIGIBLE.format(
             live_clause=_live_clause(include_closed),
             max_failures=MAX_SCORING_FAILURES,
-            age_clause=_age_clause(),
         )
         + _NO_VERDICT
     )
-    row = conn.execute(sql, [profile_version, VERDICT_SCHEMA_VERSION, profile_version]).fetchone()
+    row = conn.execute(sql).fetchone()
     if row is None:
         return 0, None
     return row[0], row[1]
 
 
-def count_pending_scoring(
-    conn: sqlite3.Connection, profile_version: int, include_closed: bool = False
-) -> int:
+def count_pending_scoring(conn: sqlite3.Connection, include_closed: bool = False) -> int:
     """How many postings a next run would select."""
     sql = (
         "SELECT COUNT(*)"
         + _ELIGIBLE.format(
             live_clause=_live_clause(include_closed),
             max_failures=MAX_SCORING_FAILURES,
-            age_clause=_age_clause(),
         )
         + _NO_VERDICT
     )
-    params = [profile_version, VERDICT_SCHEMA_VERSION, profile_version]
-    return conn.execute(sql, params).fetchone()[0]
+    return conn.execute(sql).fetchone()[0]
 
 
-def get_oldest_pending_date(
-    conn: sqlite3.Connection, profile_version: int, include_closed: bool = False
-) -> str | None:
+def get_oldest_pending_date(conn: sqlite3.Connection, include_closed: bool = False) -> str | None:
     """Date found of the oldest eligible posting waiting to be scored."""
-    _, oldest = get_pending_scoring_stats(
-        conn, profile_version=profile_version, include_closed=include_closed
-    )
+    _, oldest = get_pending_scoring_stats(conn, include_closed=include_closed)
     return oldest
 
 

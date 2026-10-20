@@ -102,19 +102,19 @@ class BacklogAccountingTests(_Fixture, unittest.TestCase):
         self.job(2)
         self.verdict(2, VERDICT_SCHEMA_VERSION)  # current verdict -> done
         self.job(3, state="scored")
-        self.verdict(3, VERDICT_SCHEMA_VERSION - 1)  # stale schema -> queued
+        self.verdict(3, VERDICT_SCHEMA_VERSION - 1)  # historical verdict -> already scored
         self.job(4, duplicate_of=1)  # duplicate -> never
         self.job(5, description="too short")  # stub -> never
         self.job(6, description=None)  # no description -> never
 
-        self.assertEqual(_pending(self.db, PROFILE), len(_select(self.db, None, PROFILE)))
-        self.assertEqual(_pending(self.db, PROFILE), 2)
+        self.assertEqual(_pending(self.db), len(_select(self.db, None)))
+        self.assertEqual(_pending(self.db), 1)
 
-    def test_pending_ignores_verdicts_from_another_profile(self) -> None:
+    def test_pending_excludes_verdicts_from_another_profile(self) -> None:
         self.job(1, state="scored")
         self.verdict(1, VERDICT_SCHEMA_VERSION, profile_version=PROFILE - 1)
-        self.assertEqual(_pending(self.db, PROFILE), len(_select(self.db, None, PROFILE)))
-        self.assertEqual(_pending(self.db, PROFILE), 1)
+        self.assertEqual(_pending(self.db), len(_select(self.db, None)))
+        self.assertEqual(_pending(self.db), 0)
 
     def test_ineligible_reasons_sum_to_the_total(self) -> None:
         self.job(1)  # eligible, not counted here
@@ -136,7 +136,7 @@ class BacklogAccountingTests(_Fixture, unittest.TestCase):
         self.job(2, duplicate_of=1)
         self.job(3, description="short")
 
-        queued = {row["id"] for row in _select(self.db, None, PROFILE)}
+        queued = {row["id"] for row in _select(self.db, None)}
         excluded = {
             row[0]
             for row in self.conn.execute(
@@ -153,20 +153,13 @@ class SeniorityEligibilityTests(_Fixture, unittest.TestCase):
         for job_id, level in enumerate(("mid", "lead", "staff", "senior"), start=1):
             self.job(job_id, seniority=level)
 
-        queued = {row["id"] for row in _select(self.db, None, PROFILE)}
+        queued = {row["id"] for row in _select(self.db, None)}
         self.assertEqual(queued, {1, 2, 3, 4})
-        self.assertEqual(_pending(self.db, PROFILE), len(queued))
+        self.assertEqual(_pending(self.db), len(queued))
 
 
-class PostingAgeFilterTests(_Fixture, unittest.TestCase):
-    def test_stale_postings_are_skipped(self) -> None:
-        patcher = mock.patch(
-            "findajob.scoring.worker.load_config",
-            return_value={"scoring": {"max_posting_age_days": 3}},
-        )
-        patcher.start()
-        self.addCleanup(patcher.stop)
-
+class PostingAgeTests(_Fixture, unittest.TestCase):
+    def test_old_unscored_postings_are_selected(self) -> None:
         # Fresh posting (today)
         self.conn.execute(
             "INSERT INTO jobs (id, job_key, title, url, description, "
@@ -175,19 +168,33 @@ class PostingAgeFilterTests(_Fixture, unittest.TestCase):
             "'new', datetime('now'), 1)",
             (LONG,),
         )
-        # Stale posting (10 days ago)
+        # A long-running posting first discovered 60 days ago is still worth assessing.
         self.conn.execute(
             "INSERT INTO jobs (id, job_key, title, url, description, "
             "pipeline_state, date_found, sync_run_id) "
             "VALUES (2, 'k2', 'Platform Engineer', 'https://example.test/2', ?, "
-            "'new', datetime('now', '-10 days'), 1)",
+            "'new', datetime('now', '-60 days'), 1)",
             (LONG,),
         )
         self.conn.commit()
 
-        queued = [r["id"] for r in _select(self.db, None, PROFILE)]
-        self.assertEqual(queued, [1])
-        self.assertEqual(_pending(self.db, PROFILE), 1)
+        queued = [r["id"] for r in _select(self.db, None, include_closed=False)]
+        self.assertEqual(queued, [1, 2])
+        self.assertEqual(_pending(self.db), 2)
+
+    def test_newly_discovered_job_with_old_posting_date_is_selected(self) -> None:
+        self.job(1)
+        self.conn.execute(
+            "UPDATE jobs SET date_found=datetime('now'), "
+            "date_posted=datetime('now', '-90 days') WHERE id=1"
+        )
+        # Retired local overrides must not silently reinstate the age cutoff.
+        with mock.patch(
+            "findajob.scoring.worker.load_config",
+            return_value={"scoring": {"max_posting_age_days": 3}},
+        ):
+            self.assertEqual([r["id"] for r in _select(self.db, None)], [1])
+            self.assertEqual(_pending(self.db), 1)
 
 
 class QuarantineTests(_Fixture, unittest.TestCase):
@@ -207,10 +214,10 @@ class QuarantineTests(_Fixture, unittest.TestCase):
 
         self.job(1)
         for n in range(MAX_SCORING_FAILURES):
-            self.assertEqual(_pending(self.db, PROFILE), 1, f"withdrawn after only {n} failures")
+            self.assertEqual(_pending(self.db), 1, f"withdrawn after only {n} failures")
             self.record_failures(1, 1)
-        self.assertEqual(_pending(self.db, PROFILE), 0)
-        self.assertEqual(_select(self.db, None, PROFILE), [])
+        self.assertEqual(_pending(self.db), 0)
+        self.assertEqual(_select(self.db, None), [])
 
     def test_a_success_clears_the_counter(self) -> None:
         """Two failures then a verdict must not leave the posting one failure from exile."""
@@ -246,13 +253,13 @@ class QuarantineTests(_Fixture, unittest.TestCase):
 
         self.job(1)
         self.record_failures(1, MAX_SCORING_FAILURES)
-        self.assertEqual(_pending(self.db, PROFILE), 0)
+        self.assertEqual(_pending(self.db), 0)
         self.conn.execute(
             "UPDATE jobs SET scoring_failures = 0, last_scoring_error = NULL "
             "WHERE COALESCE(scoring_failures, 0) > 0"
         )
         self.conn.commit()
-        self.assertEqual(_pending(self.db, PROFILE), 1)
+        self.assertEqual(_pending(self.db), 1)
 
 
 class RecentVerdictsTests(_Fixture, unittest.TestCase):
@@ -304,6 +311,21 @@ class StatusReportBacklogTests(_Fixture, unittest.TestCase):
         report = collect_status_report(self.conn)
         self.assertEqual(report["score"]["backlog"], 2)
         self.assertEqual(report["score"]["backlog_share"], 1.0)
+
+    def test_status_counts_jobs_scored_under_any_profile_once(self) -> None:
+        from findajob.core.status_repository import collect_status_report, get_pipeline_status
+
+        self.job(1)
+        self.job(2)
+        self.verdict(2, VERDICT_SCHEMA_VERSION - 1, profile_version=PROFILE - 1)
+        self.verdict(2, VERDICT_SCHEMA_VERSION, profile_version=PROFILE)
+
+        for score in (
+            collect_status_report(self.conn)["score"],
+            get_pipeline_status(self.conn, False)["score"],
+        ):
+            self.assertEqual(score["backlog"], 1)
+            self.assertEqual(score["backlog_share"], 0.5)
 
 
 _VERDICT = {

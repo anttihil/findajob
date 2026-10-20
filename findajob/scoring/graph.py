@@ -45,6 +45,7 @@ class ScoreState(TypedDict, total=False):
     first_line_usage: dict[str, int] | None
     first_line_cost_usd: float
     first_line_attempts: int
+    balance_exhausted: bool
 
 
 def node_render(state: ScoreState) -> dict[str, Any]:
@@ -55,6 +56,7 @@ def node_render(state: ScoreState) -> dict[str, Any]:
         "verdict": None,
         "error": None,
         "semantic": False,
+        "balance_exhausted": False,
     }
 
 
@@ -81,7 +83,15 @@ def node_score(state: ScoreState) -> dict[str, Any]:
         result: dict[str, Any] = chain.invoke(messages)
     except Exception as exc:  # noqa: BLE001 - network, rate limit, 400
         logger.warning("Scoring call failed (attempt %d): %s", attempts, exc)
-        return {"attempts": attempts, "error": str(exc), "verdict": None}
+        return {
+            "attempts": attempts,
+            "error": str(exc),
+            "verdict": None,
+            "balance_exhausted": (
+                getattr(exc, "status_code", None) == 402
+                or "insufficient balance" in str(exc).lower()
+            ),
+        }
 
     raw = result.get("raw")
     parsed = result.get("parsed")
@@ -166,6 +176,8 @@ def _rule_from(parse_error: Any) -> str:
 
 
 def route_after_score(state: ScoreState) -> str:
+    if state.get("balance_exhausted"):
+        return "__end__"
     if state.get("verdict") is not None:
         return "capture" if state.get("review_model") else "__end__"
     if state.get("attempts", 0) >= MAX_ATTEMPTS:
@@ -202,7 +214,11 @@ def route_after_render(state: ScoreState) -> str:
 
 
 def route_after_review(state: ScoreState) -> str:
-    if state.get("verdict") is not None or state.get("review_attempts", 0) >= MAX_ATTEMPTS:
+    if (
+        state.get("balance_exhausted")
+        or state.get("verdict") is not None
+        or state.get("review_attempts", 0) >= MAX_ATTEMPTS
+    ):
         return "__end__"
     return "review"
 

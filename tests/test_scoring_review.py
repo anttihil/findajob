@@ -141,7 +141,7 @@ def test_failed_review_resumes_and_only_charges_new_calls(db: Any) -> None:
         with pytest.raises(RuntimeError, match="Scoring failed"):
             worker.score_job(1, db=db)
         assert db.conn.execute("SELECT COUNT(*) FROM job_verdicts").fetchone()[0] == 0
-        assert repository.count_pending_scoring(db.conn, 1) == 1
+        assert repository.count_pending_scoring(db.conn) == 1
         row = db.conn.execute("SELECT * FROM verdict_reviews").fetchone()
         assert json.loads(row["first_line_state"])["first_line"]["fit"] is True
         assert json.loads(row["review_state"])["cost_usd"] == pytest.approx(0.04)
@@ -157,7 +157,7 @@ def test_failed_review_resumes_and_only_charges_new_calls(db: Any) -> None:
     assert final["cost_usd"] == pytest.approx(0.05)
     assert final["tokens_in"] == 500
     assert "cost:       $0.0100" in out.getvalue()
-    assert repository.count_pending_scoring(db.conn, 1) == 0
+    assert repository.count_pending_scoring(db.conn) == 0
     assert db.conn.execute("SELECT finalized FROM verdict_reviews").fetchone()[0] == 1
 
 
@@ -282,11 +282,11 @@ def test_zero_budget_makes_no_calls(db: Any) -> None:
         model.assert_not_called()
 
 
-def test_pending_review_is_queued_even_when_an_older_final_verdict_exists(db: Any) -> None:
+def test_pending_review_does_not_automatically_rescore_a_finalized_job(db: Any) -> None:
     job = db.query_jobs()["jobs"][0]
     verdict = {"fit": True, "reason_type": "match", "reason_description": "Earlier assessment"}
     repository.save_verdict(db.conn, job, verdict, None, 0, "flash", 1, "old")
-    assert repository.count_pending_scoring(db.conn, 1) == 0
+    assert repository.count_pending_scoring(db.conn) == 0
     repository.save_review_stage(
         db.conn,
         job,
@@ -297,8 +297,30 @@ def test_pending_review_is_queued_even_when_an_older_final_verdict_exists(db: An
         "pro",
         first_line=True,
     )
-    assert repository.count_pending_scoring(db.conn, 1) == 1
-    assert len(repository.select_scoring_backlog(db.conn, 1)) == 1
-    assert repository.get_pending_scoring_stats(db.conn, 1)[0] == 1
+    assert repository.count_pending_scoring(db.conn) == 0
+    assert repository.select_scoring_backlog(db.conn) == []
+    assert repository.get_pending_scoring_stats(db.conn) == (0, None)
     repository.save_verdict(db.conn, job, verdict, None, 0, "pro", 1, "new")
-    assert repository.count_pending_scoring(db.conn, 1) == 0
+    assert repository.count_pending_scoring(db.conn) == 0
+
+
+def test_manual_scoring_can_reassess_a_previously_finalized_job(db: Any) -> None:
+    job = db.query_jobs()["jobs"][0]
+    verdict = {"fit": True, "reason_type": "match", "reason_description": "Historical verdict"}
+    repository.save_verdict(db.conn, job, verdict, None, 0, "flash", 4, "historical")
+    assert repository.select_scoring_backlog(db.conn) == []
+    first, review = FakeChain([response(True)]), FakeChain([response(False)])
+    with (
+        mock.patch.object(worker, "load_active", return_value=(1, {}, PROFILE)),
+        mock.patch.object(
+            worker,
+            "load_config",
+            return_value={"scoring": {"model": "flash", "review": {"model": "pro"}}},
+        ),
+        mock.patch("findajob.scoring.graph.structured_model", side_effect=models(first, review)),
+    ):
+        result = worker.score_job(1, db=db)
+    assert result["fit"] is False
+    assert len(first.calls) == len(review.calls) == 1
+    assert db.conn.execute("SELECT COUNT(*) FROM job_verdicts").fetchone()[0] == 2
+    assert repository.count_pending_scoring(db.conn) == 0
