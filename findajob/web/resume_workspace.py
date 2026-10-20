@@ -13,7 +13,9 @@ from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
 from findajob.core.database import Database
+from findajob.core.logger import get_logger
 from findajob.core.paths import generated_resumes_dir
+from findajob.profile.copilot import MemoChatMessage, chat_with_memo_copilot
 from findajob.profile.models import TailoredResumePayload
 from findajob.profile.repository import load_profile, save_tailored_resume
 from findajob.profile.workspace import (
@@ -25,6 +27,7 @@ from findajob.profile.workspace import (
 )
 
 router = APIRouter()
+logger = get_logger()
 
 
 @contextmanager
@@ -47,6 +50,23 @@ class MemoUpdate(BaseModel):
     markdown: str
     base_revision_id: int | None = None
     source: str = Field(default="manual edit", max_length=200)
+
+
+class MemoChatRequest(BaseModel):
+    messages: list[MemoChatMessage] = Field(min_length=1)
+    current_markdown: str = Field(min_length=1)
+
+
+@router.post("/api/career-memo/chat")
+def memo_copilot_chat(payload: MemoChatRequest) -> dict[str, Any]:
+    try:
+        result = chat_with_memo_copilot(payload.messages, payload.current_markdown)
+        return {"status": "ok", **result.model_dump()}
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    except Exception as exc:
+        logger.exception("Career memo copilot turn failed")
+        raise HTTPException(500, "Memo copilot failed. Your memo has not changed.") from exc
 
 
 @router.get("/api/career-memo")

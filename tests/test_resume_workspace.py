@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 
 from findajob.core.database import Database
 from findajob.profile.builder import build_resume_for_job
+from findajob.profile.copilot import MemoChatResult
 from findajob.profile.models import (
     ATSScreeningVerdict,
     LayoutValidationResult,
@@ -253,6 +254,74 @@ def test_memo_and_interview_api(db: Database):
         revision_id = response.json()["id"]
         assert client.get(f"/api/career-memo/revisions/{revision_id}").json()["markdown"] == text
         assert client.get("/api/jobs/999/resume/workspace").status_code == 404
+
+
+def test_memo_copilot_proposes_without_saving_then_uses_revision_guard(db: Database):
+    original = memo_save(db.conn, "Original evidence", "import", None)
+    db.conn.commit()
+    with (
+        patch("findajob.web.resume_workspace.Database", side_effect=lambda: Database(db.db_path)),
+        patch(
+            "findajob.web.resume_workspace.chat_with_memo_copilot",
+            return_value=MemoChatResult(reply="Compacted", updated_markdown="Concise evidence"),
+        ) as chat,
+    ):
+        client = TestClient(app)
+        response = client.post(
+            "/api/career-memo/chat",
+            json={
+                "current_markdown": "Unsaved editor evidence",
+                "messages": [{"role": "user", "content": "Compact"}],
+            },
+        )
+        assert response.status_code == 200
+        assert response.json()["updated_markdown"] == "Concise evidence"
+        assert chat.call_args.args[1] == "Unsaved editor evidence"
+        assert client.get("/api/career-memo").json() == original
+        assert len(client.get("/api/career-memo/revisions").json()) == 1
+
+        # A clarification arriving while the proposal is reviewed must not be overwritten.
+        latest = client.put(
+            "/api/career-memo",
+            json={
+                "markdown": "New clarification",
+                "base_revision_id": original["id"],
+            },
+        ).json()
+        assert (
+            client.put(
+                "/api/career-memo",
+                json={
+                    "markdown": response.json()["updated_markdown"],
+                    "base_revision_id": original["id"],
+                },
+            ).status_code
+            == 409
+        )
+        assert client.get("/api/career-memo").json() == latest
+
+
+def test_memo_copilot_api_errors_preserve_saved_evidence(db: Database):
+    original = memo_save(db.conn, "Original evidence", "import", None)
+    db.conn.commit()
+    with (
+        patch("findajob.web.resume_workspace.Database", side_effect=lambda: Database(db.db_path)),
+        patch("findajob.web.resume_workspace.chat_with_memo_copilot") as chat,
+    ):
+        client = TestClient(app)
+        body = {
+            "current_markdown": "Original evidence",
+            "messages": [
+                {"role": "user", "content": "Compact"},
+            ],
+        }
+        chat.side_effect = ValueError("Context exceeds budget")
+        assert client.post("/api/career-memo/chat", json=body).status_code == 400
+        chat.side_effect = RuntimeError("Provider unavailable")
+        assert client.post("/api/career-memo/chat", json=body).status_code == 500
+        invalid = client.post("/api/career-memo/chat", json={**body, "messages": []})
+        assert invalid.status_code == 422
+        assert client.get("/api/career-memo").json() == original
 
 
 def test_interview_api_rolls_back_stale_memo(db: Database):

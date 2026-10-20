@@ -1,5 +1,6 @@
 import { useEffect, useState } from "preact/hooks";
 import { workspaceRequest, type CareerMemo } from "./workspaceApi";
+import { ProfileChatPanel } from "./ProfileChatPanel";
 
 export function CareerMemoPanel() {
   const [memo, setMemo] = useState<CareerMemo | null>(null);
@@ -9,6 +10,7 @@ export function CareerMemoPanel() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [showCopilot, setShowCopilot] = useState(false);
 
   async function reload() {
     const current = await workspaceRequest<CareerMemo>("/api/career-memo");
@@ -43,6 +45,10 @@ export function CareerMemoPanel() {
       {notice && <p role="status">{notice}</p>}
       {!memo && !error && <p>Loading career memo...</p>}
       <div class="workspace-actions">
+        <button class="action-pill text-blue" disabled={!memo || busy || !text.trim()}
+          onClick={() => setShowCopilot(true)}>
+          <i class="fa-solid fa-robot"></i> AI Copilot
+        </button>
         <label class="action-pill">Import Markdown / text
           <input aria-label="Import career memo" type="file" accept=".md,.txt,text/plain,text/markdown"
             disabled={!memo || busy} onChange={async (event) => {
@@ -82,6 +88,20 @@ export function CareerMemoPanel() {
           }}>Load into editor</button>
         </div>)}
       </details>
+      {showCopilot && <div class="retro-modal-overlay profile-copilot-modal-overlay"
+        role="dialog" aria-modal="true" aria-label="Career memo copilot"
+        onClick={() => setShowCopilot(false)} onKeyDown={(e) => {
+          if (e.key === "Escape") setShowCopilot(false);
+        }} tabIndex={-1}>
+        <div class="profile-copilot-modal" onClick={(e) => e.stopPropagation()}>
+          <ProfileChatPanel mode="memo" currentMarkdown={text}
+            onClose={() => setShowCopilot(false)} onUpdateMemo={(markdown) => {
+              setText(markdown); setSource("AI memo copilot"); setError("");
+              setNotice("Copilot proposal loaded in editor. Save to create a memo revision.");
+              setShowCopilot(false);
+            }} />
+        </div>
+      </div>}
     </details>
   );
 }

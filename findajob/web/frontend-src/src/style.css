@@ -213,6 +213,21 @@ html, body {
   min-width: 0;
 }
 
+@media (max-width: 760px) {
+  .app-container { flex-direction: column; }
+  .sidebar {
+    width: 100%;
+    min-width: 0;
+    padding: 10px;
+    border-right: 0;
+    border-bottom: 2px solid var(--ink-primary);
+  }
+  .nav-menu { flex-direction: row; flex-wrap: wrap; }
+  .nav-item { padding: 6px 8px; gap: 6px; }
+  .main-content { padding: 12px; }
+  .system-header-bar { flex-wrap: wrap; gap: 4px; }
+}
+
 /* Section Box Pattern */
 .panel-section-box {
   border: 2px solid var(--ink-primary);
@@ -2282,6 +2297,17 @@ html, body {
 }
 
 /* AI Copilot Chat Panel */
+.memo-proposal {
+  padding: 1rem;
+  border: 1px solid var(--ink-primary);
+}
+
+.memo-proposal textarea {
+  width: 100%;
+  box-sizing: border-box;
+  font-family: var(--font-mono);
+}
+
 .profile-copilot-modal {
   border: 2px solid var(--ink-primary);
   background-color: var(--bg-screen);

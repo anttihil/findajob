@@ -125,6 +125,19 @@ text achievement library, edit it, and save a revision. The complete source is p
 revision history lets you load an older version and restore it as a new revision. Export
 downloads the latest Markdown. Concurrent edits are rejected rather than overwriting newer notes.
 
+Choose **AI Copilot** in the memo editor to chat about edits or use **Compact memo**
+to remove repetition and application-specific notes while retaining achievements, career direction,
+and factual qualifications. The copilot uses your current editor text, including unsaved edits.
+Review the complete proposal, ask for refinements, then **Apply to memo editor** and **Save memo
+revision**. Discarding a proposal leaves the editor unchanged; saved revisions remain in history.
+
+Run `npm run test:browser` for the memo copilot's Chromium checks on desktop and mobile.
+Install the browser once with `npx playwright install chromium` after `npm install`.
+The tests build the frontend and start an isolated FastAPI server with synthetic data and
+mocked AI responses; they exercise the real editor, chat API, revision persistence, recovery,
+and error handling. See [.agents/skills/browser-verification/SKILL.md](.agents/skills/browser-verification/SKILL.md)
+for the reusable browser verification workflow. Screenshots and failure traces go in `test-results/browser`.
+
 The master profile remains the structured baseline for job scoring. Tailored resume generation
 uses both the profile and the full memo, including its corrections and factual qualifications.
 Inputs exceeding the 90,000-byte context budget are explicitly rejected, never silently truncated.
