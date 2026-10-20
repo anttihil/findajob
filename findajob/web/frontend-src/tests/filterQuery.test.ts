@@ -12,7 +12,7 @@ describe("FilterQuery", () => {
 
   it("reads values off the query string", () => {
     const q = new FilterQuery(
-      "?status=saved&country=US&location=San%20Francisco&fit=true&reason_type=match&date_posted=24h&offset=50&q=python"
+      "?status=saved&country=US&location=San%20Francisco&fit=true&reason_type=match&date_posted=24h&offset=50&q=python",
     );
     expect(q.status).toBe("saved");
     expect(q.country).toBe("US");

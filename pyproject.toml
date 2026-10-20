@@ -91,7 +91,7 @@ ignore = [
 known-first-party = ["findajob"]
 
 [tool.pyright]
-include = ["findajob", "tests"]
+include = ["findajob", "tests", "scripts"]
 venvPath = "."
 venv = ".venv"
 pythonVersion = "3.10"

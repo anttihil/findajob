@@ -99,8 +99,15 @@ export class FilterQuery {
     return this.values.offset;
   }
 
-  private queryString(overrides: Overrides, extra: Record<string, string | number | boolean | null> = {}): string {
-    const merged: Record<string, string | number | boolean | null> = { ...this.values, ...overrides, ...extra };
+  private queryString(
+    overrides: Overrides,
+    extra: Record<string, string | number | boolean | null> = {},
+  ): string {
+    const merged: Record<string, string | number | boolean | null> = {
+      ...this.values,
+      ...overrides,
+      ...extra,
+    };
     const params = new URLSearchParams();
     for (const [key, value] of Object.entries(merged)) {
       const isDefault = key in DEFAULTS && value === DEFAULTS[key];

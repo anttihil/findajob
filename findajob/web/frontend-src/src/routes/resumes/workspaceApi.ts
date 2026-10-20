@@ -1,12 +1,16 @@
 export async function workspaceRequest<T>(url: string, method = "GET", body?: unknown): Promise<T> {
   const response = await fetch(url, {
     method,
-    ...(body === undefined ? {} : {
-      headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
-    }),
+    ...(body === undefined
+      ? {}
+      : {
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        }),
   });
   const data = await response.json();
-  if (!response.ok) throw new Error(typeof data.detail === "string" ? data.detail : "Request failed");
+  if (!response.ok)
+    throw new Error(typeof data.detail === "string" ? data.detail : "Request failed");
   return data as T;
 }
 
@@ -25,7 +29,12 @@ export interface ResumeDraft {
   generated_resume_id: number | null;
   created_at: string;
   text: string;
-  layout: { is_valid?: boolean; violations?: string[]; pdf_verified?: boolean; page_count?: number };
+  layout: {
+    is_valid?: boolean;
+    violations?: string[];
+    pdf_verified?: boolean;
+    page_count?: number;
+  };
   review: {
     evidence: {
       grounded: boolean;

@@ -4,7 +4,12 @@ import type { SkillGapResponse, SkillGapRow } from "../../api/types";
 import { renderCoverageStrip, renderMeters, renderStatTiles } from "../../charts/charts";
 import { SkillDrawer } from "./SkillDrawer";
 
-function GapRow({ row, index, kind, onSelect }: {
+function GapRow({
+  row,
+  index,
+  kind,
+  onSelect,
+}: {
   row: SkillGapRow;
   index: number;
   kind: "gap" | "strength" | "dead";
@@ -66,14 +71,20 @@ function GapRow({ row, index, kind, onSelect }: {
           demand {pct(row.demand)} [{pct(row.demand_ci_low)}–{pct(row.demand_ci_high)}]
         </span>
         {row.salary_lift && (
-          <span title="Median salary ratio vs the corpus baseline">salary ×{row.salary_lift.toFixed(2)}</span>
+          <span title="Median salary ratio vs the corpus baseline">
+            salary ×{row.salary_lift.toFixed(2)}
+          </span>
         )}
       </div>
     </div>
   );
 }
 
-function GapList({ rows, kind, onSelect }: {
+function GapList({
+  rows,
+  kind,
+  onSelect,
+}: {
   rows: SkillGapRow[];
   kind: "gap" | "strength" | "dead";
   onSelect: (skill: string) => void;
@@ -161,7 +172,9 @@ export function SkillsPage() {
         <div class="glass-card analysis-banner">
           {notes.map((n, i) => (
             <p key={i} class={`banner-note is-${n.severity}`}>
-              <i class={`fa-solid ${n.severity === "warning" ? "fa-triangle-exclamation" : "fa-circle-info"}`}></i>{" "}
+              <i
+                class={`fa-solid ${n.severity === "warning" ? "fa-triangle-exclamation" : "fa-circle-info"}`}
+              ></i>{" "}
               {n.text}
             </p>
           ))}
@@ -188,8 +201,7 @@ export function SkillsPage() {
         <div class="stat-tile-row" ref={tilesRef}></div>
         <div class="coverage-strip" ref={coverageRef}></div>
         <p class="card-note">
-          Ranked by <strong>blocking gap</strong> — missing skills across matching
-          postings.
+          Ranked by <strong>blocking gap</strong> — missing skills across matching postings.
         </p>
         {data ? (
           <GapList rows={data.views.priority_gaps} kind="gap" onSelect={setSelectedSkill} />
@@ -204,14 +216,22 @@ export function SkillsPage() {
             <i class="fa-solid fa-circle-check text-green"></i> Validated strengths
           </h3>
           <p class="card-note">On your resume and in active demand.</p>
-          {data && <GapList rows={data.views.validated_strengths} kind="strength" onSelect={setSelectedSkill} />}
+          {data && (
+            <GapList
+              rows={data.views.validated_strengths}
+              kind="strength"
+              onSelect={setSelectedSkill}
+            />
+          )}
         </div>
         <div class="glass-card">
           <h3>
             <i class="fa-solid fa-circle-minus"></i> Dead weight
           </h3>
           <p class="card-note">On your resume with minimal market demand.</p>
-          {data && <GapList rows={data.views.dead_weight} kind="dead" onSelect={setSelectedSkill} />}
+          {data && (
+            <GapList rows={data.views.dead_weight} kind="dead" onSelect={setSelectedSkill} />
+          )}
         </div>
       </div>
 
@@ -226,7 +246,9 @@ export function SkillsPage() {
           Skills with insufficient sample size, company spread, or coverage for reliable metrics.
         </p>
         <div class="suppressed-list">
-          {data && data.views.suppressed.length === 0 && <p class="chart-empty">Nothing suppressed.</p>}
+          {data && data.views.suppressed.length === 0 && (
+            <p class="chart-empty">Nothing suppressed.</p>
+          )}
           {data?.views.suppressed.map((s) => (
             <span key={s.skill} class="suppressed-chip" title={s.reason}>
               {s.label}

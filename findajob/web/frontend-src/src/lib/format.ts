@@ -1,8 +1,4 @@
-
-const MONTHS = [
-  "Jan", "Feb", "Mar", "Apr", "May", "Jun",
-  "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
-];
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
 /** "Jul 15" -- no leading zero, no year. */
 export function shortDate(value: string | null | undefined): string {
@@ -31,4 +27,3 @@ export function retroDate(value: string | null | undefined): string {
   const min = String(date.getUTCMinutes()).padStart(2, "0");
   return `${mm}-${dd}-${yy}  ${hh}:${min}`;
 }
-

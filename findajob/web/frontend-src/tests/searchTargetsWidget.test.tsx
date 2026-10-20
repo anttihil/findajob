@@ -71,7 +71,8 @@ describe("SearchTargetsWidget", () => {
           return Promise.resolve({
             ok: true,
             status: 200,
-            json: () => Promise.resolve({ scraper: { sources: { indeed: true, linkedin: false } } }),
+            json: () =>
+              Promise.resolve({ scraper: { sources: { indeed: true, linkedin: false } } }),
           });
         }
         if (url.includes("/api/targets/queries") && opts?.method === "PUT") {
@@ -93,7 +94,7 @@ describe("SearchTargetsWidget", () => {
           status: 200,
           json: () => Promise.resolve({ success: true }),
         });
-      })
+      }),
     );
   });
 
@@ -109,7 +110,7 @@ describe("SearchTargetsWidget", () => {
 
   it("renders search queries when expanded and allows filtering", async () => {
     const { getByText, getByPlaceholderText, queryByText } = render(
-      <SearchTargetsWidget initialExpanded={true} />
+      <SearchTargetsWidget initialExpanded={true} />,
     );
 
     await waitFor(() => {
@@ -130,7 +131,7 @@ describe("SearchTargetsWidget", () => {
 
   it("switches to locations tab and shows configured locations and presets", async () => {
     const { getByText, container, queryByText } = render(
-      <SearchTargetsWidget initialExpanded={true} />
+      <SearchTargetsWidget initialExpanded={true} />,
     );
 
     await waitFor(() => {
@@ -162,7 +163,9 @@ describe("SearchTargetsWidget", () => {
     await waitFor(() => {
       expect(getByText("Active Search Queries").previousElementSibling?.textContent).toBe("2");
       expect(getByText("Active Locations").previousElementSibling?.textContent).toBe("1");
-      expect(getByText("Query × Location Combinations").previousElementSibling?.textContent).toBe("2");
+      expect(getByText("Query × Location Combinations").previousElementSibling?.textContent).toBe(
+        "2",
+      );
       expect(getByText("Scheduled Scrape Cells").previousElementSibling?.textContent).toBe("4");
       expect(getByText(/Estimated sweep: ~1.2 hours/)).toBeTruthy();
     });
@@ -184,7 +187,7 @@ describe("SearchTargetsWidget", () => {
   it("allows toggling a query's active state", async () => {
     const onTargetsChanged = vi.fn();
     const { getAllByRole } = render(
-      <SearchTargetsWidget initialExpanded={true} onTargetsChanged={onTargetsChanged} />
+      <SearchTargetsWidget initialExpanded={true} onTargetsChanged={onTargetsChanged} />,
     );
 
     await waitFor(() => {

@@ -131,12 +131,43 @@ and factual qualifications. The copilot uses your current editor text, including
 Review the complete proposal, ask for refinements, then **Apply to memo editor** and **Save memo
 revision**. Discarding a proposal leaves the editor unchanged; saved revisions remain in history.
 
-Run `npm run test:browser` for the memo copilot's Chromium checks on desktop and mobile.
+Run `make verify` before handing off code changes. It checks Python/frontend lint,
+Python and frontend formatting, both type checkers, pytest, Vitest, the production
+frontend build, a wheel build/install smoke test, and Git whitespace, stopping at
+the first failure. It checks formatting without rewriting source; use
+`uv run ruff format <paths>` for Python or `npm run format` for frontend formatting.
+Install dependencies with `make setup` (`uv sync` and `npm ci`). CI runs the same
+verification command after installing locked dependencies.
+
+Codex and Claude use a synchronous stop hook instead of checks after each edit.
+Successful verification writes an ignored receipt under `test-results/verification/`;
+the hook reuses it only while repository contents and dependency-install metadata
+match. Explicit verification always reruns. Failures include a log path and request
+one repair continuation; persistent failures permit an explicitly blocked handoff.
+Review and trust the changed Codex hook through `/hooks` before relying on it.
+If branch protection requires the previous CI jobs, update it to require `verify`.
+See [AGENTS.md](AGENTS.md) and the
+[verification skill](.agents/skills/verification/SKILL.md) for completion guidance.
+
+Prettier is pinned locally; `npm run format:check` checks frontend source, browser
+tests, and frontend configuration. `make package-smoke` builds the frontend and
+tests packaging independently: it builds a wheel, installs it with locked runtime
+dependencies in a temporary environment, checks dependency consistency, imports the
+web app, verifies bundled frontend assets, and runs both installed CLIs with `--help`
+from outside the checkout.
+It uses a temporary application home and leaves the development environment intact.
+A cold cache may need network access for packaging dependencies.
+
+Suggested addition: browser tests in CI after restoring their missing preview fixture.
+
+Run `make verify-browser` to include the memo copilot's Chromium checks on desktop and mobile.
+These currently require restoring the missing
+`.agents/skills/browser-verification/scripts/serve_preview.py` fixture referenced by
+`playwright.config.ts`; until then browser verification is blocked.
 Install the browser once with `npx playwright install chromium` after `npm install`.
 The tests build the frontend and start an isolated FastAPI server with synthetic data and
 mocked AI responses; they exercise the real editor, chat API, revision persistence, recovery,
-and error handling. See [.agents/skills/browser-verification/SKILL.md](.agents/skills/browser-verification/SKILL.md)
-for the reusable browser verification workflow. Screenshots and failure traces go in `test-results/browser`.
+and error handling. Screenshots and failure traces go in `test-results/browser`.
 
 The master profile remains the structured baseline for job scoring. Tailored resume generation
 uses both the profile and the full memo, including its corrections and factual qualifications.

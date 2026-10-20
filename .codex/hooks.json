@@ -1,15 +1,14 @@
 {
-  "description": "Run the project's static checks after Codex edits source files.",
+  "description": "Verify the final repository contents before completing a task.",
   "hooks": {
-    "PostToolUse": [
+    "Stop": [
       {
-        "matcher": "apply_patch|Edit|Write",
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"$(git rev-parse --show-toplevel)/.codex/hooks/check_modified_files.py\"",
-            "timeout": 90,
-            "statusMessage": "Running Ruff, Pyright, and ESLint..."
+            "command": "python3 \"$(git rev-parse --show-toplevel)/scripts/verify_stop.py\"",
+            "timeout": 600,
+            "statusMessage": "Verifying lint, formatting, types, tests, and build..."
           }
         ]
       }

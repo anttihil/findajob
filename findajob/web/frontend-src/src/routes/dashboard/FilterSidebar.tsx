@@ -74,7 +74,9 @@ export function FilterSidebar({
           id="filter-date-posted"
           class="form-select"
           value={query.date_posted}
-          onChange={(e) => navigate(query.url({ date_posted: (e.target as HTMLSelectElement).value }))}
+          onChange={(e) =>
+            navigate(query.url({ date_posted: (e.target as HTMLSelectElement).value }))
+          }
         >
           {DATE_POSTED_OPTIONS.map(([value, label]) => (
             <option key={value} value={value}>
@@ -107,14 +109,13 @@ export function FilterSidebar({
           id="filter-location"
           class="form-select"
           value={query.location}
-          onChange={(e) =>
-            navigate(query.url({ location: (e.target as HTMLSelectElement).value }))
-          }
+          onChange={(e) => navigate(query.url({ location: (e.target as HTMLSelectElement).value }))}
         >
           <option value="">All Search Locations</option>
           {meta?.locations.map((location) => (
             <option key={location.id} value={location.id}>
-              {location.label}{location.enabled ? "" : " (disabled)"}
+              {location.label}
+              {location.enabled ? "" : " (disabled)"}
             </option>
           ))}
         </select>
@@ -143,7 +144,9 @@ export function FilterSidebar({
           id="filter-reason"
           class="form-select"
           value={query.reason_type || ""}
-          onChange={(e) => navigate(query.url({ reason_type: (e.target as HTMLSelectElement).value }))}
+          onChange={(e) =>
+            navigate(query.url({ reason_type: (e.target as HTMLSelectElement).value }))
+          }
         >
           <option value="">All reason types</option>
           {meta?.reason_types?.map(([value, label]) => (
@@ -153,8 +156,6 @@ export function FilterSidebar({
           ))}
         </select>
       </div>
-
-
 
       <div class="filter-group">
         <label for="filter-liveness">Liveness</label>

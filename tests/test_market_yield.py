@@ -1,3 +1,4 @@
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -89,7 +90,7 @@ def test_market_yield_api_filters(client: TestClient) -> None:
     assert res_bad.status_code == 400
 
 
-def test_market_analytics_query_yield_unit(tmp_path: Path) -> None:
+def test_market_analytics_query_yield_unit(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     db_path = tmp_path / "test_market_yield.db"
     db = Database(str(db_path))
     migrate(db.conn)
@@ -165,6 +166,9 @@ def test_market_analytics_query_yield_unit(tmp_path: Path) -> None:
 
     targets = SearchTargets([], {})
     analytics = MarketAnalytics(db, config={}, targets=targets)
+    # Keep the query window aligned with the fixed fixture dates, regardless of today.
+    end = datetime(2026, 8, 26, tzinfo=timezone.utc)
+    monkeypatch.setattr(analytics, "_window", lambda days: (end - timedelta(days=days), end))
 
     result = analytics.query_yield(window_days=30)
     summary = result["summary"]

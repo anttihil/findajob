@@ -39,13 +39,19 @@ export function SchedulerControl({ compact = false }: { compact?: boolean }) {
   const next = nextSearchRun(preferences);
   return (
     <div class={compact ? "scheduler-control-compact" : "glass-card scheduler-control"}>
-      {!compact && <h3><i class="fa-solid fa-clock"></i> Automatic updates</h3>}
+      {!compact && (
+        <h3>
+          <i class="fa-solid fa-clock"></i> Automatic updates
+        </h3>
+      )}
       <div class="scheduler-control-row">
         <div>
           <strong>{enabled ? "Automatic updates are on" : "Keep searches up to date"}</strong>
           <p class="card-note">
             {enabled
-              ? next ? `Next search: ${next}` : "Preparing the next search…"
+              ? next
+                ? `Next search: ${next}`
+                : "Preparing the next search…"
               : "Periodically scrapes enabled sources and scores new postings. This may use API credits."}
           </p>
         </div>

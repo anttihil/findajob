@@ -87,10 +87,12 @@ describe("Bidirectional Job and Resume Links", () => {
       };
 
       const { getAllByText, container } = render(
-        <JobDrawer context={context} onClose={() => {}} onStatusChange={() => {}} />
+        <JobDrawer context={context} onClose={() => {}} onStatusChange={() => {}} />,
       );
 
-      const links = container.querySelectorAll<HTMLAnchorElement>('a[href*="/resumes?tab=tailored&job=42"]');
+      const links = container.querySelectorAll<HTMLAnchorElement>(
+        'a[href*="/resumes?tab=tailored&job=42"]',
+      );
       expect(links.length).toBe(1);
       expect(getAllByText(/View Resume/i).length).toBe(1);
     });
@@ -103,7 +105,7 @@ describe("Bidirectional Job and Resume Links", () => {
       };
 
       const { getByText, container } = render(
-        <JobDrawer context={context} onClose={() => {}} onStatusChange={() => {}} />
+        <JobDrawer context={context} onClose={() => {}} onStatusChange={() => {}} />,
       );
 
       expect(getByText("Resumes Library")).toBeTruthy();
@@ -131,17 +133,13 @@ describe("Bidirectional Job and Resume Links", () => {
         const urlStr = String(url);
         if (urlStr === "/api/resume-builder/profile") {
           return Promise.resolve(
-            new Response(JSON.stringify({ name: "Jane Doe" }), { status: 200 })
+            new Response(JSON.stringify({ name: "Jane Doe" }), { status: 200 }),
           );
         }
         if (urlStr === "/api/resumes") {
-          return Promise.resolve(
-            new Response(JSON.stringify(mockResumes), { status: 200 })
-          );
+          return Promise.resolve(new Response(JSON.stringify(mockResumes), { status: 200 }));
         }
-        return Promise.resolve(
-          new Response(JSON.stringify({}), { status: 200 })
-        );
+        return Promise.resolve(new Response(JSON.stringify({}), { status: 200 }));
       });
 
       // Render with tab=tailored

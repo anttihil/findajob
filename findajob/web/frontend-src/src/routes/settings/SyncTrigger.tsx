@@ -9,7 +9,11 @@ export function SyncTrigger({ compact = false }: { compact?: boolean }) {
         </h3>
       )}
       <div class="sync-actions">
-        <button class={compact ? "btn btn-primary" : "primary-btn-lg"} disabled={syncBusy.value} onClick={triggerSync}>
+        <button
+          class={compact ? "btn btn-primary" : "primary-btn-lg"}
+          disabled={syncBusy.value}
+          onClick={triggerSync}
+        >
           <i class="fa-solid fa-satellite-dish"></i> Run Scrape Now
         </button>
         {syncBusy.value && (

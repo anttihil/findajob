@@ -1,10 +1,11 @@
 import { expect, test, type Page } from "@playwright/test";
 
-const original = "# Browser test memo\n\n"
-  + "- Built an accessible tool used by approximately five colleagues.\n".repeat(2)
-  + "- Looking for technical delivery roles close to users.\n"
-  + "- No people-management authority established.\n\n"
-  + "## Application notes\n\nEmployer-specific posting analysis to remove.\n";
+const original =
+  "# Browser test memo\n\n" +
+  "- Built an accessible tool used by approximately five colleagues.\n".repeat(2) +
+  "- Looking for technical delivery roles close to users.\n" +
+  "- No people-management authority established.\n\n" +
+  "## Application notes\n\nEmployer-specific posting analysis to remove.\n";
 
 async function openMemo(page: Page) {
   await page.goto("/resumes");
@@ -23,7 +24,10 @@ test.beforeEach(async ({ request }) => {
   expect(saved.ok()).toBeTruthy();
 });
 
-test("compact, refine, apply, save, reload, and recover an older revision", async ({ page, request }, testInfo) => {
+test("compact, refine, apply, save, reload, and recover an older revision", async ({
+  page,
+  request,
+}, testInfo) => {
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
   const baseline = await (await request.get("/api/career-memo")).json();
@@ -55,7 +59,9 @@ test("compact, refine, apply, save, reload, and recover an older revision", asyn
   await expect(page.getByRole("button", { name: "Apply to memo editor" })).toBeInViewport();
   await page.screenshot({ path: testInfo.outputPath("memo-proposal.png") });
 
-  await page.getByLabel("Message memo copilot").fill("Keep the factual limits and career direction.");
+  await page
+    .getByLabel("Message memo copilot")
+    .fill("Keep the factual limits and career direction.");
   const refinement = page.waitForRequest((r) => r.url().endsWith("/api/career-memo/chat"));
   await page.getByRole("button", { name: "Send message", exact: true }).click();
   expect((await refinement).postDataJSON().current_markdown).toBe(proposed);
@@ -71,20 +77,26 @@ test("compact, refine, apply, save, reload, and recover an older revision", asyn
   expect(saved.source).toBe("AI memo copilot");
   expect(await (await request.get("/api/career-memo/download")).text()).toBe(proposed);
   await page.reload();
-  if (!await panel.getAttribute("open").then((value) => value !== null)) {
+  if (!(await panel.getAttribute("open").then((value) => value !== null))) {
     await page.getByText("Career memo — detailed work-history evidence", { exact: true }).click();
   }
   await expect(editor).toBeVisible();
   await expect(editor).toHaveValue(proposed);
   await page.getByText("Revision history", { exact: true }).click();
-  await panel.locator(".workspace-actions").filter({ hasText: `#${baseline.id} ·` })
-    .getByRole("button", { name: "Load into editor" }).click();
+  await panel
+    .locator(".workspace-actions")
+    .filter({ hasText: `#${baseline.id} ·` })
+    .getByRole("button", { name: "Load into editor" })
+    .click();
   await expect(editor).toHaveValue(original);
   expect((await (await request.get("/api/career-memo")).json()).markdown).toBe(proposed);
   expect(errors).toEqual([]);
 });
 
-test("discard and provider failure preserve evidence; stale saves preserve the newer revision", async ({ page, request }) => {
+test("discard and provider failure preserve evidence; stale saves preserve the newer revision", async ({
+  page,
+  request,
+}) => {
   const baseline = await (await request.get("/api/career-memo")).json();
   const panel = await openMemo(page);
   const editor = page.getByLabel("Career memo Markdown");
@@ -110,8 +122,9 @@ test("discard and provider failure preserve evidence; stale saves preserve the n
   await page.getByRole("button", { name: "Save memo revision", exact: true }).click();
   await expect(page.getByRole("alert")).toContainText("The career memo changed");
   await expect(editor).toHaveValue(proposal);
-  expect((await (await request.get("/api/career-memo")).json()).markdown)
-    .toBe("New clarification from another session");
+  expect((await (await request.get("/api/career-memo")).json()).markdown).toBe(
+    "New clarification from another session",
+  );
 });
 
 test("memo and profile copilot open and close with the keyboard", async ({ page }) => {
@@ -120,7 +133,10 @@ test("memo and profile copilot open and close with the keyboard", async ({ page 
   await expect(page.getByRole("dialog")).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(page.getByRole("dialog")).toBeHidden();
-  await page.locator(".profile-header-card").getByRole("button", { name: /AI Copilot$/ }).click();
+  await page
+    .locator(".profile-header-card")
+    .getByRole("button", { name: /AI Copilot$/ })
+    .click();
   await expect(page.getByText("AI PROFILE COPILOT", { exact: true })).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(page.getByText("AI PROFILE COPILOT", { exact: true })).toBeHidden();

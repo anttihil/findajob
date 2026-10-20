@@ -41,7 +41,7 @@ function job(overrides: Partial<Job>): Job {
 describe("TierBadge", () => {
   it("shows fit badge when fit is true", () => {
     const { getByText, container } = render(
-      <TierBadge job={job({ fit: true, reason_type: "match" })} />
+      <TierBadge job={job({ fit: true, reason_type: "match" })} />,
     );
     expect(getByText("Fit · match")).toBeTruthy();
     expect(container.querySelector(".badge-top")).toBeTruthy();
@@ -49,7 +49,7 @@ describe("TierBadge", () => {
 
   it("shows no fit badge when fit is false", () => {
     const { getByText, container } = render(
-      <TierBadge job={job({ fit: false, reason_type: "skills" })} />
+      <TierBadge job={job({ fit: false, reason_type: "skills" })} />,
     );
     expect(getByText("skills")).toBeTruthy();
     expect(container.querySelector(".badge-blocked")).toBeTruthy();
@@ -57,7 +57,7 @@ describe("TierBadge", () => {
 
   it("shows 'no fit' when fit is false without reason_type", () => {
     const { getByText, container } = render(
-      <TierBadge job={job({ fit: false, reason_type: null })} />
+      <TierBadge job={job({ fit: false, reason_type: null })} />,
     );
     expect(getByText("no fit")).toBeTruthy();
     expect(container.querySelector(".badge-blocked")).toBeTruthy();

@@ -8,7 +8,6 @@ const NAV_ITEMS: { href: string; icon: string; label: string }[] = [
   { href: "/observability", icon: "fa-gauge-high", label: "OBSERVABILITY" },
 ];
 
-
 export function Sidebar() {
   const [location] = useLocation();
 

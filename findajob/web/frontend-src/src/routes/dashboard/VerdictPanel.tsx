@@ -8,11 +8,7 @@ export function VerdictPanel({ job, fitThreshold = 70 }: { job: Job; fitThreshol
           <span class={`match-badge ${job.fit ? "badge-top" : "badge-blocked"}`}>
             {job.fit ? `Strong Fit (≥${fitThreshold}%)` : `No Fit (<${fitThreshold}%)`}
           </span>
-          {job.reason_type && (
-            <span class="verdict-score">
-              {job.reason_type}
-            </span>
-          )}
+          {job.reason_type && <span class="verdict-score">{job.reason_type}</span>}
         </div>
 
         {job.reason_description && <p class="verdict-reasoning">{job.reason_description}</p>}

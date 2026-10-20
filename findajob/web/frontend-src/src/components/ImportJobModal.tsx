@@ -58,28 +58,21 @@ export function ImportJobModal({ isOpen, onClose, onJobImported }: ImportJobModa
       }}
       tabIndex={-1}
     >
-      <div
-        class="retro-modal-box modal-content"
-        onClick={(e) => e.stopPropagation()}
-      >
+      <div class="retro-modal-box modal-content" onClick={(e) => e.stopPropagation()}>
         <div class="retro-modal-header">
           <h3>
             <i class="fa-solid fa-link text-gold" style={{ marginRight: "8px" }}></i>
             Import Job from URL
           </h3>
-          <button
-            type="button"
-            class="close-modal-btn"
-            onClick={onClose}
-            aria-label="Close"
-          >
+          <button type="button" class="close-modal-btn" onClick={onClose} aria-label="Close">
             <i class="fa-solid fa-xmark"></i>
           </button>
         </div>
 
         <form onSubmit={handleSubmit} class="retro-modal-body">
           <p style={{ fontSize: "0.875rem", color: "var(--ink-muted)", marginBottom: "1rem" }}>
-            Paste a link to any job posting (LinkedIn, Greenhouse, Lever, Ashby, Indeed, company site).
+            Paste a link to any job posting (LinkedIn, Greenhouse, Lever, Ashby, Indeed, company
+            site).
           </p>
 
           <div class="form-group mb-3" style={{ marginBottom: "1.25rem" }}>
@@ -99,8 +92,23 @@ export function ImportJobModal({ isOpen, onClose, onJobImported }: ImportJobModa
             />
           </div>
 
-          <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem", marginBottom: "1.25rem" }}>
-            <label style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "0.875rem", cursor: "pointer" }}>
+          <div
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              gap: "0.5rem",
+              marginBottom: "1.25rem",
+            }}
+          >
+            <label
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "8px",
+                fontSize: "0.875rem",
+                cursor: "pointer",
+              }}
+            >
               <input
                 type="checkbox"
                 checked={score}
@@ -109,7 +117,15 @@ export function ImportJobModal({ isOpen, onClose, onJobImported }: ImportJobModa
               />
               Score match against active profile
             </label>
-            <label style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "0.875rem", cursor: "pointer" }}>
+            <label
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "8px",
+                fontSize: "0.875rem",
+                cursor: "pointer",
+              }}
+            >
               <input
                 type="checkbox"
                 checked={generateResume}
@@ -121,26 +137,27 @@ export function ImportJobModal({ isOpen, onClose, onJobImported }: ImportJobModa
           </div>
 
           {error && (
-            <div style={{ padding: "0.75rem", background: "rgba(239, 68, 68, 0.1)", border: "1px solid rgba(239, 68, 68, 0.3)", borderRadius: "6px", color: "#f87171", fontSize: "0.85rem", marginBottom: "1rem" }}>
+            <div
+              style={{
+                padding: "0.75rem",
+                background: "rgba(239, 68, 68, 0.1)",
+                border: "1px solid rgba(239, 68, 68, 0.3)",
+                borderRadius: "6px",
+                color: "#f87171",
+                fontSize: "0.85rem",
+                marginBottom: "1rem",
+              }}
+            >
               <i class="fa-solid fa-circle-exclamation" style={{ marginRight: "6px" }}></i>
               {error}
             </div>
           )}
 
           <div class="retro-modal-footer">
-            <button
-              type="button"
-              class="btn btn-secondary"
-              onClick={onClose}
-              disabled={loading}
-            >
+            <button type="button" class="btn btn-secondary" onClick={onClose} disabled={loading}>
               Cancel
             </button>
-            <button
-              type="submit"
-              class="btn btn-primary"
-              disabled={loading || !url.trim()}
-            >
+            <button type="submit" class="btn btn-primary" disabled={loading || !url.trim()}>
               {loading ? (
                 <span>
                   <i class="fa-solid fa-spinner fa-spin" style={{ marginRight: "6px" }}></i>

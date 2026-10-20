@@ -127,19 +127,32 @@ export function JobDrawer({
                       flexWrap: "wrap",
                     }}
                   >
-                    <h4 style={{ margin: 0, borderBottom: "none", paddingBottom: 0, color: "var(--ink-primary)" }}>
+                    <h4
+                      style={{
+                        margin: 0,
+                        borderBottom: "none",
+                        paddingBottom: 0,
+                        color: "var(--ink-primary)",
+                      }}
+                    >
                       <i class="fa-solid fa-file-waveform"></i> Tailored 1-Page Resume
                     </h4>
                     {!generating && (
                       <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
-                        {!resume && <Link href={`/resumes?tab=tailored&job=${job.id}`} class="action-pill">
-                          Build & interview
-                        </Link>}
+                        {!resume && (
+                          <Link href={`/resumes?tab=tailored&job=${job.id}`} class="action-pill">
+                            Build & interview
+                          </Link>
+                        )}
                         {resume ? (
                           <Link
                             href={`/resumes?tab=tailored&job=${job.id}`}
                             class="action-pill"
-                            style={{ textDecoration: "none", fontSize: "0.85rem", padding: "0.3rem 0.8rem" }}
+                            style={{
+                              textDecoration: "none",
+                              fontSize: "0.85rem",
+                              padding: "0.3rem 0.8rem",
+                            }}
                             title="Open this tailored resume in the Resumes tab"
                           >
                             <i class="fa-solid fa-arrow-up-right-from-square"></i> View Resume
@@ -148,7 +161,11 @@ export function JobDrawer({
                           <Link
                             href="/resumes?tab=tailored"
                             class="action-pill"
-                            style={{ textDecoration: "none", fontSize: "0.85rem", padding: "0.3rem 0.8rem" }}
+                            style={{
+                              textDecoration: "none",
+                              fontSize: "0.85rem",
+                              padding: "0.3rem 0.8rem",
+                            }}
                             title="View Resumes Library"
                           >
                             <i class="fa-solid fa-folder-open"></i> Resumes Library
@@ -167,8 +184,15 @@ export function JobDrawer({
                   </div>
 
                   {generating && (
-                    <div style={{ marginTop: "0.75rem", color: "var(--ink-secondary)", fontSize: "0.9rem" }}>
-                      <i class="fa-solid fa-spinner fa-spin"></i> Generating tailored 1-page resume...
+                    <div
+                      style={{
+                        marginTop: "0.75rem",
+                        color: "var(--ink-secondary)",
+                        fontSize: "0.9rem",
+                      }}
+                    >
+                      <i class="fa-solid fa-spinner fa-spin"></i> Generating tailored 1-page
+                      resume...
                     </div>
                   )}
 
@@ -273,7 +297,7 @@ export function JobDrawer({
                         </span>
                       ) : (
                         seg.text
-                      )
+                      ),
                     )}
                   </div>
                 </div>

@@ -24,7 +24,7 @@ export interface MeterOptions {
 export function renderMeters(
   container: HTMLElement,
   components: MeterComponent[],
-  options: MeterOptions = {}
+  options: MeterOptions = {},
 ): void {
   const { max = 1 } = options;
   container.innerHTML = "";
@@ -67,7 +67,7 @@ export function renderStatTiles(container: HTMLElement, tiles: StatTile[]): void
       <span class="stat-tile-value">${esc(tile.value)}</span>
       <span class="stat-tile-label">${esc(tile.label)}</span>
       ${tile.sub ? `<span class="stat-tile-sub">${esc(tile.sub)}</span>` : ""}
-    </div>`
+    </div>`,
     )
     .join("");
 }
@@ -88,7 +88,7 @@ export function renderCoverageStrip(container: HTMLElement, facts: CoverageFact[
       (fact) => `<span class="coverage-item ${fact.warn ? "is-warn" : ""}"
         title="${esc(fact.tooltip || "")}">
         <span class="coverage-key">${esc(fact.label)}</span>
-        <span class="coverage-val">${esc(fact.value)}</span></span>`
+        <span class="coverage-val">${esc(fact.value)}</span></span>`,
     )
     .join("");
 }
@@ -112,12 +112,9 @@ export interface YieldBarChartOptions {
 export function renderYieldBarChart(
   container: HTMLElement,
   rows: YieldBarChartRow[] | null | undefined,
-  options: YieldBarChartOptions = {}
+  options: YieldBarChartOptions = {},
 ): void {
-  const {
-    labelWidth = 200,
-    emptyText = "No query yield data available",
-  } = options;
+  const { labelWidth = 200, emptyText = "No query yield data available" } = options;
 
   container.innerHTML = "";
   if (!rows || !rows.length) {
@@ -145,10 +142,9 @@ export function renderYieldBarChart(
     const y = index * (rowHeight + gap) + 6;
     const barWidth = Math.max(
       (row.totalPostings / maxPostings) * plotWidth,
-      row.totalPostings > 0 ? 3 : 0
+      row.totalPostings > 0 ? 3 : 0,
     );
-    const fitWidth =
-      row.totalPostings > 0 ? (row.strongFits / row.totalPostings) * barWidth : 0;
+    const fitWidth = row.totalPostings > 0 ? (row.strongFits / row.totalPostings) * barWidth : 0;
     const group = svgEl("g", { class: "chart-row" });
 
     // Label
@@ -159,8 +155,7 @@ export function renderYieldBarChart(
       class: "chart-label",
       style: "font-weight: 700; font-size: 11px;",
     });
-    label.textContent =
-      row.label.length > 26 ? row.label.slice(0, 25) + "…" : row.label;
+    label.textContent = row.label.length > 26 ? row.label.slice(0, 25) + "…" : row.label;
     group.appendChild(label);
 
     // Full Track background
@@ -172,7 +167,7 @@ export function renderYieldBarChart(
         height: rowHeight,
         rx: CHART.RADIUS,
         fill: CHART.track,
-      })
+      }),
     );
 
     if (row.totalPostings === 0) {
@@ -193,7 +188,7 @@ export function renderYieldBarChart(
           height: rowHeight,
           rx: CHART.RADIUS,
           fill: "rgba(0, 0, 0, 0.20)",
-        })
+        }),
       );
 
       // Strong Fits Bar overlay (solid dark black / accent)
@@ -206,7 +201,7 @@ export function renderYieldBarChart(
             height: rowHeight,
             rx: CHART.RADIUS,
             fill: "#000000",
-          })
+          }),
         );
       }
 
@@ -218,18 +213,14 @@ export function renderYieldBarChart(
         style: "font-size: 11px; font-weight: 700;",
       });
       const fitsText = `${row.strongFits} fit${row.strongFits === 1 ? "" : "s"}`;
-      const rateText =
-        row.scoredPostings > 0 ? ` (${row.fitRatePct.toFixed(1)}%)` : "";
+      const rateText = row.scoredPostings > 0 ? ` (${row.fitRatePct.toFixed(1)}%)` : "";
       valueLabel.textContent = `${fitsText}${rateText} · ${row.totalPostings}p`;
       group.appendChild(valueLabel);
     }
 
     // Tooltip
     const tooltip = svgEl("title");
-    const fitPct =
-      row.scoredPostings > 0
-        ? `${row.fitRatePct.toFixed(1)}% fit rate`
-        : "unscored";
+    const fitPct = row.scoredPostings > 0 ? `${row.fitRatePct.toFixed(1)}% fit rate` : "unscored";
     tooltip.textContent = `${row.label}${
       row.subLabel ? ` [${row.subLabel}]` : ""
     }: ${row.strongFits} strong fits of ${

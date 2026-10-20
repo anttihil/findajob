@@ -169,9 +169,13 @@ class FactoryAndRegistryTests(unittest.TestCase):
     def test_get_model_for_role_fallback_when_unavailable(self) -> None:
         from findajob.core.llm import LLMUnavailableError, get_model_for_role
 
-        with mock.patch(
-            "findajob.core.llm.get_llm_provider",
-            side_effect=LLMUnavailableError("none"),
+        with (
+            mock.patch.dict(os.environ, {"LLM_SCORING_MODEL": "", "LLM_AGENT_MODEL": ""}),
+            mock.patch("findajob.core.config.load_config", return_value={}),
+            mock.patch(
+                "findajob.core.llm.get_llm_provider",
+                side_effect=LLMUnavailableError("none"),
+            ),
         ):
             self.assertEqual(get_model_for_role("scoring"), "deepseek-chat")
             self.assertEqual(get_model_for_role("agent"), "deepseek-chat")
@@ -179,8 +183,12 @@ class FactoryAndRegistryTests(unittest.TestCase):
     def test_get_model_for_role_with_provider(self) -> None:
         from findajob.core.llm import get_model_for_role
 
-        self.assertEqual(get_model_for_role("scoring", provider="agy"), "gemini-3.7-flash-high")
-        self.assertEqual(get_model_for_role("agent", provider="agy"), "gemini-3.7-flash-high")
+        with (
+            mock.patch.dict(os.environ, {"LLM_SCORING_MODEL": "", "LLM_AGENT_MODEL": ""}),
+            mock.patch("findajob.core.config.load_config", return_value={}),
+        ):
+            self.assertEqual(get_model_for_role("scoring", provider="agy"), "gemini-3.7-flash-high")
+            self.assertEqual(get_model_for_role("agent", provider="agy"), "gemini-3.7-flash-high")
 
     def test_no_provider_available_raises(self) -> None:
         from findajob.core.llm import LLMUnavailableError

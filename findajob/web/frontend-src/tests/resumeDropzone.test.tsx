@@ -11,9 +11,7 @@ describe("ResumeDropzone", () => {
     const onUploadSuccess = vi.fn();
     const { getByText } = render(<ResumeDropzone onUploadSuccess={onUploadSuccess} />);
 
-    expect(
-      getByText("Drop updated resume here (.PDF, .TXT, .MD)")
-    ).toBeTruthy();
+    expect(getByText("Drop updated resume here (.PDF, .TXT, .MD)")).toBeTruthy();
   });
 
   it("handles drag over and drag leave states", () => {
@@ -70,12 +68,10 @@ describe("ResumeDropzone", () => {
       vi.fn().mockResolvedValue({
         ok: true,
         json: async () => mockResponse,
-      })
+      }),
     );
 
-    const { container, getByText } = render(
-      <ResumeDropzone onUploadSuccess={onUploadSuccess} />
-    );
+    const { container, getByText } = render(<ResumeDropzone onUploadSuccess={onUploadSuccess} />);
     const dropzone = container.querySelector(".resume-dropzone")!;
 
     const file = new File(["dummy resume content"], "resume.pdf", {
@@ -103,12 +99,10 @@ describe("ResumeDropzone", () => {
         ok: false,
         status: 400,
         json: async () => ({ detail: "Uploaded file contained no readable text." }),
-      })
+      }),
     );
 
-    const { container, getByText } = render(
-      <ResumeDropzone onUploadSuccess={onUploadSuccess} />
-    );
+    const { container, getByText } = render(<ResumeDropzone onUploadSuccess={onUploadSuccess} />);
     const input = container.querySelector("input[type='file']")!;
 
     const file = new File([""], "empty.txt", { type: "text/plain" });
@@ -117,9 +111,7 @@ describe("ResumeDropzone", () => {
     });
 
     await waitFor(() => {
-      expect(
-        getByText("Uploaded file contained no readable text.")
-      ).toBeTruthy();
+      expect(getByText("Uploaded file contained no readable text.")).toBeTruthy();
     });
 
     expect(onUploadSuccess).not.toHaveBeenCalled();

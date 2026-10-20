@@ -8,9 +8,7 @@ export function JobCard({ job, query }: { job: Job; query: FilterQuery }) {
   return (
     <Link href={query.withJob(job.id)} class="job-card">
       <div class="job-card-details">
-        <div class="job-card-timestamp">
-          {retroDate(job.date_posted || job.date_found)}
-        </div>
+        <div class="job-card-timestamp">{retroDate(job.date_posted || job.date_found)}</div>
         <div class="job-card-header">
           <h4>{job.title}</h4>
         </div>
@@ -42,9 +40,15 @@ export function JobCard({ job, query }: { job: Job; query: FilterQuery }) {
       </div>
       <div class="job-card-right">
         <div class="match-badge-wrap">
-          {job.status !== "unread" && <span class={`job-status-indicator ${job.status}`}>[{job.status}]</span>}
+          {job.status !== "unread" && (
+            <span class={`job-status-indicator ${job.status}`}>[{job.status}]</span>
+          )}
           {job.tailored_resume_id != null && (
-            <span class="job-status-indicator" style={{ borderColor: "#8b5cf6", color: "#8b5cf6" }} title="Tailored resume available">
+            <span
+              class="job-status-indicator"
+              style={{ borderColor: "#8b5cf6", color: "#8b5cf6" }}
+              title="Tailored resume available"
+            >
               <i class="fa-solid fa-file-lines"></i> [Resume]
             </span>
           )}

@@ -1,7 +1,15 @@
 import { Link } from "wouter-preact";
 import type { FilterQuery } from "../lib/filterQuery";
 
-export function Pagination({ query, total, hasMore }: { query: FilterQuery; total: number; hasMore: boolean }) {
+export function Pagination({
+  query,
+  total,
+  hasMore,
+}: {
+  query: FilterQuery;
+  total: number;
+  hasMore: boolean;
+}) {
   if (total <= query.limit) return null;
 
   return (

@@ -79,7 +79,6 @@ export interface JobContext {
   next_job_id: number | null;
 }
 
-
 export interface MasterEducation {
   institution: string;
   degree: string;
@@ -214,7 +213,6 @@ export interface Stats {
   liveness_counts: { live: number; stale: number; likely_closed: number; unknown: number };
 }
 
-
 export interface QueryYieldTuple {
   cell_id: number;
   source: string;
@@ -234,7 +232,8 @@ export interface QueryYieldTuple {
   total_scrapes: number;
   last_scraped_at: string | null;
   last_success_at: string | null;
-  yield_category: "high_yield" | "moderate_yield" | "zero_yield" | "low_yield" | "unscored" | "unscraped";
+  yield_category:
+    "high_yield" | "moderate_yield" | "zero_yield" | "low_yield" | "unscored" | "unscraped";
 }
 
 export interface QueryTermYield {
@@ -254,7 +253,8 @@ export interface QueryTermYield {
   sources: string[];
   locations: string[];
   cells_count: number;
-  yield_category: "high_yield" | "moderate_yield" | "zero_yield" | "low_yield" | "unscored" | "unscraped";
+  yield_category:
+    "high_yield" | "moderate_yield" | "zero_yield" | "low_yield" | "unscored" | "unscraped";
 }
 
 export interface QueryYieldSummary {
@@ -334,7 +334,6 @@ export interface MarketCoverageResponse {
   cells: CoverageCell[];
 }
 
-
 export interface SkillGapRow {
   skill: string;
   label: string;
@@ -396,7 +395,6 @@ export interface SkillDetailResponse {
   }[];
 }
 
-
 export interface ProfileSkill {
   key: string;
   label?: string;
@@ -438,11 +436,9 @@ export interface ProfileRecord {
   documents?: ProfileDocument[];
 }
 
-
 // `ConfigUpdate` on the backend is `extra="allow"`, so there is no reason for the client
 // side to be any stricter than the server it is posting to.
 export type Config = Record<string, unknown>;
-
 
 export interface PipelineScrapeStatus {
   in_progress: boolean;

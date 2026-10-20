@@ -57,10 +57,12 @@ export function SkillDrawer({ skill, onClose }: { skill: string | null; onClose:
               <h2>{detail?.label ?? skill}</h2>
               <div class="drawer-meta">
                 <span>
-                  <i class="fa-solid fa-briefcase"></i> {detail ? `${detail.postings.length} postings` : ""}
+                  <i class="fa-solid fa-briefcase"></i>{" "}
+                  {detail ? `${detail.postings.length} postings` : ""}
                 </span>
                 <span>
-                  <i class="fa-solid fa-clock"></i> {detail ? `last ${detail.window_days} days` : ""}
+                  <i class="fa-solid fa-clock"></i>{" "}
+                  {detail ? `last ${detail.window_days} days` : ""}
                 </span>
               </div>
             </div>

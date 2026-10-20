@@ -12,7 +12,7 @@ describe("ImportJobModal & ModalHost", () => {
 
   it("does not render when closed", () => {
     const { container } = render(
-      <ImportJobModal isOpen={false} onClose={vi.fn()} onJobImported={vi.fn()} />
+      <ImportJobModal isOpen={false} onClose={vi.fn()} onJobImported={vi.fn()} />,
     );
     expect(container.querySelector(".retro-modal-overlay")).toBeNull();
   });
@@ -20,7 +20,7 @@ describe("ImportJobModal & ModalHost", () => {
   it("renders when open and closes on close button click", () => {
     const onClose = vi.fn();
     const { container, getByLabelText } = render(
-      <ImportJobModal isOpen={true} onClose={onClose} onJobImported={vi.fn()} />
+      <ImportJobModal isOpen={true} onClose={onClose} onJobImported={vi.fn()} />,
     );
 
     expect(container.querySelector(".retro-modal-overlay")).toBeTruthy();
@@ -34,7 +34,7 @@ describe("ImportJobModal & ModalHost", () => {
   it("closes when clicking outside (on the overlay)", () => {
     const onClose = vi.fn();
     const { container } = render(
-      <ImportJobModal isOpen={true} onClose={onClose} onJobImported={vi.fn()} />
+      <ImportJobModal isOpen={true} onClose={onClose} onJobImported={vi.fn()} />,
     );
 
     const overlay = container.querySelector(".retro-modal-overlay")!;
@@ -45,7 +45,7 @@ describe("ImportJobModal & ModalHost", () => {
   it("does not close when clicking inside the modal box", () => {
     const onClose = vi.fn();
     const { container } = render(
-      <ImportJobModal isOpen={true} onClose={onClose} onJobImported={vi.fn()} />
+      <ImportJobModal isOpen={true} onClose={onClose} onJobImported={vi.fn()} />,
     );
 
     const box = container.querySelector(".retro-modal-box")!;
@@ -56,7 +56,7 @@ describe("ImportJobModal & ModalHost", () => {
   it("closes on Escape key press", () => {
     const onClose = vi.fn();
     const { container } = render(
-      <ImportJobModal isOpen={true} onClose={onClose} onJobImported={vi.fn()} />
+      <ImportJobModal isOpen={true} onClose={onClose} onJobImported={vi.fn()} />,
     );
 
     const overlay = container.querySelector(".retro-modal-overlay")!;
@@ -73,11 +73,11 @@ describe("ImportJobModal & ModalHost", () => {
       vi.fn().mockResolvedValue({
         ok: true,
         json: async () => ({ status: "ok", job_id: 123 }),
-      })
+      }),
     );
 
     const { getByPlaceholderText, getByText } = render(
-      <ImportJobModal isOpen={true} onClose={onClose} onJobImported={onJobImported} />
+      <ImportJobModal isOpen={true} onClose={onClose} onJobImported={onJobImported} />,
     );
 
     const input = getByPlaceholderText("https://...");

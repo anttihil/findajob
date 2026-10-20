@@ -15,8 +15,7 @@ export const Header = () => {
   return (
     <header class="system-header-bar">
       <div class="system-title">
-        <strong>Find a Job</strong> -{" "}
-        {PAGE_SUBTITLES[location] ?? "Jobs"}
+        <strong>Find a Job</strong> - {PAGE_SUBTITLES[location] ?? "Jobs"}
       </div>
       <Clock />
     </header>

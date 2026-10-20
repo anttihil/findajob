@@ -1,4 +1,10 @@
-export function BulletList({ items, className = "" }: { items: string[] | null | undefined; className?: string }) {
+export function BulletList({
+  items,
+  className = "",
+}: {
+  items: string[] | null | undefined;
+  className?: string;
+}) {
   if (!items || !items.length) return null;
   return (
     <ul class={`verdict-list ${className}`}>

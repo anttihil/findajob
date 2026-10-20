@@ -1,9 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import {
-  clearPreference,
-  readPreference,
-  writePreference,
-} from "../src/lib/preferences";
+import { clearPreference, readPreference, writePreference } from "../src/lib/preferences";
 
 describe("browser preferences", () => {
   beforeEach(() => window.localStorage.clear());

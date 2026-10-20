@@ -87,12 +87,27 @@ export function MarketPage() {
   const [loading, setLoading] = useState(false);
   const [showCoverage, setShowCoverage] = useState(false);
 
-  const [viewMode, setViewMode] = useStoredPreference<"query" | "tuple">("market-view-mode", "query");
-  const [windowDays, setWindowDays] = useStoredPreference<number | null>("market-window-days", null);
-  const [sourceFilter, setSourceFilter] = useStoredPreference<string>("market-source-filter", "all");
-  const [locationFilter, setLocationFilter] = useStoredPreference<string>("market-location-filter", "all");
+  const [viewMode, setViewMode] = useStoredPreference<"query" | "tuple">(
+    "market-view-mode",
+    "query",
+  );
+  const [windowDays, setWindowDays] = useStoredPreference<number | null>(
+    "market-window-days",
+    null,
+  );
+  const [sourceFilter, setSourceFilter] = useStoredPreference<string>(
+    "market-source-filter",
+    "all",
+  );
+  const [locationFilter, setLocationFilter] = useStoredPreference<string>(
+    "market-location-filter",
+    "all",
+  );
   const [queryFilter, setQueryFilter] = useStoredPreference<string>("market-query-filter", "all");
-  const [categoryFilter, setCategoryFilter] = useStoredPreference<string>("market-category-filter", "all");
+  const [categoryFilter, setCategoryFilter] = useStoredPreference<string>(
+    "market-category-filter",
+    "all",
+  );
   const [searchQuery, setSearchQuery] = useStoredPreference<string>("market-search-query", "");
   const [togglingQueryId, setTogglingQueryId] = useState<number | null>(null);
 
@@ -120,7 +135,7 @@ export function MarketPage() {
     if (queryFilter !== "all") params.set("query", queryFilter);
 
     guard("Loading query yield analytics", () =>
-      getJSON<MarketYieldResponse>(`/api/market/yield?${params.toString()}`)
+      getJSON<MarketYieldResponse>(`/api/market/yield?${params.toString()}`),
     )
       .then((data) => {
         if (data) setYieldData(data);
@@ -138,7 +153,8 @@ export function MarketPage() {
 
     const topQueries = yieldData.top_queries.slice(0, 15);
     if (topQueries.length === 0) {
-      chartRef.current.innerHTML = '<p class="chart-empty">No query yield data available for current filters.</p>';
+      chartRef.current.innerHTML =
+        '<p class="chart-empty">No query yield data available for current filters.</p>';
       return;
     }
 
@@ -156,7 +172,7 @@ export function MarketPage() {
         labelWidth: 190,
         emptyText: "No yield data to render.",
         ariaLabel: "Query term strong fit yield chart",
-      }
+      },
     );
   }, [yieldData]);
 
@@ -226,7 +242,9 @@ export function MarketPage() {
               <i class="fa-solid fa-crosshairs text-purple"></i> Query Yield & Search Optimization
             </h3>
             <p class="card-note">
-              Tracking posting volume and scoring agent strong fits across <strong>(job source, query term, location)</strong> search tuples to identify high-yield queries and prune unproductive ones over time.
+              Tracking posting volume and scoring agent strong fits across{" "}
+              <strong>(job source, query term, location)</strong> search tuples to identify
+              high-yield queries and prune unproductive ones over time.
             </p>
           </div>
           <a href="/settings" class="yield-action-btn" title="Manage Target Queries">
@@ -240,7 +258,10 @@ export function MarketPage() {
               <span class="stat-label">Total Postings Found</span>
               <h3>{summary ? summary.total_postings.toLocaleString() : "..."}</h3>
               <div class="obs-card-sub">
-                <span>Unique: <strong>{summary?.total_unique_postings.toLocaleString() ?? "..."}</strong></span>
+                <span>
+                  Unique:{" "}
+                  <strong>{summary?.total_unique_postings.toLocaleString() ?? "..."}</strong>
+                </span>
               </div>
             </div>
           </div>
@@ -250,7 +271,15 @@ export function MarketPage() {
               <span class="stat-label">Evaluated by Scorer</span>
               <h3>{summary ? summary.total_scored.toLocaleString() : "..."}</h3>
               <div class="obs-card-sub">
-                <span>Coverage: <strong>{summary && summary.total_postings ? Math.round((summary.total_scored / summary.total_postings) * 100) : 0}%</strong></span>
+                <span>
+                  Coverage:{" "}
+                  <strong>
+                    {summary && summary.total_postings
+                      ? Math.round((summary.total_scored / summary.total_postings) * 100)
+                      : 0}
+                    %
+                  </strong>
+                </span>
               </div>
             </div>
           </div>
@@ -260,7 +289,9 @@ export function MarketPage() {
               <span class="stat-label">Strong Fits (fit = 1)</span>
               <h3>{summary ? summary.total_strong_fits.toLocaleString() : "..."}</h3>
               <div class="obs-card-sub">
-                <span>Overall Fit Rate: <strong>{summary?.overall_fit_rate_pct ?? 0}%</strong></span>
+                <span>
+                  Overall Fit Rate: <strong>{summary?.overall_fit_rate_pct ?? 0}%</strong>
+                </span>
               </div>
             </div>
           </div>
@@ -270,7 +301,9 @@ export function MarketPage() {
               <span class="stat-label">Query Efficiency</span>
               <h3>{summary ? `${summary.high_yield_queries_count} High Yield` : "..."}</h3>
               <div class="obs-card-sub">
-                <span style="color: var(--ink-muted);">{summary?.zero_yield_queries_count ?? 0} zero-yield candidates</span>
+                <span style="color: var(--ink-muted);">
+                  {summary?.zero_yield_queries_count ?? 0} zero-yield candidates
+                </span>
               </div>
             </div>
           </div>
@@ -390,10 +423,12 @@ export function MarketPage() {
           <div>
             <div class="card-header-row" style="margin-bottom: 8px;">
               <h4>
-                <i class="fa-solid fa-chart-bar text-purple"></i> Top Query Terms by Strong Fit Yield
+                <i class="fa-solid fa-chart-bar text-purple"></i> Top Query Terms by Strong Fit
+                Yield
               </h4>
               <span class="card-note" style="margin: 0;">
-                Solid bar = <strong>Strong Fits</strong> · Light track = <strong>Total Postings</strong>
+                Solid bar = <strong>Strong Fits</strong> · Light track ={" "}
+                <strong>Total Postings</strong>
               </span>
             </div>
             <div ref={chartRef}></div>
@@ -407,11 +442,15 @@ export function MarketPage() {
             </div>
 
             <div style="margin-bottom: 14px;">
-              <span class="stat-label" style="font-size: 11px;">BY JOB SOURCE</span>
+              <span class="stat-label" style="font-size: 11px;">
+                BY JOB SOURCE
+              </span>
               <div class="yield-dist-list">
                 {yieldData?.by_source.map((s) => (
                   <div key={s.source} class="yield-dist-row">
-                    <span class="yield-dist-label" style="text-transform: capitalize;">{s.source}</span>
+                    <span class="yield-dist-label" style="text-transform: capitalize;">
+                      {s.source}
+                    </span>
                     <span class="yield-dist-val">
                       {s.strong_fits} fits ({s.fit_rate_pct}%) · {s.total_postings} posts
                     </span>
@@ -421,7 +460,9 @@ export function MarketPage() {
             </div>
 
             <div>
-              <span class="stat-label" style="font-size: 11px;">BY TARGET LOCATION</span>
+              <span class="stat-label" style="font-size: 11px;">
+                BY TARGET LOCATION
+              </span>
               <div class="yield-dist-list">
                 {yieldData?.by_location.slice(0, 6).map((l) => (
                   <div key={l.location_id} class="yield-dist-row">
@@ -447,12 +488,15 @@ export function MarketPage() {
               </a>
             </div>
             <p class="card-note" style="margin-bottom: 6px;">
-              These queries returned postings and consumed LLM scoring budget but yielded <strong>0 strong fits</strong>. Consider disabling or narrowing their phrasing:
+              These queries returned postings and consumed LLM scoring budget but yielded{" "}
+              <strong>0 strong fits</strong>. Consider disabling or narrowing their phrasing:
             </p>
             <div class="yield-prune-tags">
               {yieldData.zero_yield_queries.slice(0, 10).map((zq) => (
                 <span key={`${zq.source}:${zq.query}`} class="yield-prune-tag">
-                  <strong>{zq.source}: {zq.query}</strong>
+                  <strong>
+                    {zq.source}: {zq.query}
+                  </strong>
                   <span class="yield-tag-badge">{zq.scored_postings} scored · 0 fits</span>
                   {zq.search_query_id && (
                     <button
@@ -474,10 +518,14 @@ export function MarketPage() {
         <div style="margin-top: 18px;">
           <div class="card-header-row" style="margin-bottom: 10px;">
             <h4>
-              <i class="fa-solid fa-table text-purple"></i> {viewMode === "query" ? "Query Terms Yield Matrix" : "Search Tuple Yield Matrix (Source × Query × Location)"}
+              <i class="fa-solid fa-table text-purple"></i>{" "}
+              {viewMode === "query"
+                ? "Query Terms Yield Matrix"
+                : "Search Tuple Yield Matrix (Source × Query × Location)"}
             </h4>
             <span class="results-count">
-              Showing {viewMode === "query" ? filteredQueries.length : filteredTuples.length} entries
+              Showing {viewMode === "query" ? filteredQueries.length : filteredTuples.length}{" "}
+              entries
             </span>
           </div>
 
@@ -502,13 +550,20 @@ export function MarketPage() {
                 <tbody>
                   {filteredQueries.length === 0 ? (
                     <tr>
-                      <td colSpan={9} class="text-center">No query terms match the current filters.</td>
+                      <td colSpan={9} class="text-center">
+                        No query terms match the current filters.
+                      </td>
                     </tr>
                   ) : (
                     filteredQueries.map((q) => (
-                      <tr key={`${q.source}:${q.query}`} class={q.yield_category === "high_yield" ? "row-highlight" : ""}>
+                      <tr
+                        key={`${q.source}:${q.query}`}
+                        class={q.yield_category === "high_yield" ? "row-highlight" : ""}
+                      >
                         <td>
-                          <strong>{q.source}: {q.query}</strong>
+                          <strong>
+                            {q.source}: {q.query}
+                          </strong>
                         </td>
                         <td>
                           <span style="font-size: 11.5px;">{q.sources.join(", ") || "—"}</span>
@@ -519,13 +574,18 @@ export function MarketPage() {
                         <td style="text-align: right;">
                           <strong>{q.total_postings}</strong>
                           {q.unique_postings !== q.total_postings && (
-                            <span style="font-size: 10.5px; color: var(--ink-muted);"> ({q.unique_postings}u)</span>
+                            <span style="font-size: 10.5px; color: var(--ink-muted);">
+                              {" "}
+                              ({q.unique_postings}u)
+                            </span>
                           )}
                         </td>
                         <td style="text-align: right;">{q.scored_postings}</td>
                         <td style="text-align: right; font-weight: 800;">
                           {q.strong_fits > 0 ? (
-                            <span style="border-bottom: 2px solid var(--ink-primary);">{q.strong_fits}</span>
+                            <span style="border-bottom: 2px solid var(--ink-primary);">
+                              {q.strong_fits}
+                            </span>
                           ) : (
                             <span style="color: var(--ink-faint);">0</span>
                           )}
@@ -537,7 +597,11 @@ export function MarketPage() {
                           <YieldBadge category={q.yield_category} scored={q.scored_postings} />
                         </td>
                         <td>
-                          <a href="/settings" class="yield-action-btn" title="Edit query term in settings">
+                          <a
+                            href="/settings"
+                            class="yield-action-btn"
+                            title="Edit query term in settings"
+                          >
                             <i class="fa-solid fa-pen-to-square"></i> Edit
                           </a>
                         </td>
@@ -566,11 +630,16 @@ export function MarketPage() {
                 <tbody>
                   {filteredTuples.length === 0 ? (
                     <tr>
-                      <td colSpan={9} class="text-center">No search tuples match the current filters.</td>
+                      <td colSpan={9} class="text-center">
+                        No search tuples match the current filters.
+                      </td>
                     </tr>
                   ) : (
                     filteredTuples.map((t) => (
-                      <tr key={`${t.source}-${t.query}-${t.location_id}`} class={t.yield_category === "high_yield" ? "row-highlight" : ""}>
+                      <tr
+                        key={`${t.source}-${t.query}-${t.location_id}`}
+                        class={t.yield_category === "high_yield" ? "row-highlight" : ""}
+                      >
                         <td style="text-transform: capitalize; font-weight: 700;">{t.source}</td>
                         <td>
                           <strong>{t.query}</strong>
@@ -582,7 +651,9 @@ export function MarketPage() {
                         <td style="text-align: right;">{t.scored_postings}</td>
                         <td style="text-align: right; font-weight: 800;">
                           {t.strong_fits > 0 ? (
-                            <span style="border-bottom: 2px solid var(--ink-primary);">{t.strong_fits}</span>
+                            <span style="border-bottom: 2px solid var(--ink-primary);">
+                              {t.strong_fits}
+                            </span>
                           ) : (
                             <span style="color: var(--ink-faint);">0</span>
                           )}
@@ -605,18 +676,24 @@ export function MarketPage() {
       </div>
 
       <div class="glass-card">
-        <div class="card-header-row" style="cursor: pointer;" onClick={() => setShowCoverage(!showCoverage)}>
+        <div
+          class="card-header-row"
+          style="cursor: pointer;"
+          onClick={() => setShowCoverage(!showCoverage)}
+        >
           <h3>
             <i class="fa-solid fa-satellite-dish text-purple"></i> Scraper Health & Coverage Details
           </h3>
           <div style="display: flex; align-items: center; gap: 12px;">
             {coverageCells && (
               <span class="results-count">
-                {coverageCells.filter((c) => c.total_scrapes > 0).length}/{coverageCells.length} cells visited
+                {coverageCells.filter((c) => c.total_scrapes > 0).length}/{coverageCells.length}{" "}
+                cells visited
               </span>
             )}
             <button type="button" class="yield-action-btn">
-              <i class={`fa-solid fa-chevron-${showCoverage ? "up" : "down"}`}></i> {showCoverage ? "Hide" : "Show"}
+              <i class={`fa-solid fa-chevron-${showCoverage ? "up" : "down"}`}></i>{" "}
+              {showCoverage ? "Hide" : "Show"}
             </button>
           </div>
         </div>

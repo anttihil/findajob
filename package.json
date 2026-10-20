@@ -8,6 +8,8 @@
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "lint": "eslint findajob/web/frontend-src",
+    "format": "prettier --write findajob/web/frontend-src tests/browser \"*.config.{js,ts}\" tsconfig.json package.json .prettierrc.json",
+    "format:check": "prettier --check findajob/web/frontend-src tests/browser \"*.config.{js,ts}\" tsconfig.json package.json .prettierrc.json",
     "test": "vitest run",
     "test:browser": "playwright test"
   },
@@ -25,6 +27,7 @@
     "eslint": "^9.17.0",
     "eslint-plugin-react-hooks": "^5.1.0",
     "jsdom": "^25.0.1",
+    "prettier": "3.9.10",
     "typescript": "^5.7.2",
     "typescript-eslint": "^8.18.2",
     "vite": "^6.0.6",

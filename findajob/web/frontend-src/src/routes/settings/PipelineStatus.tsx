@@ -18,7 +18,7 @@ function ScrapeStage({ scrape }: { scrape: PipelineScrapeStatus }) {
   const running = scrape.in_progress;
   const [done, planned] = running
     ? [scrape.cells_done ?? 0, scrape.cells_planned ?? 0]
-    : scrape.previous_run?.cells ?? [0, 0];
+    : (scrape.previous_run?.cells ?? [0, 0]);
   const percent = planned ? Math.round((done / planned) * 100) : null;
   const elapsed = since(scrape.started_at);
   let detail: string;
@@ -38,9 +38,7 @@ function ScrapeStage({ scrape }: { scrape: PipelineScrapeStatus }) {
       <div class="pipeline-stage-header">
         <span class={`status-dot ${running ? "orange" : "green"}`}></span>
         <span class="pipeline-stage-title">Scraping</span>
-        <span class="pipeline-stage-status">
-          {running ? "running" : "idle"}
-        </span>
+        <span class="pipeline-stage-status">{running ? "running" : "idle"}</span>
       </div>
       <p class="card-note">{detail}</p>
     </div>

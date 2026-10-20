@@ -101,9 +101,7 @@ export function ResumeDropzone({ onUploadSuccess, disabled }: ResumeDropzoneProp
           </div>
           <div class="dropzone-text">
             <strong>
-              {isUploading
-                ? "Parsing resume..."
-                : "Drop updated resume here (.PDF, .TXT, .MD)"}
+              {isUploading ? "Parsing resume..." : "Drop updated resume here (.PDF, .TXT, .MD)"}
             </strong>
             <span class="dropzone-hint">
               {isUploading

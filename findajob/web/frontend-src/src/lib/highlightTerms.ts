@@ -12,7 +12,7 @@ function escapeRegExp(value: string): string {
 
 export function highlightTerms(
   description: string | null | undefined,
-  skills: readonly string[] | null | undefined
+  skills: readonly string[] | null | undefined,
 ): HighlightSegment[] {
   const text = description ?? "";
   const validSkills = (skills ?? []).filter((s) => !!s);

@@ -1,4 +1,4 @@
-.PHONY: setup build start test lint check docker-build docker-up docker-down
+.PHONY: setup build start test lint check verify verify-browser package-smoke docker-build docker-up docker-down
 
 setup:
 	uv sync
@@ -19,9 +19,19 @@ lint:
 	uv run ruff format --check .
 	uv run pyright
 	npm run lint
+	npm run format:check
 	npm run typecheck
 
-check: lint test
+verify:
+	python3 scripts/verify.py
+
+verify-browser:
+	python3 scripts/verify.py --browser
+
+check: verify
+
+package-smoke: build
+	python3 scripts/package_smoke.py
 
 docker-build:
 	docker compose build

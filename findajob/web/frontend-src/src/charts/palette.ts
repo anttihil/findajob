@@ -15,14 +15,13 @@ export function esc(value: unknown): string {
     /[&<>"']/g,
     (c) =>
       (
-        {
+        ({
           "&": "&amp;",
           "<": "&lt;",
           ">": "&gt;",
           '"': "&quot;",
           "'": "&#39;",
-        } as Record<string, string>
-      )[c]
+        }) as Record<string, string>
+      )[c],
   );
 }
-

@@ -291,7 +291,9 @@ export function SearchTargetsWidget({
   operations,
 }: SearchTargetsWidgetProps) {
   const [expanded, setExpanded] = useState(initialExpanded);
-  const [activeTab, setActiveTab] = useState<"queries" | "locations" | "sources" | "capacity" | "operations">("queries");
+  const [activeTab, setActiveTab] = useState<
+    "queries" | "locations" | "sources" | "capacity" | "operations"
+  >("queries");
 
   const [queries, setQueries] = useState<TargetQuery[]>([]);
   const [locations, setLocations] = useState<TargetLocation[]>([]);
@@ -304,8 +306,13 @@ export function SearchTargetsWidget({
   const [savingSources, setSavingSources] = useState(false);
 
   const [querySearchTerm, setQuerySearchTerm] = useStoredPreference("target-query-search", "");
-  const [queryStatusFilter, setQueryStatusFilter] = useStoredPreference<"all" | "active" | "paused">("target-query-status-filter", "all");
-  const [querySourceFilter, setQuerySourceFilter] = useStoredPreference("target-query-source-filter", "all");
+  const [queryStatusFilter, setQueryStatusFilter] = useStoredPreference<
+    "all" | "active" | "paused"
+  >("target-query-status-filter", "all");
+  const [querySourceFilter, setQuerySourceFilter] = useStoredPreference(
+    "target-query-source-filter",
+    "all",
+  );
 
   const [showAddQueryModal, setShowAddQueryModal] = useState(false);
   const [newQueryText, setNewQueryText] = useState("");
@@ -368,7 +375,7 @@ export function SearchTargetsWidget({
     try {
       const result = await postJSON<{ success: boolean; capacity: TargetCapacity }>(
         "/api/targets/sync-cells",
-        {}
+        {},
       );
       if (result && result.capacity) {
         setCapacity(result.capacity);
@@ -401,7 +408,7 @@ export function SearchTargetsWidget({
     try {
       await putJSON(`/api/targets/queries/${queryId}/toggle`, { enabled: nextEnabled });
       setQueries((prev) =>
-        prev.map((q) => (q.id === queryId ? { ...q, enabled: nextEnabled ? 1 : 0 } : q))
+        prev.map((q) => (q.id === queryId ? { ...q, enabled: nextEnabled ? 1 : 0 } : q)),
       );
       getJSON<TargetCapacity>("/api/targets/capacity").then((c) => c && setCapacity(c));
       showNotification(`Query marked ${nextEnabled ? "ACTIVE" : "PAUSED"}.`);
@@ -433,7 +440,9 @@ export function SearchTargetsWidget({
     const nextSources = [source];
     try {
       await putJSON(`/api/targets/queries/${q.id}`, { sources: nextSources });
-      setQueries((prev) => prev.map((item) => (item.id === q.id ? { ...item, sources: nextSources } : item)));
+      setQueries((prev) =>
+        prev.map((item) => (item.id === q.id ? { ...item, sources: nextSources } : item)),
+      );
       getJSON<TargetCapacity>("/api/targets/capacity").then((c) => c && setCapacity(c));
       showNotification("Query source scope updated.");
       if (onTargetsChanged) onTargetsChanged();
@@ -447,7 +456,7 @@ export function SearchTargetsWidget({
     try {
       await putJSON(`/api/targets/queries/${queryId}`, { query: editingQueryText.trim() });
       setQueries((prev) =>
-        prev.map((q) => (q.id === queryId ? { ...q, query: editingQueryText.trim() } : q))
+        prev.map((q) => (q.id === queryId ? { ...q, query: editingQueryText.trim() } : q)),
       );
       setEditingQueryId(null);
       showNotification("Query term updated successfully.");
@@ -472,7 +481,9 @@ export function SearchTargetsWidget({
     try {
       for (const term of terms) {
         await postJSON("/api/targets/queries", {
-          query: term, enabled: newQueryEnabled, sources: [newQuerySource],
+          query: term,
+          enabled: newQueryEnabled,
+          sources: [newQuerySource],
         });
       }
       setShowAddQueryModal(false);
@@ -490,7 +501,7 @@ export function SearchTargetsWidget({
     try {
       await putJSON(`/api/targets/locations/${locIdVal}/toggle`, { enabled: nextEnabled });
       setLocations((prev) =>
-        prev.map((l) => (l.id === locIdVal ? { ...l, enabled: nextEnabled ? 1 : 0 } : l))
+        prev.map((l) => (l.id === locIdVal ? { ...l, enabled: nextEnabled ? 1 : 0 } : l)),
       );
       getJSON<TargetCapacity>("/api/targets/capacity").then((c) => c && setCapacity(c));
       showNotification(`Location "${locIdVal}" marked ${nextEnabled ? "ACTIVE" : "PAUSED"}.`);
@@ -553,7 +564,10 @@ export function SearchTargetsWidget({
 
   const handleSaveLocation = async (e: Event) => {
     e.preventDefault();
-    const cleanId = locId.trim().toLowerCase().replace(/[^a-z0-9_]/g, "_");
+    const cleanId = locId
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9_]/g, "_");
     if (!cleanId || !locLabel.trim()) {
       alert("Please provide a location ID and label.");
       return;
@@ -601,10 +615,13 @@ export function SearchTargetsWidget({
     });
   }, [queries, querySearchTerm, queryStatusFilter, querySourceFilter]);
 
-  const activeQueriesCount = useMemo(() => queries.filter((q) => Boolean(q.enabled)).length, [queries]);
+  const activeQueriesCount = useMemo(
+    () => queries.filter((q) => Boolean(q.enabled)).length,
+    [queries],
+  );
   const activeLocationsCount = useMemo(
     () => locations.filter((l) => Boolean(l.enabled)).length,
-    [locations]
+    [locations],
   );
 
   const filteredPresets = useMemo(() => {
@@ -628,8 +645,8 @@ export function SearchTargetsWidget({
               }}
               title="Click to inspect queries"
             >
-              <i class="fa-solid fa-magnifying-glass"></i>{" "}
-              <strong>{activeQueriesCount}</strong> / {queries.length} Queries
+              <i class="fa-solid fa-magnifying-glass"></i> <strong>{activeQueriesCount}</strong> /{" "}
+              {queries.length} Queries
             </span>
             <span
               class="matrix-chip clickable"
@@ -639,8 +656,8 @@ export function SearchTargetsWidget({
               }}
               title="Click to set locations"
             >
-              <i class="fa-solid fa-location-dot"></i>{" "}
-              <strong>{activeLocationsCount}</strong> / {locations.length} Locations
+              <i class="fa-solid fa-location-dot"></i> <strong>{activeLocationsCount}</strong> /{" "}
+              {locations.length} Locations
             </span>
             <span
               class="matrix-chip clickable"
@@ -651,8 +668,9 @@ export function SearchTargetsWidget({
               title="Click to view capacity analysis"
             >
               <i class="fa-solid fa-layer-group"></i>{" "}
-              <strong>{capacity?.search_pairs ?? activeQueriesCount * activeLocationsCount}</strong> Query × Location (
-              {capacity?.total_cells ?? (activeQueriesCount * activeLocationsCount)} cells)
+              <strong>{capacity?.search_pairs ?? activeQueriesCount * activeLocationsCount}</strong>{" "}
+              Query × Location ({capacity?.total_cells ?? activeQueriesCount * activeLocationsCount}{" "}
+              cells)
             </span>
             {capacity && <span class="matrix-chip-badge">~{capacity.cycle_hours}h sweep</span>}
           </div>
@@ -767,18 +785,22 @@ export function SearchTargetsWidget({
                         value={queryStatusFilter}
                         onChange={(e) =>
                           setQueryStatusFilter(
-                            (e.target as HTMLSelectElement).value as "all" | "active" | "paused"
+                            (e.target as HTMLSelectElement).value as "all" | "active" | "paused",
                           )
                         }
                       >
                         <option value="all">All Statuses</option>
                         <option value="active">Active Only ({activeQueriesCount})</option>
-                        <option value="paused">Paused Only ({queries.length - activeQueriesCount})</option>
+                        <option value="paused">
+                          Paused Only ({queries.length - activeQueriesCount})
+                        </option>
                       </select>
                       <select
                         class="form-select"
                         value={querySourceFilter}
-                        onChange={(e) => setQuerySourceFilter((e.target as HTMLSelectElement).value)}
+                        onChange={(e) =>
+                          setQuerySourceFilter((e.target as HTMLSelectElement).value)
+                        }
                       >
                         <option value="all">All Sources</option>
                         <option value="indeed">Indeed</option>
@@ -798,7 +820,8 @@ export function SearchTargetsWidget({
                   <div class="target-queries-list mt-3">
                     {filteredQueries.length === 0 ? (
                       <div class="empty-queries-box">
-                        <i class="fa-solid fa-filter-circle-xmark"></i> No search queries matching filter.
+                        <i class="fa-solid fa-filter-circle-xmark"></i> No search queries matching
+                        filter.
                       </div>
                     ) : (
                       <div class="queries-table-wrap">
@@ -824,7 +847,11 @@ export function SearchTargetsWidget({
                                       type="button"
                                       class={`status-toggle-pill ${isEnabled ? "active" : "paused"}`}
                                       onClick={() => handleToggleQuery(q.id, q.enabled)}
-                                      title={isEnabled ? "Click to Pause Query" : "Click to Activate Query"}
+                                      title={
+                                        isEnabled
+                                          ? "Click to Pause Query"
+                                          : "Click to Activate Query"
+                                      }
                                     >
                                       <i
                                         class={`fa-solid ${isEnabled ? "fa-circle-check" : "fa-circle-pause"}`}
@@ -856,18 +883,28 @@ export function SearchTargetsWidget({
                                   </td>
                                   <td>
                                     {querySources.length > 1 && (
-                                      <span class="text-faint" style={{ fontSize: "11px", marginRight: "8px" }}>
+                                      <span
+                                        class="text-faint"
+                                        style={{ fontSize: "11px", marginRight: "8px" }}
+                                      >
                                         Legacy: choose one
                                       </span>
                                     )}
                                     {Object.entries(SOURCE_LABELS).map(([source, label]) => (
-                                      <label class="checkbox-label" key={source} style={{ marginRight: "10px" }}>
+                                      <label
+                                        class="checkbox-label"
+                                        key={source}
+                                        style={{ marginRight: "10px" }}
+                                      >
                                         <input
                                           type="radio"
                                           name={`query-source-${q.id}`}
-                                          checked={querySources.length === 1 && querySources[0] === source}
+                                          checked={
+                                            querySources.length === 1 && querySources[0] === source
+                                          }
                                           onChange={() => handleSetQuerySource(q, source)}
-                                        /> {label}
+                                        />{" "}
+                                        {label}
                                       </label>
                                     ))}
                                   </td>
@@ -928,7 +965,8 @@ export function SearchTargetsWidget({
                   <div class="location-presets-box mb-4">
                     <div class="presets-header">
                       <span>
-                        <i class="fa-solid fa-wand-magic-sparkles text-gold"></i> POPULAR TECH HUB PRESETS:
+                        <i class="fa-solid fa-wand-magic-sparkles text-gold"></i> POPULAR TECH HUB
+                        PRESETS:
                       </span>
                       <button
                         type="button"
@@ -940,16 +978,18 @@ export function SearchTargetsWidget({
                     </div>
 
                     <div class="preset-regions-bar mt-2">
-                      {["All", "Remote", "North America", "Europe & UK", "Asia-Pacific"].map((reg) => (
-                        <button
-                          key={reg}
-                          type="button"
-                          class={`preset-region-btn ${selectedPresetRegion === reg ? "active" : ""}`}
-                          onClick={() => setSelectedPresetRegion(reg)}
-                        >
-                          {reg}
-                        </button>
-                      ))}
+                      {["All", "Remote", "North America", "Europe & UK", "Asia-Pacific"].map(
+                        (reg) => (
+                          <button
+                            key={reg}
+                            type="button"
+                            class={`preset-region-btn ${selectedPresetRegion === reg ? "active" : ""}`}
+                            onClick={() => setSelectedPresetRegion(reg)}
+                          >
+                            {reg}
+                          </button>
+                        ),
+                      )}
                     </div>
 
                     <div class="presets-chips-grid mt-2">
@@ -967,9 +1007,7 @@ export function SearchTargetsWidget({
                                 : `Click to add ${preset.label}`
                             }
                           >
-                            <i
-                              class={`fa-solid ${exists ? "fa-check text-green" : "fa-plus"}`}
-                            ></i>{" "}
+                            <i class={`fa-solid ${exists ? "fa-check text-green" : "fa-plus"}`}></i>{" "}
                             {preset.label}
                             {preset.is_remote && <span class="preset-tag-remote">REMOTE</span>}
                           </button>
@@ -1002,7 +1040,11 @@ export function SearchTargetsWidget({
                                   type="button"
                                   class={`status-toggle-pill ${isEnabled ? "active" : "paused"}`}
                                   onClick={() => handleToggleLocation(loc.id, loc.enabled)}
-                                  title={isEnabled ? "Click to Pause Location" : "Click to Activate Location"}
+                                  title={
+                                    isEnabled
+                                      ? "Click to Pause Location"
+                                      : "Click to Activate Location"
+                                  }
                                 >
                                   <i
                                     class={`fa-solid ${isEnabled ? "fa-circle-check" : "fa-circle-pause"}`}
@@ -1014,7 +1056,8 @@ export function SearchTargetsWidget({
                                 <div class="location-name-cell">
                                   <strong>{loc.label}</strong>
                                   <span class="location-id-sub">
-                                    ID: <code>{loc.id}</code> · Board Search: &quot;{loc.search_label || loc.label}&quot;
+                                    ID: <code>{loc.id}</code> · Board Search: &quot;
+                                    {loc.search_label || loc.label}&quot;
                                   </span>
                                 </div>
                               </td>
@@ -1024,7 +1067,9 @@ export function SearchTargetsWidget({
                                 </span>
                               </td>
                               <td>
-                                <span class={`workplace-tag workplace-${isRemote ? "remote" : "onsite"}`}>
+                                <span
+                                  class={`workplace-tag workplace-${isRemote ? "remote" : "onsite"}`}
+                                >
                                   {isRemote ? (
                                     <>
                                       <i class="fa-solid fa-wifi"></i> Remote
@@ -1070,7 +1115,8 @@ export function SearchTargetsWidget({
                 <div class="target-sources-tab">
                   <h3>Enabled Crawler Sources</h3>
                   <p class="form-hint">
-                    Sources determine which job boards the scraper visits for every active search pair.
+                    Sources determine which job boards the scraper visits for every active search
+                    pair.
                   </p>
                   <div class="checkbox-grid mt-4">
                     {Object.entries(SOURCE_LABELS).map(([key, label]) => (
@@ -1096,7 +1142,9 @@ export function SearchTargetsWidget({
                     disabled={sourcesLoading || savingSources}
                     onClick={handleSaveSources}
                   >
-                    <i class={`fa-solid ${savingSources ? "fa-spinner fa-spin" : "fa-floppy-disk"}`}></i>{" "}
+                    <i
+                      class={`fa-solid ${savingSources ? "fa-spinner fa-spin" : "fa-floppy-disk"}`}
+                    ></i>{" "}
                     {savingSources ? "Saving..." : "Save Crawler Sources"}
                   </button>
                 </div>
@@ -1142,12 +1190,12 @@ export function SearchTargetsWidget({
                           onClick={handleSyncMatrix}
                           disabled={syncing}
                         >
-                          <i class={`fa-solid fa-rotate ${syncing ? "fa-spin" : ""}`}></i> Force Matrix Re-sync
+                          <i class={`fa-solid fa-rotate ${syncing ? "fa-spin" : ""}`}></i> Force
+                          Matrix Re-sync
                         </button>
                       </div>
                     </div>
                   </div>
-
                 </div>
               )}
 
@@ -1161,7 +1209,9 @@ export function SearchTargetsWidget({
         <div class="retro-modal-overlay" onClick={() => setShowAddQueryModal(false)}>
           <div class="retro-modal-box" onClick={(e) => e.stopPropagation()}>
             <div class="retro-modal-header">
-              <h3><i class="fa-solid fa-plus"></i> Add Search Query Term</h3>
+              <h3>
+                <i class="fa-solid fa-plus"></i> Add Search Query Term
+              </h3>
               <button
                 type="button"
                 class="close-modal-btn"
@@ -1182,7 +1232,8 @@ export function SearchTargetsWidget({
                   required
                 ></textarea>
                 <span class="form-hint">
-                  Add board-specific terms here. Create separate query records for Indeed and LinkedIn.
+                  Add board-specific terms here. Create separate query records for Indeed and
+                  LinkedIn.
                 </span>
               </div>
 
@@ -1195,14 +1246,16 @@ export function SearchTargetsWidget({
                       name="new-query-source"
                       checked={newQuerySource === source}
                       onChange={() => setNewQuerySource(source)}
-                    /> {label}
+                    />{" "}
+                    {label}
                   </label>
                 ))}
                 {newQuerySource === "indeed" && (
                   <span class="form-hint" style={{ display: "block", marginTop: "8px" }}>
                     <strong>Indeed search tips:</strong> Indeed also searches descriptions. Use
                     <code>"quoted phrases"</code> for exact matches, <code>-word</code> to exclude
-                    noise, and <code>(python OR go)</code> for alternatives. Example: <code>"platform engineer" (python OR go) -marketing</code>.
+                    noise, and <code>(python OR go)</code> for alternatives. Example:{" "}
+                    <code>"platform engineer" (python OR go) -marketing</code>.
                   </span>
                 )}
               </div>
@@ -1297,7 +1350,9 @@ export function SearchTargetsWidget({
                     placeholder="e.g. US, FI, SE, NO, DK, GB, DE, CA, etc."
                     value={locCountry}
                     maxLength={2}
-                    onInput={(e) => setLocCountry((e.target as HTMLInputElement).value.toUpperCase())}
+                    onInput={(e) =>
+                      setLocCountry((e.target as HTMLInputElement).value.toUpperCase())
+                    }
                     required
                   />
                 </div>
@@ -1309,7 +1364,9 @@ export function SearchTargetsWidget({
                     class="form-input"
                     placeholder="e.g. usa, uk, germany, canada, finland, sweden"
                     value={locIndeedCountry}
-                    onInput={(e) => setLocIndeedCountry((e.target as HTMLInputElement).value.toLowerCase())}
+                    onInput={(e) =>
+                      setLocIndeedCountry((e.target as HTMLInputElement).value.toLowerCase())
+                    }
                     required
                   />
                 </div>
@@ -1357,7 +1414,8 @@ export function SearchTargetsWidget({
                   Cancel
                 </button>
                 <button type="submit" class="btn btn-primary">
-                  <i class="fa-solid fa-floppy-disk"></i> {isEditingLoc ? "Save Location" : "Add Location"}
+                  <i class="fa-solid fa-floppy-disk"></i>{" "}
+                  {isEditingLoc ? "Save Location" : "Add Location"}
                 </button>
               </div>
             </form>
