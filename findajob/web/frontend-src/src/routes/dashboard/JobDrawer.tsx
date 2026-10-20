@@ -38,7 +38,8 @@ export function JobDrawer({
       });
       if (resp.ok) {
         const data = await resp.json();
-        setResume(data.record || null);
+        if (data.record?.id) setResume(data.record);
+        else setGenerateError("Draft saved in the workspace; it needs review before export.");
       } else {
         const err = await resp.json();
         setGenerateError(err.detail || "Resume generation failed");
@@ -131,6 +132,9 @@ export function JobDrawer({
                     </h4>
                     {!generating && (
                       <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
+                        {!resume && <Link href={`/resumes?tab=tailored&job=${job.id}`} class="action-pill">
+                          Build & interview
+                        </Link>}
                         {resume ? (
                           <Link
                             href={`/resumes?tab=tailored&job=${job.id}`}

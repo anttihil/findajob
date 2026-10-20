@@ -11,6 +11,8 @@ import type {
 } from "../../api/types";
 import { ResumeDropzone } from "./ResumeDropzone";
 import { ProfileChatPanel } from "./ProfileChatPanel";
+import { CareerMemoPanel } from "./CareerMemoPanel";
+import { ResumeWorkspacePanel } from "./ResumeWorkspacePanel";
 
 interface SkillCategoryForm {
   category: string;
@@ -142,6 +144,9 @@ export function ResumesPage() {
 
   const [resumesList, setResumesList] = useState<GeneratedResumeRecord[]>([]);
   const [resumesLoading, setResumesLoading] = useState(false);
+  const [workspaceList, setWorkspaceList] = useState<{ job_id: number; title: string; company: string; status: string }[]>([]);
+  const [refreshVersion, setRefreshVersion] = useState(0);
+  const workspaceJobId = Number(targetJobId) || resumesList.find((r) => String(r.id) === targetResumeId)?.job_id;
 
   useEffect(() => {
     guard("Loading master resume profile", () =>
@@ -161,8 +166,11 @@ export function ResumesPage() {
         setResumesList(data || []);
         setResumesLoading(false);
       });
+      guard("Loading resume workspaces", () =>
+        getJSONOrNull<typeof workspaceList>("/api/resume-workspaces")
+      ).then((data) => setWorkspaceList(Array.isArray(data) ? data : []));
     }
-  }, [activeSubTab]);
+  }, [activeSubTab, refreshVersion]);
 
   useEffect(() => {
     if (activeSubTab === "tailored" && (targetJobId || targetResumeId) && resumesList.length > 0) {
@@ -241,6 +249,7 @@ export function ResumesPage() {
 
       {activeSubTab === "master" && (
         <div class="master-profile-layout">
+          <CareerMemoPanel />
           {masterLoading || !masterProfile ? (
             <div class="resume-card">
               <i class="fa-solid fa-spinner fa-spin"></i> Loading master profile...
@@ -253,7 +262,7 @@ export function ResumesPage() {
                   <div>
                     <h3 style={{ margin: 0, fontSize: "1.25rem" }}>Master Candidate Profile</h3>
                     <p style={{ color: "var(--ink-muted)", margin: "0.25rem 0 0 0", fontSize: "0.85rem" }}>
-                      Single source of truth for job fit scoring and tailored resume generation.
+                      Structured baseline for scoring and resumes. The career memo supplies detailed evidence.
                     </p>
                   </div>
                   <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", flexWrap: "wrap" }}>
@@ -1044,6 +1053,15 @@ export function ResumesPage() {
             </p>
           </div>
 
+          {workspaceJobId ? <ResumeWorkspacePanel key={workspaceJobId} jobId={workspaceJobId}
+            onGenerated={() => setRefreshVersion((v) => v + 1)} /> : null}
+          {workspaceList.length > 0 && <details class="resume-card">
+            <summary>Saved resume workspaces ({workspaceList.length})</summary>
+            {workspaceList.map((w) => <p key={w.job_id}>
+              <Link href={`/resumes?tab=tailored&job=${w.job_id}`}>{w.title} @ {w.company}</Link> · {w.status}
+            </p>)}
+          </details>}
+
           {(targetJobId || targetResumeId) && (
             <div
               style={{
@@ -1161,6 +1179,9 @@ export function ResumesPage() {
                       </div>
 
                       <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", flexWrap: "wrap" }}>
+                        {res.job_id && <Link class="action-pill" href={`/resumes?tab=tailored&job=${res.job_id}`}>
+                          Open workspace
+                        </Link>}
                         {res.ats_score !== null && res.ats_score !== undefined && (
                           <span
                             class={`match-badge-lg ${res.ats_score >= 9 ? "text-green" : "text-yellow"}`}
@@ -1176,7 +1197,7 @@ export function ResumesPage() {
                               fontWeight: 600,
                             }}
                           >
-                            <i class="fa-solid fa-shield-halved"></i> ATS: {res.ats_score}/10 (
+                            <i class="fa-solid fa-shield-halved"></i> Review: {res.ats_score}/10 (
                             {res.ats_verdict || "evaluated"})
                           </span>
                         )}

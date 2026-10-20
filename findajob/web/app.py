@@ -45,6 +45,7 @@ from findajob.search.scheduler import scrape_tasks
 from findajob.search.targets import load_targets
 from findajob.web import rendering
 from findajob.web.live import live_hub
+from findajob.web.resume_workspace import router as resume_workspace_router
 
 if TYPE_CHECKING:
     from findajob.profile.adapter import ProfileAdapter
@@ -76,6 +77,7 @@ async def lifespan(_: FastAPI):
 
 
 app = FastAPI(title="Find a Job", lifespan=lifespan)
+app.include_router(resume_workspace_router)
 
 logger = get_logger()
 
@@ -948,10 +950,15 @@ def api_import_job(req: ImportJobRequest):
 @app.post("/api/jobs/{job_id}/resume/generate")
 def generate_job_resume(job_id: int):
     from findajob.profile.builder import build_resume_for_job
+    from findajob.profile.workspace import WorkspaceConflict
 
     try:
         record = build_resume_for_job(job_id)
         return {"status": "ok", "record": record}
+    except WorkspaceConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
         logger.exception("Resume generation failed for job %d", job_id)
         raise HTTPException(status_code=500, detail=str(exc)) from exc

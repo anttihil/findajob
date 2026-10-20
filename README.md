@@ -118,6 +118,34 @@ for supervised automation while keeping personal data in the local application s
 
 ## Web app and interactive use
 
+### Career memo and resume workspace
+
+In **Resumes → Master Profile & Copilot**, open **Career memo** to import a Markdown or
+text achievement library, edit it, and save a revision. The complete source is preserved;
+revision history lets you load an older version and restore it as a new revision. Export
+downloads the latest Markdown. Concurrent edits are rejected rather than overwriting newer notes.
+
+The master profile remains the structured baseline for job scoring. Tailored resume generation
+uses both the profile and the full memo, including its corrections and factual qualifications.
+Inputs exceeding the 90,000-byte context budget are explicitly rejected, never silently truncated.
+
+Open **Build & interview** from a job, or **Open workspace** from a tailored resume. The workspace
+keeps every draft, its source snapshot, evidence citations, grounding review, recruiter-style
+review score, and interview history. AI review scores are editorial judgments, not employer ATS
+predictions. Answers are saved as dated additions to the memo; choose **Revise from latest
+evidence** to continue. Important unanswered questions pause automatic revisions when a supported
+draft is available. Qualification gaps remain explicit rather than being filled with invented facts.
+
+Compare drafts side by side, inspect their numbered source snapshots, and select a supported
+draft for export. Automatic generation retains the highest-scoring grounded, printable candidate
+within its bounded retry loop. PDF compilation and an actual one-page check are required before
+export. Historical drafts remain available when the memo changes, but selecting an old draft for
+a new export requires regeneration against the current evidence. If generation fails, saved drafts
+remain in the workspace; an abandoned running operation can be recovered after its one-hour lease.
+
+Memo revisions, drafts, and interviews live in the application SQLite database and are included
+when that database is backed up. The same memo-backed workflow also powers CLI resume generation.
+
 `findajob start` serves the web dashboard and, when enabled in configuration, runs the
 background scheduler. The dashboard is the convenient interactive interface for reviewing
 the profile, editing search targets and settings, browsing and filtering postings, inspecting

@@ -2964,3 +2964,26 @@ html, body {
   font-size: 13px;
   color: var(--ink-muted);
 }
+/* Career evidence and persistent resume workspace. */
+.career-memo-panel, .resume-workspace { margin-bottom: 1.25rem; }
+.career-memo-panel summary, .resume-workspace summary { cursor: pointer; }
+.workspace-actions { display: flex; align-items: center; flex-wrap: wrap; gap: .65rem; margin: .85rem 0; }
+.career-memo-editor, .workspace-question textarea {
+  display: block; width: 100%; box-sizing: border-box; padding: .75rem;
+  color: var(--ink-primary); background: var(--bg-screen-panel); border: 1px solid var(--ink-muted);
+  border-radius: 5px; resize: vertical;
+}
+.career-memo-editor { font-family: monospace; line-height: 1.5; }
+.workspace-comparison { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1rem; }
+.workspace-comparison.two-drafts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.workspace-draft-text, .workspace-source-text {
+  white-space: pre-wrap; overflow-wrap: anywhere; max-height: 650px; overflow: auto;
+  font-size: .85rem; line-height: 1.55; padding: 1rem; border: 1px solid var(--ink-muted);
+}
+.workspace-changed { background: rgba(245, 158, 11, .18); }
+.workspace-question { margin: 1rem 0; }
+.workspace-question textarea { margin: .5rem 0; }
+.resume-workspace select { max-width: 100%; }
+@media (max-width: 750px) {
+  .workspace-comparison.two-drafts { grid-template-columns: minmax(0, 1fr); }
+}

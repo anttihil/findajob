@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field
 from findajob.core.llm import invoke_structured, structured_model
 from findajob.core.logger import get_logger
 from findajob.profile.models import Profile
+from findajob.profile.workspace import check_context_budget
 
 logger = get_logger()
 
@@ -68,13 +69,14 @@ def extract_profile_from_resume_text(
 
     user_parts = [
         "Please parse and extract the candidate profile from the following resume text:",
-        f"```text\n{resume_text[:25000]}\n```",
+        f"```text\n{resume_text}\n```",
     ]
     if existing_profile and existing_profile.name:
         user_parts.append(
             f"\nExisting Master Profile for context:\n{existing_profile.model_dump_json(indent=2)}"
         )
 
+    check_context_budget(*user_parts)
     messages = [
         ("system", RESUME_EXTRACTION_SYSTEM),
         ("user", "\n\n".join(user_parts)),
@@ -150,7 +152,7 @@ def chat_with_copilot(
         current_profile.model_dump_json(indent=2),
     ]
     if resume_text:
-        context_blocks.append(f"\n=== UPLOADED RESUME TEXT CONTEXT ===\n{resume_text[:10000]}")
+        context_blocks.append(f"\n=== UPLOADED RESUME TEXT CONTEXT ===\n{resume_text}")
 
     formatted_messages: list[tuple[str, str]] = [
         ("system", COPILOT_CHAT_SYSTEM),
@@ -163,6 +165,7 @@ def chat_with_copilot(
         role_tag = role if role in ("system", "user", "assistant") else "user"
         formatted_messages.append((role_tag, content))
 
+    check_context_budget(*(content for _, content in formatted_messages))
     result: CopilotChatResult = invoke_structured(
         model=model,
         schema=CopilotChatResult,

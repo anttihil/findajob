@@ -13,7 +13,7 @@ from findajob.core.logger import get_logger
 
 logger = get_logger()
 
-SCHEMA_VERSION = 32
+SCHEMA_VERSION = 33
 
 
 def _v1_baseline(cursor: sqlite3.Cursor) -> None:
@@ -2283,6 +2283,54 @@ def _v32_verdict_reviews(cursor: sqlite3.Cursor) -> None:
     """)
 
 
+def _v33_resume_workspace(cursor: sqlite3.Cursor) -> None:
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS career_memo_revisions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            markdown TEXT NOT NULL,
+            source TEXT NOT NULL,
+            created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
+        )
+    """)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS resume_workspaces (
+            job_id INTEGER PRIMARY KEY REFERENCES jobs(id) ON DELETE CASCADE,
+            status TEXT NOT NULL DEFAULT 'ready',
+            selected_draft_id INTEGER,
+            error TEXT,
+            updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
+        )
+    """)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS resume_drafts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            job_id INTEGER NOT NULL REFERENCES resume_workspaces(job_id) ON DELETE CASCADE,
+            run_id TEXT NOT NULL,
+            attempt INTEGER NOT NULL,
+            memo_revision_id INTEGER REFERENCES career_memo_revisions(id),
+            inputs_json TEXT NOT NULL,
+            payload_json TEXT NOT NULL,
+            review_json TEXT NOT NULL,
+            layout_json TEXT NOT NULL,
+            generated_resume_id INTEGER REFERENCES generated_resumes(id) ON DELETE SET NULL,
+            created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
+        )
+    """)
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_resume_drafts_job ON resume_drafts(job_id, id)")
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS resume_interview_answers (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            job_id INTEGER NOT NULL REFERENCES resume_workspaces(job_id) ON DELETE CASCADE,
+            draft_id INTEGER NOT NULL REFERENCES resume_drafts(id) ON DELETE CASCADE,
+            question TEXT NOT NULL,
+            answer TEXT NOT NULL,
+            memo_revision_id INTEGER REFERENCES career_memo_revisions(id),
+            created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+            UNIQUE(draft_id, question)
+        )
+    """)
+
+
 MIGRATIONS: list[tuple[int, str, Callable[[sqlite3.Cursor], None]]] = [
     (1, "baseline jobs table", _v1_baseline),
     (2, "market analytics: cells, observations, skills, stats", _v2_analytics),
@@ -2376,6 +2424,7 @@ MIGRATIONS: list[tuple[int, str, Callable[[sqlite3.Cursor], None]]] = [
     (30, "persisted scheduler preferences", _v30_scheduler_preferences),
     (31, "source-scoped scheduled search queries", _v31_search_query_sources),
     (32, "durable first-line verdicts and secondary reviews", _v32_verdict_reviews),
+    (33, "versioned career memo and persistent resume workspaces", _v33_resume_workspace),
 ]
 
 
