@@ -15,9 +15,13 @@ from typing import Any
 from findajob.core.config import load_config
 from findajob.core.database import Database
 from findajob.core.llm import (
+    LLMUnavailableError,
     MissingApiKey,
     Spend,
+    get_llm_provider,
     get_model_for_role,
+    is_deepseek_peak_hour,
+    next_deepseek_off_peak_utc,
 )
 from findajob.core.logger import get_logger
 from findajob.profile.adapter import NoActiveProfile
@@ -49,8 +53,34 @@ class ScoringBalanceError(RuntimeError):
     """Scoring cannot continue until the provider has API credits."""
 
 
+def _now_dt() -> datetime:
+    return datetime.now(timezone.utc)
+
+
 def _now() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return _now_dt().isoformat()
+
+
+def _using_deepseek() -> bool:
+    try:
+        return get_llm_provider().name == "deepseek"
+    except LLMUnavailableError:
+        return False
+
+
+def _should_postpone_peak(
+    scoring_config: dict[str, Any],
+    *,
+    now: datetime | None = None,
+) -> tuple[bool, datetime | None]:
+    if not scoring_config.get("postpone_deepseek_peak_hours", True):
+        return False, None
+    if not _using_deepseek():
+        return False, None
+    current = now if now is not None else _now_dt()
+    if not is_deepseek_peak_hour(current):
+        return False, None
+    return True, next_deepseek_off_peak_utc(current)
 
 
 def _select(
@@ -224,6 +254,18 @@ def run_scoring(limit: int | None = None) -> int:
     fit_threshold = int(scoring_config.get("fit_threshold", 70))
     review_model = _review_model(scoring_config)
 
+    postponed, resume_at = _should_postpone_peak(scoring_config)
+    if postponed and resume_at is not None:
+        logger.info(
+            "Postponing DeepSeek scoring during peak hours; off-peak resumes at %s.",
+            resume_at.isoformat(),
+        )
+        print(
+            f"Postponing DeepSeek scoring during peak hours (01:00–04:00 and 06:00–10:00 UTC, "
+            f"Mon–Fri). Off-peak resumes at {resume_at.isoformat()}."
+        )
+        return 0
+
     loaded = load_active()
     if loaded is None:
         logger.error("No active profile. Build one first: findajob profile build")
@@ -328,9 +370,22 @@ def run_scoring(limit: int | None = None) -> int:
 
                 # Finish accounting/persisting the current bounded batch before stopping.
                 processed = results["scored"] + results["failed"]
-                if spend.exhausted() and processed % max(1, concurrency) == 0:
-                    print(f"\nStopping: spent ${spend.usd:.2f}, ceiling is ${max_usd:.2f}.")
-                    break
+                if processed % max(1, concurrency) == 0:
+                    if spend.exhausted():
+                        print(f"\nStopping: spent ${spend.usd:.2f}, ceiling is ${max_usd:.2f}.")
+                        break
+                    postponed, resume_at = _should_postpone_peak(scoring_config)
+                    if postponed and resume_at is not None:
+                        logger.info(
+                            "Pausing DeepSeek scoring at peak-hour boundary; "
+                            "off-peak resumes at %s.",
+                            resume_at.isoformat(),
+                        )
+                        print(
+                            f"\nStopping: entered DeepSeek peak hours; "
+                            f"off-peak resumes at {resume_at.isoformat()}."
+                        )
+                        break
         finally:
             states.close()
 

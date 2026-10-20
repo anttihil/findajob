@@ -113,6 +113,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "fit_threshold": 70,
         "include_skill_hint": False,
         "max_usd_per_run": 8.00,
+        "postpone_deepseek_peak_hours": True,
         "review": {"enabled": True, "model": "deepseek-v4-pro"},
     },
     "scheduler": {

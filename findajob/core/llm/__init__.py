@@ -15,11 +15,15 @@ from findajob.core.llm.base import (
 )
 from findajob.core.llm.factory import get_llm_provider, list_available_providers
 from findajob.core.llm.providers.deepseek_api import (
+    DEEPSEEK_PEAK_WINDOWS_UTC,
     DEFAULT_DEEPSEEK_AGENT_MODEL,
     DEFAULT_DEEPSEEK_SCORING_MODEL,
     BalanceMeasuredChat,
+    is_deepseek_peak_hour,
+    next_deepseek_off_peak_utc,
     no_tool_call_reason,
     require_api_key,
+    seconds_until_deepseek_off_peak,
     token_usage,
 )
 
@@ -236,6 +240,7 @@ class Spend:
 
 
 __all__ = [
+    "DEEPSEEK_PEAK_WINDOWS_UTC",
     "DEFAULT_AGENT_MODEL",
     "DEFAULT_SCORING_MODEL",
     "BaseLLMProvider",
@@ -251,9 +256,12 @@ __all__ = [
     "get_llm_provider",
     "get_model_for_role",
     "invoke_structured",
+    "is_deepseek_peak_hour",
     "list_available_providers",
+    "next_deepseek_off_peak_utc",
     "no_tool_call_reason",
     "require_api_key",
+    "seconds_until_deepseek_off_peak",
     "structured_model",
     "token_usage",
 ]

@@ -2,6 +2,7 @@
 
 import json
 import os
+from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 from threading import Lock
 from typing import Any, TypeVar
@@ -29,6 +30,50 @@ STRUCTURED_RETRY_NUDGE = (
     "Your previous response did not call the tool. Call it now, with the complete "
     "structured object. Do not write prose."
 )
+
+# DeepSeek peak pricing windows in UTC (Monday=0 through Friday=4):
+# 01:00 - 04:00 UTC and 06:00 - 10:00 UTC.
+DEEPSEEK_PEAK_WINDOWS_UTC: tuple[tuple[int, int], ...] = ((1, 4), (6, 10))
+
+
+def _utc_dt(dt: datetime | None = None) -> datetime:
+    if dt is None:
+        return datetime.now(timezone.utc)
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+
+def is_deepseek_peak_hour(dt: datetime | None = None) -> bool:
+    """Return True if ``dt`` falls within DeepSeek's weekday UTC peak pricing hours.
+
+    Peak hours are 01:00 - 04:00 and 06:00 - 10:00 UTC, Monday through Friday.
+    """
+    current = _utc_dt(dt)
+    if current.weekday() >= 5:
+        return False
+    return any(start <= current.hour < end for start, end in DEEPSEEK_PEAK_WINDOWS_UTC)
+
+
+def next_deepseek_off_peak_utc(dt: datetime | None = None) -> datetime:
+    """Return the UTC timestamp when the current DeepSeek peak window ends.
+
+    If ``dt`` is already in an off-peak window, returns ``dt`` normalized to UTC.
+    """
+    current = _utc_dt(dt)
+    if not is_deepseek_peak_hour(current):
+        return current
+    for start, end in DEEPSEEK_PEAK_WINDOWS_UTC:
+        if start <= current.hour < end:
+            return current.replace(hour=end, minute=0, second=0, microsecond=0)
+    return current
+
+
+def seconds_until_deepseek_off_peak(dt: datetime | None = None) -> float:
+    """Return the number of seconds remaining until DeepSeek off-peak pricing resumes."""
+    current = _utc_dt(dt)
+    target = next_deepseek_off_peak_utc(current)
+    return max(0.0, (target - current).total_seconds())
 
 
 def require_api_key() -> str:

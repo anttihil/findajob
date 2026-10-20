@@ -109,6 +109,7 @@ class RunSpendTests(unittest.TestCase):
             mock.patch.object(worker, "load_active", return_value=(1, {}, "summary")),
             mock.patch.object(worker, "build_system", return_value="SYSTEM RULES"),
             mock.patch.object(worker, "build_graph", return_value=_Graph(states)),
+            mock.patch.object(worker, "_using_deepseek", return_value=False),
             redirect_stdout(out),
         ):
             self.assertEqual(worker.run_scoring(), 0)
@@ -194,6 +195,89 @@ class RunSpendTests(unittest.TestCase):
             self.stored_cost(1) + self.stored_cost(2),
             places=4,
         )
+
+    def test_postpones_before_starting_during_deepseek_peak_hours(self) -> None:
+        from datetime import datetime, timezone
+
+        out = io.StringIO()
+        peak_time = datetime(2026, 10, 20, 1, 30, tzinfo=timezone.utc)
+        with (
+            mock.patch.object(worker, "Database", return_value=_Db(self.conn)),
+            mock.patch.object(worker, "load_config", return_value=CONFIG),
+            mock.patch.object(worker, "load_active", return_value=(1, {}, "summary")),
+            mock.patch.object(worker, "_using_deepseek", return_value=True),
+            mock.patch.object(worker, "_now_dt", return_value=peak_time),
+            redirect_stdout(out),
+        ):
+            self.assertEqual(worker.run_scoring(), 0)
+        self.assertIn("Postponing DeepSeek scoring during peak hours", out.getvalue())
+        self.assertIn("2026-10-20T04:00:00+00:00", out.getvalue())
+        count = self.conn.execute("SELECT COUNT(*) FROM job_verdicts").fetchone()[0]
+        self.assertEqual(count, 0)
+
+    def test_config_disables_peak_hours_postponement(self) -> None:
+        from datetime import datetime, timezone
+
+        out = io.StringIO()
+        peak_time = datetime(2026, 10, 20, 1, 30, tzinfo=timezone.utc)
+        states = {
+            1: {"verdict": dict(VERDICT), "usage": usage(1), "attempts": 1, "cost_usd": cost(1)},
+            2: {"verdict": dict(VERDICT), "usage": usage(1), "attempts": 1, "cost_usd": cost(1)},
+        }
+        cfg = {"scoring": {**CONFIG["scoring"], "postpone_deepseek_peak_hours": False}}
+        with (
+            mock.patch.object(worker, "Database", return_value=_Db(self.conn)),
+            mock.patch.object(worker, "load_config", return_value=cfg),
+            mock.patch.object(worker, "load_active", return_value=(1, {}, "summary")),
+            mock.patch.object(worker, "build_system", return_value="SYSTEM RULES"),
+            mock.patch.object(worker, "build_graph", return_value=_Graph(states)),
+            mock.patch.object(worker, "_using_deepseek", return_value=True),
+            mock.patch.object(worker, "_now_dt", return_value=peak_time),
+            redirect_stdout(out),
+        ):
+            self.assertEqual(worker.run_scoring(), 0)
+        count = self.conn.execute("SELECT COUNT(*) FROM job_verdicts").fetchone()[0]
+        self.assertEqual(count, 2)
+
+    def test_stops_between_bounded_batches_when_entering_peak_window(self) -> None:
+        from datetime import datetime, timezone
+
+        for job_id in (3, 4):
+            self.conn.execute(
+                "INSERT INTO jobs (id, job_key, title, url, description, pipeline_state, "
+                "sync_run_id) VALUES (?, ?, 'Platform Engineer', ?, ?, 'new', 1)",
+                (job_id, f"k{job_id}", f"https://example.test/{job_id}", "x" * 400),
+            )
+        self.conn.commit()
+
+        states = {
+            i: {"verdict": dict(VERDICT), "usage": usage(1), "attempts": 1, "cost_usd": cost(1)}
+            for i in (1, 2, 3, 4)
+        }
+        # Start off-peak at 00:55 UTC, then cross into 01:05 UTC after the first batch of 2.
+        times = iter(
+            [
+                datetime(2026, 10, 20, 0, 55, tzinfo=timezone.utc),
+                datetime(2026, 10, 20, 1, 5, tzinfo=timezone.utc),
+            ]
+        )
+        out = io.StringIO()
+        with (
+            mock.patch.object(worker, "Database", return_value=_Db(self.conn)),
+            mock.patch.object(worker, "load_config", return_value=CONFIG),
+            mock.patch.object(worker, "load_active", return_value=(1, {}, "summary")),
+            mock.patch.object(worker, "build_system", return_value="SYSTEM RULES"),
+            mock.patch.object(worker, "build_graph", return_value=_Graph(states)),
+            mock.patch.object(worker, "_using_deepseek", return_value=True),
+            mock.patch.object(worker, "_now_dt", side_effect=lambda: next(times)),
+            redirect_stdout(out),
+        ):
+            self.assertEqual(worker.run_scoring(), 0)
+
+        self.assertIn("Stopping: entered DeepSeek peak hours", out.getvalue())
+        self.assertIn("2026-10-20T04:00:00+00:00", out.getvalue())
+        count = self.conn.execute("SELECT COUNT(*) FROM job_verdicts").fetchone()[0]
+        self.assertEqual(count, 2)
 
 
 if __name__ == "__main__":

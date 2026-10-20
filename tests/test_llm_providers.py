@@ -20,7 +20,12 @@ from findajob.core.llm.providers.agy_cli import AGYCLIProvider
 from findajob.core.llm.providers.claude_cli import ClaudeCLIProvider
 from findajob.core.llm.providers.cli_base import BaseCLIProvider
 from findajob.core.llm.providers.codex_cli import CodexCLIProvider
-from findajob.core.llm.providers.deepseek_api import BalanceMeasuredChat
+from findajob.core.llm.providers.deepseek_api import (
+    BalanceMeasuredChat,
+    is_deepseek_peak_hour,
+    next_deepseek_off_peak_utc,
+    seconds_until_deepseek_off_peak,
+)
 from findajob.core.llm.providers.opencode_cli import OpenCodeCLIProvider
 
 
@@ -246,6 +251,50 @@ class DeepSeekBalanceTests(unittest.TestCase):
         self.assertEqual(response, "response")
         self.assertEqual(cost, 0.25)
         self.assertEqual(balance.call_count, 2)
+
+
+class DeepSeekPeakHoursTests(unittest.TestCase):
+    def test_weekday_peak_windows(self) -> None:
+        from datetime import datetime, timezone
+
+        # Tuesday 2026-10-20
+        self.assertFalse(is_deepseek_peak_hour(datetime(2026, 10, 20, 0, 59, tzinfo=timezone.utc)))
+        self.assertTrue(is_deepseek_peak_hour(datetime(2026, 10, 20, 1, 0, tzinfo=timezone.utc)))
+        self.assertTrue(is_deepseek_peak_hour(datetime(2026, 10, 20, 3, 59, tzinfo=timezone.utc)))
+        self.assertFalse(is_deepseek_peak_hour(datetime(2026, 10, 20, 4, 0, tzinfo=timezone.utc)))
+        self.assertFalse(is_deepseek_peak_hour(datetime(2026, 10, 20, 5, 59, tzinfo=timezone.utc)))
+        self.assertTrue(is_deepseek_peak_hour(datetime(2026, 10, 20, 6, 0, tzinfo=timezone.utc)))
+        self.assertTrue(is_deepseek_peak_hour(datetime(2026, 10, 20, 9, 59, tzinfo=timezone.utc)))
+        self.assertFalse(is_deepseek_peak_hour(datetime(2026, 10, 20, 10, 0, tzinfo=timezone.utc)))
+        self.assertFalse(is_deepseek_peak_hour(datetime(2026, 10, 20, 23, 30, tzinfo=timezone.utc)))
+
+    def test_weekends_are_always_off_peak(self) -> None:
+        from datetime import datetime, timezone
+
+        # Saturday 2026-10-24 and Sunday 2026-10-25
+        for day in (24, 25):
+            for hour in (1, 2, 3, 6, 7, 8, 9):
+                dt = datetime(2026, 10, day, hour, 30, tzinfo=timezone.utc)
+                self.assertFalse(is_deepseek_peak_hour(dt))
+                self.assertEqual(next_deepseek_off_peak_utc(dt), dt)
+                self.assertEqual(seconds_until_deepseek_off_peak(dt), 0.0)
+
+    def test_next_off_peak_boundary_and_seconds(self) -> None:
+        from datetime import datetime, timezone
+
+        dt1 = datetime(2026, 10, 20, 2, 15, tzinfo=timezone.utc)
+        self.assertEqual(
+            next_deepseek_off_peak_utc(dt1),
+            datetime(2026, 10, 20, 4, 0, tzinfo=timezone.utc),
+        )
+        self.assertEqual(seconds_until_deepseek_off_peak(dt1), (1 * 60 + 45) * 60)
+
+        dt2 = datetime(2026, 10, 20, 7, 30, tzinfo=timezone.utc)
+        self.assertEqual(
+            next_deepseek_off_peak_utc(dt2),
+            datetime(2026, 10, 20, 10, 0, tzinfo=timezone.utc),
+        )
+        self.assertEqual(seconds_until_deepseek_off_peak(dt2), (2 * 60 + 30) * 60)
 
 
 if __name__ == "__main__":
