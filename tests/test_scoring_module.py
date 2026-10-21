@@ -62,6 +62,11 @@ class PromptLayoutTests(unittest.TestCase):
         self.assertEqual(h90, h80)
         self.assertEqual(len(h90), 16)
 
+    def test_prompt_hash_changes_with_scoring_rules(self) -> None:
+        original = prompt_hash(PROFILE)
+        with mock.patch("findajob.scoring.prompts.RULES", "Changed scoring guidance."):
+            self.assertNotEqual(prompt_hash(PROFILE), original)
+
     def test_render_posting_wraps_in_untrusted_delimiters(self) -> None:
         rendered = render_posting(posting())
         self.assertTrue(rendered.startswith("<posting>\n"))
@@ -184,6 +189,10 @@ class GraphTests(unittest.TestCase):
         self.assertIsNone(state.get("error"))
         self.assertEqual(state["verdict"]["priority"], "consider")
         self.assertTrue(state["verdict"]["reason"])
+
+    def test_model_receives_complete_system_prompt_without_duplicate_rules(self) -> None:
+        _, chain = self.run_graph([priority_response()])
+        self.assertEqual(chain.calls[0][0], ("system", build_system(PROFILE)))
 
     def test_an_unparseable_response_is_retried(self) -> None:
         state, chain = self.run_graph([bad_response(), priority_response()])

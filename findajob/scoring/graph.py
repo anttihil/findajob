@@ -12,7 +12,7 @@ from pydantic import BaseModel
 from findajob.core.llm import structured_model
 from findajob.core.logger import get_logger
 from findajob.profile.models import PriorityVerdict
-from findajob.scoring.prompts import REVIEW_RULES, render_posting
+from findajob.scoring.prompts import RULES, render_posting
 
 logger = get_logger()
 
@@ -78,7 +78,7 @@ def node_render(state: ScoreState) -> dict[str, Any]:
 
 
 def node_score(
-    state: ScoreState, *, schema: type[BaseModel] = PriorityVerdict, rules: str = REVIEW_RULES
+    state: ScoreState, *, schema: type[BaseModel] = PriorityVerdict, rules: str = RULES
 ) -> dict[str, Any]:
     instructions = state.get("system") or ""
     stage_rules = rules
@@ -251,7 +251,7 @@ def route_after_score(state: ScoreState) -> str:
     return "score"
 
 
-def build_graph(*, schema: type[BaseModel] = PriorityVerdict, rules: str = REVIEW_RULES) -> Any:
+def build_graph(*, schema: type[BaseModel] = PriorityVerdict, rules: str = RULES) -> Any:
     from langgraph.graph import END, START, StateGraph
 
     builder = StateGraph(ScoreState)
