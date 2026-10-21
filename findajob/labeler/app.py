@@ -57,7 +57,6 @@ class EvaluationPayload(BaseModel):
     provider: str = Field(default="", max_length=100)
     candidate_rules: str = Field(default=DEFAULT_CANDIDATE_RULES, max_length=20000)
     profile_boundary: str = Field(default="", max_length=10000)
-    fit_threshold: int = Field(default=70, ge=1, le=100)
 
 
 def _public_example(row: dict[str, Any]) -> dict[str, Any]:

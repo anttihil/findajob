@@ -24,6 +24,8 @@ FILTER_DEFAULTS: dict[str, Any] = {
     "location": "",
     "fit": None,
     "reason_type": "",
+    "priority": "",
+    "stage": "",
     "liveness": "",
     "date_posted": "",
     "q": "",

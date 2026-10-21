@@ -371,7 +371,9 @@ def _cmd_shared(args: argparse.Namespace) -> int:
         elif stage == "search query":
             result = _result("search", run_query(args))
         elif stage == "score jobs":
-            result = _result("score", score_selected(args.job_id, model=args.model))
+            result = _result(
+                "score", score_selected(args.job_id, model=args.model, review_only=args.review_only)
+            )
         elif stage == "score packet":
             result = _result("packet", review_packet(args.job_id))
         elif stage == "score verdict":
@@ -534,6 +536,11 @@ def build_parser() -> argparse.ArgumentParser:
     score_jobs = scosub.add_parser("jobs", help="score selected posting IDs")
     score_jobs.add_argument("--job-id", type=int, action="append", required=True)
     score_jobs.add_argument("--model")
+    score_jobs.add_argument(
+        "--review-only",
+        action="store_true",
+        help="deprecated alias for selected-job single-stage assessment; never selects Pro",
+    )
     score_jobs.add_argument("--json", action="store_true", help="emit one machine-readable result")
     score_jobs.set_defaults(func=_cmd_shared, stage="score")
 
@@ -544,8 +551,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     verdict = scosub.add_parser("verdict", help="save a reviewed verdict for one posting")
     verdict.add_argument("--job-id", type=int, required=True)
-    verdict.add_argument("--fit", action=argparse.BooleanOptionalAction, required=True)
-    verdict.add_argument("--reason-type", required=True)
+    verdict.add_argument("--fit", action=argparse.BooleanOptionalAction)
+    verdict.add_argument("--priority", choices=["first", "consider", "low"])
+    verdict.add_argument("--reason-type")
     verdict.add_argument("--reason-description", required=True)
     verdict.add_argument("--json", action="store_true", help="emit one machine-readable result")
     verdict.set_defaults(func=_cmd_shared, stage="score")
@@ -660,6 +668,8 @@ def build_parser() -> argparse.ArgumentParser:
     jobs.add_argument("--pipeline-state", choices=["new", "scored"])
     jobs.add_argument("--fit", action=argparse.BooleanOptionalAction)
     jobs.add_argument("--reason-type")
+    jobs.add_argument("--priority", choices=["first", "consider", "low"])
+    jobs.add_argument("--stage")
     jobs.add_argument("--posted-within", choices=["24h", "7d", "30d", "90d"])
     jobs.add_argument("--text", help="search title, company, and description")
     jobs.add_argument("--limit", type=int, default=25)

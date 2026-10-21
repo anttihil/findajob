@@ -21,41 +21,70 @@ systemctl status findajob.service
 findajob score retry
 ```
 
-## Secondary verdict review
+For billing-only recovery, follow [Recover jobs quarantined by billing failures](billing_quarantine_recovery.md).
 
-Production scoring uses a two-stage LangGraph workflow:
-`render → score → capture → review`. Both positive and negative first-line decisions
-are checked. Each model gets up to three structured-output attempts. The reviewer's
-decision becomes the final verdict used by the dashboard, analytics, and scrape-cell quality.
+## Single-stage priority assessment
 
-The defaults are enabled with `deepseek-v4-pro`. Override them in `config.local.yaml`:
+Normal scoring makes one Flash assessment per posting. A valid `priority` (`first`,
+`consider`, `low`) and short `reason` completes assessment; only failures or malformed
+responses cause bounded retries. There is no automatic Pro review. Legacy `scoring.review`
+and `fit_threshold` configuration is accepted but ignored. The provider's normal scoring
+model is Flash; an explicit scoring-model override remains supported.
 
-```yaml
-scoring:
-  review:
-    enabled: true
-    model: deepseek-v4-pro
+Priority describes review value, independently of other postings. `consider` retains credible
+stretches and mixed evidence. Missing information is uncertainty, not confirmed ineligibility.
+Results are grouped by priority, then posting date (discovery date fallback) and stable ID.
+Saved/applied/rejected status remains independent of assessment.
+
+New results have `fit=NULL`. Historical binary judgments remain filterable, but new priority
+results do not count as negative qualifications or enter scrape-cell qualification counters.
+The dashboard's Review first control uses priority, not fit. The verdict panel shows the
+explanation even without a qualification judgment.
+
+Migration v36 adds durable `assessment_runs` checkpoints, archives replaced final verdicts
+in `job_verdict_history`, and lets final assessments take precedence over legacy screening
+exclusions while preserving screening history. Unfinished old reviews require a fresh
+single-stage assessment; they are never reinterpreted as final priorities. Existing completed
+verdicts and screening exclusions remain outside automatic scoring. No automatic backfill
+or profile rewrite occurs.
+
+Completed checkpoints are reusable only with matching profile/rules/schema, full posting
+content, provider and model. Saving a profile marks known old hashes stale without reopening
+the backlog. Explicit selected-job assessment makes a fresh call and preserves the earlier
+final result in history:
+
+```sh
+findajob score jobs --job-id 123 --json
+findajob jobs list --priority consider --stage assessed --json
+findajob score verdict --job-id 123 --priority consider --reason-description 'Credible stretch' --json
 ```
 
-The reviewer uses the configured LLM provider. Batch scoring, selected-job scoring, and
-import-time scoring all use this workflow. Prompt evaluations in the labeler explicitly
-use the first-line stage only to preserve single-model comparisons.
+`--review-only` is a deprecated alias for ordinary selected-job reassessment; it never chooses
+Pro. Failed paid attempts retain cumulative usage and costs in checkpoints. Normal provider
+outage handling and the existing per-run spending safeguard remain in place. Wallet deltas
+are account-wide observations, not precise per-request prices; spending-cap redesign is
+outside this change.
 
-Migration v32 adds `verdict_reviews`. It preserves the first-line verdict and its usage,
-plus the latest review state with cumulative costs, errors, and attempts. The worker
-commits the first-line result before starting review. A failed review publishes no new
-final verdict; the next scoring run resumes review without repeating the first-line call.
-Recovery requires matching profile/rules, rendered posting, and model configuration;
-changing these starts a fresh assessment. Repeated failures use the existing quarantine
-and `findajob score retry` mechanism.
+For the paired comparison with the old 70% binary prompt, see
+[single-stage validation](single_stage_flash_validation.md). The evaluator freezes postings
+and profile from a read-only snapshot and writes isolated results under ignored `experiments/`.
+Only explicit bounded selections are used when testing writes on the production database copy.
 
-Run spending includes both stages and their retries, charging only new calls when resuming.
-Work is submitted in batches bounded by `scoring.concurrency`; a batch already started
-finishes and is fully accounted for before the budget stops the next batch. Consequently,
-the measured spending ceiling may be exceeded by the current batch.
+### Off-peak DeepSeek scoring
 
-The CLI reports reviewed, overturned, and review-failure counts. Existing stored verdicts
-are reviewed when explicitly rescored, rather than automatically backfilled.
+When `deepseek` is the active LLM provider and `scoring.postpone_deepseek_peak_hours` is
+`true` (the default), `findajob score run` postpones batch scoring during DeepSeek's UTC
+peak windows (`01:00–04:00` and `06:00–10:00 UTC`, Monday through Friday):
+
+- If invoked during a peak window (by the background scheduler, search-to-score chaining,
+  or CLI), `score run` exits cleanly before making model calls, leaving postings in
+  `pipeline_state='new'` for the next off-peak run.
+- If an in-progress run crosses into a peak window, it finishes persisting and accounting
+  for its current bounded batch (`scoring.concurrency`) and stops before starting the next
+  batch.
+- Interactive user actions (Copilot chat, URL import, single-job scoring/resume generation)
+  remain immediate. Set `scoring.postpone_deepseek_peak_hours: false` in `config.local.yaml`
+  to disable peak-hour postponement.
 
 ## Accessing a loopback deployment
 

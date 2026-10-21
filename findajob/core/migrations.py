@@ -13,7 +13,7 @@ from findajob.core.logger import get_logger
 
 logger = get_logger()
 
-SCHEMA_VERSION = 34
+SCHEMA_VERSION = 36
 
 
 def _v1_baseline(cursor: sqlite3.Cursor) -> None:
@@ -2349,6 +2349,89 @@ def _v34_scoring_provider_status(cursor: sqlite3.Cursor) -> None:
     )
 
 
+def _v35_two_stage_funnel(cursor: sqlite3.Cursor) -> None:
+    columns = {row[1] for row in cursor.execute("PRAGMA table_info(job_verdicts)")}
+    for name in ("priority", "profile_hash", "posting_hash", "prompt_version"):
+        if name not in columns:
+            cursor.execute(f"ALTER TABLE job_verdicts ADD COLUMN {name} TEXT")
+    if "profile_hash" not in {
+        row[1] for row in cursor.execute("PRAGMA table_info(verdict_reviews)")
+    }:
+        cursor.execute("ALTER TABLE verdict_reviews ADD COLUMN profile_hash TEXT")
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS job_screenings (
+            job_id INTEGER NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+            profile_version INTEGER NOT NULL,
+            advance INTEGER,
+            reason TEXT,
+            stage TEXT NOT NULL,
+            model TEXT NOT NULL,
+            review_model TEXT NOT NULL,
+            profile_hash TEXT NOT NULL,
+            posting_hash TEXT NOT NULL,
+            prompt_hash TEXT NOT NULL,
+            prompt_version TEXT NOT NULL,
+            schema_version INTEGER NOT NULL,
+            state_json TEXT NOT NULL,
+            tokens_in INTEGER,
+            tokens_cached INTEGER,
+            tokens_out INTEGER,
+            cost_usd REAL NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL,
+            PRIMARY KEY (job_id, profile_version)
+        )
+    """)
+    cursor.execute("""
+        CREATE VIEW IF NOT EXISTS v_job_assessments AS
+        SELECT j.id AS job_id, COALESCE(s.profile_version, v.profile_version) AS profile_version,
+               CASE WHEN s.stage IS NOT NULL THEN s.stage
+                    WHEN v.priority IS NOT NULL THEN 'reviewed'
+                    WHEN v.id IS NOT NULL THEN 'historical' ELSE 'unreviewed' END AS stage,
+               CASE WHEN s.stage IS NULL OR s.stage = 'reviewed' THEN v.fit END AS fit,
+               CASE WHEN s.stage IS NULL OR s.stage = 'reviewed' THEN v.priority END AS priority,
+               CASE WHEN s.stage IS NULL OR s.stage = 'reviewed' THEN v.reason_type
+                    END AS reason_type,
+               CASE WHEN s.stage IS NULL OR s.stage = 'reviewed' THEN v.reason_description
+                    ELSE s.reason END AS reason_description,
+               CASE WHEN s.stage = 'reviewed' OR s.stage IS NULL THEN v.profile_hash
+                    ELSE s.profile_hash END AS profile_hash,
+               s.advance AS screening_advance, s.reason AS screening_reason
+        FROM jobs j
+        LEFT JOIN job_screenings s ON s.job_id = j.id AND s.profile_version = 1
+        LEFT JOIN job_verdicts v ON v.job_id = j.id AND v.profile_version = 1
+    """)
+
+
+def _v36_single_stage_priority(cursor: sqlite3.Cursor) -> None:
+    """Retain historical outcomes and checkpoint one independent assessment."""
+    columns = {row[1] for row in cursor.execute("PRAGMA table_info(job_verdicts)")}
+    if "stage" not in columns:
+        cursor.execute("ALTER TABLE job_verdicts ADD COLUMN stage TEXT")
+    cursor.execute("""CREATE TABLE IF NOT EXISTS job_verdict_history AS
+        SELECT *, CAST(NULL AS TEXT) AS archived_at FROM job_verdicts WHERE 0""")
+    cursor.execute("""CREATE TABLE IF NOT EXISTS assessment_runs (
+        job_id INTEGER NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+        profile_version INTEGER NOT NULL, input_hash TEXT NOT NULL, model TEXT NOT NULL,
+        state_json TEXT NOT NULL, updated_at TEXT NOT NULL,
+        PRIMARY KEY(job_id, profile_version, input_hash, model)
+    )""")
+    cursor.execute("DROP VIEW IF EXISTS v_job_assessments")
+    cursor.execute("""CREATE VIEW v_job_assessments AS
+        SELECT j.id AS job_id, COALESCE(v.profile_version, s.profile_version) AS profile_version,
+            CASE WHEN v.id IS NOT NULL THEN COALESCE(v.stage,
+                     CASE WHEN v.priority IS NOT NULL THEN 'reviewed' ELSE 'historical' END)
+                 ELSE COALESCE(s.stage, 'unreviewed') END AS stage,
+            v.fit, v.priority, v.reason_type,
+            CASE WHEN v.id IS NOT NULL THEN v.reason_description ELSE s.reason END
+                AS reason_description,
+            CASE WHEN v.id IS NOT NULL THEN v.profile_hash ELSE s.profile_hash END AS profile_hash,
+            s.advance AS screening_advance, s.reason AS screening_reason
+        FROM jobs j
+        LEFT JOIN job_verdicts v ON v.job_id=j.id AND v.profile_version=1
+        LEFT JOIN job_screenings s ON s.job_id=j.id AND s.profile_version=1
+    """)
+
+
 MIGRATIONS: list[tuple[int, str, Callable[[sqlite3.Cursor], None]]] = [
     (1, "baseline jobs table", _v1_baseline),
     (2, "market analytics: cells, observations, skills, stats", _v2_analytics),
@@ -2444,6 +2527,8 @@ MIGRATIONS: list[tuple[int, str, Callable[[sqlite3.Cursor], None]]] = [
     (32, "durable first-line verdicts and secondary reviews", _v32_verdict_reviews),
     (33, "versioned career memo and persistent resume workspaces", _v33_resume_workspace),
     (34, "persistent scoring provider failure status", _v34_scoring_provider_status),
+    (35, "two-stage screening and application priority", _v35_two_stage_funnel),
+    (36, "single-stage priorities and assessment history", _v36_single_stage_priority),
 ]
 
 

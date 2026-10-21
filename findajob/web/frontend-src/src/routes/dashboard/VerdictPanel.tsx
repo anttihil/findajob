@@ -1,32 +1,39 @@
 import type { Job } from "../../api/types";
+import { TierBadge } from "../../components/badges/TierBadge";
 
-export function VerdictPanel({ job, fitThreshold = 70 }: { job: Job; fitThreshold?: number }) {
-  if (job.fit !== null && job.fit !== undefined) {
+export function VerdictPanel({ job }: { job: Job }) {
+  if (
+    job.priority ||
+    job.stage === "screening_excluded" ||
+    (job.fit !== null && job.fit !== undefined)
+  ) {
     return (
       <>
         <div class="verdict-head">
-          <span class={`match-badge ${job.fit ? "badge-top" : "badge-blocked"}`}>
-            {job.fit ? `Strong Fit (≥${fitThreshold}%)` : `No Fit (<${fitThreshold}%)`}
-          </span>
-          {job.reason_type && <span class="verdict-score">{job.reason_type}</span>}
+          <TierBadge job={job} />
+          {job.fit !== null && job.fit !== undefined && job.priority && (
+            <span>{job.fit ? "Historical fit" : "Historical no-fit"}</span>
+          )}
         </div>
-
         {job.reason_description && <p class="verdict-reasoning">{job.reason_description}</p>}
-
-        {job.liveness === "likely_closed" && (
+        {job.profile_stale && (
           <p class="verdict-stale">
-            This posting did not reappear the last time its search was run, so it has probably
-            closed.
+            Assessed against an earlier profile. Reassessment is explicit.
           </p>
+        )}
+        {job.liveness === "likely_closed" && (
+          <p class="verdict-stale">This posting has probably closed.</p>
         )}
       </>
     );
   }
-
   return (
     <p class="verdict-empty">
-      Not scored yet. This posting is queued (<code>{job.pipeline_state || "new"}</code>); the
-      scoring stage will pick it up on its next run.
+      {job.stage === "review_pending"
+        ? "Legacy screening saved. Awaiting assessment."
+        : job.stage === "screening_failed"
+          ? "Screening failed; no assessment decision."
+          : "Not assessed yet."}
     </p>
   );
 }

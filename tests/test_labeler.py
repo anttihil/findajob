@@ -346,3 +346,29 @@ def test_family_split_is_deterministic() -> None:
         "company-title:acme|engineer"
     )
     assert family_split("company-title:acme|engineer") in {"optimization", "validation"}
+
+
+@pytest.mark.parametrize("selected", [True, False])
+def test_import_accepts_priority_without_manufacturing_qualification(
+    tmp_path: Path, selected: bool
+) -> None:
+    source, target = tmp_path / "source.db", tmp_path / "labeler.db"
+    _source_database(source)
+    conn = sqlite3.connect(source)
+    conn.execute("ALTER TABLE job_verdicts ADD COLUMN priority TEXT")
+    conn.execute("UPDATE job_verdicts SET fit=NULL, priority='consider' WHERE job_id=1")
+    conn.commit()
+    conn.close()
+    result = import_examples(
+        source_db_path=str(source),
+        labeler_db_path=str(target),
+        job_ids=[1] if selected else None,
+        count=2,
+    )
+    assert result["imported"] >= 1
+    with LabelerDatabase(str(target)) as db:
+        row = db.conn.execute("SELECT * FROM examples WHERE source_job_id='1'").fetchone()
+        assert row is not None and row["model_outcome"] == "consider"
+        assert json.loads(row["model_verdict_json"])["fit"] is None
+        assert db._agreement("stretch", "consider") == 1
+        assert db._agreement("pass", "consider") == 0

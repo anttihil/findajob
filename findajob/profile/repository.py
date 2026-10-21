@@ -64,11 +64,11 @@ def load_profile(conn: sqlite3.Connection | None = None) -> Profile:
 
         # Parse dealbreakers
         d_raw = r_dict.get("dealbreakers_json")
-        if d_raw:
+        if d_raw is not None:
             try:
                 dealbreakers = json.loads(d_raw)
-            except (json.JSONDecodeError, ValueError, TypeError):
-                dealbreakers = targeting.dealbreakers
+            except (json.JSONDecodeError, ValueError, TypeError) as exc:
+                raise ValueError("Invalid canonical profile dealbreakers JSON") from exc
         else:
             dealbreakers = targeting.dealbreakers
 
@@ -183,16 +183,10 @@ def load_active(db: Any | None = None) -> tuple[int, Profile, str] | None:
 
         database = Database()
     try:
-        row = database.conn.execute(
-            "SELECT summary_text FROM profile WHERE id = ? LIMIT 1",
-            (MASTER_PROFILE_ID,),
-        ).fetchone()
         prof = load_profile(conn=database.conn)
-        summary_text = (row["summary_text"] if row else "") or ""
-        if not summary_text:
-            from findajob.profile.render import render_profile
+        from findajob.profile.render import render_profile_for_scoring
 
-            summary_text = render_profile(prof)
+        summary_text = render_profile_for_scoring(prof)
         return (DEFAULT_PROFILE_VERSION, prof, summary_text)
     finally:
         if owned and database:

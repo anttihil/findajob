@@ -2,7 +2,6 @@ import { useEffect, useState } from "preact/hooks";
 import { getJSON, guard } from "../../api/client";
 import { useStoredPreference } from "../../lib/preferences";
 import type {
-  Meta,
   ObservabilityPromptResponse,
   ObservabilityReason,
   ObservabilityStats,
@@ -11,7 +10,6 @@ import type {
 } from "../../api/types";
 
 export function ObservabilityPage() {
-  const [fitThreshold, setFitThreshold] = useState(70);
   const [stats, setStats] = useState<ObservabilityStats | null>(null);
   const [verdictsData, setVerdictsData] = useState<ObservabilityVerdictsResponse | null>(null);
   const [loadingVerdicts, setLoadingVerdicts] = useState(false);
@@ -40,10 +38,6 @@ export function ObservabilityPage() {
 
   useEffect(() => {
     let cancelled = false;
-    guard("Loading scoring configuration", () => getJSON<Meta>("/api/meta")).then((data) => {
-      if (!cancelled && data) setFitThreshold(data.fit_threshold);
-    });
-
     guard("Loading observability stats", () =>
       getJSON<ObservabilityStats>("/api/observability/stats"),
     ).then((data) => {
@@ -205,11 +199,13 @@ export function ObservabilityPage() {
             <h3>{stats ? stats.total_verdicts.toLocaleString() : "..."}</h3>
             <div class="obs-card-sub">
               <span class="text-green">
-                Fit: <strong>{stats?.fit_count.toLocaleString() ?? 0}</strong>
+                Historical fit: <strong>{stats?.fit_count.toLocaleString() ?? 0}</strong>
               </span>
               <span class="text-muted">({stats ? (stats.fit_rate * 100).toFixed(1) : 0}%)</span>
             </div>
-            <div class="obs-card-range">No Fit: {stats?.no_fit_count.toLocaleString() ?? 0}</div>
+            <div class="obs-card-range">
+              Historical no-fit: {stats?.no_fit_count.toLocaleString() ?? 0}
+            </div>
           </div>
         </div>
       </div>
@@ -596,11 +592,23 @@ export function ObservabilityPage() {
                     </div>
 
                     <div class="obs-verdict-badges">
-                      <span class={`obs-badge-verdict ${item.fit ? "is-fit" : "is-no-fit"}`}>
+                      <span
+                        class={`obs-badge-verdict ${item.priority ? (item.priority === "first" ? "is-fit" : item.priority === "low" ? "is-no-fit" : "") : item.fit === null ? "" : item.fit ? "is-fit" : "is-no-fit"}`}
+                      >
                         <i
-                          class={`fa-solid ${item.fit ? "fa-circle-check" : "fa-circle-xmark"}`}
+                          class={`fa-solid ${item.priority === "consider" || item.fit === null ? "fa-circle-info" : item.fit ? "fa-circle-check" : "fa-circle-xmark"}`}
                         ></i>{" "}
-                        {item.fit ? `FIT (≥${fitThreshold}%)` : `NO FIT (<${fitThreshold}%)`}
+                        {item.priority
+                          ? {
+                              first: "Review first",
+                              consider: "Worth considering",
+                              low: "Low priority",
+                            }[item.priority]
+                          : item.fit === null
+                            ? "No fit judgment"
+                            : item.fit
+                              ? "FIT"
+                              : "NO FIT"}
                       </span>
                       <span class="obs-badge-reason">{item.reason_type}</span>
                     </div>

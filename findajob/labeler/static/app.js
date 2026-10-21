@@ -243,7 +243,7 @@ function renderReveal() {
   const verdict = state.modelVerdict;
   $("#decision-card").hidden = true;
   $("#reveal-card").hidden = false;
-  $("#model-outcome").textContent = verdict?.outcome === "match" ? "Model: Match" : "Model: Reject";
+  $("#model-outcome").textContent = "Model: " + ({ match: "Match", reject: "Reject", first: "Review first", consider: "Worth considering", low: "Low priority" }[verdict?.outcome] || "Unknown");
   $("#model-reason-type").textContent = verdict?.reason_type || "No reason category";
   $("#model-reason").textContent = verdict?.reason_description || "No explanation was stored.";
   const [label, className] = agreementLabel(annotation.agreement);
@@ -441,7 +441,6 @@ $("#evaluation-form").addEventListener("submit", async (event) => {
       model: $("#evaluation-model").value.trim(), candidate_rules: $("#candidate-rules").value,
       provider: $("#evaluation-provider").value.trim(),
       profile_boundary: $("#profile-boundary").value,
-      fit_threshold: Number($("#evaluation-threshold").value),
     }) });
     await loadEvaluations();
     await openEvaluation(body.id);

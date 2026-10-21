@@ -1,9 +1,9 @@
 """Provider billing outages stay visible and never quarantine otherwise valid jobs."""
 
 import io
-import json
 import sqlite3
 from contextlib import redirect_stdout
+from types import SimpleNamespace
 from typing import Any
 from unittest import mock
 
@@ -14,7 +14,16 @@ from findajob.core.status_repository import get_pipeline_status
 from findajob.scoring import repository, worker
 from findajob.scoring.graph import build_graph
 from tests.test_scoring_module import PROFILE, FakeChain, posting
-from tests.test_scoring_review import models, response
+from tests.test_scoring_review import response
+
+
+@pytest.fixture(autouse=True)
+def off_peak() -> Any:
+    with (
+        mock.patch.object(worker, "_using_deepseek", return_value=False),
+        mock.patch.object(worker, "get_llm_provider", return_value=SimpleNamespace(name="test")),
+    ):
+        yield
 
 
 class BalanceError(RuntimeError):
@@ -50,7 +59,9 @@ def test_balance_failure_is_not_retried_within_graph() -> None:
     model = mock.Mock()
     model.with_structured_output.return_value = chain
     with mock.patch("findajob.scoring.graph.structured_model", return_value=model):
-        state = build_graph().invoke({"posting": posting(), "model": "flash"})
+        state = build_graph().invoke(
+            {"posting": posting(), "model": "flash", "review_model": "pro"}
+        )
     assert state["balance_exhausted"] is True
     assert state["verdict"] is None
     assert chain.invoke.call_count == 1
@@ -60,7 +71,7 @@ def test_worker_stops_after_batch_without_quarantining_and_recovers(database: An
     chain = failing_chain()
     model = mock.Mock()
     model.with_structured_output.return_value = chain
-    config = {"scoring": {"model": "flash", "concurrency": 2, "review": {"enabled": False}}}
+    config = {"scoring": {"model": "flash", "concurrency": 2, "review": {"model": "pro"}}}
     with (
         mock.patch.object(worker, "Database", return_value=database),
         mock.patch.object(worker, "load_active", return_value=(1, {}, PROFILE)),
@@ -78,7 +89,12 @@ def test_worker_stops_after_batch_without_quarantining_and_recovers(database: An
         assert status["score"]["error"]["occurred_at"]
         # A successful subsequent run clears the persistent UI error and drains once.
         chain.invoke.side_effect = None
-        chain.invoke.return_value = response(True)
+        chain.invoke.side_effect = (
+            [response(True)] * 2
+            + [response(True)] * 2
+            + [response(True)] * 2
+            + [response(True)] * 2
+        )
         assert worker.run_scoring() == 0
         assert get_pipeline_status(database.conn, False)["score"]["error"] is None
         assert repository.count_pending_scoring(database.conn) == 0
@@ -87,31 +103,26 @@ def test_worker_stops_after_batch_without_quarantining_and_recovers(database: An
         chain.invoke.assert_not_called()
 
 
-def test_review_balance_failure_retains_first_pass_and_resumes(database: Any) -> None:
-    first, review = FakeChain([response(True)]), failing_chain()
-    config = {"scoring": {"model": "flash", "review": {"model": "pro"}}}
+def test_single_job_balance_failure_recovers_without_quarantining(database: Any) -> None:
+    chain = failing_chain()
     with (
         mock.patch.object(worker, "load_active", return_value=(1, {}, PROFILE)),
-        mock.patch.object(worker, "load_config", return_value=config),
-        mock.patch("findajob.scoring.graph.structured_model", side_effect=models(first, review)),
+        mock.patch.object(worker, "load_config", return_value={"scoring": {"model": "flash"}}),
+        mock.patch(
+            "findajob.scoring.graph.structured_model",
+            return_value=mock.Mock(with_structured_output=mock.Mock(return_value=chain)),
+        ),
     ):
-        with pytest.raises(worker.ScoringBalanceError, match="insufficient balance"):
+        with pytest.raises(worker.ScoringBalanceError):
             worker.score_job(1, db=database)
-        row = database.conn.execute("SELECT * FROM verdict_reviews WHERE job_id=1").fetchone()
-        assert json.loads(row["first_line_state"])["first_line"]["fit"] is True
-        assert row["finalized"] == 0
+        assert repository.get_provider_failure(database.conn)
         assert (
             database.conn.execute("SELECT scoring_failures FROM jobs WHERE id=1").fetchone()[0] == 0
         )
-        assert len(first.calls) == 1
-        assert review.invoke.call_count == 1
-        review.invoke.side_effect = None
-        review.invoke.return_value = response(False)
-        verdict = worker.score_job(1, db=database)
-        assert verdict["fit"] is False
-        assert len(first.calls) == 1  # Do not pay for another first pass.
+        chain.invoke.side_effect = None
+        chain.invoke.return_value = response(False)
+        assert worker.score_job(1, db=database)["priority"] == "low"
         assert repository.get_provider_failure(database.conn) is None
-        assert database.conn.execute("SELECT finalized FROM verdict_reviews").fetchone()[0] == 1
 
 
 def test_empty_queue_does_not_hide_unresolved_provider_failure(database: Any) -> None:
@@ -138,7 +149,7 @@ def test_selected_jobs_stop_on_balance_failure() -> None:
         result = worker.score_selected([1, 2, 3])
     assert result["failed"] == 3
     assert result["status"] == "error"
-    score.assert_called_once_with(1, model=None)
+    score.assert_called_once_with(1, model=None, review_only=False, budget=mock.ANY)
 
 
 @pytest.mark.parametrize("recovered", [False, True])
@@ -161,14 +172,13 @@ def test_upgrade_surfaces_only_unresolved_historical_balance_failure(recovered: 
         )
     conn.execute("PRAGMA user_version=33")
     conn.commit()
-    assert migrate(conn) == 1
+    assert migrate(conn) == 3
     assert (repository.get_provider_failure(conn) is None) is recovered
     assert conn.execute("SELECT scoring_failures FROM jobs").fetchone()[0] == 3
     assert migrate(conn) == 0
     failure = repository.get_provider_failure(conn)
-    conn.execute("PRAGMA user_version=33")
-    conn.commit()
-    assert migrate(conn) == 1
+    migration = next(fn for version, _, fn in MIGRATIONS if version == 34)
+    migration(conn.cursor())
     assert repository.get_provider_failure(conn) == failure
     conn.close()
 
@@ -194,10 +204,11 @@ def test_automatic_scoring_never_reopens_finalized_jobs(database: Any) -> None:
 
 def test_partial_batch_success_does_not_hide_balance_failure(database: Any) -> None:
     failed = failing_chain()
-    success = FakeChain([response(True)])
-    config = {"scoring": {"model": "flash", "concurrency": 2, "review": {"enabled": False}}}
+    success = FakeChain([response(True), response(True)])
+    config = {"scoring": {"model": "flash", "concurrency": 2, "review": {"model": "pro"}}}
     outcomes = [
         mock.Mock(with_structured_output=mock.Mock(return_value=failed)),
+        mock.Mock(with_structured_output=mock.Mock(return_value=success)),
         mock.Mock(with_structured_output=mock.Mock(return_value=success)),
     ]
     with (

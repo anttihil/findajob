@@ -19,6 +19,7 @@ import sys
 import tempfile
 import unittest
 from contextlib import redirect_stdout
+from types import SimpleNamespace
 from typing import Any
 from unittest import mock
 
@@ -33,7 +34,7 @@ CONFIG: dict[str, Any] = {
         "model": MODEL,
         "concurrency": 2,
         "max_usd_per_run": None,
-        "review": {"enabled": False},
+        "review": {"model": "pro"},
     }
 }
 
@@ -77,12 +78,17 @@ class _Graph:
     def __init__(self, states: dict[int, dict[str, Any]]) -> None:
         self.states = states
 
-    def invoke(self, state: dict[str, Any]) -> dict[str, Any]:
+    def invoke(self, state: dict[str, Any], **kwargs: Any) -> dict[str, Any]:
         return self.states[state["posting"]["id"]]
 
 
 class RunSpendTests(unittest.TestCase):
     def setUp(self) -> None:
+        provider = mock.patch.object(
+            worker, "get_llm_provider", return_value=SimpleNamespace(name="test")
+        )
+        provider.start()
+        self.addCleanup(provider.stop)
         self.tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
         self.tmp.close()
         self.conn = sqlite3.connect(self.tmp.name)

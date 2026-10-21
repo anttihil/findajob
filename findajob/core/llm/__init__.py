@@ -215,7 +215,8 @@ class Spend:
             if message is not None
             else {"prompt": 0, "cache_hit": 0, "cache_miss": 0, "completion": 0}
         )
-        cost = vars(message).get("findajob_cost_usd", 0.0) if message is not None else 0.0
+        value = getattr(message, "findajob_cost_usd", 0.0) if message is not None else 0.0
+        cost = float(value) if isinstance(value, (float, int)) else 0.0
         self.usd += cost
         self.calls += 1
         self.tokens_in += usage.get("prompt", 0)

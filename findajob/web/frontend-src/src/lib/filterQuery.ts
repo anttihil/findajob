@@ -9,6 +9,8 @@ export interface FilterValues {
   location: string;
   fit: boolean | null;
   reason_type: string;
+  priority: string;
+  stage: string;
   liveness: string;
   date_posted: string;
   q: string;
@@ -22,6 +24,8 @@ export const FILTER_DEFAULTS: FilterValues = {
   location: "",
   fit: null,
   reason_type: "",
+  priority: "",
+  stage: "",
   liveness: "",
   date_posted: "",
   q: "",
@@ -53,6 +57,8 @@ function parseValues(search: string): FilterValues {
           ? false
           : FILTER_DEFAULTS.fit,
     reason_type: raw.reason_type ?? FILTER_DEFAULTS.reason_type,
+    priority: raw.priority ?? FILTER_DEFAULTS.priority,
+    stage: raw.stage ?? FILTER_DEFAULTS.stage,
     liveness: raw.liveness ?? FILTER_DEFAULTS.liveness,
     date_posted: raw.date_posted ?? FILTER_DEFAULTS.date_posted,
     q: raw.q ?? FILTER_DEFAULTS.q,
@@ -79,6 +85,12 @@ export class FilterQuery {
   }
   get fit() {
     return this.values.fit;
+  }
+  get priority() {
+    return this.values.priority;
+  }
+  get stage() {
+    return this.values.stage;
   }
   get reason_type() {
     return this.values.reason_type;

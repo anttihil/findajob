@@ -308,10 +308,16 @@ class LabelerDatabase:
 
     @staticmethod
     def _agreement(outcome: str, model_outcome: str | None) -> int | None:
-        if outcome == "insufficient" or model_outcome not in {"match", "reject"}:
+        if outcome == "insufficient" or model_outcome not in {
+            "match",
+            "reject",
+            "first",
+            "consider",
+            "low",
+        }:
             return None
         human_positive = outcome in {"apply", "stretch"}
-        return int(human_positive == (model_outcome == "match"))
+        return int(human_positive == (model_outcome in {"match", "first", "consider"}))
 
     def annotate(
         self,

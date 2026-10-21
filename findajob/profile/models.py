@@ -1,7 +1,7 @@
 """Unified domain models for candidate Profile, scoring, and tailored resume generation."""
 
 import re
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -271,15 +271,13 @@ class LayoutValidationResult(BaseModel):
     violations: list[str] = Field(default_factory=list)
 
 
-VERDICT_SCHEMA_VERSION = 3
+VERDICT_SCHEMA_VERSION = 5
 
 
 class JobFitVerdict(BaseModel):
     """The scoring agent's simplified output for one posting."""
 
-    fit: bool = Field(
-        description="True if the candidate fits this job at >= target match threshold, else False."
-    )
+    fit: bool = Field(description="Qualified for the core work with no known hard blocker.")
     reason_type: str = Field(
         description="Single lowercase word: 'match', 'skills', 'experience', 'seniority', etc."
     )
@@ -294,3 +292,33 @@ class JobFitVerdict(BaseModel):
             return "unknown"
         cleaned = re.sub(r"[^a-z0-9_-]", "", value.strip().lower())
         return cleaned or "unknown"
+
+
+class ScreeningVerdict(BaseModel):
+    """Conservative first-stage decision, separate from a qualification verdict."""
+
+    model_config = {"extra": "forbid", "strict": True}
+    advance: bool
+    reason: str = Field(min_length=1, max_length=600)
+
+    @field_validator("reason")
+    @classmethod
+    def _nonblank_reason(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("An evidence-based reason is required")
+        return value.strip()
+
+
+class PriorityVerdict(BaseModel):
+    """Independent review priority, with no qualification judgment."""
+
+    model_config = {"extra": "forbid", "strict": True}
+    priority: Literal["first", "consider", "low"]
+    reason: str = Field(min_length=1, max_length=700)
+
+    @field_validator("reason")
+    @classmethod
+    def _nonblank_explanation(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("An evidence-based explanation is required")
+        return value.strip()

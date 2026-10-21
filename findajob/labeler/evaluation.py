@@ -13,31 +13,11 @@ from typing import Any
 from findajob.labeler.database import utc_now
 from findajob.scoring.prompts import build_system, render_posting
 
-DEFAULT_CANDIDATE_RULES = """Apply the fit threshold to the role's core work, not a count of
-matching keywords. Use the following checks before choosing the verdict:
-- Identify the primary deliverables and required depth from responsibilities and required
-  qualifications, not just the title. Separate these from preferred and secondary tools.
-- Map each role-defining requirement to explicit profile evidence at the requested depth.
-  A listed skill supports familiarity; a project supports only the work it describes.
-  Do not invent capabilities, production maturity, or years in a specialization. Total
-  engineering tenure is not tenure in every listed skill. A pilot is not evidence of
-  years operating production systems; adjacent terminology is not direct experience.
-- Treat a required language/framework as core when the posting calls for strong production
-  proficiency in it to deliver the main system. Experience with another backend stack or
-  a matching frontend does not make that requirement secondary. Secondary tools remain
-  learnable when the candidate already demonstrates the core work at comparable depth.
-- Keep distinct specializations distinct: LLM API/agent application work does not establish
-  statistical modeling or production ML expertise; container/cloud work does not establish
-  deep cluster orchestration expertise. Credit the demonstrated work without expanding it.
-- Scope alternatives precisely. If adjacent experience is accepted for one requirement,
-  that allowance does not waive separate required expertise elsewhere in the posting.
-- A positive verdict must be supported on the core work without assuming a new specialization
-  or substantial core-stack retraining. If a role-defining requirement lacks that support,
-  return fit=false and name the decisive gap. Peripheral strengths, company affinity, and
-  preferred skills cannot compensate for that gap. Do not reject for a missing preferred
-  item, an incidental tool, or a modest seniority step when the core work is supported.
-Keep the final explanation concise and consistent with the verdict, identifying the
-decisive core evidence or gap rather than a list of shared keywords."""
+DEFAULT_CANDIDATE_RULES = """Ground priority in the role's actual deliverables and demonstrated
+candidate work. Separate required qualifications from preferences. Do not invent skills,
+production maturity, or specialization tenure. Credit credible transferable work and use
+consider for manageable stretches. Unknown facts are uncertainty, not confirmed blockers.
+Keep the explanation concise and cite the decisive overlap and concern."""
 
 SPLITS = {"optimization", "validation", "held_out"}
 OUTCOMES = ("apply", "stretch", "pass")
@@ -158,11 +138,20 @@ def score_prompt(
     from findajob.scoring.graph import build_graph
 
     state = build_graph().invoke(
-        {"system": system, "posting": job, "model": model, "provider": provider, "review_model": ""}
+        {
+            "system": system,
+            "posting": job,
+            "model": model,
+            "provider": provider,
+            "review_model": model,
+            "review_only": True,
+        }
     )
     verdict = state.get("verdict")
     return {
-        "outcome": ("apply" if verdict["fit"] else "pass") if verdict else None,
+        "outcome": {"first": "apply", "consider": "stretch", "low": "pass"}[verdict["priority"]]
+        if verdict
+        else None,
         "verdict": verdict,
         "error": state.get("error"),
         "attempts": state.get("attempts", 0),
@@ -231,12 +220,11 @@ class EvaluationRunner:
         fit_threshold: int = 70,
     ) -> dict[str, Any]:
         from findajob.core.llm import LLMUnavailableError, get_llm_provider, get_model_for_role
-        from findajob.profile.models import JobFitVerdict
+        from findajob.profile.models import PriorityVerdict
 
         if not candidate_rules.strip() and not profile_boundary.strip():
             raise ValueError("Provide candidate instructions or a profile boundary.")
-        if not 1 <= fit_threshold <= 100:
-            raise ValueError("Fit threshold must be between 1 and 100.")
+        del fit_threshold  # accepted for compatibility; no numerical qualification threshold
         manifest, records = load_dataset(dataset_path, split)
         try:
             selected_provider = get_llm_provider(provider.strip() or None)
@@ -247,7 +235,7 @@ class EvaluationRunner:
         )
         rows = []
         for record in records:
-            baseline = build_system(record["profile_text"], fit_threshold)
+            baseline = build_system(record["profile_text"])
             candidate = baseline
             if candidate_rules.strip():
                 candidate += "\nAdditional evaluation guidelines:\n" + candidate_rules.strip()
@@ -275,11 +263,10 @@ class EvaluationRunner:
             "split": split,
             "model": resolved,
             "provider": selected_provider.name,
-            "fit_threshold": fit_threshold,
             "candidate_rules": candidate_rules,
             "profile_boundary": profile_boundary,
             "completed": 0,
-            "output_schema": JobFitVerdict.model_json_schema(),
+            "output_schema": PriorityVerdict.model_json_schema(),
             "source_checksums": {
                 str(p.relative_to(Path(__file__).parents[1])): hashlib.sha256(
                     p.read_bytes()

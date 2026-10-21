@@ -25,12 +25,13 @@ from findajob.core.llm import (
 )
 from findajob.core.logger import get_logger
 from findajob.profile.adapter import NoActiveProfile
-from findajob.profile.models import JobFitVerdict
+from findajob.profile.models import JobFitVerdict, PriorityVerdict
 from findajob.profile.repository import load_active
 from findajob.scoring import repository as scoring_repo
-from findajob.scoring.graph import build_graph
+from findajob.scoring.graph import CallBudget, build_graph
 from findajob.scoring.prompts import (
     build_system,
+    profile_hash,
     prompt_hash,
     render_posting,
 )
@@ -39,8 +40,6 @@ logger = get_logger()
 
 # Chars per token.
 CHARS_PER_TOKEN = 3.0
-# Measured completion length for simplified JobFitVerdict (fit, reason_type, reason_description).
-EXPECTED_COMPLETION_TOKENS = 60
 
 
 MAX_SCORING_FAILURES = scoring_repo.MAX_SCORING_FAILURES
@@ -120,6 +119,7 @@ def _persist(
     model: str,
     profile_version: int,
     phash: str,
+    profile_content_hash: str = "",
 ) -> None:
     scoring_repo.save_verdict(
         db.conn,
@@ -130,6 +130,7 @@ def _persist(
         model=model,
         profile_version=profile_version,
         phash=phash,
+        profile_content_hash=profile_content_hash,
     )
 
 
@@ -147,11 +148,6 @@ def run_retry(job_id: int | None = None) -> int:
         db.close()
 
 
-def _review_model(scoring_config: dict[str, Any]) -> str:
-    review = scoring_config.get("review") or {}
-    return (review.get("model") or "deepseek-v4-pro") if review.get("enabled", True) else ""
-
-
 def _score_states(
     db: Database,
     jobs: list[dict[str, Any]],
@@ -161,87 +157,74 @@ def _score_states(
     profile_version: int,
     phash: str,
     concurrency: int,
+    budget: CallBudget | None = None,
+    profile_content_hash: str = "",
+    review_only: bool = False,
+    force: bool = False,
 ) -> Generator[tuple[dict[str, Any], dict[str, Any]], None, None]:
-    """Run bounded batches, persisting LangGraph's capture boundary on the DB thread."""
+    """Checkpoint complete single-stage calls before publishing; never resume old screens.
+
+    review_model/review_only are ignored compatibility arguments for older callers.
+    Explicit reassessment forces a fresh call. Automatic recovery reuses matching work.
+    """
+    del review_model, review_only
+    try:
+        provider_identity = get_llm_provider().name
+    except LLMUnavailableError:
+        provider_identity = "unavailable"
+    cache_hash = f"{provider_identity}:{phash}"
     graph = build_graph()
     with ThreadPoolExecutor(max_workers=concurrency) as pool:
         for offset in range(0, len(jobs), concurrency):
             batch = jobs[offset : offset + concurrency]
-            inputs = []
-            priors = []
-            for job in batch:
-                prior = (
-                    scoring_repo.load_pending_review(
-                        db.conn, job, profile_version, phash, model, review_model
-                    )
-                    if review_model
-                    else None
-                )
-                priors.append(prior or {})
-                inputs.append(
+            priors = [
+                scoring_repo.load_assessment(db.conn, job, profile_version, cache_hash, model)
+                if not force
+                else {}
+                for job in batch
+            ]
+
+            def assess(pair: tuple[dict[str, Any], dict[str, Any]]) -> dict[str, Any]:
+                job, prior = pair
+                if prior.get("verdict"):
+                    return {**prior, "run_calls": 0, "run_cost_usd": 0, "run_usage": None}
+                state = graph.invoke(
                     {
-                        **(prior or {}),
                         "system": system,
                         "posting": job,
                         "model": model,
-                        "review_model": review_model,
+                        "budget": budget,
+                        "usage": prior.get("usage"),
+                        "cost_usd": prior.get("cost_usd", 0),
+                        "cost_recorded": prior.get("cost_recorded", 0),
+                        "profile_hash": profile_content_hash,
                     }
                 )
-
-            def first_stage(state: dict[str, Any]) -> dict[str, Any]:
-                if state.get("first_line"):
-                    return state
-                if review_model:
-                    return graph.invoke(state, interrupt_after=["capture"])
-                return graph.invoke(state)
-
-            states = list(pool.map(first_stage, inputs))
-            for job, state, prior in zip(batch, states, priors, strict=True):
-                if state.get("first_line") and not prior:
-                    scoring_repo.save_review_stage(
-                        db.conn,
-                        job,
-                        state,
-                        profile_version,
-                        phash,
-                        model,
-                        review_model,
-                        first_line=True,
-                    )
-            db.conn.commit()
-
-            def second_stage(state: dict[str, Any]) -> dict[str, Any]:
-                if review_model and state.get("first_line") and state.get("verdict") is None:
-                    return graph.invoke(state)
-                return state
-
-            completed = list(pool.map(second_stage, states))
-            for job, state, prior in zip(batch, completed, priors, strict=True):
-                if state.get("first_line"):
-                    scoring_repo.save_review_stage(
-                        db.conn,
-                        job,
-                        state,
-                        profile_version,
-                        phash,
-                        model,
-                        review_model,
-                        first_line=False,
-                    )
-                    db.conn.commit()
-                # Persist lifetime totals, but charge only this run's calls to its budget.
-                state["run_cost_usd"] = state.get("cost_usd", 0.0) - prior.get("cost_usd", 0.0)
-                state["run_calls"] = state.get("attempts", 0) - prior.get("attempts", 0)
-                usage = state.get("usage")
-                prior_usage = prior.get("usage") or {}
+                state["run_calls"] = state.get("attempts", 0)
+                state["attempts"] = state.get("attempts", 0) + prior.get("attempts", 0)
+                state["run_cost_usd"] = state.get("cost_usd", 0) - prior.get("cost_usd", 0)
                 state["run_usage"] = (
-                    {key: value - prior_usage.get(key, 0) for key, value in usage.items()}
-                    if usage
+                    {
+                        key: value - (prior.get("usage") or {}).get(key, 0)
+                        for key, value in state["usage"].items()
+                    }
+                    if state.get("usage")
                     else None
                 )
+                return state
+
+            completed = list(pool.map(assess, zip(batch, priors, strict=True)))
+            for job, state in zip(batch, completed, strict=True):
+                if state.get("run_calls", 0):
+                    scoring_repo.save_assessment(
+                        db.conn, job, profile_version, cache_hash, model, state
+                    )
+            db.conn.commit()
+            for job, state in zip(batch, completed, strict=True):
                 yield job, state
-            # Finish/persist this bounded batch, but never start another during an outage.
-            if any(state.get("balance_exhausted") for state in completed):
+            if any(state.get("balance_exhausted") for state in completed) or (
+                budget and budget.exhausted()
+            ):
                 return
 
 
@@ -251,8 +234,6 @@ def run_scoring(limit: int | None = None) -> int:
     model = scoring_config.get("model") or get_model_for_role("scoring")
     concurrency = int(scoring_config.get("concurrency", 8))
     max_usd = scoring_config.get("max_usd_per_run")
-    fit_threshold = int(scoring_config.get("fit_threshold", 70))
-    review_model = _review_model(scoring_config)
 
     postponed, resume_at = _should_postpone_peak(scoring_config)
     if postponed and resume_at is not None:
@@ -283,12 +264,10 @@ def run_scoring(limit: int | None = None) -> int:
             print("Nothing to score. The backlog is drained.")
             return 0
 
-        system = build_system(summary, fit_threshold=fit_threshold)
-        phash = prompt_hash(summary, fit_threshold=fit_threshold, review_model=review_model)
+        system = build_system(summary)
+        phash = prompt_hash(summary)
         system_tokens = int(len(system) / CHARS_PER_TOKEN)
         print(f"profile v{profile_version} · model {model}")
-        if review_model:
-            print(f"secondary review: {review_model} · all verdicts")
         print(f"postings to score: {len(jobs):,}")
         print(f"cached prefix:     {system_tokens:,} tokens")
         print("cost:              measured from DeepSeek balance after each API call")
@@ -302,16 +281,22 @@ def run_scoring(limit: int | None = None) -> int:
             "failed": 0,
             "retried": 0,
             "retry_usd": 0.0,
-            "reviewed": 0,
-            "overturned": 0,
-            "review_failed": 0,
         }
         first_usage = []
         provider_blocked = False
         provider_recovered = False
 
         states = _score_states(
-            db, jobs, system, model, review_model, profile_version, phash, max(1, concurrency)
+            db,
+            jobs,
+            system,
+            model,
+            "",
+            profile_version,
+            phash,
+            max(1, concurrency),
+            budget=CallBudget(max_usd),
+            profile_content_hash=profile_hash(summary),
         )
         try:
             for job, state in states:
@@ -328,9 +313,9 @@ def run_scoring(limit: int | None = None) -> int:
                     if len(first_usage) < 4:
                         first_usage.append(usage)
 
+                if state.get("budget_exhausted"):
+                    continue
                 if verdict is None:
-                    if state.get("first_line"):
-                        results["review_failed"] += 1
                     results["failed"] += 1
                     results["retry_usd"] += cost
                     if state.get("balance_exhausted"):
@@ -346,20 +331,18 @@ def run_scoring(limit: int | None = None) -> int:
                         state.get("error"),
                     )
                 else:
-                    if state.get("attempts", 1) > (2 if state.get("first_line") else 1):
+                    if state.get("run_calls", 1) > 1:
                         results["retried"] += 1
-                    if state.get("first_line"):
-                        results["reviewed"] += 1
-                        results["overturned"] += verdict["fit"] != state["first_line"]["fit"]
                     _persist(
                         db,
                         job,
                         verdict,
                         usage,
                         state.get("cost_usd", 0.0),
-                        review_model if state.get("first_line") else model,
+                        model,
                         profile_version,
                         phash,
+                        profile_hash(summary),
                     )
                     db.conn.commit()
                     results["scored"] += 1
@@ -396,9 +379,6 @@ def run_scoring(limit: int | None = None) -> int:
         summary_stats = spend.summary()
         print()
         print(f"scored:     {results['scored']:,}")
-        if review_model:
-            print(f"reviewed:   {results['reviewed']:,} · overturned: {results['overturned']:,}")
-            print(f"review failures: {results['review_failed']:,} (first-line verdict saved)")
         if results["failed"]:
             print(f"failed:     {results['failed']:,}  (left as 'new'; the next run retries)")
         print(f"cost:       ${summary_stats['usd']:.4f}")
@@ -459,6 +439,9 @@ def score_job(
     job_id: int,
     db: Database | None = None,
     model: str | None = None,
+    *,
+    review_only: bool = False,
+    budget: CallBudget | None = None,
 ) -> dict[str, Any]:
     """Score a single job posting by ID against the active profile."""
     loaded = load_active()
@@ -469,7 +452,6 @@ def score_job(
     config = load_config()
     scoring_config = config.get("scoring") or {}
     model_name = model or scoring_config.get("model") or get_model_for_role("scoring")
-    fit_threshold = int(scoring_config.get("fit_threshold", 70))
 
     owned = db is None
     database = db or Database()
@@ -480,11 +462,21 @@ def score_job(
             raise ValueError(f"Job with id {job_id} not found.")
         job = jobs[0]
 
-        system = build_system(summary, fit_threshold=fit_threshold)
-        review_model = _review_model(scoring_config)
-        phash = prompt_hash(summary, fit_threshold=fit_threshold, review_model=review_model)
+        system = build_system(summary)
+        phash = prompt_hash(summary)
         states = _score_states(
-            database, [job], system, model_name, review_model, profile_version, phash, 1
+            database,
+            [job],
+            system,
+            model_name,
+            "",
+            profile_version,
+            phash,
+            1,
+            budget=budget or CallBudget(scoring_config.get("max_usd_per_run")),
+            profile_content_hash=profile_hash(summary),
+            review_only=review_only,
+            force=True,
         )
         try:
             _, final_state = next(states)
@@ -496,6 +488,9 @@ def score_job(
         cost = final_state.get("cost_usd", 0.0)
 
         if verdict is None:
+            if final_state.get("budget_exhausted"):
+                database.conn.commit()
+                raise RuntimeError(f"{final_state.get('error')}; assessment can resume")
             if final_state.get("balance_exhausted"):
                 scoring_repo.record_balance_failure(database.conn)
                 database.conn.commit()
@@ -510,23 +505,27 @@ def score_job(
             verdict,
             usage,
             cost,
-            review_model if final_state.get("first_line") else model_name,
+            model_name,
             profile_version,
             phash,
+            profile_hash(summary),
         )
         if final_state.get("run_calls", final_state.get("attempts", 1)) > 0:
             scoring_repo.clear_provider_failure(database.conn)
         database.conn.commit()
-        return verdict
+        return {"stage": "assessed", **verdict}
     finally:
         if owned:
             database.close()
 
 
-def score_selected(job_ids: list[int], model: str | None = None) -> dict[str, Any]:
+def score_selected(
+    job_ids: list[int], model: str | None = None, *, review_only: bool = False
+) -> dict[str, Any]:
     """Score explicit posting IDs without draining the normal backlog."""
     if not job_ids:
         raise ValueError("provide at least one --job-id")
+    budget = CallBudget((load_config().get("scoring") or {}).get("max_usd_per_run"))
     results: list[dict[str, Any]] = []
     blocked = False
     for job_id in dict.fromkeys(job_ids):
@@ -537,7 +536,13 @@ def score_selected(job_ids: list[int], model: str | None = None) -> dict[str, An
             continue
         try:
             results.append(
-                {"job_id": job_id, "status": "ok", "verdict": score_job(job_id, model=model)}
+                {
+                    "job_id": job_id,
+                    "status": "ok",
+                    "verdict": score_job(
+                        job_id, model=model, review_only=review_only, budget=budget
+                    ),
+                }
             )
         except Exception as exc:  # noqa: BLE001 - report every requested ID.
             blocked = isinstance(exc, ScoringBalanceError)
@@ -560,7 +565,6 @@ def review_packet(job_ids: list[int]) -> dict[str, Any]:
     if loaded is None:
         raise NoActiveProfile("No active profile. Build one first: findajob profile build")
     profile_version, _profile, summary = loaded
-    threshold = int((load_config().get("scoring") or {}).get("fit_threshold", 70))
     db = Database()
     try:
         jobs, missing = [], []
@@ -572,7 +576,7 @@ def review_packet(job_ids: list[int]) -> dict[str, Any]:
         return {
             "status": "ok" if not missing else "partial",
             "profile_version": profile_version,
-            "instructions": build_system(summary, fit_threshold=threshold),
+            "instructions": build_system(summary),
             "jobs": jobs,
             "missing_job_ids": missing,
         }
@@ -586,10 +590,18 @@ def save_reviewed_verdict(args: Any) -> dict[str, Any]:
     if loaded is None:
         raise NoActiveProfile("No active profile. Build one first: findajob profile build")
     profile_version, _profile, summary = loaded
-    verdict = JobFitVerdict(
-        fit=args.fit, reason_type=args.reason_type, reason_description=args.reason_description
-    ).model_dump()
-    threshold = int((load_config().get("scoring") or {}).get("fit_threshold", 70))
+    if getattr(args, "priority", None):
+        verdict = PriorityVerdict(
+            priority=args.priority, reason=args.reason_description
+        ).model_dump()
+    else:
+        if args.fit is None:
+            raise ValueError("Provide --priority or a legacy --fit/--no-fit judgment")
+        verdict = JobFitVerdict(
+            fit=args.fit,
+            reason_type=args.reason_type or "unknown",
+            reason_description=args.reason_description,
+        ).model_dump()
     db = Database()
     try:
         jobs = db.query_jobs(job_id=args.job_id, detail=True)["jobs"]
@@ -603,7 +615,8 @@ def save_reviewed_verdict(args: Any) -> dict[str, Any]:
             cost=0.0,
             model="external-review",
             profile_version=profile_version,
-            phash=prompt_hash(summary, fit_threshold=threshold),
+            phash=prompt_hash(summary),
+            profile_content_hash=profile_hash(summary),
         )
         db.conn.commit()
         return {

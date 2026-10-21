@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { render } from "@testing-library/preact";
+import { VerdictPanel } from "../src/routes/dashboard/VerdictPanel";
 import { TierBadge } from "../src/components/badges/TierBadge";
 import type { Job } from "../src/api/types";
 
@@ -68,4 +69,41 @@ describe("TierBadge", () => {
     expect(getByText("unscored")).toBeTruthy();
     expect(container.querySelector(".badge-unscored")).toBeTruthy();
   });
+});
+
+it("shows review priority independently of qualification", () => {
+  const { getByText } = render(<TierBadge job={job({ fit: false, priority: "consider" })} />);
+  expect(getByText("Worth considering")).toBeTruthy();
+});
+
+it("keeps screening exclusions separate from qualification verdicts", () => {
+  const { getByText } = render(
+    <TierBadge
+      job={job({
+        fit: null,
+        stage: "screening_excluded",
+        screening_reason: "Explicit location conflict",
+      })}
+    />,
+  );
+  expect(getByText("Screened out").getAttribute("title")).toBe("Explicit location conflict");
+});
+
+it("displays priority and explanation with a null fit judgment", () => {
+  const { getByText, queryByText } = render(
+    <VerdictPanel
+      job={job({
+        fit: null,
+        priority: "consider",
+        stage: "assessed",
+        reason_description: "Credible adjacent work.",
+        profile_stale: true,
+      })}
+    />,
+  );
+  expect(getByText("Worth considering")).toBeTruthy();
+  expect(getByText("Credible adjacent work.")).toBeTruthy();
+  expect(getByText("Assessed against an earlier profile. Reassessment is explicit.")).toBeTruthy();
+  expect(queryByText("Not assessed yet.")).toBeNull();
+  expect(queryByText("Qualification stretch or gap")).toBeNull();
 });

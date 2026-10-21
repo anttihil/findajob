@@ -1,3 +1,4 @@
+import { TierBadge } from "../../components/badges/TierBadge";
 import { useEffect, useState } from "preact/hooks";
 import { Link } from "wouter-preact";
 import type { GeneratedResumeRecord, JobContext, JobStatus } from "../../api/types";
@@ -7,12 +8,10 @@ import { VerdictPanel } from "./VerdictPanel";
 // Keep the drawer chrome mounted while closed so its slide-in animation can run.
 export function JobDrawer({
   context,
-  fitThreshold = 70,
   onClose,
   onStatusChange,
 }: {
   context: JobContext | null;
-  fitThreshold?: number;
   onClose: () => void;
   onStatusChange: (jobId: number, status: JobStatus) => void;
 }) {
@@ -65,13 +64,7 @@ export function JobDrawer({
 
               <div class="drawer-header">
                 <div class="drawer-badge-row">
-                  <span class="match-badge-lg">
-                    {job.fit !== null && job.fit !== undefined
-                      ? job.fit
-                        ? `Fit${job.reason_type ? ` · ${job.reason_type}` : ""}`
-                        : `No fit${job.reason_type ? ` · ${job.reason_type}` : ""}`
-                      : "Not yet scored"}
-                  </span>
+                  <TierBadge job={job} />
                   <span class="source-badge">{job.source}</span>
                 </div>
                 <h2>{job.title}</h2>
@@ -268,7 +261,7 @@ export function JobDrawer({
                 <div class="drawer-section">
                   <h4>Verdict</h4>
                   <div>
-                    <VerdictPanel job={job} fitThreshold={fitThreshold} />
+                    <VerdictPanel job={job} />
                   </div>
                 </div>
 

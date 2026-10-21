@@ -132,3 +132,13 @@ describe("FilterQuery", () => {
     });
   });
 });
+
+it("preserves priority and stage through paging and drawer navigation", () => {
+  const query = new FilterQuery("?priority=consider&stage=reviewed&offset=50");
+  expect(query.priority).toBe("consider");
+  expect(query.stage).toBe("reviewed");
+  expect(query.page(100)).toContain("priority=consider");
+  expect(query.withJob(42)).toContain("stage=reviewed");
+  expect(query.url({ priority: "first" })).not.toContain("offset=");
+  expect(query.asApiParams().get("priority")).toBe("consider");
+});

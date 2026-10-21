@@ -44,6 +44,11 @@ LEGACY_COLUMNS = {
 }
 
 EXPECTED_COLUMNS = {
+    "stage",
+    "priority",
+    "profile_hash",
+    "posting_hash",
+    "prompt_version",
     "id",
     "job_id",
     "profile_version",

@@ -261,15 +261,15 @@ export function DashboardPage() {
           </div>
         </Link>
         <Link
-          href={query.url({ fit: query.fit === true ? null : true })}
-          class={`stat-card ${query.fit === true ? "active" : ""}`}
+          href={query.url({ fit: null, priority: query.priority === "first" ? "" : "first" })}
+          class={`stat-card ${query.priority === "first" ? "active" : ""}`}
         >
           <div class="stat-icon">
             <i class="fa-solid fa-star"></i>
           </div>
           <div class="stat-info">
-            <span class="stat-label">Strong Fit</span>
-            <h3>{stats.value?.strong_matches ?? 0}</h3>
+            <span class="stat-label">Review first</span>
+            <h3>{stats.value?.review_first ?? 0}</h3>
           </div>
         </Link>
       </div>
@@ -394,10 +394,7 @@ export function DashboardPage() {
                   <div class="no-jobs-card">
                     <i class="fa-solid fa-binoculars"></i>
                     <h3>No matching jobs found</h3>
-                    <p>
-                      Try adjusting your filters, triggering a new database sync, or relaxing your
-                      match threshold.
-                    </p>
+                    <p>Try adjusting your filters or searching for more jobs.</p>
                   </div>
                 )}
                 {jobsPage?.jobs.map((job) => (
@@ -418,7 +415,6 @@ export function DashboardPage() {
           <FilterSidebar
             query={query}
             meta={meta}
-            fitThreshold={meta?.fit_threshold ?? 70}
             onReset={() => clearPreference(DASHBOARD_FILTER_PREFERENCE)}
           />
         </div>
@@ -426,7 +422,6 @@ export function DashboardPage() {
 
       <JobDrawer
         context={drawerContext}
-        fitThreshold={meta?.fit_threshold ?? 70}
         onClose={() => navigate(query.withoutJob())}
         onStatusChange={handleStatusChange}
       />

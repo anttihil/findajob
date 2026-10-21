@@ -592,14 +592,16 @@ export function ResumesPage() {
                       <label class="form-label">
                         AI Strategic Directives & Guidance{" "}
                         <span style={{ color: "var(--ink-muted)", fontSize: "0.75rem" }}>
-                          (Internal instructions for scoring & tailoring; not printed on resume)
+                          (Career direction and preferences affect application priority; only
+                          explicit hard constraints exclude jobs. Also guides tailoring; not printed
+                          on resume)
                         </span>
                       </label>
                       <textarea
                         class="profile-textarea"
                         rows={6}
                         style={{ minHeight: "135px" }}
-                        placeholder="e.g. Focus on distributed systems and platform roles. Open to fintech, robotics, and developer tooling; avoid pure frontend roles. Count Go and Python experience as equivalent to Java backend requirements."
+                        placeholder="e.g. Focus on distributed systems and platform roles. Open to fintech, robotics, and developer tooling; avoid pure frontend roles. Prioritize roles with hands-on technical delivery and ownership."
                         value={masterProfile.model_guidance}
                         onInput={(e) =>
                           setMasterProfile({
@@ -614,7 +616,7 @@ export function ResumesPage() {
                       <label class="form-label">
                         Non-Negotiable Dealbreakers (one per line or comma-separated){" "}
                         <span style={{ color: "var(--ink-muted)", fontSize: "0.75rem" }}>
-                          (Hard disqualifiers that trigger an immediate fit: false verdict)
+                          (Confirmed hard constraints used in priority assessment)
                         </span>
                       </label>
                       <textarea

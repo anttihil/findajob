@@ -55,7 +55,7 @@ def build_parser() -> argparse.ArgumentParser:
     evaluate.add_argument("--provider", default="", help="override LLM_PROVIDER from .env")
     evaluate.add_argument("--candidate-rules-file", help="UTF-8 instructions appended to candidate")
     evaluate.add_argument("--profile-boundary-file", help="UTF-8 candidate profile clarification")
-    evaluate.add_argument("--fit-threshold", type=int, default=70)
+    evaluate.add_argument("--fit-threshold", type=int, default=70, help=argparse.SUPPRESS)
     evaluate.add_argument(
         "--output-dir", help="default: labeler_evaluations beside labeler database"
     )

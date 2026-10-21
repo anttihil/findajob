@@ -135,7 +135,7 @@ def render_profile_for_scoring(profile: Profile) -> str:
         )
 
     # Non-negotiable Dealbreakers
-    dealbreakers = profile.dealbreakers or profile.targeting.dealbreakers
+    dealbreakers = profile.dealbreakers
     if dealbreakers:
         lines.extend(
             [

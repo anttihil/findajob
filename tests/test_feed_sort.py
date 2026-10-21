@@ -1,12 +1,7 @@
-"""The default feed sort: strong fit first, then date posted (with timestamps/dates).
+"""Priority groups share posting-date and stable-ID ordering throughout the feed.
 
-Postings are sorted by strong fit (`v.fit DESC NULLS LAST`), then by when they
-were posted (`COALESCE(jobs.date_posted, jobs.date_found) DESC`), with
-`jobs.match_score DESC` as secondary sort for same-day items, followed by
-`jobs.date_found DESC` and `jobs.id DESC` as the final tie-breakers.
-
-The fallback ensures dateless rows (which carry no `date_posted`) are coalesced
-to the date they were found rather than being parked at the end of the feed.
+Historical fit judgments carry no inferred application priority. Dateless postings use
+found date; legacy keyword scores never affect tie-breaking.
 """
 
 import inspect
@@ -70,7 +65,7 @@ class DatePostedSortTests(unittest.TestCase):
         page = self.db.query_jobs(status="unread", limit=50)
         return [job["id"] for job in page["jobs"]]
 
-    def test_strong_fit_outranks_no_fit_and_unscored(self) -> None:
+    def test_historical_fit_has_no_inferred_priority(self) -> None:
         self.profile(version=1, is_active=1)
         # 1 is older but a strong fit (fit=1)
         self.job(1, "2026-08-01T10:00:00", "2026-08-01T12:00:00+00:00")
@@ -83,7 +78,7 @@ class DatePostedSortTests(unittest.TestCase):
         # 3 is newest but unscored (no verdict row -> fit=NULL)
         self.job(3, "2026-08-12T10:00:00", "2026-08-12T12:00:00+00:00")
 
-        self.assertEqual([1, 2, 3], self.feed())
+        self.assertEqual([3, 2, 1], self.feed())
 
     def test_the_feed_descends_by_posted_date_not_found_date(self) -> None:
         # 1 was posted first and found last; a `date_found` sort would invert these.
@@ -97,7 +92,7 @@ class DatePostedSortTests(unittest.TestCase):
         self.job(2, "2026-08-10T14:30:00", "2026-08-11T09:00:00+00:00")
         self.assertEqual([2, 1], self.feed())
 
-    def test_a_same_day_tie_breaks_on_the_found_date(self) -> None:
+    def test_a_same_day_tie_breaks_on_id(self) -> None:
         self.job(1, "2026-08-10T12:00:00Z", "2026-08-10T09:00:00+00:00")
         self.job(2, "2026-08-10T12:00:00Z", "2026-08-12T09:00:00+00:00")
         self.assertEqual([2, 1], self.feed())
@@ -122,10 +117,10 @@ class DatePostedSortTests(unittest.TestCase):
         self.job(2, "2026-08-10T12:00:00Z", "2026-08-10T09:00:00+00:00")
         self.assertEqual([2, 1], self.db.job_ids_for(status="unread", limit=50))
 
-    def test_same_day_sorts_by_match_score_desc(self) -> None:
-        # Same day and found time, but job 2 has a higher match_score
-        self.job(1, "2026-08-10T12:00:00Z", "2026-08-10T09:00:00+00:00", match_score=50)
-        self.job(2, "2026-08-10T12:00:00Z", "2026-08-10T09:00:00+00:00", match_score=85)
+    def test_same_day_ignores_legacy_match_score(self) -> None:
+        # Same day and found time: ID 2 ranks first despite its lower legacy score.
+        self.job(1, "2026-08-10T12:00:00Z", "2026-08-10T09:00:00+00:00", match_score=85)
+        self.job(2, "2026-08-10T12:00:00Z", "2026-08-10T09:00:00+00:00", match_score=50)
         self.assertEqual([2, 1], self.feed())
 
     def test_same_day_and_match_score_tie_breaks_on_id_desc(self) -> None:

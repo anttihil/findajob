@@ -15,7 +15,7 @@ from findajob.labeler.evaluation import (
     metrics,
     score_prompt,
 )
-from findajob.profile.models import JobFitVerdict
+from findajob.profile.models import PriorityVerdict
 
 
 @pytest.fixture
@@ -228,8 +228,9 @@ def test_runner_adapter_reuses_retries_pins_provider_and_tracks_cost_coverage(
         {"raw": raw, "parsed": None, "parsing_error": "Missing tool call"},
         {
             "raw": raw,
-            "parsed": JobFitVerdict(
-                fit=True, reason_type="match", reason_description="Direct platform evidence."
+            "parsed": PriorityVerdict(
+                priority="first",
+                reason="Direct platform evidence.",
             ),
         },
     ]
@@ -240,4 +241,6 @@ def test_runner_adapter_reuses_retries_pins_provider_and_tracks_cost_coverage(
     assert result["attempts"] == 2
     assert result["usage"]["prompt"] == 20
     assert result["cost_usd"] == (None if cost is None else 0.06)
-    factory.assert_called_with("test-model", role="scoring", provider="test-provider")
+    factory.assert_called_with(
+        "test-model", role="scoring", provider="test-provider", max_tokens=256, max_retries=0
+    )

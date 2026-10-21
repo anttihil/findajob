@@ -71,7 +71,7 @@ def get_query_yield_cells(
             sq.id AS search_query_id,
             COUNT(DISTINCT j.id) AS total_postings,
             COUNT(DISTINCT CASE WHEN j.duplicate_of IS NULL THEN j.id END) AS unique_postings,
-            COUNT(DISTINCT v.job_id) AS scored_postings,
+            COUNT(DISTINCT CASE WHEN v.fit IS NOT NULL THEN v.job_id END) AS scored_postings,
             COUNT(DISTINCT CASE WHEN v.fit = 1 THEN v.job_id END) AS strong_fits,
             COUNT(DISTINCT CASE WHEN v.fit = 0 THEN v.job_id END) AS no_fits,
             sc.total_scrapes,
@@ -120,7 +120,7 @@ def get_tuple_daily_yield(
     rows = conn.execute(
         """
         SELECT date(j.date_found) AS date, COUNT(*) AS total_postings,
-               COUNT(v.job_id) AS scored_postings,
+               COUNT(CASE WHEN v.fit IS NOT NULL THEN v.job_id END) AS scored_postings,
                SUM(CASE WHEN v.fit = 1 THEN 1 ELSE 0 END) AS strong_fits
           FROM jobs j
           LEFT JOIN job_verdicts v ON v.id = (

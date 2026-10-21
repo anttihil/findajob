@@ -7,7 +7,11 @@ from datetime import datetime, timezone
 from typing import Any
 
 from findajob.profile.models import DEFAULT_PROFILE_VERSION, VERDICT_SCHEMA_VERSION
-from findajob.scoring.prompts import render_posting
+from findajob.scoring.prompts import (
+    REVIEW_PROMPT_VERSION,
+    SCREENING_PROMPT_VERSION,
+    SCREENING_SCHEMA_VERSION,
+)
 
 MAX_SCORING_FAILURES = 3
 BALANCE_ERROR_MESSAGE = (
@@ -50,6 +54,8 @@ _ELIGIBLE = """
 """
 
 _NO_VERDICT = """
+       AND NOT EXISTS (SELECT 1 FROM job_screenings s WHERE s.job_id = j.id
+                       AND s.stage IN ('screening_excluded', 'reviewed'))
        AND NOT EXISTS (
              SELECT 1 FROM job_verdicts v
               WHERE v.job_id = j.id
@@ -184,7 +190,69 @@ def reset_scoring_failures(conn: sqlite3.Connection, job_id: int | None = None) 
 
 
 def _posting_hash(job: dict[str, Any]) -> str:
-    return hashlib.sha256(render_posting(job).encode()).hexdigest()
+    inputs = {
+        key: job.get(key)
+        for key in (
+            "title",
+            "company",
+            "location",
+            "description",
+            "is_remote",
+            "salary_annual_usd",
+        )
+    }
+    return hashlib.sha256(json.dumps(inputs, sort_keys=True).encode()).hexdigest()
+
+
+def assessment_input_hash(job: dict[str, Any], phash: str, model: str) -> str:
+    return hashlib.sha256(json.dumps([_posting_hash(job), phash, model]).encode()).hexdigest()
+
+
+def load_assessment(
+    conn: sqlite3.Connection, job: dict[str, Any], profile_version: int, phash: str, model: str
+) -> dict[str, Any]:
+    row = conn.execute(
+        "SELECT state_json FROM assessment_runs WHERE job_id=? AND profile_version=? "
+        "AND input_hash=? AND model=?",
+        (job["id"], profile_version, assessment_input_hash(job, phash, model), model),
+    ).fetchone()
+    return json.loads(row[0]) if row else {}
+
+
+def save_assessment(
+    conn: sqlite3.Connection,
+    job: dict[str, Any],
+    profile_version: int,
+    phash: str,
+    model: str,
+    state: dict[str, Any],
+) -> None:
+    payload = {
+        key: state[key]
+        for key in (
+            "verdict",
+            "usage",
+            "cost_usd",
+            "cost_recorded",
+            "attempts",
+            "error",
+            "profile_hash",
+        )
+        if key in state
+    }
+    conn.execute(
+        "INSERT INTO assessment_runs VALUES (?, ?, ?, ?, ?, ?) "
+        "ON CONFLICT(job_id, profile_version, input_hash, model) DO UPDATE SET "
+        "state_json=excluded.state_json, updated_at=excluded.updated_at",
+        (
+            job["id"],
+            profile_version,
+            assessment_input_hash(job, phash, model),
+            model,
+            json.dumps(payload),
+            _now(),
+        ),
+    )
 
 
 def load_pending_review(
@@ -203,7 +271,11 @@ def load_pending_review(
     ).fetchone()
     if row is None:
         return None
-    return json.loads(row["review_state"] or row["first_line_state"])
+    state = json.loads(row["review_state"] or row["first_line_state"])
+    # Never resume the retired first-line fit schema as a screening result.
+    if state.get("first_line") and "advance" not in state["first_line"]:
+        return None
+    return state
 
 
 def save_review_stage(
@@ -230,8 +302,17 @@ def save_review_stage(
         "attempts",
         "review_attempts",
         "error",
+        "profile_hash",
+        "review_only",
     )
-    payload = json.dumps({key: state[key] for key in keys if key in state})
+    payload = json.dumps(
+        {
+            **{key: state[key] for key in keys if key in state},
+            "stage": "screening" if first_line else "review",
+            "review_prompt_version": REVIEW_PROMPT_VERSION,
+            "review_schema_version": VERDICT_SCHEMA_VERSION,
+        }
+    )
     if first_line:
         conn.execute(
             "INSERT INTO verdict_reviews "
@@ -254,11 +335,80 @@ def save_review_stage(
                 _now(),
             ),
         )
-    else:
+    conn.execute(
+        "UPDATE verdict_reviews SET profile_hash = ? WHERE job_id = ? AND profile_version = ?",
+        (state.get("profile_hash", ""), job["id"], profile_version),
+    )
+    if not first_line:
         conn.execute(
             "UPDATE verdict_reviews SET review_state = ?, updated_at = ? "
             "WHERE job_id = ? AND profile_version = ?",
             (payload, _now(), job["id"], profile_version),
+        )
+
+
+def save_screening(
+    conn: sqlite3.Connection,
+    job: dict[str, Any],
+    state: dict[str, Any],
+    profile_version: int,
+    phash: str,
+    model: str,
+    review_model: str,
+) -> None:
+    """Store screening decisions (and failed attempts) independently of final verdicts."""
+    screening = state.get("first_line") or {}
+    usage = state.get("first_line_usage") or state.get("usage") or {}
+    advance = screening.get("advance")
+    stage = (
+        ("review_pending" if advance else "screening_excluded") if screening else "screening_failed"
+    )
+    payload = {k: v for k, v in state.items() if k not in ("budget", "posting", "system")}
+    conn.execute(
+        """INSERT INTO job_screenings
+        (job_id, profile_version, advance, reason, stage, model, review_model,
+         profile_hash, posting_hash, prompt_hash, prompt_version, schema_version,
+         state_json, tokens_in, tokens_cached, tokens_out, cost_usd, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(job_id, profile_version) DO UPDATE SET
+        advance=excluded.advance, reason=excluded.reason, stage=excluded.stage,
+        model=excluded.model, review_model=excluded.review_model,
+        profile_hash=excluded.profile_hash,
+        posting_hash=excluded.posting_hash, prompt_hash=excluded.prompt_hash,
+        prompt_version=excluded.prompt_version, schema_version=excluded.schema_version,
+        state_json=excluded.state_json, tokens_in=excluded.tokens_in,
+        tokens_cached=excluded.tokens_cached, tokens_out=excluded.tokens_out,
+        cost_usd=excluded.cost_usd, created_at=excluded.created_at""",
+        (
+            job["id"],
+            profile_version,
+            advance,
+            screening.get("reason"),
+            stage,
+            model,
+            review_model,
+            state.get("profile_hash", ""),
+            _posting_hash(job),
+            phash,
+            SCREENING_PROMPT_VERSION,
+            SCREENING_SCHEMA_VERSION,
+            json.dumps(payload),
+            usage.get("prompt"),
+            usage.get("cache_hit"),
+            usage.get("completion"),
+            state.get("first_line_cost_usd", state.get("cost_usd", 0)),
+            _now(),
+        ),
+    )
+    if advance is False:
+        conn.execute(
+            "UPDATE jobs SET scored_at = ?, pipeline_state = 'scored', "
+            "scoring_failures = 0, last_scoring_error = NULL WHERE id = ?",
+            (_now(), job["id"]),
+        )
+        conn.execute(
+            "UPDATE verdict_reviews SET finalized = 1 WHERE job_id = ? AND profile_version = ?",
+            (job["id"], profile_version),
         )
 
 
@@ -271,11 +421,17 @@ def save_verdict(
     model: str,
     profile_version: int,
     phash: str,
+    profile_content_hash: str = "",
 ) -> None:
     """Persist scoring verdict and update job state."""
-    fit_val = 1 if verdict.get("fit") else 0
-    reason_type = verdict.get("reason_type") or "unknown"
-    reason_desc = verdict.get("reason_description") or ""
+    fit_val = None if verdict.get("fit") is None else int(bool(verdict["fit"]))
+    reason_type = verdict.get("reason_type")
+    reason_desc = verdict.get("reason") or verdict.get("reason_description") or ""
+    conn.execute(
+        "INSERT INTO job_verdict_history SELECT *, ? FROM job_verdicts "
+        "WHERE job_id=? AND profile_version=?",
+        (_now(), job["id"], profile_version),
+    )
 
     conn.execute(
         """
@@ -309,8 +465,22 @@ def save_verdict(
             usage["completion"] if usage else None,
             cost,
             _now(),
-            VERDICT_SCHEMA_VERSION,
+            VERDICT_SCHEMA_VERSION if verdict.get("priority") else 3,
             phash,
+        ),
+    )
+    conn.execute(
+        "UPDATE job_verdicts SET priority = ?, profile_hash = ?, posting_hash = ?, "
+        "prompt_version = ?, stage = ? "
+        "WHERE job_id = ? AND profile_version = ?",
+        (
+            verdict.get("priority"),
+            profile_content_hash or None,
+            _posting_hash(job),
+            REVIEW_PROMPT_VERSION if verdict.get("priority") else None,
+            "assessed" if "reason" in verdict else None,
+            job["id"],
+            profile_version,
         ),
     )
     conn.execute(
@@ -322,7 +492,7 @@ def save_verdict(
         "UPDATE verdict_reviews SET finalized = 1 WHERE job_id = ? AND profile_version = ?",
         (job["id"], profile_version),
     )
-    if job.get("scrape_cell_id"):
+    if job.get("scrape_cell_id") and fit_val is not None:
         from findajob.search.repository import update_cell_quality
 
         update_cell_quality(conn, job["scrape_cell_id"], bool(verdict.get("fit")))
@@ -425,7 +595,8 @@ def get_observability_stats(conn: sqlite3.Connection) -> dict[str, Any]:
     cache_hit_rate = round(total_cached / total_in, 4) if total_in > 0 else 0.0
     fit_count = row["fit_count"] or 0
     no_fit_count = row["no_fit_count"] or 0
-    fit_rate = round(fit_count / total_verdicts, 4) if total_verdicts > 0 else 0.0
+    qualified_total = fit_count + no_fit_count
+    fit_rate = round(fit_count / qualified_total, 4) if qualified_total else 0.0
 
     reasons_sql = """
         SELECT
@@ -598,6 +769,7 @@ def query_observability_verdicts(
             j.location,
             j.url,
             {fit_expr} AS fit,
+            v.priority,
             {reason_expr} AS reason_type,
             {desc_expr} AS reason_description,
             COALESCE(v.tokens_in, 0) AS tokens_in,
@@ -623,7 +795,8 @@ def query_observability_verdicts(
             "company": r["company"] or "Unknown Company",
             "location": r["location"],
             "url": r["url"] or "",
-            "fit": bool(r["fit"]) if r["fit"] is not None else False,
+            "fit": bool(r["fit"]) if r["fit"] is not None else None,
+            "priority": r["priority"],
             "reason_type": r["reason_type"] or "unknown",
             "reason_description": r["reason_description"] or "",
             "tokens_in": r["tokens_in"],

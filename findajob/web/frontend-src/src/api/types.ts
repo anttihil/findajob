@@ -54,6 +54,19 @@ export interface Job {
   fit: boolean | number | null;
   reason_type: string | null;
   reason_description: string | null;
+  priority?: "first" | "consider" | "low" | null;
+  stage?:
+    | "screening_excluded"
+    | "review_pending"
+    | "screening_failed"
+    | "assessed"
+    | "reviewed"
+    | "historical"
+    | "unreviewed";
+  profile_hash?: string | null;
+  profile_stale?: boolean | null;
+  screening_advance?: boolean | null;
+  screening_reason?: string | null;
   pipeline_state: PipelineState | null;
 
   // Computed server-side, not raw columns.
@@ -192,7 +205,6 @@ export interface Meta {
   locations: { id: string; label: string; enabled: boolean }[];
   verdicts?: [string, string][];
   reason_types?: [string, string][];
-  fit_threshold: number;
 }
 
 export interface StatusCounts {
@@ -210,6 +222,7 @@ export interface Stats {
   pipeline_counts: Record<string, number>;
   ordinals?: Record<string, Record<string, number>>;
   strong_matches: number;
+  review_first: number;
   liveness_counts: { live: number; stale: number; likely_closed: number; unknown: number };
 }
 
@@ -525,7 +538,8 @@ export interface ObservabilityVerdictItem {
   company: string;
   location: string | null;
   url: string;
-  fit: boolean;
+  fit: boolean | null;
+  priority: "first" | "consider" | "low" | null;
   reason_type: string;
   reason_description: string;
   tokens_in: number;

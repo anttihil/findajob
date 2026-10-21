@@ -270,7 +270,8 @@ export function MarketPage() {
           <>
             <p class="card-note">
               {tuples.length.toLocaleString()} tuples · Jobs are counted by discovery date (UTC).
-              Strong fits use the latest verdict; unscored jobs are pending.
+              Strong fits and fit rates use historical qualification judgments. Priority-only
+              assessments are excluded.
             </p>
             <div class="market-table-wrap">
               <table class="data-table market-table market-tuple-table">
@@ -320,8 +321,8 @@ export function MarketPage() {
             </div>
             <div class="market-list-footer">
               <span class="card-note">
-                Fit rate = strong fits ÷ scored jobs. A job is attributed to the tuple that found
-                it.
+                Historical fit rate = strong fits ÷ jobs with a qualification judgment. A job is
+                attributed to the tuple that found it.
               </span>
               {tuples.length > PAGE_SIZE && (
                 <nav class="market-pagination" aria-label="Search tuple pages">

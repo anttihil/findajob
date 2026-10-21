@@ -32,12 +32,10 @@ const DATE_POSTED_OPTIONS: [string, string][] = [
 export function FilterSidebar({
   query,
   meta,
-  fitThreshold,
   onReset,
 }: {
   query: FilterQuery;
   meta: Meta | null;
-  fitThreshold: number;
   onReset: () => void;
 }) {
   const [, navigate] = useLocation();
@@ -122,7 +120,40 @@ export function FilterSidebar({
       </div>
 
       <div class="filter-group">
-        <label for="filter-fit">Job Fit</label>
+        <label for="filter-priority">Application priority</label>
+        <select
+          id="filter-priority"
+          class="form-select"
+          value={query.priority}
+          onChange={(e) => navigate(query.url({ priority: (e.target as HTMLSelectElement).value }))}
+        >
+          <option value="">All priorities</option>
+          <option value="first">Review first</option>
+          <option value="consider">Worth considering</option>
+          <option value="low">Low priority</option>
+        </select>
+      </div>
+      <div class="filter-group">
+        <label for="filter-stage">Assessment stage</label>
+        <select
+          id="filter-stage"
+          class="form-select"
+          value={query.stage}
+          onChange={(e) => navigate(query.url({ stage: (e.target as HTMLSelectElement).value }))}
+        >
+          <option value="">All stages</option>
+          <option value="assessed">Assessed</option>
+          <option value="reviewed">Legacy reviewed</option>
+          <option value="screening_excluded">Screening exclusions</option>
+          <option value="review_pending">Awaiting review</option>
+          <option value="screening_failed">Screening failed</option>
+          <option value="historical">Historical verdicts</option>
+          <option value="unreviewed">Unreviewed</option>
+        </select>
+      </div>
+
+      <div class="filter-group">
+        <label for="filter-fit">Historical fit judgment</label>
         <select
           id="filter-fit"
           class="form-select"
@@ -133,8 +164,8 @@ export function FilterSidebar({
           }}
         >
           <option value="">All fits</option>
-          <option value="true">Fit only (≥{fitThreshold}%)</option>
-          <option value="false">No fit (&lt;{fitThreshold}%)</option>
+          <option value="true">Historical fit</option>
+          <option value="false">Historical no-fit</option>
         </select>
       </div>
 

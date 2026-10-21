@@ -54,11 +54,9 @@ LIVENESS_CASE = """
 
 ACTIVE_PROFILE_VERSION = str(DEFAULT_PROFILE_VERSION)
 
-FEED_FROM = f"""
+FEED_FROM = """
       FROM jobs
-      LEFT JOIN job_verdicts v
-             ON v.job_id = jobs.id
-            AND v.profile_version = ({ACTIVE_PROFILE_VERSION})
+      LEFT JOIN v_job_assessments v ON v.job_id = jobs.id
       LEFT JOIN scrape_cells cell ON cell.id = jobs.scrape_cell_id
 """
 
@@ -67,6 +65,11 @@ VERDICT_LIST_COLUMNS = (
     "fit",
     "reason_type",
     "reason_description",
+    "priority",
+    "stage",
+    "profile_hash",
+    "screening_advance",
+    "screening_reason",
 )
 VERDICT_DETAIL_COLUMNS = VERDICT_LIST_COLUMNS
 
@@ -82,11 +85,9 @@ DATE_POSTED_WINDOWS: dict[str, float] = {
 }
 
 FEED_ORDER_BY = (
-    "v.fit DESC NULLS LAST, "
-    "COALESCE(jobs.date_posted, jobs.date_found) DESC, "
-    "jobs.match_score DESC, "
-    "jobs.date_found DESC, "
-    "jobs.id DESC"
+    "CASE WHEN v.priority = 'first' THEN 0 WHEN v.priority = 'consider' THEN 1 "
+    "WHEN v.priority = 'low' OR v.stage = 'screening_excluded' THEN 3 ELSE 2 END, "
+    "COALESCE(jobs.date_posted, jobs.date_found) DESC, jobs.id DESC"
 )
 
 # Do not group records with a missing company or title.  A blank field is not an identity,
@@ -146,6 +147,8 @@ def feed_filters(
     job_id: int | None = None,
     fit: bool | None = None,
     reason_type: str | None = None,
+    priority: str | None = None,
+    stage: str | None = None,
     date_posted: str | None = None,
     q: str | None = None,
 ) -> tuple[str, list[Any]]:
@@ -178,6 +181,12 @@ def feed_filters(
     if fit is not None:
         sql += " AND v.fit = ?"
         params.append(1 if fit else 0)
+    if priority:
+        sql += " AND v.priority = ?"
+        params.append(priority)
+    if stage:
+        sql += " AND v.stage = ?"
+        params.append(stage)
     if reason_type:
         sql += " AND v.reason_type = ?"
         params.append(reason_type.strip().lower())
@@ -222,6 +231,8 @@ def query_jobs(
     job_id: int | None = None,
     fit: bool | None = None,
     reason_type: str | None = None,
+    priority: str | None = None,
+    stage: str | None = None,
     date_posted: str | None = None,
     q: str | None = None,
     limit: int = 200,
@@ -248,6 +259,8 @@ def query_jobs(
         job_id=job_id,
         fit=fit,
         reason_type=reason_type,
+        priority=priority,
+        stage=stage,
         date_posted=date_posted,
         q=q,
     )
@@ -273,9 +286,7 @@ def query_jobs(
             SELECT {cols_sql}, grouped.listing_count, COUNT(*) OVER () AS _total
             FROM grouped
             JOIN jobs ON jobs.id = grouped.job_id
-            LEFT JOIN job_verdicts v
-                   ON v.job_id = jobs.id
-                  AND v.profile_version = ({ACTIVE_PROFILE_VERSION})
+            LEFT JOIN v_job_assessments v ON v.job_id = jobs.id
             LEFT JOIN scrape_cells cell ON cell.id = jobs.scrape_cell_id
             WHERE grouped.listing_rank = 1
         """
@@ -284,10 +295,19 @@ def query_jobs(
     query += " LIMIT ? OFFSET ?"
     params.extend([limit, offset])
 
+    from findajob.profile.render import render_profile_for_scoring
+    from findajob.profile.repository import load_profile
+    from findajob.scoring.prompts import profile_hash
+
+    current_profile_hash = profile_hash(render_profile_for_scoring(load_profile(conn)))
     jobs: list[dict[str, Any]] = []
     for row in conn.execute(query, params):
         job = dict(row)
         total = job.pop("_total")
+        job["stage"] = job.get("stage") or "unreviewed"
+        job["profile_stale"] = (
+            job["profile_hash"] != current_profile_hash if job.get("profile_hash") else None
+        )
         for field in JSON_COLUMNS:
             if field in job:
                 job[field] = json.loads(job[field]) if job[field] else []
@@ -323,6 +343,8 @@ def job_ids_for(
     job_id: int | None = None,
     fit: bool | None = None,
     reason_type: str | None = None,
+    priority: str | None = None,
+    stage: str | None = None,
     date_posted: str | None = None,
     q: str | None = None,
     limit: int = 200,
@@ -345,6 +367,8 @@ def job_ids_for(
         job_id=job_id,
         fit=fit,
         reason_type=reason_type,
+        priority=priority,
+        stage=stage,
         date_posted=date_posted,
         q=q,
     )
@@ -364,9 +388,7 @@ def job_ids_for(
             SELECT jobs.id
             FROM grouped
             JOIN jobs ON jobs.id = grouped.job_id
-            LEFT JOIN job_verdicts v
-                   ON v.job_id = jobs.id
-                  AND v.profile_version = ({ACTIVE_PROFILE_VERSION})
+            LEFT JOIN v_job_assessments v ON v.job_id = jobs.id
             LEFT JOIN scrape_cells cell ON cell.id = jobs.scrape_cell_id
             WHERE grouped.listing_rank = 1
         """
@@ -375,6 +397,8 @@ def job_ids_for(
 
     key = (
         db_path,
+        conn,  # data_version is local to a connection, not comparable across requests.
+        conn.total_changes,  # data_version excludes writes on this same connection.
         query,
         tuple(args),
         conn.execute("PRAGMA data_version").fetchone()[0],
@@ -456,6 +480,10 @@ def compute_stats(conn: sqlite3.Connection) -> dict[str, Any]:
         """
     )
     stats["strong_matches"] = cursor.fetchone()[0] or 0
+    stats["review_first"] = cursor.execute(
+        "SELECT COUNT(*) FROM jobs j JOIN v_job_assessments v ON v.job_id=j.id "
+        "WHERE j.duplicate_of IS NULL AND v.priority='first'"
+    ).fetchone()[0]
 
     cursor.execute(
         f"SELECT {LIVENESS_CASE} AS liveness, COUNT(*)"

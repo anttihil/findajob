@@ -123,6 +123,7 @@ def _candidate_pool(
         f"j.{name}" for name in ("last_seen_at", "date_posted", "date_found") if name in job_columns
     ]
     order_expr = f"COALESCE({', '.join(date_columns)})" if date_columns else "j.id"
+    priority = "v.priority" if "priority" in verdict_columns else "NULL"
     reason_type = "v.reason_type" if "reason_type" in verdict_columns else "NULL"
     reason_description = (
         "v.reason_description" if "reason_description" in verdict_columns else "NULL"
@@ -152,13 +153,13 @@ def _candidate_pool(
                {"j.company_normalized" if "company_normalized" in job_columns else "NULL"}
                    AS company_normalized,
                {"j.content_hash" if "content_hash" in job_columns else "NULL"} AS content_hash,
-               v.fit, {reason_type} AS reason_type,
+               v.fit, {priority} AS priority, {reason_type} AS reason_type,
                {reason_description} AS reason_description,
                {created_at} AS verdict_created_at
           FROM recent_jobs j
           JOIN job_verdicts v ON v.job_id = j.id {profile_filter}
           {live_join}
-         WHERE v.fit IN (0, 1)
+         WHERE (v.fit IN (0, 1) OR {priority} IN ('first', 'consider', 'low'))
                {live_clause}
          ORDER BY {order_expr} DESC, j.id DESC
          LIMIT ?
@@ -178,6 +179,13 @@ def _take_ranked(
     return selected
 
 
+def _retained(row: dict[str, Any]) -> bool:
+    """Sampling boundary only; never manufacture a qualification verdict."""
+    if row.get("priority"):
+        return row["priority"] in {"first", "consider"}
+    return row.get("fit") == 1
+
+
 def sample_candidates(
     conn: sqlite3.Connection,
     *,
@@ -194,17 +202,18 @@ def sample_candidates(
 
     family_fits: dict[str, set[int]] = defaultdict(set)
     for row in pool:
-        family_fits[_family_key(row)].add(int(row["fit"]))
+        family_fits[_family_key(row)].add(int(_retained(row)))
 
     borderline = [
         row
         for row in pool
         if len(family_fits[_family_key(row)]) > 1
-        or (int(row["fit"]) == 1 and GAP_PATTERN.search(str(row.get("reason_description") or "")))
+        or row.get("priority") == "consider"
+        or (_retained(row) and GAP_PATTERN.search(str(row.get("reason_description") or "")))
     ]
     rejects: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for row in pool:
-        if int(row["fit"]) == 0:
+        if int(_retained(row)) == 0:
             reason = str(row.get("reason_type") or "unknown").casefold()
             key = reason if reason in TARGET_REJECT_REASONS else "other"
             rejects[key].append(row)
@@ -228,12 +237,12 @@ def sample_candidates(
     # Sparse strata are backfilled from all rejects while retaining the category in the
     # snapshot metadata, rather than silently shrinking the requested queue.
     missing_rejects = reject_count - sum(bucket.startswith("reject:") for _, bucket in selected)
-    all_rejects = [row for row in pool if int(row["fit"]) == 0]
+    all_rejects = [row for row in pool if int(_retained(row)) == 0]
     for row in _take_ranked(all_rejects, missing_rejects, seed + 199, used):
         reason = str(row.get("reason_type") or "other").casefold()
         selected.append((row, f"reject:{reason}"))
 
-    matches = [row for row in pool if int(row["fit"]) == 1]
+    matches = [row for row in pool if int(_retained(row)) == 1]
     for row in _take_ranked(matches, match_count, seed + 211, used):
         selected.append((row, "match"))
 
@@ -261,6 +270,7 @@ def _selected_candidates(
         row = conn.execute(
             f"""
             SELECT job_id AS id, fit,
+                   {"priority" if "priority" in verdict_columns else "NULL"} AS priority,
                    {"reason_type" if "reason_type" in verdict_columns else "NULL"}
                        AS reason_type,
                    {"reason_description" if "reason_description" in verdict_columns else "NULL"}
@@ -275,8 +285,8 @@ def _selected_candidates(
         if row is None:
             raise ValueError(f"Job {job_id} has no verdict for the active profile.")
         candidate = dict(row)
-        if candidate.get("fit") not in {0, 1}:
-            raise ValueError(f"Job {job_id} does not have a completed binary verdict.")
+        if candidate.get("fit") not in {0, 1} and not candidate.get("priority"):
+            raise ValueError(f"Job {job_id} does not have a completed assessment.")
         job = conn.execute("SELECT * FROM jobs WHERE id = ?", (job_id,)).fetchone()
         assert job is not None
         candidate.update(dict(job))
@@ -344,7 +354,9 @@ def import_examples(
                     ).encode()
                 ).hexdigest()
                 fit = verdict.get("fit")
-                model_outcome = "match" if fit == 1 else "reject" if fit == 0 else None
+                model_outcome = verdict.get("priority") or (
+                    "match" if fit == 1 else "reject" if fit == 0 else None
+                )
                 metadata = {
                     "source_schema_version": source_schema_version,
                     "sampling_seed": seed,

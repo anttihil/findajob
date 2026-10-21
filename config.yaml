@@ -74,10 +74,6 @@ analytics:
 
 scoring:
   concurrency: 16
-  fit_threshold: 70
   include_skill_hint: false
   max_usd_per_run: 8.00
   postpone_deepseek_peak_hours: true
-  review:
-    enabled: true
-    model: deepseek-v4-pro

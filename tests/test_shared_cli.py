@@ -79,6 +79,8 @@ def test_jobs_list_uses_detail_records_and_safe_filters() -> None:
         pipeline_state="new",
         fit=None,
         reason_type=None,
+        priority=None,
+        stage=None,
         date_posted=None,
         q="platform",
         limit=25,

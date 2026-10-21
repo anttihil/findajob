@@ -281,6 +281,8 @@ def get_jobs(
     min_score: int | None = None,
     fit: bool | None = None,
     reason_type: str | None = None,
+    priority: str | None = None,
+    stage: str | None = None,
     liveness: str | None = Query(None, pattern="^(live|stale|likely_closed|unknown)?$"),
     pipeline_state: str | None = Query(None, pattern="^(new|scored)?$"),
     date_posted: str | None = Query(None, pattern="^(24h|3d|7d|14d|30d)?$"),
@@ -302,6 +304,8 @@ def get_jobs(
             min_score=min_score,
             fit=fit,
             reason_type=reason_type,
+            priority=priority,
+            stage=stage,
             liveness=liveness,
             pipeline_state=pipeline_state,
             date_posted=date_posted,
@@ -1344,6 +1348,11 @@ def filter_query(
     location: str = "",
     fit: bool | None = None,
     reason_type: str = Query("", pattern="^[a-z_]*$"),
+    priority: str = Query("", pattern="^(first|consider|low)?$"),
+    stage: str = Query(
+        "",
+        pattern="^(assessed|screening_excluded|review_pending|screening_failed|reviewed|historical|unreviewed)?$",
+    ),
     liveness: str = Query("", pattern="^(live|stale|likely_closed|unknown)?$"),
     date_posted: str = Query("", pattern="^(24h|3d|7d|14d|30d)?$"),
     q: str = "",
@@ -1357,6 +1366,8 @@ def filter_query(
             "location": location,
             "fit": fit,
             "reason_type": reason_type if reason_type else None,
+            "priority": priority,
+            "stage": stage,
             "liveness": liveness,
             "date_posted": date_posted,
             "q": q,
@@ -1371,13 +1382,11 @@ def filter_query(
 
 @app.get("/api/meta")
 def get_meta():
-    scoring = load_config().get("scoring") or {}
     targets = load_targets()
     return {
         "countries": rendering.country_choices(targets),
         "locations": [location.to_dict() for location in targets.locations.values()],
         "reason_types": rendering.REASON_TYPE_CHOICES,
-        "fit_threshold": int(scoring.get("fit_threshold", 70)),
     }
 
 

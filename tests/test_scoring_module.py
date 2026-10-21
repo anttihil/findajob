@@ -13,14 +13,13 @@ from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from findajob.profile.models import JobFitVerdict
+from findajob.profile.models import JobFitVerdict, PriorityVerdict
 from findajob.scoring.prompts import (
     MAX_DESCRIPTION_CHARS,
     build_system,
     prompt_hash,
     render_posting,
 )
-from findajob.scoring.worker import EXPECTED_COMPLETION_TOKENS
 
 PROFILE = "CANDIDATE PROFILE\n\nAn engineer who ships Python services.\n"
 
@@ -51,17 +50,16 @@ class PromptLayoutTests(unittest.TestCase):
         for value in (job["title"], job["company"], job["location"], job["description"]):
             self.assertNotIn(value, system)
 
-    def test_build_system_uses_fit_threshold(self) -> None:
+    def test_build_system_ignores_legacy_threshold(self) -> None:
         system90 = build_system(PROFILE, fit_threshold=90)
         system80 = build_system(PROFILE, fit_threshold=80)
-        self.assertIn("90%", system90)
-        self.assertIn("80%", system80)
-        self.assertNotEqual(system90, system80)
+        self.assertNotIn("90%", system90)
+        self.assertEqual(system90, system80)
 
     def test_prompt_hash_identifies_threshold_and_rules(self) -> None:
         h90 = prompt_hash(PROFILE, fit_threshold=90)
         h80 = prompt_hash(PROFILE, fit_threshold=80)
-        self.assertNotEqual(h90, h80)
+        self.assertEqual(h90, h80)
         self.assertEqual(len(h90), 16)
 
     def test_render_posting_wraps_in_untrusted_delimiters(self) -> None:
@@ -77,11 +75,6 @@ class PromptLayoutTests(unittest.TestCase):
         huge = posting(description="x" * (MAX_DESCRIPTION_CHARS + 500))
         rendered = render_posting(huge)
         self.assertNotIn("x" * (MAX_DESCRIPTION_CHARS + 1), rendered)
-
-
-class CostTests(unittest.TestCase):
-    def test_expected_completion_tokens_is_compact(self) -> None:
-        self.assertLessEqual(EXPECTED_COMPLETION_TOKENS, 100)
 
 
 class JobFitVerdictModelTests(unittest.TestCase):
@@ -157,6 +150,16 @@ def bad_response() -> dict[str, Any]:
     return {"parsed": None, "raw": mock.Mock(response_metadata={}), "parsing_error": "no tool call"}
 
 
+def priority_response() -> dict[str, Any]:
+    return {
+        "parsed": PriorityVerdict(
+            priority="consider", reason="Credible transferable work with a manageable stretch."
+        ),
+        "raw": mock.Mock(response_metadata={}),
+        "parsing_error": None,
+    }
+
+
 class GraphTests(unittest.TestCase):
     def run_graph(self, responses: list[dict[str, Any]]) -> tuple[dict[str, Any], FakeChain]:
         from findajob.scoring.graph import build_graph
@@ -170,22 +173,23 @@ class GraphTests(unittest.TestCase):
                     "system": build_system(PROFILE),
                     "posting": posting(),
                     "model": "deepseek-v4-flash",
+                    "review_model": "pro",
                 }
             )
         return state, chain
 
     def test_a_good_response_is_scored_in_one_call(self) -> None:
-        state, chain = self.run_graph([ok_response()])
+        state, chain = self.run_graph([priority_response()])
         self.assertEqual(len(chain.calls), 1)
         self.assertIsNone(state.get("error"))
-        self.assertTrue(state["verdict"]["fit"])
-        self.assertEqual(state["verdict"]["reason_type"], "match")
+        self.assertEqual(state["verdict"]["priority"], "consider")
+        self.assertTrue(state["verdict"]["reason"])
 
     def test_an_unparseable_response_is_retried(self) -> None:
-        state, chain = self.run_graph([bad_response(), ok_response()])
+        state, chain = self.run_graph([bad_response(), priority_response()])
         self.assertEqual(len(chain.calls), 2)
         self.assertIsNotNone(state["verdict"])
-        self.assertTrue(state["verdict"]["fit"])
+        self.assertEqual(state["verdict"]["priority"], "consider")
 
     def test_retries_are_bounded_and_give_up_cleanly(self) -> None:
         from findajob.scoring.graph import MAX_ATTEMPTS
@@ -204,7 +208,12 @@ class GraphTests(unittest.TestCase):
         model.with_structured_output.return_value = chain
         with mock.patch("findajob.scoring.graph.structured_model", return_value=model):
             state = build_graph().invoke(
-                {"system": "s", "posting": posting(), "model": "deepseek-v4-flash"}
+                {
+                    "system": "s",
+                    "posting": posting(),
+                    "model": "deepseek-v4-flash",
+                    "review_model": "pro",
+                }
             )
         self.assertIsNone(state["verdict"])
         self.assertIn("429", state["error"])
@@ -212,7 +221,7 @@ class GraphTests(unittest.TestCase):
     def test_a_retry_is_charged_to_the_posting_that_needed_it(self) -> None:
         rejected = bad_response()
         rejected["raw"] = billed(6_000, 4_800, 20)
-        accepted = ok_response()
+        accepted = priority_response()
         accepted["raw"] = billed(6_100, 4_800, 50)
 
         state, chain = self.run_graph([rejected, accepted])

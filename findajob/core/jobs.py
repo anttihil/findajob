@@ -19,6 +19,8 @@ def list_postings(args: Any) -> dict[str, Any]:
             pipeline_state=args.pipeline_state,
             fit=args.fit,
             reason_type=args.reason_type,
+            priority=getattr(args, "priority", None),
+            stage=getattr(args, "stage", None),
             date_posted=args.posted_within,
             q=args.text,
             limit=args.limit,
