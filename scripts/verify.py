@@ -40,8 +40,8 @@ def fingerprint(root: Path) -> str:
         except FileNotFoundError:
             digest.update(b"deleted")
         digest.update(b"\0")
-    # Track installation metadata, not site-packages directory timestamps: the first
-    # Python startup creates __pycache__ there without changing installed dependencies.
+    # Track installation metadata, not site-packages directory timestamps: Python can
+    # create __pycache__ there without changing installed dependencies.
     for pattern in (
         ".venv/pyvenv.cfg",
         ".venv/lib/*/site-packages/*.dist-info/**/*",

@@ -47,23 +47,25 @@ def test_explicit_verification_runs_even_with_a_fresh_receipt(
     assert (repository / "test-results/runs").read_text() == "run\nrun\n"
 
 
-def test_first_python_start_in_a_fresh_environment_can_pass_verification(
+def test_python_bytecode_cache_creation_does_not_invalidate_verification(
     repository: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.delenv("PYTHONDONTWRITEBYTECODE", raising=False)
-    monkeypatch.delenv("PYTHONPYCACHEPREFIX", raising=False)
     environment = repository / ".venv"
     subprocess.run(["uv", "venv", "--python", sys.executable, str(environment)], check=True)
     site_packages = next(environment.glob("lib/*/site-packages"))
+    (site_packages / "_verification_cache_probe.py").write_text("value = 1\n")
     assert not (site_packages / "__pycache__").exists()
+    # Import a known module so cache creation doesn't depend on uv's startup files.
+    # Isolated mode ignores inherited bytecode-cache environment settings.
+    command = [str(environment / "bin/python"), "-I", "-c", "import _verification_cache_probe"]
     monkeypatch.setattr(
         verify,
         "checks",
-        lambda _browser: [("start Python", [str(environment / "bin/python"), "-c", "pass"])],
+        lambda _browser: [("create Python bytecode cache", command)],
     )
 
     assert verify.verify(repository) == 0
-    assert (site_packages / "__pycache__").is_dir()
+    assert list((site_packages / "__pycache__").glob("_verification_cache_probe.*.pyc"))
     assert verify.has_fresh_success(repository)
 
 
