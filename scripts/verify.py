@@ -40,15 +40,19 @@ def fingerprint(root: Path) -> str:
         except FileNotFoundError:
             digest.update(b"deleted")
         digest.update(b"\0")
-    # Dependency installation changes should invalidate a source-only receipt too.
+    # Track installation metadata, not site-packages directory timestamps: the first
+    # Python startup creates __pycache__ there without changing installed dependencies.
     for pattern in (
         ".venv/pyvenv.cfg",
-        ".venv/lib/*/site-packages",
+        ".venv/lib/*/site-packages/*.dist-info/**/*",
         "node_modules/.package-lock.json",
     ):
         for path in sorted(root.glob(pattern)):
+            if not path.is_file():
+                continue
             stat = path.stat()
             digest.update(f"{path.relative_to(root)}:{stat.st_mtime_ns}:{stat.st_size}".encode())
+            digest.update(hashlib.sha256(path.read_bytes()).digest())
     return digest.hexdigest()
 
 

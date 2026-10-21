@@ -47,6 +47,50 @@ def test_explicit_verification_runs_even_with_a_fresh_receipt(
     assert (repository / "test-results/runs").read_text() == "run\nrun\n"
 
 
+def test_first_python_start_in_a_fresh_environment_can_pass_verification(
+    repository: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("PYTHONDONTWRITEBYTECODE", raising=False)
+    monkeypatch.delenv("PYTHONPYCACHEPREFIX", raising=False)
+    environment = repository / ".venv"
+    subprocess.run(["uv", "venv", "--python", sys.executable, str(environment)], check=True)
+    site_packages = next(environment.glob("lib/*/site-packages"))
+    assert not (site_packages / "__pycache__").exists()
+    monkeypatch.setattr(
+        verify,
+        "checks",
+        lambda _browser: [("start Python", [str(environment / "bin/python"), "-c", "pass"])],
+    )
+
+    assert verify.verify(repository) == 0
+    assert (site_packages / "__pycache__").is_dir()
+    assert verify.has_fresh_success(repository)
+
+
+@pytest.mark.parametrize("change", ["install", "update", "remove"])
+def test_python_dependency_changes_invalidate_success(
+    repository: Path, monkeypatch: pytest.MonkeyPatch, change: str
+) -> None:
+    site_packages = repository / ".venv/lib/python3.12/site-packages"
+    metadata = site_packages / "example-1.0.dist-info/METADATA"
+    metadata.parent.mkdir(parents=True)
+    metadata.write_text("Name: example\nVersion: 1.0\n")
+    monkeypatch.setattr(verify, "checks", lambda _browser: passing_checks())
+    assert verify.verify(repository) == 0
+
+    if change == "install":
+        added = site_packages / "another-1.0.dist-info/METADATA"
+        added.parent.mkdir()
+        added.write_text("Name: another\nVersion: 1.0\n")
+    elif change == "update":
+        metadata.write_text("Name: example\nVersion: 2.0\n")
+    else:
+        metadata.unlink()
+        metadata.parent.rmdir()
+
+    assert not verify.has_fresh_success(repository)
+
+
 @pytest.mark.parametrize("change", ["tracked", "untracked", "deleted", "staged", "dependency"])
 def test_source_and_dependency_changes_invalidate_success(
     repository: Path, monkeypatch: pytest.MonkeyPatch, change: str
