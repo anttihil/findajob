@@ -183,9 +183,9 @@ def test_upgrade_surfaces_only_unresolved_historical_balance_failure(recovered: 
     conn.close()
 
 
-def test_automatic_scoring_never_reopens_finalized_jobs(database: Any) -> None:
+def test_automatic_scoring_never_reopens_prioritized_jobs(database: Any) -> None:
     database.conn.execute("UPDATE jobs SET date_posted=datetime('now', '-60 days')")
-    verdict = {"fit": True, "reason_type": "match", "reason_description": "Relevant experience"}
+    verdict = {"priority": "consider", "reason": "Relevant experience"}
     for job_id, profile in [(1, 1), (2, 4), (3, 1)]:
         repository.save_verdict(
             database.conn, {"id": job_id}, verdict, None, 0, "flash", profile, "h"
@@ -193,7 +193,7 @@ def test_automatic_scoring_never_reopens_finalized_jobs(database: Any) -> None:
     database.conn.execute("UPDATE job_verdicts SET verdict_schema_version=2 WHERE job_id=3")
     database.conn.commit()
     assert [job["id"] for job in worker._select(database, None)] == [4]
-    # A refresh and a new profile/schema must not reopen jobs already finalized.
+    # A refresh and a new profile/schema must not reopen jobs with a priority.
     database.conn.execute("UPDATE jobs SET pipeline_state='new'")
     database.conn.execute("UPDATE job_verdicts SET verdict_schema_version=NULL WHERE job_id=2")
     assert [job["id"] for job in worker._select(database, 1)] == [4]

@@ -521,7 +521,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     sco = sub.add_parser("score", help="score postings against the profile")
     scosub = sco.add_subparsers(dest="subcommand", required=True)
-    scr = scosub.add_parser("run", help="drain unscored postings")
+    scr = scosub.add_parser("run", help="assess postings without a priority, newest first")
     scr.add_argument("--limit", type=int, help="cap the number of postings scored")
     scr.set_defaults(func=_cmd_score, stage="score")
 

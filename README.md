@@ -243,7 +243,9 @@ FastAPI + Preact dashboard <-> the same SQLite data and configuration
   pipeline coordination.
 
 Search and scoring run independently, while `findajob run` and the dashboard's sync action
-chain them together. Automatic scoring considers postings of any age and scores each job
-once: a finalized verdict under any profile or schema prevents automatic re-scoring.
-Unfinished first-pass reviews can resume when no final verdict exists. Use
-`findajob score jobs --job-id ID` for an explicit re-assessment.
+chain them together. Automatic scoring assesses jobs without a priority, including historical
+binary verdicts and screening decisions. It starts with the newest posting date, falling back
+to discovery date, and considers postings of any age. An existing priority under any profile
+or schema prevents automatic re-scoring, including after a repeat scrape. Previous verdicts
+are archived when replaced. Run `findajob score run --limit 100` to start a bounded batch;
+use `findajob score jobs --job-id ID` for an explicit re-assessment of a prioritized job.

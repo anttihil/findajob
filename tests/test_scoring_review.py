@@ -193,7 +193,7 @@ def test_explicit_reassessment_preserves_history_and_ignores_old_reviewer(db: An
         1,
         "old",
     )
-    assert repository.select_scoring_backlog(db.conn) == []
+    assert [job["id"] for job in repository.select_scoring_backlog(db.conn)] == [1]
     chain, reviewer = FakeChain([response(False), response(True)]), FakeChain([])
     with (
         mock.patch.object(worker, "load_active", return_value=(1, {}, PROFILE)),
@@ -216,6 +216,86 @@ def test_explicit_reassessment_preserves_history_and_ignores_old_reviewer(db: An
     assert historical[0]["reason_description"] == "Historical"
     assert historical[1]["priority"] == "low"
     assert db.conn.execute("SELECT model FROM job_verdicts").fetchone()[0] == "flash"
+
+
+@pytest.mark.parametrize("old_fit", [False, True])
+def test_batch_backfills_binary_verdict_once_and_preserves_history(db: Any, old_fit: bool) -> None:
+    from findajob.search.repository import upsert_posting
+
+    job = db.query_jobs()["jobs"][0]
+    repository.save_verdict(
+        db.conn,
+        job,
+        {"fit": old_fit, "reason_type": "match", "reason_description": "Historical"},
+        None,
+        0,
+        "old",
+        1,
+        "old",
+    )
+    db.conn.commit()
+    chain = FakeChain([response(True)])
+    with (
+        mock.patch.object(worker, "Database", return_value=db),
+        mock.patch.object(worker, "load_active", return_value=(1, {}, PROFILE)),
+        mock.patch.object(worker, "load_config", return_value={"scoring": {"model": "flash"}}),
+        mock.patch(
+            "findajob.scoring.graph.structured_model", side_effect=models(chain, FakeChain([]))
+        ),
+        redirect_stdout(io.StringIO()),
+    ):
+        assert worker.run_scoring(limit=1) == 0
+        final = db.conn.execute("SELECT * FROM job_verdicts WHERE job_id=1").fetchone()
+        assert final["priority"] == "first" and final["fit"] is None
+        assert repository.count_pending_scoring(db.conn) == 0
+        saved = db.conn.execute("SELECT status, pipeline_state FROM jobs WHERE id=1").fetchone()
+        assert saved["status"] == job["status"] and saved["pipeline_state"] == "scored"
+
+        upsert_posting(
+            db.conn,
+            {
+                "job_key": "one",
+                "description": "Refreshed posting content. " * 20,
+                "pipeline_state": "new",
+            },
+        )
+        assert worker.run_scoring(limit=1) == 0
+
+    assert len(chain.calls) == 1
+    assert repository.count_pending_scoring(db.conn) == 0
+    history = db.conn.execute("SELECT * FROM job_verdict_history WHERE job_id=1").fetchall()
+    assert len(history) == 1 and history[0]["fit"] == int(old_fit)
+    assert history[0]["model"] == "old" and history[0]["reason_description"] == "Historical"
+
+
+def test_failed_backfill_keeps_binary_verdict_active_and_pending(db: Any) -> None:
+    job = db.query_jobs()["jobs"][0]
+    repository.save_verdict(
+        db.conn,
+        job,
+        {"fit": True, "reason_type": "match", "reason_description": "Historical"},
+        None,
+        0,
+        "old",
+        1,
+        "old",
+    )
+    db.conn.commit()
+    chain = FakeChain([bad_response()] * MAX_ATTEMPTS)
+    with (
+        mock.patch.object(worker, "Database", return_value=db),
+        mock.patch.object(worker, "load_active", return_value=(1, {}, PROFILE)),
+        mock.patch.object(worker, "load_config", return_value={"scoring": {"model": "flash"}}),
+        mock.patch(
+            "findajob.scoring.graph.structured_model", side_effect=models(chain, FakeChain([]))
+        ),
+        redirect_stdout(io.StringIO()),
+    ):
+        assert worker.run_scoring(limit=1) == 0
+    final = db.conn.execute("SELECT * FROM job_verdicts WHERE job_id=1").fetchone()
+    assert final["fit"] == 1 and final["priority"] is None and final["model"] == "old"
+    assert db.conn.execute("SELECT COUNT(*) FROM job_verdict_history").fetchone()[0] == 0
+    assert repository.count_pending_scoring(db.conn) == 1
 
 
 def test_old_threshold_and_reviewer_settings_do_not_affect_prompt() -> None:

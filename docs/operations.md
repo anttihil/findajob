@@ -44,9 +44,15 @@ explanation even without a qualification judgment.
 Migration v36 adds durable `assessment_runs` checkpoints, archives replaced final verdicts
 in `job_verdict_history`, and lets final assessments take precedence over legacy screening
 exclusions while preserving screening history. Unfinished old reviews require a fresh
-single-stage assessment; they are never reinterpreted as final priorities. Existing completed
-verdicts and screening exclusions remain outside automatic scoring. No automatic backfill
-or profile rewrite occurs.
+single-stage assessment; they are never reinterpreted as final priorities.
+
+`findajob score run --limit 100` assesses eligible jobs without a priority, including historical
+binary verdicts and screening exclusions. The queue starts with the newest posting date,
+falling back to discovery date, with stable ID ordering for ties. Existing jobs qualify
+immediately without another scrape. A priority under any profile or schema keeps a job out
+of automatic scoring even after a repeat scrape. Duplicate, thin-description, likely closed,
+and quarantined jobs remain excluded. Previous verdicts stay active until a successful
+assessment archives and replaces them. No profile rewrite occurs.
 
 Completed checkpoints are reusable only with matching profile/rules/schema, full posting
 content, provider and model. Saving a profile marks known old hashes stale without reopening

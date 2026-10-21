@@ -1,4 +1,4 @@
-"""Drain unscored postings through the scoring graph.
+"""Assess postings without a priority through the scoring graph.
 
 Runs on its own timer, independent of the scraper. A rate-limited job board cannot stall
 scoring of the backlog, and a bad API key cannot lose a scrape -- that separation is the
@@ -45,7 +45,7 @@ CHARS_PER_TOKEN = 3.0
 MAX_SCORING_FAILURES = scoring_repo.MAX_SCORING_FAILURES
 _live_clause = scoring_repo._live_clause
 _ELIGIBLE = scoring_repo._ELIGIBLE
-_NO_VERDICT = scoring_repo._NO_VERDICT
+_NO_PRIORITY = scoring_repo._NO_PRIORITY
 
 
 class ScoringBalanceError(RuntimeError):
@@ -380,7 +380,7 @@ def run_scoring(limit: int | None = None) -> int:
         print()
         print(f"scored:     {results['scored']:,}")
         if results["failed"]:
-            print(f"failed:     {results['failed']:,}  (left as 'new'; the next run retries)")
+            print(f"failed:     {results['failed']:,}  (left pending; the next run retries)")
         print(f"cost:       ${summary_stats['usd']:.4f}")
         if results["retried"] or results["retry_usd"]:
             print(

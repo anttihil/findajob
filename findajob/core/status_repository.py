@@ -68,7 +68,9 @@ def collect_status_report(
     verdict = conn.execute("SELECT MAX(created_at) FROM job_verdicts").fetchone()[0]
     try:
         backlog, oldest_new = get_pending_scoring_stats(conn)
-        scored_count = conn.execute("SELECT COUNT(DISTINCT job_id) FROM job_verdicts").fetchone()[0]
+        scored_count = conn.execute(
+            "SELECT COUNT(DISTINCT job_id) FROM job_verdicts WHERE priority IS NOT NULL"
+        ).fetchone()[0]
         total_eligible = scored_count + backlog
         backlog_share = (backlog / total_eligible) if total_eligible else 0.0
     except (sqlite3.OperationalError, sqlite3.DatabaseError):
@@ -212,7 +214,9 @@ def get_pipeline_status(
 
     try:
         backlog = count_pending_scoring(conn)
-        scored_count = conn.execute("SELECT COUNT(DISTINCT job_id) FROM job_verdicts").fetchone()[0]
+        scored_count = conn.execute(
+            "SELECT COUNT(DISTINCT job_id) FROM job_verdicts WHERE priority IS NOT NULL"
+        ).fetchone()[0]
         total_eligible = scored_count + backlog
         backlog_share = (backlog / total_eligible) if total_eligible else 0.0
     except (sqlite3.OperationalError, sqlite3.DatabaseError):

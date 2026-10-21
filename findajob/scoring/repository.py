@@ -53,12 +53,10 @@ _ELIGIBLE = """
        {live_clause}
 """
 
-_NO_VERDICT = """
-       AND NOT EXISTS (SELECT 1 FROM job_screenings s WHERE s.job_id = j.id
-                       AND s.stage IN ('screening_excluded', 'reviewed'))
+_NO_PRIORITY = """
        AND NOT EXISTS (
              SELECT 1 FROM job_verdicts v
-              WHERE v.job_id = j.id
+              WHERE v.job_id = j.id AND v.priority IS NOT NULL
            )
 """
 
@@ -72,16 +70,21 @@ def select_scoring_backlog(
     limit: int | None = None,
     include_closed: bool = False,
 ) -> list[dict[str, Any]]:
-    """Postings never finalized under any profile, regardless of posting age.
+    """Postings without a priority under any profile, newest posting first.
 
-    Unfinished first passes live in verdict_reviews, not job_verdicts, and remain eligible.
+    Historical binary verdicts and screening decisions remain eligible for assessment.
     """
     where = _ELIGIBLE.format(
         live_clause=_live_clause(include_closed),
         max_failures=MAX_SCORING_FAILURES,
     )
 
-    query = "SELECT j.*" + where + _NO_VERDICT + " ORDER BY j.date_found DESC"
+    query = (
+        "SELECT j.*"
+        + where
+        + _NO_PRIORITY
+        + " ORDER BY unixepoch(COALESCE(j.date_posted, j.date_found)) DESC, j.id DESC"
+    )
     params: list[Any] = []
 
     if limit:
@@ -100,7 +103,7 @@ def get_pending_scoring_stats(
             live_clause=_live_clause(include_closed),
             max_failures=MAX_SCORING_FAILURES,
         )
-        + _NO_VERDICT
+        + _NO_PRIORITY
     )
     row = conn.execute(sql).fetchone()
     if row is None:
@@ -116,7 +119,7 @@ def count_pending_scoring(conn: sqlite3.Connection, include_closed: bool = False
             live_clause=_live_clause(include_closed),
             max_failures=MAX_SCORING_FAILURES,
         )
-        + _NO_VERDICT
+        + _NO_PRIORITY
     )
     return conn.execute(sql).fetchone()[0]
 

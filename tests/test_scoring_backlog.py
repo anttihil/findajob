@@ -86,12 +86,18 @@ class _Fixture:
         )
         self.conn.commit()
 
-    def verdict(self, job_id: int, schema_version: int, profile_version: int = PROFILE) -> None:
+    def verdict(
+        self,
+        job_id: int,
+        schema_version: int,
+        profile_version: int = PROFILE,
+        priority: str | None = None,
+    ) -> None:
         self.conn.execute(
             "INSERT INTO job_verdicts (job_id, profile_version, model, fit, reason_type, "
-            "reason_description, verdict_schema_version, created_at) "
-            "VALUES (?, ?, 'm', 1, 'match', 'desc', ?, '2026-01-01T00:00:00+00:00')",
-            (job_id, profile_version, schema_version),
+            "reason_description, verdict_schema_version, priority, created_at) "
+            "VALUES (?, ?, 'm', ?, 'match', 'desc', ?, ?, '2026-01-01T00:00:00+00:00')",
+            (job_id, profile_version, None if priority else 1, schema_version, priority),
         )
         self.conn.commit()
 
@@ -100,21 +106,62 @@ class BacklogAccountingTests(_Fixture, unittest.TestCase):
     def test_pending_matches_what_select_returns(self) -> None:
         self.job(1)  # never scored -> queued
         self.job(2)
-        self.verdict(2, VERDICT_SCHEMA_VERSION)  # current verdict -> done
+        self.verdict(2, VERDICT_SCHEMA_VERSION, priority="consider")  # priority -> done
         self.job(3, state="scored")
-        self.verdict(3, VERDICT_SCHEMA_VERSION - 1)  # historical verdict -> already scored
+        self.verdict(3, VERDICT_SCHEMA_VERSION - 1)  # binary verdict -> queued
         self.job(4, duplicate_of=1)  # duplicate -> never
         self.job(5, description="too short")  # stub -> never
         self.job(6, description=None)  # no description -> never
 
         self.assertEqual(_pending(self.db), len(_select(self.db, None)))
-        self.assertEqual(_pending(self.db), 1)
+        self.assertEqual(_pending(self.db), 2)
+        self.assertEqual({job["id"] for job in _select(self.db, None)}, {1, 3})
 
-    def test_pending_excludes_verdicts_from_another_profile(self) -> None:
+    def test_pending_excludes_priorities_from_another_profile(self) -> None:
         self.job(1, state="scored")
-        self.verdict(1, VERDICT_SCHEMA_VERSION, profile_version=PROFILE - 1)
+        self.verdict(1, VERDICT_SCHEMA_VERSION - 1, profile_version=PROFILE - 1, priority="low")
         self.assertEqual(_pending(self.db), len(_select(self.db, None)))
         self.assertEqual(_pending(self.db), 0)
+
+    def test_binary_verdicts_remain_pending_regardless_of_schema_or_profile(self) -> None:
+        self.job(1, state="scored")
+        self.job(2, state="scored")
+        self.verdict(1, VERDICT_SCHEMA_VERSION)
+        self.verdict(2, VERDICT_SCHEMA_VERSION - 1, profile_version=PROFILE - 1)
+        self.conn.execute("UPDATE job_verdicts SET fit=0 WHERE job_id=2")
+        self.assertEqual({job["id"] for job in _select(self.db, None)}, {1, 2})
+        self.assertEqual(_pending(self.db), 2)
+
+    def test_legacy_screenings_without_priority_remain_pending(self) -> None:
+        from findajob.scoring.repository import save_screening
+
+        for job_id, advance in ((1, False), (2, True)):
+            self.job(job_id, state="scored")
+            save_screening(
+                self.conn,
+                {"id": job_id},
+                {"first_line": {"advance": advance, "reason": "Historical screening"}},
+                PROFILE,
+                "hash",
+                "flash",
+                "pro",
+            )
+        self.conn.execute("UPDATE job_screenings SET stage='reviewed' WHERE job_id=2")
+        self.assertEqual({job["id"] for job in _select(self.db, None)}, {1, 2})
+        self.assertEqual(_pending(self.db), 2)
+
+    def test_binary_verdicts_still_obey_eligibility_and_quarantine(self) -> None:
+        from findajob.scoring.repository import MAX_SCORING_FAILURES
+
+        self.job(1, state="scored")
+        self.job(2, state="scored", duplicate_of=1)
+        self.job(3, state="scored", description="short")
+        self.job(4, state="scored")
+        for job_id in range(1, 5):
+            self.verdict(job_id, VERDICT_SCHEMA_VERSION - 1)
+        self.conn.execute("UPDATE jobs SET scoring_failures=? WHERE id=4", (MAX_SCORING_FAILURES,))
+        self.assertEqual([job["id"] for job in _select(self.db, None)], [1])
+        self.assertEqual(_pending(self.db), 1)
 
     def test_ineligible_reasons_sum_to_the_total(self) -> None:
         self.job(1)  # eligible, not counted here
@@ -159,6 +206,23 @@ class SeniorityEligibilityTests(_Fixture, unittest.TestCase):
 
 
 class PostingAgeTests(_Fixture, unittest.TestCase):
+    def test_newest_posting_first_with_discovery_fallback_and_stable_ties(self) -> None:
+        dates = (
+            (1, "2026-08-01T12:00:00Z", "2026-08-20T12:00:00Z"),
+            (2, "2026-08-15T12:00:00Z", "2026-08-16T12:00:00Z"),
+            (3, None, "2026-08-10T12:00:00Z"),
+            (4, "2026-08-15T05:00:00-07:00", "2026-08-19T12:00:00Z"),
+        )
+        for job_id, posted, found in dates:
+            self.job(job_id, state="scored")
+            self.verdict(job_id, VERDICT_SCHEMA_VERSION - 1)
+            self.conn.execute(
+                "UPDATE jobs SET date_posted=?, date_found=? WHERE id=?", (posted, found, job_id)
+            )
+        self.assertEqual([row["id"] for row in _select(self.db, None)], [4, 2, 3, 1])
+        self.assertEqual([row["id"] for row in _select(self.db, 2)], [4, 2])
+        self.assertEqual(_pending(self.db), 4)
+
     def test_old_unscored_postings_are_selected(self) -> None:
         # Fresh posting (today)
         self.conn.execute(
@@ -317,8 +381,10 @@ class StatusReportBacklogTests(_Fixture, unittest.TestCase):
 
         self.job(1)
         self.job(2)
-        self.verdict(2, VERDICT_SCHEMA_VERSION - 1, profile_version=PROFILE - 1)
-        self.verdict(2, VERDICT_SCHEMA_VERSION, profile_version=PROFILE)
+        self.verdict(
+            2, VERDICT_SCHEMA_VERSION - 1, profile_version=PROFILE - 1, priority="consider"
+        )
+        self.verdict(2, VERDICT_SCHEMA_VERSION, profile_version=PROFILE, priority="first")
 
         for score in (
             collect_status_report(self.conn)["score"],
@@ -326,6 +392,21 @@ class StatusReportBacklogTests(_Fixture, unittest.TestCase):
         ):
             self.assertEqual(score["backlog"], 1)
             self.assertEqual(score["backlog_share"], 0.5)
+
+    def test_status_does_not_count_pending_binary_verdicts_as_completed_priorities(self) -> None:
+        from findajob.core.status_repository import collect_status_report, get_pipeline_status
+
+        self.job(1)
+        self.job(2, state="scored")
+        self.verdict(2, VERDICT_SCHEMA_VERSION - 1)
+        self.job(3, state="scored")
+        self.verdict(3, VERDICT_SCHEMA_VERSION, priority="first")
+        for score in (
+            collect_status_report(self.conn)["score"],
+            get_pipeline_status(self.conn, False)["score"],
+        ):
+            self.assertEqual(score["backlog"], 2)
+            self.assertAlmostEqual(score["backlog_share"], 2 / 3)
 
 
 _VERDICT = {
