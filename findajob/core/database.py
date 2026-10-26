@@ -167,8 +167,8 @@ class Database:
     def update_job_status(self, job_id: int, status: str) -> bool:
         return job_repository.update_job_status(self.conn, job_id, status)
 
-    def get_stats(self) -> dict[str, Any]:
-        return job_repository.get_stats(self.conn, self.db_path)
+    def get_stats(self, **filters: Any) -> dict[str, Any]:
+        return job_repository.get_stats(self.conn, self.db_path, **filters)
 
     def status_counts(self) -> dict[str, int]:
         return job_repository.status_counts(self.conn)

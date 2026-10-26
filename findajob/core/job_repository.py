@@ -442,6 +442,19 @@ def status_counts(conn: sqlite3.Connection) -> dict[str, int]:
     return counts
 
 
+def count_review_first(conn: sqlite3.Connection, **filters: Any) -> int:
+    """Count the grouped feed after selecting Review first, regardless of pagination."""
+    filters.pop("limit", None)
+    filters.pop("offset", None)
+    filters["priority"] = "first"
+    where, params = feed_filters(**filters)
+    return conn.execute(
+        f"SELECT COUNT(*) FROM (SELECT 1{FEED_FROM} WHERE 1=1{where} "
+        f"GROUP BY {_GROUP_PARTITION_BY})",
+        params,
+    ).fetchone()[0]
+
+
 def compute_stats(conn: sqlite3.Connection) -> dict[str, Any]:
     cursor = conn.cursor()
     stats: dict[str, Any] = {}
@@ -480,10 +493,7 @@ def compute_stats(conn: sqlite3.Connection) -> dict[str, Any]:
         """
     )
     stats["strong_matches"] = cursor.fetchone()[0] or 0
-    stats["review_first"] = cursor.execute(
-        "SELECT COUNT(*) FROM jobs j JOIN v_job_assessments v ON v.job_id=j.id "
-        "WHERE j.duplicate_of IS NULL AND v.priority='first'"
-    ).fetchone()[0]
+    stats["review_first"] = count_review_first(conn)
 
     cursor.execute(
         f"SELECT {LIVENESS_CASE} AS liveness, COUNT(*)"
@@ -495,15 +505,17 @@ def compute_stats(conn: sqlite3.Connection) -> dict[str, Any]:
     return stats
 
 
-def get_stats(conn: sqlite3.Connection, db_path: str) -> dict[str, Any]:
-    """Dashboard counters, memoized between writes."""
+def get_stats(conn: sqlite3.Connection, db_path: str, **filters: Any) -> dict[str, Any]:
+    """Global counters with Review first scoped to the dashboard's active filters."""
     key = (
         conn.execute("PRAGMA data_version").fetchone()[0],
         _WRITE_GENERATION,
     )
     cached = _STATS_CACHE.get(db_path)
-    if cached is not None and cached[0] == key:
-        return copy.deepcopy(cached[1])
-    stats = compute_stats(conn)
-    _STATS_CACHE[db_path] = (key, stats)
-    return copy.deepcopy(stats)
+    if cached is None or cached[0] != key:
+        cached = (key, compute_stats(conn))
+        _STATS_CACHE[db_path] = cached
+    stats = copy.deepcopy(cached[1])
+    if filters:
+        stats["review_first"] = count_review_first(conn, **filters)
+    return stats

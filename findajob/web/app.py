@@ -332,15 +332,6 @@ def update_job_status(job_id: int, payload: StatusUpdate):
         db.close()
 
 
-@app.get("/api/stats")
-def get_stats():
-    db = get_db()
-    try:
-        return JSONResponse(content=db.get_stats(), headers=CACHE_HEADERS)
-    finally:
-        db.close()
-
-
 # --- Model observability ----------------------------------------------------------------
 
 
@@ -1336,8 +1327,7 @@ def drawer_context(
     }
 
 
-# The filter, as FastAPI parameters. Declared once and depended on by `/api/jobs/{id}/context`
-# so a posting's "next" is always computed against the exact same filter the SPA is showing.
+# Dashboard filters shared by counters and a posting's "next" navigation.
 def filter_query(
     # These names are the query parameters of `Database.query_jobs`, deliberately. The
     # filter form posts them straight through, so a field whose name is wrong fails here
@@ -1378,6 +1368,15 @@ def filter_query(
 
 
 # --- SPA JSON endpoints ------------------------------------------------------------------
+
+
+@app.get("/api/stats")
+def get_stats(query: rendering.FilterQuery = Depends(filter_query)):
+    db = get_db()
+    try:
+        return JSONResponse(content=db.get_stats(**query.as_db_kwargs()), headers=CACHE_HEADERS)
+    finally:
+        db.close()
 
 
 @app.get("/api/meta")

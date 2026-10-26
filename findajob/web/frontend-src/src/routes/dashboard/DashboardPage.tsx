@@ -133,10 +133,14 @@ export function DashboardPage() {
   }, []);
 
   useEffect(() => {
-    guard("Loading stats", () => getJSON<Stats>("/api/stats")).then((d) => {
-      if (d) stats.value = d;
+    let cancelled = false;
+    guard("Loading stats", () => getJSON<Stats>(`/api/stats?${filterKey}`)).then((d) => {
+      if (!cancelled && d) stats.value = d;
     });
-  }, [refreshKey]);
+    return () => {
+      cancelled = true;
+    };
+  }, [filterKey, refreshKey]);
 
   useEffect(() => {
     // A finished scrape means the feed on screen may be stale -- refetch it rather than
@@ -191,12 +195,8 @@ export function DashboardPage() {
       stats.value = { ...stats.value, status_counts: counts };
     }
 
-    // Refresh stats in background to keep all counters (including strong matches) synchronized
-    getJSON<Stats>("/api/stats")
-      .then((d) => {
-        if (d) stats.value = d;
-      })
-      .catch(() => {});
+    // Refetch the grouped feed and filtered counters together after a status change.
+    setRefreshKey((k) => k + 1);
 
     setJobsPage((prev) => {
       if (!prev) return prev;
@@ -261,7 +261,7 @@ export function DashboardPage() {
           </div>
         </Link>
         <Link
-          href={query.url({ fit: null, priority: query.priority === "first" ? "" : "first" })}
+          href={query.url({ priority: query.priority === "first" ? "" : "first" })}
           class={`stat-card ${query.priority === "first" ? "active" : ""}`}
         >
           <div class="stat-icon">
