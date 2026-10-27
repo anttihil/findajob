@@ -132,21 +132,9 @@ class BacklogAccountingTests(_Fixture, unittest.TestCase):
         self.assertEqual({job["id"] for job in _select(self.db, None)}, {1, 2})
         self.assertEqual(_pending(self.db), 2)
 
-    def test_legacy_screenings_without_priority_remain_pending(self) -> None:
-        from findajob.scoring.repository import save_screening
-
-        for job_id, advance in ((1, False), (2, True)):
-            self.job(job_id, state="scored")
-            save_screening(
-                self.conn,
-                {"id": job_id},
-                {"first_line": {"advance": advance, "reason": "Historical screening"}},
-                PROFILE,
-                "hash",
-                "flash",
-                "pro",
-            )
-        self.conn.execute("UPDATE job_screenings SET stage='reviewed' WHERE job_id=2")
+    def test_scored_jobs_without_verdicts_remain_pending(self) -> None:
+        self.job(1, state="scored")
+        self.job(2, state="scored")
         self.assertEqual({job["id"] for job in _select(self.db, None)}, {1, 2})
         self.assertEqual(_pending(self.db), 2)
 

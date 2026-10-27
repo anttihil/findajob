@@ -2,11 +2,7 @@ import type { Job } from "../../api/types";
 import { TierBadge } from "../../components/badges/TierBadge";
 
 export function VerdictPanel({ job }: { job: Job }) {
-  if (
-    job.priority ||
-    job.stage === "screening_excluded" ||
-    (job.fit !== null && job.fit !== undefined)
-  ) {
+  if (job.priority || (job.fit !== null && job.fit !== undefined)) {
     return (
       <>
         <div class="verdict-head">
@@ -27,13 +23,5 @@ export function VerdictPanel({ job }: { job: Job }) {
       </>
     );
   }
-  return (
-    <p class="verdict-empty">
-      {job.stage === "review_pending"
-        ? "Legacy screening saved. Awaiting assessment."
-        : job.stage === "screening_failed"
-          ? "Screening failed; no assessment decision."
-          : "Not assessed yet."}
-    </p>
-  );
+  return <p class="verdict-empty">Not assessed yet.</p>;
 }

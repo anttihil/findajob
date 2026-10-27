@@ -76,17 +76,9 @@ it("shows review priority independently of qualification", () => {
   expect(getByText("Worth considering")).toBeTruthy();
 });
 
-it("keeps screening exclusions separate from qualification verdicts", () => {
-  const { getByText } = render(
-    <TierBadge
-      job={job({
-        fit: null,
-        stage: "screening_excluded",
-        screening_reason: "Explicit location conflict",
-      })}
-    />,
-  );
-  expect(getByText("Screened out").getAttribute("title")).toBe("Explicit location conflict");
+it("shows an unreviewed posting without an assessment", () => {
+  const { getByText } = render(<VerdictPanel job={job({ fit: null, stage: "unreviewed" })} />);
+  expect(getByText("Not assessed yet.")).toBeTruthy();
 });
 
 it("displays priority and explanation with a null fit judgment", () => {

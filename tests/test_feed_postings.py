@@ -113,3 +113,36 @@ def test_api_detail_navigation_and_status_target_individual_postings(postings: D
         saved = client.get("/api/jobs", params={"status": "saved"})
         assert saved.status_code == 200
         assert [job["id"] for job in saved.json()["jobs"]] == [4]
+
+
+def test_feed_omits_descriptions_but_drawer_returns_them(postings: Database) -> None:
+    postings.conn.execute("UPDATE jobs SET description = 'Full job details' WHERE id = 4")
+    postings.conn.commit()
+    with patch("findajob.web.app.get_db", side_effect=lambda: Database(postings.db_path)):
+        client = TestClient(app)
+        page = client.get("/api/jobs", params={"limit": 1}).json()
+        assert page["total"] == 4
+        assert page["jobs"][0]["id"] == 4
+        assert "description" not in page["jobs"][0]
+        context = client.get("/api/jobs/4/context").json()
+        assert context["job"]["description"] == "Full job details"
+
+
+def test_id_page_keeps_wide_projections_out_of_window(postings: Database) -> None:
+    statements: list[str] = []
+    postings.conn.set_trace_callback(statements.append)
+    try:
+        page = postings.query_jobs(limit=2, offset=1, detail=True)
+    finally:
+        postings.conn.set_trace_callback(None)
+    assert page["total"] == 4
+    assert [job["id"] for job in page["jobs"]] == [2, 3]
+    sql = next(sql for sql in statements if "WITH page AS MATERIALIZED" in sql)
+    narrow, outer = sql.split("SELECT jobs.id", 1)[1].split("SELECT", 1)
+    assert "COUNT(*) OVER ()" in narrow
+    assert "description" not in narrow
+    assert "tailored_resume_id" not in narrow
+    assert "jobs.description" in outer
+    plan = [row[3] for row in postings.conn.execute("EXPLAIN QUERY PLAN " + sql)]
+    assert "MATERIALIZE page" in plan
+    assert "SEARCH jobs USING INTEGER PRIMARY KEY (rowid=?)" in plan

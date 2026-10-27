@@ -7,11 +7,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from findajob.profile.models import DEFAULT_PROFILE_VERSION, VERDICT_SCHEMA_VERSION
-from findajob.scoring.prompts import (
-    REVIEW_PROMPT_VERSION,
-    SCREENING_PROMPT_VERSION,
-    SCREENING_SCHEMA_VERSION,
-)
+from findajob.scoring.prompts import REVIEW_PROMPT_VERSION
 
 MAX_SCORING_FAILURES = 3
 BALANCE_ERROR_MESSAGE = (
@@ -347,71 +343,6 @@ def save_review_stage(
             "UPDATE verdict_reviews SET review_state = ?, updated_at = ? "
             "WHERE job_id = ? AND profile_version = ?",
             (payload, _now(), job["id"], profile_version),
-        )
-
-
-def save_screening(
-    conn: sqlite3.Connection,
-    job: dict[str, Any],
-    state: dict[str, Any],
-    profile_version: int,
-    phash: str,
-    model: str,
-    review_model: str,
-) -> None:
-    """Store screening decisions (and failed attempts) independently of final verdicts."""
-    screening = state.get("first_line") or {}
-    usage = state.get("first_line_usage") or state.get("usage") or {}
-    advance = screening.get("advance")
-    stage = (
-        ("review_pending" if advance else "screening_excluded") if screening else "screening_failed"
-    )
-    payload = {k: v for k, v in state.items() if k not in ("budget", "posting", "system")}
-    conn.execute(
-        """INSERT INTO job_screenings
-        (job_id, profile_version, advance, reason, stage, model, review_model,
-         profile_hash, posting_hash, prompt_hash, prompt_version, schema_version,
-         state_json, tokens_in, tokens_cached, tokens_out, cost_usd, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(job_id, profile_version) DO UPDATE SET
-        advance=excluded.advance, reason=excluded.reason, stage=excluded.stage,
-        model=excluded.model, review_model=excluded.review_model,
-        profile_hash=excluded.profile_hash,
-        posting_hash=excluded.posting_hash, prompt_hash=excluded.prompt_hash,
-        prompt_version=excluded.prompt_version, schema_version=excluded.schema_version,
-        state_json=excluded.state_json, tokens_in=excluded.tokens_in,
-        tokens_cached=excluded.tokens_cached, tokens_out=excluded.tokens_out,
-        cost_usd=excluded.cost_usd, created_at=excluded.created_at""",
-        (
-            job["id"],
-            profile_version,
-            advance,
-            screening.get("reason"),
-            stage,
-            model,
-            review_model,
-            state.get("profile_hash", ""),
-            _posting_hash(job),
-            phash,
-            SCREENING_PROMPT_VERSION,
-            SCREENING_SCHEMA_VERSION,
-            json.dumps(payload),
-            usage.get("prompt"),
-            usage.get("cache_hit"),
-            usage.get("completion"),
-            state.get("first_line_cost_usd", state.get("cost_usd", 0)),
-            _now(),
-        ),
-    )
-    if advance is False:
-        conn.execute(
-            "UPDATE jobs SET scored_at = ?, pipeline_state = 'scored', "
-            "scoring_failures = 0, last_scoring_error = NULL WHERE id = ?",
-            (_now(), job["id"]),
-        )
-        conn.execute(
-            "UPDATE verdict_reviews SET finalized = 1 WHERE job_id = ? AND profile_version = ?",
-            (job["id"], profile_version),
         )
 
 

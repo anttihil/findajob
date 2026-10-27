@@ -312,7 +312,7 @@ def get_jobs(
             q=q,
             limit=limit,
             offset=offset,
-            detail=True,
+            detail=False,
         )
     finally:
         db.close()
@@ -1341,7 +1341,7 @@ def filter_query(
     priority: str = Query("", pattern="^(first|consider|low)?$"),
     stage: str = Query(
         "",
-        pattern="^(assessed|screening_excluded|review_pending|screening_failed|reviewed|historical|unreviewed)?$",
+        pattern="^(assessed|reviewed|historical|unreviewed)?$",
     ),
     liveness: str = Query("", pattern="^(live|stale|likely_closed|unknown)?$"),
     date_posted: str = Query("", pattern="^(24h|3d|7d|14d|30d)?$"),

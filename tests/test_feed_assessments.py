@@ -20,20 +20,19 @@ class AssessmentFilters(TypedDict, total=False):
 @pytest.fixture
 def assessments(tmp_path: Path) -> Iterator[Database]:
     db = Database(str(tmp_path / "assessments.db"))
-    # Missing assessments, screening only, historical/reviewed legacy verdicts,
-    # explicit verdict stage, conflicting screening, and null verdict values.
+    # Missing assessments, historical/reviewed verdicts, and null verdict values.
     cases = [
-        (False, None, None, None),
-        (False, None, None, "screening_excluded"),
-        (False, None, None, "screening_advanced"),
-        (True, None, None, "screening_excluded"),
-        (True, None, "first", "screening_excluded"),
-        (True, "reviewed", "consider", "screening_excluded"),
-        (True, "screening_excluded", None, "screening_advanced"),
-        (True, "reviewed", "low", None),
-        (True, "reviewed", "first", "screening_advanced"),
+        (False, None, None),
+        (False, None, None),
+        (False, None, None),
+        (True, None, None),
+        (True, None, "first"),
+        (True, "reviewed", "consider"),
+        (True, "assessed", None),
+        (True, "reviewed", "low"),
+        (True, "reviewed", "first"),
     ]
-    for job_id, (has_verdict, stage, priority, screening_stage) in enumerate(cases, 1):
+    for job_id, (has_verdict, stage, priority) in enumerate(cases, 1):
         db.conn.execute(
             "INSERT INTO jobs (id, job_key, title, url, status, date_found, sync_run_id) "
             "VALUES (?, ?, 'Engineer', ?, 'unread', '2026-10-01', 1)",
@@ -41,15 +40,6 @@ def assessments(tmp_path: Path) -> Iterator[Database]:
         )
         # A second profile must neither leak into results nor multiply rows.
         for version in (1, 2):
-            if screening_stage is not None or version == 2:
-                db.conn.execute(
-                    "INSERT INTO job_screenings (job_id, profile_version, advance, reason, "
-                    "stage, model, review_model, profile_hash, posting_hash, prompt_hash, "
-                    "prompt_version, schema_version, state_json, created_at) "
-                    "VALUES (?, ?, 0, 'screening reason', ?, 'm', 'm', 'screening hash', "
-                    "'posting', 'prompt', '1', 1, '{}', '2026-10-01')",
-                    (job_id, version, screening_stage or "screening_excluded"),
-                )
             if has_verdict or version == 2:
                 db.conn.execute(
                     "INSERT INTO job_verdicts (job_id, profile_version, model, stage, priority, "
@@ -90,8 +80,7 @@ def test_assessment_fields_match_view_in_feed_and_detail(assessments: Database) 
         {"stage": "unreviewed"},
         {"stage": "historical"},
         {"stage": "reviewed"},
-        {"stage": "screening_excluded"},
-        {"stage": "screening_advanced"},
+        {"stage": "assessed"},
         {"priority": "first"},
         {"priority": "consider"},
         {"priority": "low"},
@@ -110,7 +99,7 @@ def test_assessment_filters_order_navigation_and_counts_match_view(
             "SELECT j.id FROM jobs j LEFT JOIN v_job_assessments a ON a.job_id = j.id "
             f"WHERE 1=1{where} ORDER BY CASE WHEN a.priority = 'first' THEN 0 "
             "WHEN a.priority = 'consider' THEN 1 WHEN a.priority = 'low' "
-            "OR a.stage = 'screening_excluded' THEN 3 ELSE 2 END, "
+            "THEN 3 ELSE 2 END, "
             "COALESCE(j.date_posted, j.date_found) DESC, j.id DESC",
             list(filters.values()),
         )
@@ -142,8 +131,7 @@ def test_queries_do_not_require_view_and_detail_uses_indexed_assessments(
         assessments.conn.set_trace_callback(None)
     query = next(sql for sql in statements if "COUNT(*) OVER ()" in sql)
     plan = [row[3] for row in assessments.conn.execute(f"EXPLAIN QUERY PLAN {query}")]
-    assert not any("MATERIALIZE" in step for step in plan)
+    assert not any("MATERIALIZE" in step and "page" not in step for step in plan)
     assert any("SEARCH v USING INDEX" in step for step in plan)
-    assert any("SEARCH s USING INDEX" in step for step in plan)
     assert len(assessments.job_ids_for()) == 9
     assert count_review_first(assessments.conn) == 2

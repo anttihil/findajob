@@ -172,7 +172,7 @@ def test_upgrade_surfaces_only_unresolved_historical_balance_failure(recovered: 
         )
     conn.execute("PRAGMA user_version=33")
     conn.commit()
-    assert migrate(conn) == 3
+    assert migrate(conn) == sum(version > 33 for version, _, _ in MIGRATIONS)
     assert (repository.get_provider_failure(conn) is None) is recovered
     assert conn.execute("SELECT scoring_failures FROM jobs").fetchone()[0] == 3
     assert migrate(conn) == 0

@@ -54,30 +54,24 @@ LIVENESS_CASE = """
 
 ACTIVE_PROFILE_VERSION = str(DEFAULT_PROFILE_VERSION)
 
-# Join assessments directly so selective requests do not materialize the all-jobs
-# assessment view. Keep the v36 view's verdict precedence and screening fallbacks.
+# Read completed verdicts directly; jobs without one are unreviewed.
 ASSESSMENT_STAGE = """CASE WHEN v.id IS NOT NULL THEN COALESCE(v.stage,
     CASE WHEN v.priority IS NOT NULL THEN 'reviewed' ELSE 'historical' END)
-    ELSE COALESCE(s.stage, 'unreviewed') END"""
+    ELSE 'unreviewed' END"""
 ASSESSMENT_COLUMNS = {
     "fit": "v.fit",
     "reason_type": "v.reason_type",
-    "reason_description": (
-        "CASE WHEN v.id IS NOT NULL THEN v.reason_description ELSE s.reason END"
-    ),
+    "reason_description": "v.reason_description",
     "priority": "v.priority",
     "stage": ASSESSMENT_STAGE,
-    "profile_hash": "CASE WHEN v.id IS NOT NULL THEN v.profile_hash ELSE s.profile_hash END",
-    "screening_advance": "s.advance",
-    "screening_reason": "s.reason",
+    "profile_hash": "v.profile_hash",
 }
 
-FEED_FROM = """
-      FROM jobs
+FEED_JOINS = """
       LEFT JOIN job_verdicts v ON v.job_id = jobs.id AND v.profile_version = 1
-      LEFT JOIN job_screenings s ON s.job_id = jobs.id AND s.profile_version = 1
       LEFT JOIN scrape_cells cell ON cell.id = jobs.scrape_cell_id
 """
+FEED_FROM = f" FROM jobs{FEED_JOINS}"
 
 
 VERDICT_LIST_COLUMNS = (
@@ -87,8 +81,6 @@ VERDICT_LIST_COLUMNS = (
     "priority",
     "stage",
     "profile_hash",
-    "screening_advance",
-    "screening_reason",
 )
 VERDICT_DETAIL_COLUMNS = VERDICT_LIST_COLUMNS
 
@@ -105,8 +97,7 @@ DATE_POSTED_WINDOWS: dict[str, float] = {
 
 FEED_ORDER_BY = (
     "CASE WHEN v.priority = 'first' THEN 0 WHEN v.priority = 'consider' THEN 1 "
-    f"WHEN v.priority = 'low' OR ({ASSESSMENT_STAGE}) = 'screening_excluded' "
-    "THEN 3 ELSE 2 END, "
+    "WHEN v.priority = 'low' THEN 3 ELSE 2 END, "
     "COALESCE(jobs.date_posted, jobs.date_found) DESC, jobs.id DESC"
 )
 
@@ -271,9 +262,16 @@ def query_jobs(
         q=q,
     )
     cols_sql, new_cached_columns = select_columns(conn, detail, cached_columns)
-    query = f"SELECT {cols_sql}, COUNT(*) OVER () AS _total{FEED_FROM} WHERE 1=1{where}"
-    query += f" ORDER BY {FEED_ORDER_BY}"
-    query += " LIMIT ? OFFSET ?"
+    # Count and sort narrow rows first. Materialization keeps wide job fields and
+    # per-row projections out of the full-result window operation.
+    query = f"""WITH page AS MATERIALIZED (
+        SELECT jobs.id, COUNT(*) OVER () AS _total{FEED_FROM}
+        WHERE 1=1{where}
+        ORDER BY {FEED_ORDER_BY} LIMIT ? OFFSET ?
+    )
+    SELECT {cols_sql}, page._total
+    FROM page JOIN jobs ON jobs.id = page.id{FEED_JOINS}
+    ORDER BY {FEED_ORDER_BY}"""
     params.extend([limit, offset])
 
     from findajob.profile.render import render_profile_for_scoring

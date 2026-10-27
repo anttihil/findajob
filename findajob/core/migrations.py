@@ -13,7 +13,7 @@ from findajob.core.logger import get_logger
 
 logger = get_logger()
 
-SCHEMA_VERSION = 36
+SCHEMA_VERSION = 37
 
 
 def _v1_baseline(cursor: sqlite3.Cursor) -> None:
@@ -2432,6 +2432,22 @@ def _v36_single_stage_priority(cursor: sqlite3.Cursor) -> None:
     """)
 
 
+def _v37_drop_job_screenings(cursor: sqlite3.Cursor) -> None:
+    """Retire preliminary screening records; assessments now come from verdicts."""
+    cursor.execute("DROP VIEW IF EXISTS v_job_assessments")
+    cursor.execute("DROP TABLE IF EXISTS job_screenings")
+    cursor.execute("""
+        CREATE VIEW v_job_assessments AS
+        SELECT j.id AS job_id, v.profile_version,
+            CASE WHEN v.id IS NOT NULL THEN COALESCE(v.stage,
+                CASE WHEN v.priority IS NOT NULL THEN 'reviewed' ELSE 'historical' END)
+                ELSE 'unreviewed' END AS stage,
+            v.fit, v.priority, v.reason_type, v.reason_description, v.profile_hash
+        FROM jobs j
+        LEFT JOIN job_verdicts v ON v.job_id = j.id AND v.profile_version = 1
+    """)
+
+
 MIGRATIONS: list[tuple[int, str, Callable[[sqlite3.Cursor], None]]] = [
     (1, "baseline jobs table", _v1_baseline),
     (2, "market analytics: cells, observations, skills, stats", _v2_analytics),
@@ -2529,6 +2545,7 @@ MIGRATIONS: list[tuple[int, str, Callable[[sqlite3.Cursor], None]]] = [
     (34, "persistent scoring provider failure status", _v34_scoring_provider_status),
     (35, "two-stage screening and application priority", _v35_two_stage_funnel),
     (36, "single-stage priorities and assessment history", _v36_single_stage_priority),
+    (37, "remove retired job screenings", _v37_drop_job_screenings),
 ]
 
 

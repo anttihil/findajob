@@ -144,9 +144,6 @@ export function FilterSidebar({
           <option value="">All stages</option>
           <option value="assessed">Assessed</option>
           <option value="reviewed">Legacy reviewed</option>
-          <option value="screening_excluded">Screening exclusions</option>
-          <option value="review_pending">Awaiting review</option>
-          <option value="screening_failed">Screening failed</option>
           <option value="historical">Historical verdicts</option>
           <option value="unreviewed">Unreviewed</option>
         </select>

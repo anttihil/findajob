@@ -55,18 +55,9 @@ export interface Job {
   reason_type: string | null;
   reason_description: string | null;
   priority?: "first" | "consider" | "low" | null;
-  stage?:
-    | "screening_excluded"
-    | "review_pending"
-    | "screening_failed"
-    | "assessed"
-    | "reviewed"
-    | "historical"
-    | "unreviewed";
+  stage?: "assessed" | "reviewed" | "historical" | "unreviewed";
   profile_hash?: string | null;
   profile_stale?: boolean | null;
-  screening_advance?: boolean | null;
-  screening_reason?: string | null;
   pipeline_state: PipelineState | null;
 
   // Computed server-side, not raw columns.

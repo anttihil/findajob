@@ -12,12 +12,6 @@ export function TierBadge({ job }: { job: Job }) {
       </span>
     );
   }
-  if (job.stage === "screening_excluded")
-    return (
-      <span class="match-badge badge-blocked" title={job.screening_reason || ""}>
-        Screened out
-      </span>
-    );
   if (job.fit !== null && job.fit !== undefined) {
     if (job.fit) {
       return (
