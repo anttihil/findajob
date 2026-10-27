@@ -19,7 +19,7 @@ export const FILTER_DEFAULTS: FilterValues = {
   status: "unread",
   country: "",
   location: "",
-  priority: "",
+  priority: "first",
   liveness: "",
   date_posted: "",
   q: "",
@@ -100,7 +100,8 @@ export class FilterQuery {
     const params = new URLSearchParams();
     for (const [key, value] of Object.entries(merged)) {
       const isDefault = key in DEFAULTS && value === DEFAULTS[key];
-      if (value === null || value === "" || isDefault) continue;
+      // An explicit empty priority means All priorities, overriding the default.
+      if (value === null || (value === "" && key !== "priority") || isDefault) continue;
       params.set(key, String(value));
     }
     return params.toString();
@@ -140,7 +141,7 @@ export class FilterQuery {
     return Object.entries(this.values).filter(([key, value]) => {
       if (skip.has(key as keyof FilterValues)) return false;
       const isDefault = value === DEFAULTS[key];
-      return value !== null && value !== "" && !isDefault;
+      return value !== null && (value !== "" || key === "priority") && !isDefault;
     }) as [string, string | number][];
   }
 

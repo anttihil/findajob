@@ -34,7 +34,7 @@ const counters = (reviewFirst: number): Stats => ({
 
 beforeEach(() => {
   window.localStorage.clear();
-  window.history.replaceState(null, "", "/?country=FI&fit=true");
+  window.history.replaceState(null, "", "/?country=FI&fit=true&priority=");
   stats.value = null;
   get.mockReset();
   vi.mocked(putJSON).mockReset().mockResolvedValue({ success: true });
@@ -45,6 +45,26 @@ beforeEach(() => {
   });
 });
 afterEach(cleanup);
+
+it("defaults to Review first and allows All priorities until filters are reset", async () => {
+  window.history.replaceState(null, "", "/");
+  const view = render(<DashboardPage />);
+  const priority = view.getByLabelText("Application priority") as HTMLSelectElement;
+  expect(priority.value).toBe("first");
+  await waitFor(() => {
+    const jobsUrl = get.mock.calls.find(([url]) => url.startsWith("/api/jobs?"))![0];
+    expect(new URL(jobsUrl, "http://localhost").searchParams.get("priority")).toBe("first");
+  });
+  fireEvent.change(priority, { target: { value: "" } });
+  await waitFor(() => expect(window.location.search).toBe("?priority="));
+  expect(priority.value).toBe("");
+  await waitFor(() => {
+    const jobsUrl = get.mock.calls.filter(([url]) => url.startsWith("/api/jobs?")).at(-1)![0];
+    expect(new URL(jobsUrl, "http://localhost").searchParams.has("priority")).toBe(false);
+  });
+  fireEvent.click(view.getByRole("link", { name: "Reset" }));
+  await waitFor(() => expect(priority.value).toBe("first"));
+});
 
 it("loads filtered counters and keeps the card and dropdown filters identical", async () => {
   const view = render(<DashboardPage />);

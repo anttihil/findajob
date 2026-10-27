@@ -5,8 +5,23 @@ describe("FilterQuery", () => {
   it("defaults status to unread with an empty query string", () => {
     const q = new FilterQuery("");
     expect(q.status).toBe("unread");
+    expect(q.priority).toBe("first");
+    expect(q.asApiParams().get("priority")).toBe("first");
     expect(q.limit).toBe(50);
     expect(q.date_posted).toBe("");
+  });
+
+  it("preserves All priorities through navigation, preferences and API requests", () => {
+    const all = new FilterQuery(new FilterQuery("").url({ priority: "" }).split("?")[1]);
+    expect(all.priority).toBe("");
+    expect(all.asApiParams().has("priority")).toBe(false);
+    expect(all.preferenceSearch()).toBe("priority=");
+    expect(new FilterQuery(all.preferenceSearch()).priority).toBe("");
+    expect(new FilterQuery(all.page(50).split("?")[1]).priority).toBe("");
+    expect(new FilterQuery(all.withJob(42).split("?")[1]).priority).toBe("");
+    expect(new FilterQuery(all.url({ country: "FI" }).split("?")[1]).priority).toBe("");
+    expect(Object.fromEntries(all.hiddenFields("country"))).toEqual({ priority: "" });
+    expect(all.url({ priority: "first" })).toBe("/");
   });
 
   it("reads values off the query string", () => {
