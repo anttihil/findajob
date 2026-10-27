@@ -54,9 +54,28 @@ LIVENESS_CASE = """
 
 ACTIVE_PROFILE_VERSION = str(DEFAULT_PROFILE_VERSION)
 
+# Join assessments directly so selective requests do not materialize the all-jobs
+# assessment view. Keep the v36 view's verdict precedence and screening fallbacks.
+ASSESSMENT_STAGE = """CASE WHEN v.id IS NOT NULL THEN COALESCE(v.stage,
+    CASE WHEN v.priority IS NOT NULL THEN 'reviewed' ELSE 'historical' END)
+    ELSE COALESCE(s.stage, 'unreviewed') END"""
+ASSESSMENT_COLUMNS = {
+    "fit": "v.fit",
+    "reason_type": "v.reason_type",
+    "reason_description": (
+        "CASE WHEN v.id IS NOT NULL THEN v.reason_description ELSE s.reason END"
+    ),
+    "priority": "v.priority",
+    "stage": ASSESSMENT_STAGE,
+    "profile_hash": "CASE WHEN v.id IS NOT NULL THEN v.profile_hash ELSE s.profile_hash END",
+    "screening_advance": "s.advance",
+    "screening_reason": "s.reason",
+}
+
 FEED_FROM = """
       FROM jobs
-      LEFT JOIN v_job_assessments v ON v.job_id = jobs.id
+      LEFT JOIN job_verdicts v ON v.job_id = jobs.id AND v.profile_version = 1
+      LEFT JOIN job_screenings s ON s.job_id = jobs.id AND s.profile_version = 1
       LEFT JOIN scrape_cells cell ON cell.id = jobs.scrape_cell_id
 """
 
@@ -86,7 +105,8 @@ DATE_POSTED_WINDOWS: dict[str, float] = {
 
 FEED_ORDER_BY = (
     "CASE WHEN v.priority = 'first' THEN 0 WHEN v.priority = 'consider' THEN 1 "
-    "WHEN v.priority = 'low' OR v.stage = 'screening_excluded' THEN 3 ELSE 2 END, "
+    f"WHEN v.priority = 'low' OR ({ASSESSMENT_STAGE}) = 'screening_excluded' "
+    "THEN 3 ELSE 2 END, "
     "COALESCE(jobs.date_posted, jobs.date_found) DESC, jobs.id DESC"
 )
 
@@ -102,7 +122,7 @@ def select_columns(
     omitted = frozenset() if detail else LIST_OMITTED_JOB_COLUMNS
     job_columns = [f"jobs.{name}" for name in cached_columns if name not in omitted]
     verdict_columns = [
-        f"v.{name} AS {name}"
+        f"{ASSESSMENT_COLUMNS[name]} AS {name}"
         for name in (VERDICT_DETAIL_COLUMNS if detail else VERDICT_LIST_COLUMNS)
     ]
     resume_columns = [
@@ -171,7 +191,7 @@ def feed_filters(
         sql += " AND v.priority = ?"
         params.append(priority)
     if stage:
-        sql += " AND v.stage = ?"
+        sql += f" AND ({ASSESSMENT_STAGE}) = ?"
         params.append(stage)
     if reason_type:
         sql += " AND v.reason_type = ?"
