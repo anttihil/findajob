@@ -54,16 +54,11 @@ LIVENESS_CASE = """
 
 ACTIVE_PROFILE_VERSION = str(DEFAULT_PROFILE_VERSION)
 
-# Read completed verdicts directly; jobs without one are unreviewed.
-ASSESSMENT_STAGE = """CASE WHEN v.id IS NOT NULL THEN COALESCE(v.stage,
-    CASE WHEN v.priority IS NOT NULL THEN 'reviewed' ELSE 'historical' END)
-    ELSE 'unreviewed' END"""
 ASSESSMENT_COLUMNS = {
     "fit": "v.fit",
     "reason_type": "v.reason_type",
     "reason_description": "v.reason_description",
     "priority": "v.priority",
-    "stage": ASSESSMENT_STAGE,
     "profile_hash": "v.profile_hash",
 }
 
@@ -79,7 +74,6 @@ VERDICT_LIST_COLUMNS = (
     "reason_type",
     "reason_description",
     "priority",
-    "stage",
     "profile_hash",
 )
 VERDICT_DETAIL_COLUMNS = VERDICT_LIST_COLUMNS
@@ -142,10 +136,7 @@ def feed_filters(
     pipeline_state: str | None = None,
     liveness: str | None = None,
     job_id: int | None = None,
-    fit: bool | None = None,
-    reason_type: str | None = None,
     priority: str | None = None,
-    stage: str | None = None,
     date_posted: str | None = None,
     q: str | None = None,
 ) -> tuple[str, list[Any]]:
@@ -175,18 +166,9 @@ def feed_filters(
         # it; scrape-cell provenance can.
         sql += " AND cell.location_id = ?"
         params.append(location.strip())
-    if fit is not None:
-        sql += " AND v.fit = ?"
-        params.append(1 if fit else 0)
     if priority:
         sql += " AND v.priority = ?"
         params.append(priority)
-    if stage:
-        sql += f" AND ({ASSESSMENT_STAGE}) = ?"
-        params.append(stage)
-    if reason_type:
-        sql += " AND v.reason_type = ?"
-        params.append(reason_type.strip().lower())
     if date_posted and date_posted in DATE_POSTED_WINDOWS:
         hours = DATE_POSTED_WINDOWS[date_posted] * 24
         cutoff = (datetime.now(timezone.utc) - timedelta(hours=hours)).strftime(
@@ -226,10 +208,7 @@ def query_jobs(
     pipeline_state: str | None = None,
     liveness: str | None = None,
     job_id: int | None = None,
-    fit: bool | None = None,
-    reason_type: str | None = None,
     priority: str | None = None,
-    stage: str | None = None,
     date_posted: str | None = None,
     q: str | None = None,
     limit: int = 200,
@@ -254,10 +233,7 @@ def query_jobs(
         pipeline_state=pipeline_state,
         liveness=liveness,
         job_id=job_id,
-        fit=fit,
-        reason_type=reason_type,
         priority=priority,
-        stage=stage,
         date_posted=date_posted,
         q=q,
     )
@@ -283,7 +259,6 @@ def query_jobs(
     for row in conn.execute(query, params):
         job = dict(row)
         total = job.pop("_total")
-        job["stage"] = job.get("stage") or "unreviewed"
         job["profile_stale"] = (
             job["profile_hash"] != current_profile_hash if job.get("profile_hash") else None
         )
@@ -320,10 +295,7 @@ def job_ids_for(
     pipeline_state: str | None = None,
     liveness: str | None = None,
     job_id: int | None = None,
-    fit: bool | None = None,
-    reason_type: str | None = None,
     priority: str | None = None,
-    stage: str | None = None,
     date_posted: str | None = None,
     q: str | None = None,
     limit: int = 200,
@@ -344,10 +316,7 @@ def job_ids_for(
         pipeline_state=pipeline_state,
         liveness=liveness,
         job_id=job_id,
-        fit=fit,
-        reason_type=reason_type,
         priority=priority,
-        stage=stage,
         date_posted=date_posted,
         q=q,
     )

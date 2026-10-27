@@ -22,28 +22,13 @@ FILTER_DEFAULTS: dict[str, Any] = {
     "status": "unread",
     "country": "",
     "location": "",
-    "fit": None,
-    "reason_type": "",
     "priority": "",
-    "stage": "",
     "liveness": "",
     "date_posted": "",
     "q": "",
     "limit": 50,
     "offset": 0,
 }
-
-REASON_TYPE_CHOICES = [
-    ("match", "Match"),
-    ("skills", "Skills gap"),
-    ("experience", "Experience gap"),
-    ("seniority", "Seniority mismatch"),
-    ("domain", "Domain mismatch"),
-    ("clearance", "Clearance/Citizenship"),
-    ("location", "Location constraint"),
-    ("tech_stack", "Tech stack mismatch"),
-    ("overqualified", "Overqualified"),
-]
 
 
 @dataclass

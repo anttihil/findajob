@@ -6,7 +6,6 @@ describe("FilterQuery", () => {
     const q = new FilterQuery("");
     expect(q.status).toBe("unread");
     expect(q.limit).toBe(50);
-    expect(q.fit).toBeNull();
     expect(q.date_posted).toBe("");
   });
 
@@ -17,8 +16,6 @@ describe("FilterQuery", () => {
     expect(q.status).toBe("saved");
     expect(q.country).toBe("US");
     expect(q.location).toBe("San Francisco");
-    expect(q.fit).toBe(true);
-    expect(q.reason_type).toBe("match");
     expect(q.date_posted).toBe("24h");
     expect(q.offset).toBe(50);
     expect(q.q).toBe("python");
@@ -133,12 +130,18 @@ describe("FilterQuery", () => {
   });
 });
 
-it("preserves priority and stage through paging and drawer navigation", () => {
-  const query = new FilterQuery("?priority=consider&stage=reviewed&offset=50");
+it("preserves priority and drops retired filters from URLs and preferences", () => {
+  const query = new FilterQuery(
+    "?priority=consider&stage=reviewed&fit=true&reason_type=match&offset=50",
+  );
   expect(query.priority).toBe("consider");
-  expect(query.stage).toBe("reviewed");
   expect(query.page(100)).toContain("priority=consider");
-  expect(query.withJob(42)).toContain("stage=reviewed");
+  for (const key of ["stage", "fit", "reason_type"]) {
+    expect(query.asApiParams().has(key)).toBe(false);
+    expect(query.preferenceSearch()).not.toContain(`${key}=`);
+    expect(query.withJob(42)).not.toContain(`${key}=`);
+    expect(query.page(100)).not.toContain(`${key}=`);
+  }
   expect(query.url({ priority: "first" })).not.toContain("offset=");
   expect(query.asApiParams().get("priority")).toBe("consider");
 });

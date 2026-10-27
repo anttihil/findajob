@@ -2110,6 +2110,14 @@ body {
 }
 
 @media (max-width: 760px) {
+  .feed-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .feed-search-bar-wrap {
+    flex-wrap: wrap;
+  }
+
   .dashboard-operations-body {
     align-items: flex-start;
     flex-direction: column;

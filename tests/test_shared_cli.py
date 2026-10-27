@@ -63,6 +63,8 @@ def test_jobs_list_uses_detail_records_and_safe_filters() -> None:
             "indeed",
             "--pipeline-state",
             "new",
+            "--priority",
+            "consider",
             "--text",
             "platform",
         ]
@@ -77,10 +79,7 @@ def test_jobs_list_uses_detail_records_and_safe_filters() -> None:
         source="indeed",
         is_remote=None,
         pipeline_state="new",
-        fit=None,
-        reason_type=None,
-        priority=None,
-        stage=None,
+        priority="consider",
         date_posted=None,
         q="platform",
         limit=25,
@@ -143,3 +142,16 @@ def test_explicit_query_does_not_erase_existing_cell_attribution() -> None:
             assert row["scrape_cell_id"] == 42
         finally:
             db.close()
+
+
+@pytest.mark.parametrize(
+    "option,value",
+    [("--fit", None), ("--no-fit", None), ("--reason-type", "match"), ("--stage", "reviewed")],
+)
+def test_jobs_list_rejects_retired_filters(option: str, value: str | None) -> None:
+    args = ["jobs", "list", option]
+    if value is not None:
+        args.append(value)
+    with pytest.raises(SystemExit) as exc:
+        cli.build_parser().parse_args(args)
+    assert exc.value.code == 2

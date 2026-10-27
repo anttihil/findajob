@@ -36,10 +36,15 @@ stretches and mixed evidence. Missing information is uncertainty, not confirmed 
 Results are grouped by priority, then posting date (discovery date fallback) and stable ID.
 Saved/applied/rejected status remains independent of assessment.
 
-New results have `fit=NULL`. Historical binary judgments remain filterable, but new priority
+New results have `fit=NULL`. Historical binary judgments remain stored for reporting, but new priority
 results do not count as negative qualifications or enter scrape-cell qualification counters.
+The dashboard and `jobs list` filter by priority; legacy fit, reason-type, and assessment-stage
+filters are retired. Old dashboard query parameters for those filters are ignored.
 The dashboard's Review first control uses priority, not fit. The verdict panel shows the
 explanation even without a qualification judgment.
+
+Migration v38 removes the unused `v_job_assessments` compatibility view without changing
+stored verdicts or history.
 
 Migration v36 adds durable `assessment_runs` checkpoints, archives replaced final verdicts
 in `job_verdict_history`, and lets final assessments take precedence over legacy screening
@@ -61,7 +66,7 @@ final result in history:
 
 ```sh
 findajob score jobs --job-id 123 --json
-findajob jobs list --priority consider --stage assessed --json
+findajob jobs list --priority consider --json
 findajob score verdict --job-id 123 --priority consider --reason-description 'Credible stretch' --json
 ```
 

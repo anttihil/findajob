@@ -134,58 +134,6 @@ export function FilterSidebar({
         </select>
       </div>
       <div class="filter-group">
-        <label for="filter-stage">Assessment stage</label>
-        <select
-          id="filter-stage"
-          class="form-select"
-          value={query.stage}
-          onChange={(e) => navigate(query.url({ stage: (e.target as HTMLSelectElement).value }))}
-        >
-          <option value="">All stages</option>
-          <option value="assessed">Assessed</option>
-          <option value="reviewed">Legacy reviewed</option>
-          <option value="historical">Historical verdicts</option>
-          <option value="unreviewed">Unreviewed</option>
-        </select>
-      </div>
-
-      <div class="filter-group">
-        <label for="filter-fit">Historical fit judgment</label>
-        <select
-          id="filter-fit"
-          class="form-select"
-          value={query.fit === null || query.fit === undefined ? "" : query.fit ? "true" : "false"}
-          onChange={(e) => {
-            const v = (e.target as HTMLSelectElement).value;
-            navigate(query.url({ fit: v === "true" ? true : v === "false" ? false : null }));
-          }}
-        >
-          <option value="">All fits</option>
-          <option value="true">Historical fit</option>
-          <option value="false">Historical no-fit</option>
-        </select>
-      </div>
-
-      <div class="filter-group">
-        <label for="filter-reason">Reason Type</label>
-        <select
-          id="filter-reason"
-          class="form-select"
-          value={query.reason_type || ""}
-          onChange={(e) =>
-            navigate(query.url({ reason_type: (e.target as HTMLSelectElement).value }))
-          }
-        >
-          <option value="">All reason types</option>
-          {meta?.reason_types?.map(([value, label]) => (
-            <option key={value} value={value}>
-              {label}
-            </option>
-          ))}
-        </select>
-      </div>
-
-      <div class="filter-group">
         <label for="filter-liveness">Liveness</label>
         <select
           id="filter-liveness"

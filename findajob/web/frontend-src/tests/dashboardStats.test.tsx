@@ -53,9 +53,12 @@ it("loads filtered counters and keeps the card and dropdown filters identical", 
   const initialStatsUrl = get.mock.calls.find(([url]) => url.startsWith("/api/stats?"))![0];
   const initialParams = new URL(initialStatsUrl, "http://localhost").searchParams;
   expect(initialParams.get("country")).toBe("FI");
-  expect(initialParams.get("fit")).toBe("true");
+  expect(initialParams.has("fit")).toBe(false);
   const cardHref = card.getAttribute("href");
-  expect(new URL(cardHref!, "http://localhost").searchParams.get("fit")).toBe("true");
+  expect(new URL(cardHref!, "http://localhost").searchParams.has("fit")).toBe(false);
+  for (const label of ["Assessment stage", "Historical fit judgment", "Reason Type"]) {
+    expect(view.queryByLabelText(label)).toBeNull();
+  }
 
   fireEvent.change(view.getByLabelText("Application priority"), { target: { value: "first" } });
   await waitFor(() =>

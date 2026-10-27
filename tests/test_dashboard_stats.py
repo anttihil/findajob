@@ -67,13 +67,13 @@ def dashboard(tmp_path: Path) -> Iterator[tuple[TestClient, Database]]:
         ({"country": "US"}, 6),
         ({"status": "saved"}, 1),
         ({"status": "rejected"}, 0),
-        ({"fit": "true"}, 1),
-        ({"fit": "false"}, 0),
+        ({"fit": "true"}, 7),
+        ({"fit": "false"}, 7),
         ({"q": "Beta"}, 1),
         ({"date_posted": "7d"}, 5),
         ({"stage": "assessed"}, 7),
-        ({"stage": "historical"}, 0),
-        ({"reason_type": "match"}, 1),
+        ({"stage": "historical"}, 7),
+        ({"reason_type": "match"}, 7),
         ({"liveness": "live"}, 0),
         ({"location": "missing"}, 0),
         ({"country": "FI", "date_posted": "7d"}, 0),
@@ -117,3 +117,18 @@ def test_review_first_recounts_postings_after_status_changes(
     assert client.put("/api/jobs/2/status", json={"status": "saved"}).status_code == 200
     assert client.get("/api/stats").json()["review_first"] == 5
     assert client.get("/api/stats?status=saved").json()["review_first"] == 3
+
+
+def test_retired_filters_do_not_restrict_detail_navigation(
+    dashboard: tuple[TestClient, Database],
+) -> None:
+    client, _ = dashboard
+    filters = {"priority": "first", "fit": "false", "stage": "reviewed", "reason_type": "skills"}
+    feed = client.get("/api/jobs", params={"status": "unread", **filters}).json()
+    ids = [job["id"] for job in feed["jobs"]]
+    assert len(ids) == 7
+    assert all("stage" not in job for job in feed["jobs"])
+    context = client.get(f"/api/jobs/{ids[0]}/context", params=filters)
+    assert context.status_code == 200
+    assert context.json()["next_job_id"] == ids[1]
+    assert "stage" not in context.json()["job"]

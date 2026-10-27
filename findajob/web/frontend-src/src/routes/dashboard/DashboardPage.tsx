@@ -225,8 +225,8 @@ export function DashboardPage() {
     <section class="tab-pane active">
       <div class="stats-grid">
         <Link
-          href={query.url({ status: "unread", fit: null })}
-          class={`stat-card ${query.status === "unread" && query.fit === null ? "active" : ""}`}
+          href={query.url({ status: "unread" })}
+          class={`stat-card ${query.status === "unread" ? "active" : ""}`}
         >
           <div class="stat-icon">
             <i class="fa-solid fa-magnifying-glass"></i>
@@ -237,7 +237,7 @@ export function DashboardPage() {
           </div>
         </Link>
         <Link
-          href={query.url({ status: "saved", fit: null })}
+          href={query.url({ status: "saved" })}
           class={`stat-card ${query.status === "saved" ? "active" : ""}`}
         >
           <div class="stat-icon">
@@ -249,7 +249,7 @@ export function DashboardPage() {
           </div>
         </Link>
         <Link
-          href={query.url({ status: "applied", fit: null })}
+          href={query.url({ status: "applied" })}
           class={`stat-card ${query.status === "applied" ? "active" : ""}`}
         >
           <div class="stat-icon">

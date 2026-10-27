@@ -55,7 +55,6 @@ export interface Job {
   reason_type: string | null;
   reason_description: string | null;
   priority?: "first" | "consider" | "low" | null;
-  stage?: "assessed" | "reviewed" | "historical" | "unreviewed";
   profile_hash?: string | null;
   profile_stale?: boolean | null;
   pipeline_state: PipelineState | null;
@@ -193,7 +192,6 @@ export interface Meta {
   countries: [string, string][];
   locations: { id: string; label: string; enabled: boolean }[];
   verdicts?: [string, string][];
-  reason_types?: [string, string][];
 }
 
 export interface StatusCounts {

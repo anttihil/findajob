@@ -3,10 +3,13 @@
 import sqlite3
 from unittest.mock import patch
 
+import pytest
+
 from findajob.core import migrations
 
 
-def test_upgrade_drops_screenings_and_preserves_verdicts() -> None:
+def test_upgrade_drops_screenings_and_preserves_verdicts(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(migrations, "MIGRATIONS", migrations.MIGRATIONS[:37])
     conn = sqlite3.connect(":memory:")
     conn.row_factory = sqlite3.Row
     try:

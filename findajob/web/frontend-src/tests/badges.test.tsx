@@ -77,7 +77,7 @@ it("shows review priority independently of qualification", () => {
 });
 
 it("shows an unreviewed posting without an assessment", () => {
-  const { getByText } = render(<VerdictPanel job={job({ fit: null, stage: "unreviewed" })} />);
+  const { getByText } = render(<VerdictPanel job={job({ fit: null })} />);
   expect(getByText("Not assessed yet.")).toBeTruthy();
 });
 
@@ -87,7 +87,6 @@ it("displays priority and explanation with a null fit judgment", () => {
       job={job({
         fit: null,
         priority: "consider",
-        stage: "assessed",
         reason_description: "Credible adjacent work.",
         profile_stale: true,
       })}

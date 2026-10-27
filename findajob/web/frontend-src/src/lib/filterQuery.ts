@@ -7,10 +7,7 @@ export interface FilterValues {
   status: JobStatusFilter;
   country: string;
   location: string;
-  fit: boolean | null;
-  reason_type: string;
   priority: string;
-  stage: string;
   liveness: string;
   date_posted: string;
   q: string;
@@ -22,10 +19,7 @@ export const FILTER_DEFAULTS: FilterValues = {
   status: "unread",
   country: "",
   location: "",
-  fit: null,
-  reason_type: "",
   priority: "",
-  stage: "",
   liveness: "",
   date_posted: "",
   q: "",
@@ -50,15 +44,7 @@ function parseValues(search: string): FilterValues {
     status: (raw.status as JobStatusFilter) || FILTER_DEFAULTS.status,
     country: raw.country ?? FILTER_DEFAULTS.country,
     location: raw.location ?? FILTER_DEFAULTS.location,
-    fit:
-      raw.fit === "true" || raw.fit === "1"
-        ? true
-        : raw.fit === "false" || raw.fit === "0"
-          ? false
-          : FILTER_DEFAULTS.fit,
-    reason_type: raw.reason_type ?? FILTER_DEFAULTS.reason_type,
     priority: raw.priority ?? FILTER_DEFAULTS.priority,
-    stage: raw.stage ?? FILTER_DEFAULTS.stage,
     liveness: raw.liveness ?? FILTER_DEFAULTS.liveness,
     date_posted: raw.date_posted ?? FILTER_DEFAULTS.date_posted,
     q: raw.q ?? FILTER_DEFAULTS.q,
@@ -83,17 +69,8 @@ export class FilterQuery {
   get location() {
     return this.values.location;
   }
-  get fit() {
-    return this.values.fit;
-  }
   get priority() {
     return this.values.priority;
-  }
-  get stage() {
-    return this.values.stage;
-  }
-  get reason_type() {
-    return this.values.reason_type;
   }
   get liveness() {
     return this.values.liveness;

@@ -13,7 +13,7 @@ from findajob.core.logger import get_logger
 
 logger = get_logger()
 
-SCHEMA_VERSION = 37
+SCHEMA_VERSION = 38
 
 
 def _v1_baseline(cursor: sqlite3.Cursor) -> None:
@@ -2448,6 +2448,11 @@ def _v37_drop_job_screenings(cursor: sqlite3.Cursor) -> None:
     """)
 
 
+def _v38_drop_assessment_view(cursor: sqlite3.Cursor) -> None:
+    """Retire the unused assessment-stage compatibility view; keep verdict history."""
+    cursor.execute("DROP VIEW IF EXISTS v_job_assessments")
+
+
 MIGRATIONS: list[tuple[int, str, Callable[[sqlite3.Cursor], None]]] = [
     (1, "baseline jobs table", _v1_baseline),
     (2, "market analytics: cells, observations, skills, stats", _v2_analytics),
@@ -2546,6 +2551,7 @@ MIGRATIONS: list[tuple[int, str, Callable[[sqlite3.Cursor], None]]] = [
     (35, "two-stage screening and application priority", _v35_two_stage_funnel),
     (36, "single-stage priorities and assessment history", _v36_single_stage_priority),
     (37, "remove retired job screenings", _v37_drop_job_screenings),
+    (38, "remove assessment stage compatibility view", _v38_drop_assessment_view),
 ]
 
 
