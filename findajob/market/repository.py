@@ -58,7 +58,7 @@ def get_query_yield_cells(
     query: str | None = None,
     min_postings: int = 0,
 ) -> list[dict[str, Any]]:
-    """Retrieve posting counts and strong fit verdicts for each
+    """Retrieve posting counts and priority scores for each
     (source, query, location) search cell.
     """
     sql = """
@@ -71,28 +71,29 @@ def get_query_yield_cells(
             sq.id AS search_query_id,
             COUNT(DISTINCT j.id) AS total_postings,
             COUNT(DISTINCT CASE WHEN j.duplicate_of IS NULL THEN j.id END) AS unique_postings,
-            COUNT(DISTINCT CASE WHEN v.fit IS NOT NULL THEN v.job_id END) AS scored_postings,
-            COUNT(DISTINCT CASE WHEN v.fit = 1 THEN v.job_id END) AS strong_fits,
-            COUNT(DISTINCT CASE WHEN v.fit = 0 THEN v.job_id END) AS no_fits,
+            COUNT(DISTINCT CASE WHEN v.priority IN ('first', 'consider', 'low') THEN v.job_id END)
+                AS scored_postings,
+            COUNT(DISTINCT CASE WHEN v.priority IN ('first', 'consider') THEN v.job_id END)
+                AS priority_postings,
+            COUNT(DISTINCT CASE WHEN v.priority = 'low' THEN v.job_id END) AS low_priority,
+            COUNT(DISTINCT CASE WHEN v.priority = 'first' THEN v.job_id END) AS first_priority,
+            COUNT(DISTINCT CASE WHEN v.priority = 'consider' THEN v.job_id END)
+                AS consider_priority,
             sc.total_scrapes,
             sc.last_scraped_at,
             sc.last_success_at
         FROM scrape_cells sc
-        -- `query` is the unique key of search_queries, so this recovers the row the
-        -- market page's "disable this query" action needs to target.
+        -- Match the feed's profile; historical binary judgments are not priority scores.
         LEFT JOIN search_queries sq ON sq.query = sc.query
         LEFT JOIN jobs j ON j.scrape_cell_id = sc.id
              AND (? IS NULL OR julianday(j.date_found) >= julianday(?))
-        LEFT JOIN job_verdicts v ON v.id = (
-            SELECT latest.id FROM job_verdicts latest WHERE latest.job_id = j.id
-            ORDER BY latest.profile_version DESC, latest.id DESC LIMIT 1
-        )
+        LEFT JOIN job_verdicts v ON v.job_id = j.id AND v.profile_version = 1
         WHERE (? IS NULL OR sc.source = ?)
           AND (? IS NULL OR sc.location_id = ?)
           AND (? IS NULL OR sc.query = ?)
         GROUP BY sc.id, sc.source, sc.query, sc.location_id
         HAVING COUNT(DISTINCT j.id) >= ? OR sc.total_scrapes > 0
-        ORDER BY strong_fits DESC, total_postings DESC, sc.query ASC
+        ORDER BY priority_postings DESC, total_postings DESC, sc.query ASC
     """
     params: list[Any] = [
         window_start,
@@ -112,21 +113,23 @@ def get_query_yield_cells(
 def get_tuple_daily_yield(
     conn: sqlite3.Connection, cell_id: int, window_start: str | None, window_end: str
 ) -> list[dict[str, Any]]:
-    """Jobs by UTC discovery day, with their latest profile verdict.
+    """Jobs by UTC discovery day, with profile 1 priority scores (matching the feed).
 
-    A fit belongs to the job's discovery cohort, not the day scoring finished.
+    A priority score belongs to the job's discovery cohort, not the day scoring finished.
     This keeps daily totals comparable to the tuple overview.
     """
     rows = conn.execute(
         """
         SELECT date(j.date_found) AS date, COUNT(*) AS total_postings,
-               COUNT(CASE WHEN v.fit IS NOT NULL THEN v.job_id END) AS scored_postings,
-               SUM(CASE WHEN v.fit = 1 THEN 1 ELSE 0 END) AS strong_fits
+               COUNT(CASE WHEN v.priority IN ('first', 'consider', 'low') THEN v.job_id END)
+                   AS scored_postings,
+               SUM(CASE WHEN v.priority IN ('first', 'consider') THEN 1 ELSE 0 END)
+                   AS priority_postings,
+               SUM(CASE WHEN v.priority = 'first' THEN 1 ELSE 0 END) AS first_priority,
+               SUM(CASE WHEN v.priority = 'consider' THEN 1 ELSE 0 END) AS consider_priority,
+               SUM(CASE WHEN v.priority = 'low' THEN 1 ELSE 0 END) AS low_priority
           FROM jobs j
-          LEFT JOIN job_verdicts v ON v.id = (
-              SELECT latest.id FROM job_verdicts latest WHERE latest.job_id = j.id
-              ORDER BY latest.profile_version DESC, latest.id DESC LIMIT 1
-          )
+          LEFT JOIN job_verdicts v ON v.job_id = j.id AND v.profile_version = 1
          WHERE j.scrape_cell_id = ?
            AND (? IS NULL OR julianday(j.date_found) >= julianday(?))
            AND julianday(j.date_found) <= julianday(?)

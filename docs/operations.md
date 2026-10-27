@@ -43,6 +43,11 @@ filters are retired. Old dashboard query parameters for those filters are ignore
 The dashboard's Review first control uses priority, not fit. The verdict panel shows the
 explanation even without a qualification judgment.
 
+The Market view uses First/Consider/Low priorities from the same profile as the dashboard.
+Its priority rate is `(First + Consider) / priority-scored jobs`; historical binary judgments
+are excluded. See [the market legacy removal map](market-priority-cleanup.md) for API changes
+and the remaining reporting/counter dependencies.
+
 Migration v38 removes the unused `v_job_assessments` compatibility view without changing
 stored verdicts or history.
 

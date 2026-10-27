@@ -1,11 +1,12 @@
 """Market analytics: search query yield estimation and skill-demand statistics.
 
 Provides query yield tracking for (source, query, location) search tuples,
-evaluating posting volume vs scoring agent strong fits, and the Wilson score
+evaluating posting volume vs priority scores, and the Wilson score
 interval used by skills gap analysis.
 """
 
 import math
+from collections.abc import Mapping
 from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING, Any
 
@@ -21,6 +22,41 @@ SUPPRESS_TOO_FEW_OBSERVATIONS = "too_few_observations"
 SUPPRESS_SMALL_SAMPLE = "small_sample"
 SUPPRESS_TOO_FEW_COMPANIES = "too_few_companies"
 SUPPRESS_COMPANY_CONCENTRATION = "company_concentration"
+
+
+YIELD_COUNTS: tuple[str, ...] = (
+    "total_postings",
+    "scored_postings",
+    "priority_postings",
+    "first_priority",
+    "consider_priority",
+    "low_priority",
+)
+
+
+def _yield_metrics(counts: Mapping[str, Any]) -> dict[str, Any]:
+    total, scored, useful = (counts[k] for k in YIELD_COUNTS[:3])
+    rate = useful / scored if scored else 0.0
+    yield_rate = useful / total if total else 0.0
+    if useful >= 2 or (scored >= 3 and rate >= 0.25):
+        category = "high_yield"
+    elif useful:
+        category = "moderate_yield"
+    elif scored >= 5:
+        category = "zero_yield"
+    elif scored:
+        category = "low_yield"
+    elif total:
+        category = "unscored"
+    else:
+        category = "unscraped"
+    return {
+        "priority_rate": round(rate, 4),
+        "priority_rate_pct": round(rate * 100, 1),
+        "yield_rate": round(yield_rate, 4),
+        "yield_rate_pct": round(yield_rate * 100, 1),
+        "yield_category": category,
+    }
 
 
 # =========================================================================================
@@ -98,7 +134,7 @@ class MarketAnalytics:
             points.append(
                 by_date.get(
                     date,
-                    {"date": date, "total_postings": 0, "scored_postings": 0, "strong_fits": 0},
+                    {"date": date, **dict.fromkeys(YIELD_COUNTS, 0)},
                 )
             )
             day += timedelta(days=1)
@@ -108,10 +144,7 @@ class MarketAnalytics:
             "start_date": first_day.isoformat(),
             "end_date": end.date().isoformat(),
             "points": points,
-            "totals": {
-                key: sum(point[key] for point in points)
-                for key in ("total_postings", "scored_postings", "strong_fits")
-            },
+            "totals": {key: sum(point[key] for point in points) for key in YIELD_COUNTS},
         }
 
     def query_yield(
@@ -122,264 +155,114 @@ class MarketAnalytics:
         query: str | None = None,
         min_postings: int = 0,
     ) -> dict[str, Any]:
-        """Yield analysis for search query tuples (source, query, location).
+        """Priority yield for discovery cohorts, using the same profile as the feed.
 
-        Tracks how many postings were found and how many were scored as a strong fit
-        by the scoring agent, allowing the user to evaluate and edit query terms over time.
+        First + Consider is the useful yield; Low completes the scored denominator.
+        Historical binary verdicts never count as priority scores.
         """
         window_start = None
         if window_days and window_days > 0:
-            _, end_dt = self._window(window_days)
-            start_dt = (end_dt - timedelta(days=window_days - 1)).replace(
-                hour=0, minute=0, second=0, microsecond=0
+            _, end = self._window(window_days)
+            window_start = (
+                (end - timedelta(days=window_days - 1))
+                .replace(hour=0, minute=0, second=0, microsecond=0)
+                .isoformat()
             )
-            window_start = start_dt.isoformat()
-
-        raw_cells = market_repo.get_query_yield_cells(
-            self.db.conn,
-            window_start=window_start,
-            source=source,
-            location_id=location_id,
-            query=query,
-            min_postings=min_postings,
+        cells = market_repo.get_query_yield_cells(
+            self.db.conn, window_start, source, location_id, query, min_postings
         )
-
-        tuples: list[dict[str, Any]] = []
+        tuples = []
         query_map: dict[tuple[str, str], dict[str, Any]] = {}
         source_map: dict[str, dict[str, Any]] = {}
         location_map: dict[str, dict[str, Any]] = {}
-
-        total_postings_sum = 0
-        total_unique_sum = 0
-        total_scored_sum = 0
-        total_strong_fits_sum = 0
-
-        for r in raw_cells:
-            tot = r["total_postings"]
-            uniq = r["unique_postings"]
-            scored = r["scored_postings"]
-            fits = r["strong_fits"]
-            no_fits = r["no_fits"]
-            q = r["query"]
-            src = r["source"]
-            loc = r["location_id"]
-
-            total_postings_sum += tot
-            total_unique_sum += uniq
-            total_scored_sum += scored
-            total_strong_fits_sum += fits
-
-            fit_rate = (fits / scored) if scored > 0 else 0.0
-            yield_rate = (fits / tot) if tot > 0 else 0.0
-
-            if fits >= 2 or (scored >= 3 and fit_rate >= 0.25):
-                category = "high_yield"
-            elif fits >= 1:
-                category = "moderate_yield"
-            elif scored >= 5 and fits == 0:
-                category = "zero_yield"
-            elif scored > 0 and fits == 0:
-                category = "low_yield"
-            elif tot > 0:
-                category = "unscored"
-            else:
-                category = "unscraped"
-
-            tuple_item = {
-                "cell_id": r["cell_id"],
-                "source": src,
-                "query": q,
-                "location_id": loc,
-                "enabled": bool(r["enabled"]),
-                "search_query_id": r["search_query_id"],
-                "total_postings": tot,
-                "unique_postings": uniq,
-                "scored_postings": scored,
-                "strong_fits": fits,
-                "no_fits": no_fits,
-                "fit_rate": round(fit_rate, 4),
-                "fit_rate_pct": round(fit_rate * 100, 1),
-                "yield_rate": round(yield_rate, 4),
-                "yield_rate_pct": round(yield_rate * 100, 1),
-                "total_scrapes": r["total_scrapes"],
-                "last_scraped_at": r["last_scraped_at"],
-                "last_success_at": r["last_success_at"],
-                "yield_category": category,
-            }
-            tuples.append(tuple_item)
-
-            # A term can have very different signal per board; never blend the two.
-            query_key = (src, q)
-            if query_key not in query_map:
-                query_map[query_key] = {
+        totals = dict.fromkeys(YIELD_COUNTS, 0)
+        unique_total = 0
+        for cell in cells:
+            tuples.append({**cell, "enabled": bool(cell["enabled"]), **_yield_metrics(cell)})
+            src, term, loc = cell["source"], cell["query"], cell["location_id"]
+            q = query_map.setdefault(
+                (src, term),
+                {
                     "source": src,
-                    "query": q,
-                    "search_query_id": r["search_query_id"],
-                    "total_postings": 0,
+                    "query": term,
+                    "search_query_id": cell["search_query_id"],
+                    **dict.fromkeys(YIELD_COUNTS, 0),
                     "unique_postings": 0,
-                    "scored_postings": 0,
-                    "strong_fits": 0,
-                    "no_fits": 0,
                     "total_scrapes": 0,
                     "sources": set(),
                     "locations": set(),
                     "cells_count": 0,
-                }
-            q_rec = query_map[query_key]
-            q_rec["total_postings"] += tot
-            q_rec["unique_postings"] += uniq
-            q_rec["scored_postings"] += scored
-            q_rec["strong_fits"] += fits
-            q_rec["no_fits"] += no_fits
-            q_rec["total_scrapes"] += r["total_scrapes"]
-            q_rec["cells_count"] += 1
-            if tot > 0 or r["total_scrapes"] > 0:
-                q_rec["sources"].add(src)
-                q_rec["locations"].add(loc)
-
-            # Aggregate by source
-            if src not in source_map:
-                source_map[src] = {
-                    "source": src,
-                    "total_postings": 0,
-                    "scored_postings": 0,
-                    "strong_fits": 0,
-                }
-            source_map[src]["total_postings"] += tot
-            source_map[src]["scored_postings"] += scored
-            source_map[src]["strong_fits"] += fits
-
-            # Aggregate by location
-            if loc not in location_map:
-                location_map[loc] = {
-                    "location_id": loc,
-                    "total_postings": 0,
-                    "scored_postings": 0,
-                    "strong_fits": 0,
-                }
-            location_map[loc]["total_postings"] += tot
-            location_map[loc]["scored_postings"] += scored
-            location_map[loc]["strong_fits"] += fits
-
-        top_queries = []
-        for q_rec in query_map.values():
-            s_post = q_rec["scored_postings"]
-            s_fit = q_rec["strong_fits"]
-            tot = q_rec["total_postings"]
-            fr = (s_fit / s_post) if s_post > 0 else 0.0
-            yr = (s_fit / tot) if tot > 0 else 0.0
-
-            if s_fit >= 2 or (s_post >= 3 and fr >= 0.25):
-                cat = "high_yield"
-            elif s_fit >= 1:
-                cat = "moderate_yield"
-            elif s_post >= 5 and s_fit == 0:
-                cat = "zero_yield"
-            elif s_post > 0 and s_fit == 0:
-                cat = "low_yield"
-            elif tot > 0:
-                cat = "unscored"
-            else:
-                cat = "unscraped"
-
-            top_queries.append(
-                {
-                    "source": q_rec["source"],
-                    "query": q_rec["query"],
-                    "search_query_id": q_rec["search_query_id"],
-                    "total_postings": tot,
-                    "unique_postings": q_rec["unique_postings"],
-                    "scored_postings": s_post,
-                    "strong_fits": s_fit,
-                    "no_fits": q_rec["no_fits"],
-                    "fit_rate": round(fr, 4),
-                    "fit_rate_pct": round(fr * 100, 1),
-                    "yield_rate": round(yr, 4),
-                    "yield_rate_pct": round(yr * 100, 1),
-                    "total_scrapes": q_rec["total_scrapes"],
-                    "sources": sorted(q_rec["sources"]),
-                    "locations": sorted(q_rec["locations"]),
-                    "cells_count": q_rec["cells_count"],
-                    "yield_category": cat,
-                }
+                },
             )
+            s = source_map.setdefault(src, {"source": src, **dict.fromkeys(YIELD_COUNTS, 0)})
+            location = getattr(self.targets, "locations", {}).get(loc)
+            location_totals = location_map.setdefault(
+                loc,
+                {
+                    "location_id": loc,
+                    "location_label": location.label if location else loc,
+                    **dict.fromkeys(YIELD_COUNTS, 0),
+                },
+            )
+            for aggregate in (totals, q, s, location_totals):
+                for key in YIELD_COUNTS:
+                    aggregate[key] += cell[key]
+            unique_total += cell["unique_postings"]
+            q["unique_postings"] += cell["unique_postings"]
+            q["total_scrapes"] += cell["total_scrapes"]
+            q["cells_count"] += 1
+            if cell["total_postings"] or cell["total_scrapes"]:
+                q["sources"].add(src)
+                q["locations"].add(loc)
 
+        top_queries = [
+            {
+                **q,
+                "sources": sorted(q["sources"]),
+                "locations": sorted(q["locations"]),
+                **_yield_metrics(q),
+            }
+            for q in query_map.values()
+        ]
         top_queries.sort(
-            key=lambda x: (x["strong_fits"], x["fit_rate"], x["total_postings"]),
+            key=lambda q: (q["priority_postings"], q["priority_rate"], q["total_postings"]),
             reverse=True,
         )
-
-        zero_yield_queries = [
-            q for q in top_queries if q["strong_fits"] == 0 and q["scored_postings"] >= 3
-        ]
-        zero_yield_queries.sort(key=lambda x: x["scored_postings"], reverse=True)
-
-        by_source = []
-        for s_rec in source_map.values():
-            sc_tot = s_rec["scored_postings"]
-            sc_fit = s_rec["strong_fits"]
-            s_fr = (sc_fit / sc_tot * 100) if sc_tot > 0 else 0.0
-            by_source.append(
-                {
-                    "source": s_rec["source"],
-                    "total_postings": s_rec["total_postings"],
-                    "scored_postings": sc_tot,
-                    "strong_fits": sc_fit,
-                    "fit_rate_pct": round(s_fr, 1),
-                }
-            )
-        by_source.sort(key=lambda x: x["strong_fits"], reverse=True)
-
-        by_location = []
-        for l_rec in location_map.values():
-            lc_tot = l_rec["scored_postings"]
-            lc_fit = l_rec["strong_fits"]
-            l_fr = (lc_fit / lc_tot * 100) if lc_tot > 0 else 0.0
-            loc_obj = getattr(self.targets, "locations", {}).get(l_rec["location_id"])
-            loc_label = loc_obj.label if loc_obj else l_rec["location_id"]
-            by_location.append(
-                {
-                    "location_id": l_rec["location_id"],
-                    "location_label": loc_label,
-                    "total_postings": l_rec["total_postings"],
-                    "scored_postings": lc_tot,
-                    "strong_fits": lc_fit,
-                    "fit_rate_pct": round(l_fr, 1),
-                }
-            )
-        by_location.sort(key=lambda x: x["strong_fits"], reverse=True)
-
-        overall_fit_rate = (
-            round((total_strong_fits_sum / total_scored_sum * 100), 1)
-            if total_scored_sum > 0
-            else 0.0
+        zero_yield_queries = sorted(
+            (q for q in top_queries if not q["priority_postings"] and q["scored_postings"] >= 3),
+            key=lambda q: q["scored_postings"],
+            reverse=True,
         )
-
-        active_tuples = [t for t in tuples if t["total_postings"] > 0 or t["total_scrapes"] > 0]
-        high_yield_count = sum(1 for q in top_queries if q["strong_fits"] > 0)
-        zero_yield_count = len(zero_yield_queries)
-
-        summary = {
-            "total_tuples": len(tuples),
-            "active_tuples": len(active_tuples),
-            "total_postings": total_postings_sum,
-            "total_unique_postings": total_unique_sum,
-            "total_scored": total_scored_sum,
-            "total_strong_fits": total_strong_fits_sum,
-            "overall_fit_rate_pct": overall_fit_rate,
-            "high_yield_queries_count": high_yield_count,
-            "zero_yield_queries_count": zero_yield_count,
-        }
-
+        by_source = [{**r, **_yield_metrics(r)} for r in source_map.values()]
+        by_location = [{**r, **_yield_metrics(r)} for r in location_map.values()]
+        for group in (by_source, by_location):
+            group.sort(key=lambda r: r["priority_postings"], reverse=True)
         return {
             "window_days": window_days,
             "source": source,
             "location_id": location_id,
             "query": query,
-            "summary": summary,
+            "summary": {
+                "total_tuples": len(tuples),
+                "active_tuples": sum(
+                    bool(t["total_postings"] or t["total_scrapes"]) for t in tuples
+                ),
+                "total_postings": totals["total_postings"],
+                "total_unique_postings": unique_total,
+                "total_scored": totals["scored_postings"],
+                "total_priority_postings": totals["priority_postings"],
+                "total_first_priority": totals["first_priority"],
+                "total_consider_priority": totals["consider_priority"],
+                "total_low_priority": totals["low_priority"],
+                "overall_priority_rate_pct": _yield_metrics(totals)["priority_rate_pct"],
+                "high_yield_queries_count": sum(q["priority_postings"] > 0 for q in top_queries),
+                "zero_yield_queries_count": len(zero_yield_queries),
+            },
             "top_queries": top_queries,
             "zero_yield_queries": zero_yield_queries,
-            "tuples": active_tuples if min_postings > 0 else tuples,
+            "tuples": [t for t in tuples if t["total_postings"] or t["total_scrapes"]]
+            if min_postings > 0
+            else tuples,
             "by_source": by_source,
             "by_location": by_location,
             "provenance": {

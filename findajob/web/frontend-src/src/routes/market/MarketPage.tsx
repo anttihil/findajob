@@ -52,16 +52,22 @@ function TupleProgression({ cellId, windowDays }: { cellId: number; windowDays: 
           <strong>{totals.scored_postings.toLocaleString()}</strong> scored
         </span>
         <span>
-          <strong>{totals.strong_fits.toLocaleString()}</strong> strong fits
+          <strong>{totals.first_priority.toLocaleString()}</strong> first
+        </span>
+        <span>
+          <strong>{totals.consider_priority.toLocaleString()}</strong> consider
+        </span>
+        <span>
+          <strong>{totals.low_priority.toLocaleString()}</strong> low
         </span>
         <span>
           {data.start_date} – {data.end_date} (UTC)
         </span>
       </div>
       <p class="card-note">
-        Jobs are grouped by the day they were found. Strong fits use each job’s latest profile
-        verdict, so earlier days can change as scoring completes. Today is partial. Days with no
-        jobs found are shown as zero; this does not indicate whether a search ran.
+        Jobs are grouped by the day they were found. Priority counts use each job’s current score,
+        so earlier days can change as scoring completes. Today is partial. Days with no jobs found
+        are shown as zero; this does not indicate whether a search ran.
       </p>
       {totals.total_postings === 0 ? (
         <p class="chart-empty">No jobs found for this tuple in this time window.</p>
@@ -78,7 +84,9 @@ function TupleProgression({ cellId, windowDays }: { cellId: number; windowDays: 
                 <th>Date (UTC)</th>
                 <th>Jobs found</th>
                 <th>Scored</th>
-                <th>Strong fits</th>
+                <th>First</th>
+                <th>Consider</th>
+                <th>Low</th>
               </tr>
             </thead>
             <tbody>
@@ -90,7 +98,9 @@ function TupleProgression({ cellId, windowDays }: { cellId: number; windowDays: 
                     <th scope="row">{point.date}</th>
                     <td>{point.total_postings.toLocaleString()}</td>
                     <td>{point.scored_postings.toLocaleString()}</td>
-                    <td>{point.strong_fits.toLocaleString()}</td>
+                    <td>{point.first_priority.toLocaleString()}</td>
+                    <td>{point.consider_priority.toLocaleString()}</td>
+                    <td>{point.low_priority.toLocaleString()}</td>
                   </tr>
                 ))}
             </tbody>
@@ -109,7 +119,7 @@ export function MarketPage() {
   const [attempt, setAttempt] = useState(0);
   const [selected, setSelected] = useState<QueryYieldTuple | null>(null);
   const [search, setSearch] = useState("");
-  const [sort, setSort] = useState("fits");
+  const [sort, setSort] = useState("priority");
   const [page, setPage] = useState(0);
   const [windowDays, setWindowDays] = useStoredPreference<number | null>("market-window-days", 30);
 
@@ -155,8 +165,8 @@ export function MarketPage() {
         const difference =
           sort === "jobs"
             ? b.total_postings - a.total_postings
-            : sort === "fits"
-              ? b.strong_fits - a.strong_fits || b.total_postings - a.total_postings
+            : sort === "priority"
+              ? b.priority_postings - a.priority_postings || b.total_postings - a.total_postings
               : 0;
         return (
           difference ||
@@ -177,8 +187,8 @@ export function MarketPage() {
           <div>
             <h3>Search performance</h3>
             <p class="card-note">
-              Compare jobs and strong fits for each (query term, provider, location). Select a tuple
-              to see its time progression.
+              Compare jobs and first + consider for each (query term, provider, location). Select a
+              tuple to see its time progression.
             </p>
           </div>
           <a class="yield-action-btn" href="/settings">
@@ -233,7 +243,7 @@ export function MarketPage() {
                     setPage(0);
                   }}
                 >
-                  <option value="fits">Most strong fits</option>
+                  <option value="priority">Most First + Consider</option>
                   <option value="jobs">Most jobs</option>
                   <option value="query">Query term</option>
                 </select>
@@ -270,8 +280,8 @@ export function MarketPage() {
           <>
             <p class="card-note">
               {tuples.length.toLocaleString()} tuples · Jobs are counted by discovery date (UTC).
-              Strong fits and fit rates use historical qualification judgments. Priority-only
-              assessments are excluded.
+              Scored jobs have a First, Consider, or Low priority. Historical binary judgments are
+              excluded.
             </p>
             <div class="market-table-wrap">
               <table class="data-table market-table market-tuple-table">
@@ -283,8 +293,10 @@ export function MarketPage() {
                     <th>Location</th>
                     <th>Jobs found</th>
                     <th>Scored</th>
-                    <th>Strong fits</th>
-                    <th>Fit rate</th>
+                    <th>First</th>
+                    <th>Consider</th>
+                    <th>Low</th>
+                    <th>Priority rate</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -308,11 +320,13 @@ export function MarketPage() {
                       <td data-label="Location">{locationLabel(tuple.location_id)}</td>
                       <td data-label="Jobs found">{tuple.total_postings.toLocaleString()}</td>
                       <td data-label="Scored">{tuple.scored_postings.toLocaleString()}</td>
-                      <td data-label="Strong fits">
-                        <strong>{tuple.strong_fits.toLocaleString()}</strong>
+                      <td data-label="First">
+                        <strong>{tuple.first_priority.toLocaleString()}</strong>
                       </td>
-                      <td data-label="Fit rate">
-                        {tuple.scored_postings ? `${tuple.fit_rate_pct}%` : "—"}
+                      <td data-label="Consider">{tuple.consider_priority.toLocaleString()}</td>
+                      <td data-label="Low">{tuple.low_priority.toLocaleString()}</td>
+                      <td data-label="Priority rate">
+                        {tuple.scored_postings ? `${tuple.priority_rate_pct}%` : "—"}
                       </td>
                     </tr>
                   ))}
@@ -321,8 +335,8 @@ export function MarketPage() {
             </div>
             <div class="market-list-footer">
               <span class="card-note">
-                Historical fit rate = strong fits ÷ jobs with a qualification judgment. A job is
-                attributed to the tuple that found it.
+                Priority rate = (First + Consider) ÷ priority-scored jobs. A job is attributed to
+                the tuple that found it.
               </span>
               {tuples.length > PAGE_SIZE && (
                 <nav class="market-pagination" aria-label="Search tuple pages">

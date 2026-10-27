@@ -223,10 +223,12 @@ export interface QueryYieldTuple {
   total_postings: number;
   unique_postings: number;
   scored_postings: number;
-  strong_fits: number;
-  no_fits: number;
-  fit_rate: number;
-  fit_rate_pct: number;
+  priority_postings: number;
+  first_priority: number;
+  consider_priority: number;
+  low_priority: number;
+  priority_rate: number;
+  priority_rate_pct: number;
   yield_rate: number;
   yield_rate_pct: number;
   total_scrapes: number;
@@ -240,7 +242,10 @@ export interface MarketProgressionPoint {
   date: string;
   total_postings: number;
   scored_postings: number;
-  strong_fits: number;
+  priority_postings: number;
+  first_priority: number;
+  consider_priority: number;
+  low_priority: number;
 }
 
 export interface MarketProgressionResponse {
@@ -259,10 +264,12 @@ export interface QueryTermYield {
   total_postings: number;
   unique_postings: number;
   scored_postings: number;
-  strong_fits: number;
-  no_fits: number;
-  fit_rate: number;
-  fit_rate_pct: number;
+  priority_postings: number;
+  first_priority: number;
+  consider_priority: number;
+  low_priority: number;
+  priority_rate: number;
+  priority_rate_pct: number;
   yield_rate: number;
   yield_rate_pct: number;
   total_scrapes: number;
@@ -279,8 +286,11 @@ export interface QueryYieldSummary {
   total_postings: number;
   total_unique_postings: number;
   total_scored: number;
-  total_strong_fits: number;
-  overall_fit_rate_pct: number;
+  total_priority_postings: number;
+  total_first_priority: number;
+  total_consider_priority: number;
+  total_low_priority: number;
+  overall_priority_rate_pct: number;
   high_yield_queries_count: number;
   zero_yield_queries_count: number;
 }
@@ -289,8 +299,11 @@ export interface SourceYield {
   source: string;
   total_postings: number;
   scored_postings: number;
-  strong_fits: number;
-  fit_rate_pct: number;
+  priority_postings: number;
+  first_priority: number;
+  consider_priority: number;
+  low_priority: number;
+  priority_rate_pct: number;
 }
 
 export interface LocationYield {
@@ -298,8 +311,11 @@ export interface LocationYield {
   location_label: string;
   total_postings: number;
   scored_postings: number;
-  strong_fits: number;
-  fit_rate_pct: number;
+  priority_postings: number;
+  first_priority: number;
+  consider_priority: number;
+  low_priority: number;
+  priority_rate_pct: number;
 }
 
 export interface MarketYieldResponse {

@@ -17,10 +17,12 @@ const tuple = (id: number, query = "Engineer", source = "indeed"): QueryYieldTup
   total_postings: 100,
   unique_postings: 100,
   scored_postings: 20,
-  strong_fits: 1,
-  no_fits: 19,
-  fit_rate: 0.05,
-  fit_rate_pct: 5,
+  priority_postings: 1,
+  first_priority: 1,
+  consider_priority: 0,
+  low_priority: 19,
+  priority_rate: 0.05,
+  priority_rate_pct: 5,
   yield_rate: 0.01,
   yield_rate_pct: 1,
   total_scrapes: 2,
@@ -33,11 +35,42 @@ const progression: MarketProgressionResponse = {
   window_days: 30,
   start_date: "2026-08-24",
   end_date: "2026-08-26",
-  totals: { total_postings: 100, scored_postings: 20, strong_fits: 1 },
+  totals: {
+    total_postings: 100,
+    scored_postings: 20,
+    priority_postings: 1,
+    first_priority: 1,
+    consider_priority: 0,
+    low_priority: 19,
+  },
   points: [
-    { date: "2026-08-24", total_postings: 100, scored_postings: 20, strong_fits: 1 },
-    { date: "2026-08-25", total_postings: 0, scored_postings: 0, strong_fits: 0 },
-    { date: "2026-08-26", total_postings: 0, scored_postings: 0, strong_fits: 0 },
+    {
+      date: "2026-08-24",
+      total_postings: 100,
+      scored_postings: 20,
+      priority_postings: 1,
+      first_priority: 1,
+      consider_priority: 0,
+      low_priority: 19,
+    },
+    {
+      date: "2026-08-25",
+      total_postings: 0,
+      scored_postings: 0,
+      priority_postings: 0,
+      first_priority: 0,
+      consider_priority: 0,
+      low_priority: 0,
+    },
+    {
+      date: "2026-08-26",
+      total_postings: 0,
+      scored_postings: 0,
+      priority_postings: 0,
+      first_priority: 0,
+      consider_priority: 0,
+      low_priority: 0,
+    },
   ],
 };
 
@@ -117,7 +150,14 @@ describe("market tuple exploration", () => {
     );
     get.mockResolvedValue({
       ...progression,
-      totals: { total_postings: 0, scored_postings: 0, strong_fits: 0 },
+      totals: {
+        total_postings: 0,
+        scored_postings: 0,
+        priority_postings: 0,
+        first_priority: 0,
+        consider_priority: 0,
+        low_priority: 0,
+      },
     });
     fireEvent.click(view.getByRole("button", { name: "Retry" }));
     await view.findByText("No jobs found for this tuple in this time window.");
@@ -149,7 +189,9 @@ it("uses the same zero-based scale for jobs and fits without a minimum visual co
   const jobs = view.container
     .querySelector('[data-series="total_postings"]')!
     .getAttribute("points")!;
-  const fits = view.container.querySelector('[data-series="strong_fits"]')!.getAttribute("points")!;
+  const fits = view.container
+    .querySelector('[data-series="priority_postings"]')!
+    .getAttribute("points")!;
   const coords = (value: string) => value.split(" ").map((pair) => pair.split(",").map(Number));
   const jobPoints = coords(jobs);
   const fitPoints = coords(fits);
@@ -157,4 +199,36 @@ it("uses the same zero-based scale for jobs and fits without a minimum visual co
   expect(baseline).toBe(fitPoints[1][1]);
   expect((baseline - fitPoints[0][1]) / (baseline - jobPoints[0][1])).toBeCloseTo(1 / 100, 10);
   expect(jobPoints[1][0] - jobPoints[0][0]).toBe(jobPoints[2][0] - jobPoints[1][0]);
+});
+
+it("shows priority counts and rate and orders tuples by First + Consider", async () => {
+  get.mockImplementation(async (url) =>
+    url.includes("locations")
+      ? { locations: [] }
+      : {
+          tuples: [
+            tuple(1, "Low yield"),
+            {
+              ...tuple(2, "High yield"),
+              first_priority: 2,
+              consider_priority: 3,
+              low_priority: 15,
+              priority_postings: 5,
+              priority_rate_pct: 25,
+            },
+          ],
+        },
+  );
+  const view = render(<MarketPage />);
+  await view.findByRole("button", { name: /View progression: High yield/ });
+  expect(view.getAllByRole("button", { name: /View progression/ })[0].textContent).toContain(
+    "High yield",
+  );
+  const row = view.getAllByRole("button", { name: /View progression/ })[0].closest("tr")!;
+  expect(row.querySelector('[data-label="First"]')?.textContent).toBe("2");
+  expect(row.querySelector('[data-label="Consider"]')?.textContent).toBe("3");
+  expect(row.querySelector('[data-label="Low"]')?.textContent).toBe("15");
+  expect(row.querySelector('[data-label="Priority rate"]')?.textContent).toBe("25%");
+  expect(view.queryByText("Strong fits")).toBeNull();
+  expect(view.getByText(/Historical binary judgments are excluded/)).toBeTruthy();
 });
