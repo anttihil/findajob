@@ -1,6 +1,16 @@
 import type { MarketProgressionPoint } from "../../api/types";
 
-export function ProgressionChart({ points }: { points: MarketProgressionPoint[] }) {
+export type YieldMetric = "priority_postings" | "first_priority";
+export const yieldLabel = (metric: YieldMetric) =>
+  metric === "first_priority" ? "Review first" : "First + Consider";
+
+export function ProgressionChart({
+  points,
+  metric = "priority_postings",
+}: {
+  points: MarketProgressionPoint[];
+  metric?: YieldMetric;
+}) {
   const width = 900;
   const height = 300;
   const left = 60;
@@ -16,7 +26,7 @@ export function ProgressionChart({ points }: { points: MarketProgressionPoint[] 
   const y = (count: number) => top + plotHeight * (1 - count / max);
   const series = [
     { key: "total_postings" as const, label: "Jobs found", dashed: false },
-    { key: "priority_postings" as const, label: "First + Consider", dashed: true },
+    { key: metric, label: yieldLabel(metric), dashed: true },
   ];
   const dateTicks = [
     ...new Set([0, Math.floor((points.length - 1) / 2), points.length - 1]),
@@ -25,7 +35,7 @@ export function ProgressionChart({ points }: { points: MarketProgressionPoint[] 
     <div class="market-progression">
       <div class="market-chart-legend">
         <span>━ Jobs found</span>
-        <span>┄ First + Consider</span>
+        <span>┄ {yieldLabel(metric)}</span>
         <span>Daily counts · same scale</span>
       </div>
       <div class="market-chart-scroll">
@@ -33,7 +43,7 @@ export function ProgressionChart({ points }: { points: MarketProgressionPoint[] 
           viewBox={`0 0 ${width} ${height}`}
           class="market-trend-chart"
           role="img"
-          aria-label="Daily jobs found and first + consider by discovery date, on the same zero-based count scale"
+          aria-label={`Daily jobs found and ${yieldLabel(metric)} by discovery date, on the same zero-based count scale`}
         >
           {[0, 1, 2, 3, 4].map((tick) => {
             const value = (max * tick) / 4;
@@ -86,12 +96,12 @@ export function ProgressionChart({ points }: { points: MarketProgressionPoint[] 
             <g key={point.date}>
               <title>
                 {point.date}: {point.total_postings} jobs found, {point.scored_postings} scored,{" "}
-                {point.priority_postings} first + consider
+                {point[metric]} {yieldLabel(metric)}
               </title>
               <circle cx={x(index)} cy={y(point.total_postings)} r={3} fill="currentColor" />
               <rect
                 x={x(index) - 3}
-                y={y(point.priority_postings) - 3}
+                y={y(point[metric]) - 3}
                 width={6}
                 height={6}
                 fill="var(--bg-screen)"

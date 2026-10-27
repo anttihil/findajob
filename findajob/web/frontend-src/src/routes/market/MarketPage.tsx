@@ -7,11 +7,19 @@ import type {
   QueryYieldTuple,
 } from "../../api/types";
 import { useStoredPreference } from "../../lib/preferences";
-import { ProgressionChart } from "./ProgressionChart";
+import { ProgressionChart, yieldLabel, type YieldMetric } from "./ProgressionChart";
 
 const PAGE_SIZE = 25;
 
-function TupleProgression({ cellId, windowDays }: { cellId: number; windowDays: number | null }) {
+function TupleProgression({
+  cellId,
+  windowDays,
+  metric,
+}: {
+  cellId: number;
+  windowDays: number | null;
+  metric: YieldMetric;
+}) {
   const [data, setData] = useState<MarketProgressionResponse | null>(null);
   const [error, setError] = useState(false);
   const [attempt, setAttempt] = useState(0);
@@ -65,14 +73,18 @@ function TupleProgression({ cellId, windowDays }: { cellId: number; windowDays: 
         </span>
       </div>
       <p class="card-note">
-        Jobs are grouped by the day they were found. Priority counts use each job’s current score,
+        {yieldLabel(metric)}: {totals[metric].toLocaleString()} jobs · Priority rate:{" "}
+        {totals.scored_postings
+          ? `${Math.round((totals[metric] / totals.scored_postings) * 1000) / 10}%`
+          : "—"}
+        . Jobs are grouped by the day they were found. Priority counts use each job’s current score,
         so earlier days can change as scoring completes. Today is partial. Days with no jobs found
         are shown as zero; this does not indicate whether a search ran.
       </p>
       {totals.total_postings === 0 ? (
         <p class="chart-empty">No jobs found for this tuple in this time window.</p>
       ) : (
-        <ProgressionChart points={data.points} />
+        <ProgressionChart points={data.points} metric={metric} />
       )}
       <details class="market-daily-details">
         <summary>Daily counts</summary>
@@ -121,6 +133,12 @@ export function MarketPage() {
   const [search, setSearch] = useState("");
   const [sort, setSort] = useState("priority");
   const [page, setPage] = useState(0);
+  const [storedMetric, setMetric] = useStoredPreference<YieldMetric>(
+    "market-yield-metric",
+    "priority_postings",
+  );
+  const metric: YieldMetric =
+    storedMetric === "first_priority" ? "first_priority" : "priority_postings";
   const [windowDays, setWindowDays] = useStoredPreference<number | null>("market-window-days", 30);
 
   useEffect(() => {
@@ -166,7 +184,7 @@ export function MarketPage() {
           sort === "jobs"
             ? b.total_postings - a.total_postings
             : sort === "priority"
-              ? b.priority_postings - a.priority_postings || b.total_postings - a.total_postings
+              ? b[metric] - a[metric] || b.total_postings - a.total_postings
               : 0;
         return (
           difference ||
@@ -175,7 +193,7 @@ export function MarketPage() {
           a.location_id.localeCompare(b.location_id)
         );
       });
-  }, [data, search, sort, locations]);
+  }, [data, search, sort, locations, metric]);
   const lastPage = Math.max(0, Math.ceil(tuples.length / PAGE_SIZE) - 1);
   const currentPage = Math.min(page, lastPage);
   const visibleTuples = tuples.slice(currentPage * PAGE_SIZE, (currentPage + 1) * PAGE_SIZE);
@@ -187,8 +205,8 @@ export function MarketPage() {
           <div>
             <h3>Search performance</h3>
             <p class="card-note">
-              Compare jobs and first + consider for each (query term, provider, location). Select a
-              tuple to see its time progression.
+              Compare jobs and {yieldLabel(metric)} for each (query term, provider, location).
+              Select a tuple to see its time progression.
             </p>
           </div>
           <a class="yield-action-btn" href="/settings">
@@ -214,6 +232,25 @@ export function MarketPage() {
               <option value="90">Last 90 days</option>
               <option value="365">Last 365 days</option>
               <option value="all">All time</option>
+            </select>
+          </div>
+          <div class="yield-filter-item">
+            <label for="market-yield">Priority yield</label>
+            <select
+              id="market-yield"
+              class="form-select-sm"
+              value={metric}
+              onChange={(event) => {
+                setMetric(
+                  event.currentTarget.value === "first_priority"
+                    ? "first_priority"
+                    : "priority_postings",
+                );
+                setPage(0);
+              }}
+            >
+              <option value="priority_postings">First + Consider</option>
+              <option value="first_priority">Review first</option>
             </select>
           </div>
           {!selected && (
@@ -243,7 +280,7 @@ export function MarketPage() {
                     setPage(0);
                   }}
                 >
-                  <option value="priority">Most First + Consider</option>
+                  <option value="priority">Most {yieldLabel(metric)}</option>
                   <option value="jobs">Most jobs</option>
                   <option value="query">Query term</option>
                 </select>
@@ -261,6 +298,7 @@ export function MarketPage() {
             </h4>
             <TupleProgression
               key={`${selected.cell_id}:${windowDays}`}
+              metric={metric}
               cellId={selected.cell_id}
               windowDays={windowDays}
             />
@@ -326,7 +364,9 @@ export function MarketPage() {
                       <td data-label="Consider">{tuple.consider_priority.toLocaleString()}</td>
                       <td data-label="Low">{tuple.low_priority.toLocaleString()}</td>
                       <td data-label="Priority rate">
-                        {tuple.scored_postings ? `${tuple.priority_rate_pct}%` : "—"}
+                        {tuple.scored_postings
+                          ? `${Math.round((tuple[metric] / tuple.scored_postings) * 1000) / 10}%`
+                          : "—"}
                       </td>
                     </tr>
                   ))}
@@ -335,7 +375,7 @@ export function MarketPage() {
             </div>
             <div class="market-list-footer">
               <span class="card-note">
-                Priority rate = (First + Consider) ÷ priority-scored jobs. A job is attributed to
+                Priority rate = {yieldLabel(metric)} ÷ priority-scored jobs. A job is attributed to
                 the tuple that found it.
               </span>
               {tuples.length > PAGE_SIZE && (

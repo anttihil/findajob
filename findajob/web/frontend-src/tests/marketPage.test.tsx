@@ -232,3 +232,60 @@ it("shows priority counts and rate and orders tuples by First + Consider", async
   expect(view.queryByText("Strong fits")).toBeNull();
   expect(view.getByText(/Historical binary judgments are excluded/)).toBeTruthy();
 });
+
+it("switches yield, rate, sorting and progression to Review first and saves the choice", async () => {
+  get.mockImplementation(async (url) => {
+    if (url.includes("locations")) return { locations: [] };
+    if (url.includes("progression")) return progression;
+    return {
+      tuples: [
+        {
+          ...tuple(1, "Consider heavy"),
+          first_priority: 1,
+          consider_priority: 9,
+          priority_postings: 10,
+        },
+        {
+          ...tuple(2, "First heavy"),
+          first_priority: 3,
+          consider_priority: 0,
+          priority_postings: 3,
+        },
+      ],
+    };
+  });
+  const view = render(<MarketPage />);
+  await view.findByRole("button", { name: /View progression: Consider heavy/ });
+  expect(view.getAllByRole("button", { name: /View progression/ })[0].textContent).toContain(
+    "Consider heavy",
+  );
+  const select = view.getByLabelText("Priority yield");
+  expect([...select.querySelectorAll("option")].map((o) => o.textContent)).toEqual([
+    "First + Consider",
+    "Review first",
+  ]);
+  fireEvent.change(select, { target: { value: "first_priority" } });
+  const first = view.getAllByRole("button", { name: /View progression/ })[0];
+  expect(first.textContent).toContain("First heavy");
+  expect(first.closest("tr")?.querySelector('[data-label="Priority rate"]')?.textContent).toBe(
+    "15%",
+  );
+  fireEvent.click(first);
+  await view.findByRole("img", { name: /Daily jobs found and Review first/ });
+  expect(view.container.querySelector('[data-series="first_priority"]')).toBeTruthy();
+  expect(view.container.querySelector('[data-series="priority_postings"]')).toBeNull();
+  fireEvent.change(view.getByLabelText("Priority yield"), {
+    target: { value: "priority_postings" },
+  });
+  expect(view.getByRole("img", { name: /Daily jobs found and First \+ Consider/ })).toBeTruthy();
+  fireEvent.change(view.getByLabelText("Priority yield"), { target: { value: "first_priority" } });
+  view.unmount();
+  const restored = render(<MarketPage />);
+  await restored.findByRole("button", { name: /View progression: First heavy/ });
+  expect((restored.getByLabelText("Priority yield") as HTMLSelectElement).value).toBe(
+    "first_priority",
+  );
+  expect(restored.getAllByRole("button", { name: /View progression/ })[0].textContent).toContain(
+    "First heavy",
+  );
+});
