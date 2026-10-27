@@ -90,20 +90,6 @@ FEED_ORDER_BY = (
     "COALESCE(jobs.date_posted, jobs.date_found) DESC, jobs.id DESC"
 )
 
-# Do not group records with a missing company or title.  A blank field is not an identity,
-# and grouping it would hide unrelated imports or incomplete board rows.
-_GROUP_COMPANY_KEY = "normalize_company(jobs.company)"
-_GROUP_TITLE_KEY = "normalize_title(jobs.title)"
-_GROUP_HAS_IDENTITY = f"({_GROUP_COMPANY_KEY} <> '' AND {_GROUP_TITLE_KEY} <> '')"
-_GROUP_COMPANY_PARTITION = (
-    f"CASE WHEN {_GROUP_HAS_IDENTITY} THEN {_GROUP_COMPANY_KEY} "
-    "ELSE printf('__job__%d', jobs.id) END"
-)
-_GROUP_TITLE_PARTITION = (
-    f"CASE WHEN {_GROUP_HAS_IDENTITY} THEN {_GROUP_TITLE_KEY} ELSE printf('__job__%d', jobs.id) END"
-)
-_GROUP_PARTITION_BY = f"{_GROUP_COMPANY_PARTITION}, {_GROUP_TITLE_PARTITION}"
-
 
 def select_columns(
     conn: sqlite3.Connection,
@@ -265,32 +251,7 @@ def query_jobs(
         q=q,
     )
     cols_sql, new_cached_columns = select_columns(conn, detail, cached_columns)
-    if job_id is not None:
-        # Detail URLs always address a concrete posting, not its feed group.
-        query = f"SELECT {cols_sql}, COUNT(*) OVER () AS _total{FEED_FROM} WHERE 1=1{where}"
-    else:
-        # Keep every underlying posting in the database, but return only the highest-ranked
-        # representative of each normalized company + title family.  Filters run before
-        # grouping, so a source/location filter never leaks hidden variants into its count.
-        query = f"""
-            WITH grouped AS (
-                SELECT jobs.id AS job_id,
-                       COUNT(*) OVER (PARTITION BY {_GROUP_PARTITION_BY}) AS listing_count,
-                       ROW_NUMBER() OVER (
-                           PARTITION BY {_GROUP_PARTITION_BY}
-                           ORDER BY {FEED_ORDER_BY}
-                       ) AS listing_rank
-                {FEED_FROM}
-                WHERE 1=1{where}
-            )
-            SELECT {cols_sql}, grouped.listing_count, COUNT(*) OVER () AS _total
-            FROM grouped
-            JOIN jobs ON jobs.id = grouped.job_id
-            LEFT JOIN v_job_assessments v ON v.job_id = jobs.id
-            LEFT JOIN scrape_cells cell ON cell.id = jobs.scrape_cell_id
-            WHERE grouped.listing_rank = 1
-        """
-
+    query = f"SELECT {cols_sql}, COUNT(*) OVER () AS _total{FEED_FROM} WHERE 1=1{where}"
     query += f" ORDER BY {FEED_ORDER_BY}"
     query += " LIMIT ? OFFSET ?"
     params.extend([limit, offset])
@@ -372,26 +333,7 @@ def job_ids_for(
         date_posted=date_posted,
         q=q,
     )
-    if job_id is not None:
-        query = f"SELECT jobs.id{FEED_FROM} WHERE 1=1{where}"
-    else:
-        query = f"""
-            WITH grouped AS (
-                SELECT jobs.id AS job_id,
-                       ROW_NUMBER() OVER (
-                           PARTITION BY {_GROUP_PARTITION_BY}
-                           ORDER BY {FEED_ORDER_BY}
-                       ) AS listing_rank
-                {FEED_FROM}
-                WHERE 1=1{where}
-            )
-            SELECT jobs.id
-            FROM grouped
-            JOIN jobs ON jobs.id = grouped.job_id
-            LEFT JOIN v_job_assessments v ON v.job_id = jobs.id
-            LEFT JOIN scrape_cells cell ON cell.id = jobs.scrape_cell_id
-            WHERE grouped.listing_rank = 1
-        """
+    query = f"SELECT jobs.id{FEED_FROM} WHERE 1=1{where}"
     query += f" ORDER BY {FEED_ORDER_BY} LIMIT ? OFFSET ?"
     args: list[Any] = [*params, limit, offset]
 
@@ -443,14 +385,13 @@ def status_counts(conn: sqlite3.Connection) -> dict[str, int]:
 
 
 def count_review_first(conn: sqlite3.Connection, **filters: Any) -> int:
-    """Count the grouped feed after selecting Review first, regardless of pagination."""
+    """Count matching Review first postings, regardless of pagination."""
     filters.pop("limit", None)
     filters.pop("offset", None)
     filters["priority"] = "first"
     where, params = feed_filters(**filters)
     return conn.execute(
-        f"SELECT COUNT(*) FROM (SELECT 1{FEED_FROM} WHERE 1=1{where} "
-        f"GROUP BY {_GROUP_PARTITION_BY})",
+        f"SELECT COUNT(*){FEED_FROM} WHERE 1=1{where}",
         params,
     ).fetchone()[0]
 

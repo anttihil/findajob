@@ -146,11 +146,7 @@ def normalize_company(name: Any) -> str:
 
 
 def normalize_title(title: Any) -> str:
-    """Canonicalize a job title for exact role-family comparisons.
-
-    This deliberately mirrors the title component of :func:`content_hash`, but is
-    exposed separately for feed-level grouping across location variants.
-    """
+    """Canonicalize the title component of a posting's content hash."""
     text = _text(title).lower()
     text = re.sub(r"\(.*?\)", " ", text)
     text = re.sub(r"[^\w\s]", " ", text)

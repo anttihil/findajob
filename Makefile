@@ -1,4 +1,4 @@
-.PHONY: setup build start test lint check verify verify-browser package-smoke docker-build docker-up docker-down
+.PHONY: setup build start test lint check verify package-smoke docker-build docker-up docker-down
 
 setup:
 	uv sync
@@ -24,9 +24,6 @@ lint:
 
 verify:
 	python3 scripts/verify.py
-
-verify-browser:
-	python3 scripts/verify.py --browser
 
 check: verify
 

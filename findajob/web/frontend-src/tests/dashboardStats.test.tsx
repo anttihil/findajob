@@ -90,7 +90,7 @@ it("ignores an older counter response after filters change", async () => {
   expect(card.querySelector("h3")?.textContent).toBe("2");
 });
 
-it("refreshes filtered counters and the grouped feed after saving a job", async () => {
+it("refreshes filtered counters and the feed after saving a job", async () => {
   const view = render(<DashboardPage />);
   const card = view.getByRole("link", { name: /Review first/ });
   await waitFor(() => expect(card.querySelector("h3")?.textContent).toBe("3"));

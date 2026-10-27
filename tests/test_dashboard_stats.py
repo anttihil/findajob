@@ -1,4 +1,4 @@
-"""Review first counts the same filtered job families as the dashboard feed."""
+"""Review first counts the same filtered postings as the dashboard feed."""
 
 from collections.abc import Iterator
 from datetime import datetime, timedelta, timezone
@@ -62,7 +62,7 @@ def dashboard(tmp_path: Path) -> Iterator[tuple[TestClient, Database]]:
 @pytest.mark.parametrize(
     ("filters", "expected"),
     [
-        ({}, 6),
+        ({}, 7),
         ({"country": "FI"}, 1),
         ({"country": "US"}, 6),
         ({"status": "saved"}, 1),
@@ -71,7 +71,7 @@ def dashboard(tmp_path: Path) -> Iterator[tuple[TestClient, Database]]:
         ({"fit": "false"}, 0),
         ({"q": "Beta"}, 1),
         ({"date_posted": "7d"}, 5),
-        ({"stage": "assessed"}, 6),
+        ({"stage": "assessed"}, 7),
         ({"stage": "historical"}, 0),
         ({"reason_type": "match"}, 1),
         ({"liveness": "live"}, 0),
@@ -79,7 +79,7 @@ def dashboard(tmp_path: Path) -> Iterator[tuple[TestClient, Database]]:
         ({"country": "FI", "date_posted": "7d"}, 0),
     ],
 )
-def test_review_first_matches_filtered_grouped_feed(
+def test_review_first_matches_filtered_feed(
     dashboard: tuple[TestClient, Database], filters: dict[str, str], expected: int
 ) -> None:
     client, _ = dashboard
@@ -95,7 +95,7 @@ def test_review_first_ignores_current_priority_and_pagination_without_polluting_
     dashboard: tuple[TestClient, Database],
 ) -> None:
     client, db = dashboard
-    assert db.get_stats()["review_first"] == 7
+    assert db.get_stats()["review_first"] == 8
     for country, expected in [("FI", 1), ("US", 6), ("FI", 1)]:
         stats = client.get(
             "/api/stats",
@@ -103,17 +103,17 @@ def test_review_first_ignores_current_priority_and_pagination_without_polluting_
         )
         assert stats.status_code == 200
         assert stats.json()["review_first"] == expected
-    assert db.get_stats()["review_first"] == 7
+    assert db.get_stats()["review_first"] == 8
 
 
-def test_review_first_recounts_groups_after_status_changes(
+def test_review_first_recounts_postings_after_status_changes(
     dashboard: tuple[TestClient, Database],
 ) -> None:
     client, _ = dashboard
-    assert client.get("/api/stats").json()["review_first"] == 6
-    # Saving one variant leaves its other Review first variant in the unread group.
+    assert client.get("/api/stats").json()["review_first"] == 7
+    # Each posting contributes independently, even with the same company and title.
     assert client.put("/api/jobs/1/status", json={"status": "saved"}).status_code == 200
     assert client.get("/api/stats").json()["review_first"] == 6
     assert client.put("/api/jobs/2/status", json={"status": "saved"}).status_code == 200
     assert client.get("/api/stats").json()["review_first"] == 5
-    assert client.get("/api/stats?status=saved").json()["review_first"] == 2
+    assert client.get("/api/stats?status=saved").json()["review_first"] == 3

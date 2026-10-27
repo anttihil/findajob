@@ -149,25 +149,14 @@ If branch protection requires the previous CI jobs, update it to require `verify
 See [AGENTS.md](AGENTS.md) and the
 [verification skill](.agents/skills/verification/SKILL.md) for completion guidance.
 
-Prettier is pinned locally; `npm run format:check` checks frontend source, browser
-tests, and frontend configuration. `make package-smoke` builds the frontend and
+Prettier is pinned locally; `npm run format:check` checks frontend source and
+frontend configuration. `make package-smoke` builds the frontend and
 tests packaging independently: it builds a wheel, installs it with locked runtime
 dependencies in a temporary environment, checks dependency consistency, imports the
 web app, verifies bundled frontend assets, and runs both installed CLIs with `--help`
 from outside the checkout.
 It uses a temporary application home and leaves the development environment intact.
 A cold cache may need network access for packaging dependencies.
-
-Suggested addition: browser tests in CI after restoring their missing preview fixture.
-
-Run `make verify-browser` to include the memo copilot's Chromium checks on desktop and mobile.
-These currently require restoring the missing
-`.agents/skills/browser-verification/scripts/serve_preview.py` fixture referenced by
-`playwright.config.ts`; until then browser verification is blocked.
-Install the browser once with `npx playwright install chromium` after `npm install`.
-The tests build the frontend and start an isolated FastAPI server with synthetic data and
-mocked AI responses; they exercise the real editor, chat API, revision persistence, recovery,
-and error handling. Screenshots and failure traces go in `test-results/browser`.
 
 The master profile remains the structured baseline for job scoring. Tailored resume generation
 uses both the profile and the full memo, including its corrections and factual qualifications.

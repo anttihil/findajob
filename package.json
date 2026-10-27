@@ -8,10 +8,9 @@
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "lint": "eslint findajob/web/frontend-src",
-    "format": "prettier --write findajob/web/frontend-src tests/browser \"*.config.{js,ts}\" tsconfig.json package.json .prettierrc.json",
-    "format:check": "prettier --check findajob/web/frontend-src tests/browser \"*.config.{js,ts}\" tsconfig.json package.json .prettierrc.json",
-    "test": "vitest run",
-    "test:browser": "playwright test"
+    "format": "prettier --write findajob/web/frontend-src \"*.config.{js,ts}\" tsconfig.json package.json .prettierrc.json",
+    "format:check": "prettier --check findajob/web/frontend-src \"*.config.{js,ts}\" tsconfig.json package.json .prettierrc.json",
+    "test": "vitest run"
   },
   "dependencies": {
     "@preact/signals": "^1.3.0",
@@ -20,7 +19,6 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.17.0",
-    "@playwright/test": "^1.64.1",
     "@preact/preset-vite": "^2.9.1",
     "@testing-library/preact": "^3.2.4",
     "@types/node": "^22.10.2",

@@ -195,7 +195,7 @@ export function DashboardPage() {
       stats.value = { ...stats.value, status_counts: counts };
     }
 
-    // Refetch the grouped feed and filtered counters together after a status change.
+    // Refetch the feed and filtered counters together after a status change.
     setRefreshKey((k) => k + 1);
 
     setJobsPage((prev) => {

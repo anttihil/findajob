@@ -70,7 +70,6 @@ current_resume.md
 # by FastAPI at runtime -- see `findajob/web/app.py` -- not committed.
 node_modules/
 test-results/
-playwright-report/
 findajob/web/frontend/dist/
 # Playwright CLI output (may contain credentials)
 .playwright-cli/

@@ -65,9 +65,9 @@ def has_fresh_success(root: Path) -> bool:
         return False
 
 
-def checks(browser: bool = False) -> list[tuple[str, list[str]]]:
+def checks() -> list[tuple[str, list[str]]]:
     python = ["uv", "run", "--locked"]
-    steps = [
+    return [
         ("Python lint", [*python, "ruff", "check", "."]),
         ("Frontend lint", ["npm", "run", "lint"]),
         ("Python formatting", [*python, "ruff", "format", "--check", "."]),
@@ -81,17 +81,14 @@ def checks(browser: bool = False) -> list[tuple[str, list[str]]]:
         ("Working-tree whitespace", ["git", "diff", "--check"]),
         ("Staged whitespace", ["git", "diff", "--cached", "--check"]),
     ]
-    if browser:
-        steps.append(("Browser tests", ["npm", "run", "test:browser"]))
-    return steps
 
 
-def verify(root: Path, browser: bool = False) -> int:
+def verify(root: Path) -> int:
     receipt = root / RECEIPT
     receipt.parent.mkdir(parents=True, exist_ok=True)
     receipt.unlink(missing_ok=True)
     before = fingerprint(root)
-    for label, command in checks(browser):
+    for label, command in checks():
         print(f"\n>>> {label}: {' '.join(command)}", flush=True)
         try:
             result = subprocess.run(command, cwd=root, check=False)
@@ -104,17 +101,15 @@ def verify(root: Path, browser: bool = False) -> int:
     if fingerprint(root) != before:
         print("Files changed during verification; rerun after the final edit.", file=sys.stderr)
         return 1
-    receipt.write_text(json.dumps({"fingerprint": before, "browser": browser}) + "\n")
+    receipt.write_text(json.dumps({"fingerprint": before}) + "\n")
     print("\nVerification passed.", flush=True)
     return 0
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--browser", action="store_true", help="also run Playwright browser tests")
-    args = parser.parse_args()
+    argparse.ArgumentParser(description=__doc__).parse_args()
     try:
-        return verify(ROOT, browser=args.browser)
+        return verify(ROOT)
     except (OSError, subprocess.CalledProcessError) as error:
         print(f"Verification could not run: {error}", file=sys.stderr)
         return 1

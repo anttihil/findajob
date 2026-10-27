@@ -40,7 +40,7 @@ def passing_checks() -> list[tuple[str, list[str]]]:
 def test_explicit_verification_runs_even_with_a_fresh_receipt(
     repository: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(verify, "checks", lambda _browser: passing_checks())
+    monkeypatch.setattr(verify, "checks", passing_checks)
     assert verify.verify(repository) == 0
     assert verify.has_fresh_success(repository)
     assert verify.verify(repository) == 0
@@ -61,7 +61,7 @@ def test_python_bytecode_cache_creation_does_not_invalidate_verification(
     monkeypatch.setattr(
         verify,
         "checks",
-        lambda _browser: [("create Python bytecode cache", command)],
+        lambda: [("create Python bytecode cache", command)],
     )
 
     assert verify.verify(repository) == 0
@@ -77,7 +77,7 @@ def test_python_dependency_changes_invalidate_success(
     metadata = site_packages / "example-1.0.dist-info/METADATA"
     metadata.parent.mkdir(parents=True)
     metadata.write_text("Name: example\nVersion: 1.0\n")
-    monkeypatch.setattr(verify, "checks", lambda _browser: passing_checks())
+    monkeypatch.setattr(verify, "checks", passing_checks)
     assert verify.verify(repository) == 0
 
     if change == "install":
@@ -97,7 +97,7 @@ def test_python_dependency_changes_invalidate_success(
 def test_source_and_dependency_changes_invalidate_success(
     repository: Path, monkeypatch: pytest.MonkeyPatch, change: str
 ) -> None:
-    monkeypatch.setattr(verify, "checks", lambda _browser: passing_checks())
+    monkeypatch.setattr(verify, "checks", passing_checks)
     assert verify.verify(repository) == 0
     if change == "untracked":
         (repository / "new.py").write_text("value = 2\n")
@@ -123,7 +123,7 @@ def test_failure_stops_later_checks_and_removes_previous_receipt(
     monkeypatch.setattr(
         verify,
         "checks",
-        lambda _browser: [
+        lambda: [
             ("fails", [sys.executable, "-c", "raise SystemExit(3)"]),
             *passing_checks(),
         ],
@@ -139,7 +139,7 @@ def test_changes_during_verification_cannot_receive_a_success_receipt(
     monkeypatch.setattr(
         verify,
         "checks",
-        lambda _browser: [
+        lambda: [
             ("edits source", [sys.executable, "-c", "open('source.py','w').write('value = 3\\n')"]),
         ],
     )
@@ -150,7 +150,7 @@ def test_changes_during_verification_cannot_receive_a_success_receipt(
 def test_hook_reuses_success_without_starting_a_process(
     repository: Path, stop_hook: ModuleType, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(verify, "checks", lambda _browser: passing_checks())
+    monkeypatch.setattr(verify, "checks", passing_checks)
     assert verify.verify(repository) == 0
     # No scripts/verify.py exists here: starting verification would fail.
     assert stop_hook.check(repository) is None

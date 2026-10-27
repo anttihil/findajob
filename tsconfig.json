@@ -20,8 +20,6 @@
   "include": [
     "vite.config.ts",
     "vitest.config.ts",
-    "playwright.config.ts",
-    "tests/browser/**/*.ts",
     "findajob/web/frontend-src/src/**/*",
     "findajob/web/frontend-src/tests/**/*"
   ]

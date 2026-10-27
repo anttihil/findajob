@@ -29,10 +29,12 @@ verifies bundled JS/CSS, and runs both CLI entry points with `--help` outside th
 home is temporary; the development environment is preserved. A cold cache may
 require network access for the build backend and locked dependencies.
 
-`make verify-browser` also runs the Playwright desktop/mobile tests. Use it for
-browser-facing changes once the missing preview fixture referenced by
-`playwright.config.ts` is restored; Chromium must be installed. Until then,
-report browser verification as blocked, with the missing fixture path.
+For changes to visible behavior, also exercise the affected flow in a browser.
+Read [Browser checks](references/browser-checks.md) for an isolated local server
+and the sandbox fallback. Use the available
+[Playwright CLI skill](../playwright-cli/SKILL.md); no repository Playwright test
+harness or preview fixture is required. Distinguish browser checks from API and
+unit tests, and report visual failures even when automated checks pass.
 
 Successful runs write a local receipt under `test-results/verification/`. The stop
 hook reuses it only while repository contents and dependency-install metadata

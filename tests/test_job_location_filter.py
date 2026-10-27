@@ -43,7 +43,7 @@ def test_location_filter_matches_scrape_cell_provenance(tmp_path: Path) -> None:
                 (
                     "remote",
                     "Engineer",
-                    "Everywhere",
+                    "North",
                     "Remote",
                     "US",
                     "https://example.test/2",
@@ -56,6 +56,9 @@ def test_location_filter_matches_scrape_cell_provenance(tmp_path: Path) -> None:
 
         helsinki = db.query_jobs(location="helsinki")["jobs"]
         assert [job["job_key"] for job in helsinki] == ["helsinki"]
+        assert db.query_jobs()["total"] == 2
+        assert db.job_ids_for(location="helsinki") == [helsinki[0]["id"]]
+        assert [job["job_key"] for job in db.query_jobs(location="us_remote")["jobs"]] == ["remote"]
         assert db.query_jobs(location="espoo")["jobs"] == []
     finally:
         db.close()
