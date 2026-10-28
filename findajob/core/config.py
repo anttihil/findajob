@@ -29,7 +29,6 @@ DEFAULT_CONFIG: dict[str, Any] = {
         # still override them locally if a board changes its behaviour.
         "page_size": {"indeed": 100, "linkedin": 10},
         "requests_per_description": {"indeed": 0, "linkedin": 1},
-        "cadence_hours": 24,
         "hours_old_floor": 72,
         "max_hours_old": 168,
         "backfill_hours_old": 168,
@@ -116,8 +115,9 @@ DEFAULT_CONFIG: dict[str, Any] = {
     },
     "scheduler": {
         "search": {
-            "schedule": ["01:00", "07:00", "13:00", "19:00"],
-            "jitter_minutes": 30,
+            # Effective source defaults are resolved in search_schedule.py.
+            "sources": {},
+            "jitter_minutes": 15,
             "persistent_catchup": True,
             "timeout_minutes": 90,
         },

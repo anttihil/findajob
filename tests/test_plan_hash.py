@@ -48,12 +48,18 @@ class PlanHashTests(unittest.TestCase):
         }
         self.assertEqual(plan_hash(self.targets, config_a), plan_hash(self.targets, config_b))
 
-    def test_plan_hash_changes_with_cadence_or_targets(self) -> None:
-        config_24 = {"scraper": {"cadence_hours": 24}}
-        config_48 = {"scraper": {"cadence_hours": 48}}
+    def test_plan_hash_changes_with_effective_schedule(self) -> None:
+        config_24 = {"scheduler": {"search": {"sources": {"indeed": {"interval_minutes": 180}}}}}
+        config_48 = {"scheduler": {"search": {"sources": {"indeed": {"interval_minutes": 360}}}}}
         self.assertNotEqual(
             plan_hash(self.targets, config_24),
             plan_hash(self.targets, config_48),
+        )
+
+    def test_legacy_cadence_does_not_change_effective_plan(self) -> None:
+        self.assertEqual(
+            plan_hash(self.targets, {"scraper": {"cadence_hours": 24}}),
+            plan_hash(self.targets, {"scraper": {"cadence_hours": 48}}),
         )
 
     def test_plan_hash_changes_when_enabled_targets_change(self) -> None:

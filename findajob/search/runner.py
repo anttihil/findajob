@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any
 from findajob.core.config import load_config
 from findajob.core.database import Database
 from findajob.core.logger import get_logger
+from findajob.core.search_schedule import search_schedules
 from findajob.core.status_manager import (
     add_sync_error,
     clear_stale_lock,
@@ -48,13 +49,25 @@ LOST_CELLS_PARTIAL = 0.2
 def plan_hash(targets: "SearchTargets | None", config: dict[str, Any]) -> str:
     """Identify the scrape plan, so trend queries can refuse to cross plan changes."""
     import hashlib
+    import json
 
     scraper = config.get("scraper", {})
+    schedules = search_schedules(config)
     payload = "|".join(
         [
             targets.fingerprint if targets else "default",
-            ",".join(sorted(k for k, v in (scraper.get("sources") or {}).items() if v)),
-            str(scraper.get("cadence_hours", 24)),
+            ",".join(sorted(schedules)),
+            json.dumps(
+                {
+                    source: {
+                        "interval_minutes": schedule.interval_minutes,
+                        "schedule": schedule.times,
+                        "jitter_minutes": schedule.jitter_minutes,
+                    }
+                    for source, schedule in schedules.items()
+                },
+                sort_keys=True,
+            ),
             str(sorted((scraper.get("budgets") or {}).keys())),
         ]
     )

@@ -47,7 +47,7 @@ def _report(**overrides: Any) -> dict[str, Any]:
                 "cells": 210,
                 "never_scraped": 0,
                 "oldest_success_hours": 30.0,
-                "cadence_hours": 24,
+                "max_staleness_hours": 72,
                 "stale": False,
                 "erroring": 0,
                 "backed_off": 0,
@@ -106,3 +106,33 @@ class StatusRenderTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_coverage_health_uses_staleness_threshold_instead_of_legacy_cadence() -> None:
+    from unittest.mock import patch
+
+    from findajob.core.database import Database
+    from findajob.core.status_repository import collect_status_report
+    from findajob.search.targets import SearchTargets
+
+    now = datetime(2026, 10, 28, 12, tzinfo=timezone.utc)
+    db = Database(":memory:")
+    db.conn.execute(
+        "INSERT INTO scrape_cells "
+        "(source, location_id, query, search_label, country, enabled, last_success_at, created_at) "
+        "VALUES ('indeed', 'remote', 'Engineer', 'United States', 'US', 1, ?, ?)",
+        ((now - timedelta(hours=36)).isoformat(), now.isoformat()),
+    )
+    with (
+        patch(
+            "findajob.core.status_repository.load_config",
+            return_value={
+                "scraper": {"cadence_hours": 1, "max_staleness_hours": 48},
+            },
+        ),
+        patch("findajob.search.targets.load_targets", return_value=SearchTargets([], {})),
+    ):
+        report = collect_status_report(db.conn, now)
+    assert report["cells"][0]["stale"] is False
+    assert report["cells"][0]["max_staleness_hours"] == 48
+    db.close()

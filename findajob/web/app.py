@@ -450,26 +450,11 @@ def market_locations():
 
 @app.get("/api/targets/capacity")
 def get_target_capacity():
-    from findajob.search import targets as target_repo
-    from findajob.search.capacity import calculate_capacity
+    from findajob.search.capacity import capacity_for_targets
 
     db = get_db()
     try:
-        config, _, _ = analytics_context(db)
-        queries = target_repo.get_queries(db.conn, enabled_only=True)
-        locs = target_repo.get_locations(db.conn, enabled_only=True)
-        enabled_sources = tuple(
-            source
-            for source, enabled in (config.get("scraper", {}).get("sources") or {}).items()
-            if enabled
-        )
-        targets = load_targets(conn=db.conn)
-        return calculate_capacity(
-            len(queries),
-            len(locs),
-            config,
-            scheduled_cells=len(targets.cell_specs(sources=enabled_sources)),
-        )
+        return capacity_for_targets(load_targets(conn=db.conn), load_config())
     finally:
         db.close()
 
@@ -666,23 +651,9 @@ def delete_target_location_endpoint(loc_id: str):
 
 @app.post("/api/targets/sync-cells")
 def sync_targets_cells_endpoint():
-    from findajob.search import targets as target_repo
-    from findajob.search.capacity import calculate_capacity
-
     _sync_target_cells()
-    db = get_db()
-    try:
-        config, _, _ = analytics_context(db)
-        queries = target_repo.get_queries(db.conn, enabled_only=True)
-        locs = target_repo.get_locations(db.conn, enabled_only=True)
-        capacity = calculate_capacity(len(queries), len(locs), config)
-        return {
-            "success": True,
-            "capacity": capacity,
-            "total_cells": len(db.get_cells()),
-        }
-    finally:
-        db.close()
+    capacity = get_target_capacity()
+    return {"success": True, "capacity": capacity, "total_cells": capacity["total_cells"]}
 
 
 @app.get("/api/market/coverage")

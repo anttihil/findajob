@@ -105,6 +105,9 @@ class SchedulerEngineTests(unittest.IsolatedAsyncioTestCase):
             "CREATE TABLE sync_runs (id INTEGER PRIMARY KEY, status TEXT, finished_at TEXT)"
         )
         conn.execute("INSERT INTO sync_runs VALUES (1, 'ok', '2026-01-01T00:00:00+00:00')")
+        conn.execute(
+            "CREATE TABLE cell_observations (sync_run_id INTEGER, source TEXT, status TEXT)"
+        )
         conn.commit()
         conn.close()
 
@@ -116,7 +119,9 @@ class SchedulerEngineTests(unittest.IsolatedAsyncioTestCase):
             mock.patch("asyncio.sleep", return_value=None),
         ):
             await self.scheduler._boot_catchup_check()
-            mock_run.assert_awaited_once_with("search", manual=False)
+            self.assertEqual(mock_run.await_count, 2)
+            mock_run.assert_any_await("search", manual=False, source="indeed")
+            mock_run.assert_any_await("search", manual=False, source="linkedin")
 
     async def test_chaining_search_triggers_score(self) -> None:
         mock_proc = mock.AsyncMock()
@@ -144,3 +149,163 @@ class SchedulerEngineTests(unittest.IsolatedAsyncioTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SourceQueueTests(unittest.IsolatedAsyncioTestCase):
+    async def test_due_sources_queue_and_chain_one_score(self) -> None:
+        import asyncio
+
+        scheduler = PipelineScheduler()
+        entered = asyncio.Event()
+        release = asyncio.Event()
+        calls: list[tuple[str, ...]] = []
+
+        async def spawn(*cmd: str, **kwargs: object) -> mock.AsyncMock:
+            calls.append(cmd)
+            proc = mock.AsyncMock()
+            proc.stdout = proc.stderr = None
+            proc.returncode = 0
+
+            async def wait() -> int:
+                if len(calls) == 1:
+                    entered.set()
+                    await release.wait()
+                return 0
+
+            proc.wait = wait
+            return proc
+
+        with mock.patch("asyncio.create_subprocess_exec", side_effect=spawn):
+            first = asyncio.create_task(scheduler._run_stage("search", source="linkedin"))
+            await entered.wait()
+            second = asyncio.create_task(scheduler._run_stage("search", source="indeed"))
+            await asyncio.sleep(0)
+            assert not await scheduler._run_stage("search", source="indeed")
+            assert not await scheduler.trigger("search")
+            assert len(calls) == 1
+            release.set()
+            assert await first
+            assert await second
+            while scheduler._bg_tasks:
+                await asyncio.gather(*scheduler._bg_tasks)
+        assert calls[0][-2:] == ("--source", "linkedin")
+        assert calls[1][-2:] == ("--source", "indeed")
+        assert len(calls) == 3
+        assert calls[2][-2:] == ("score", "run")
+        assert set(scheduler.get_status()["last_runs"]) == {
+            "search:linkedin",
+            "search:indeed",
+            "score",
+        }
+
+    async def test_disabled_source_is_not_launched(self) -> None:
+        scheduler = PipelineScheduler()
+        with (
+            mock.patch(
+                "findajob.core.scheduler.load_config",
+                return_value={
+                    "scraper": {"sources": {"indeed": True, "linkedin": False}},
+                },
+            ),
+            mock.patch("asyncio.create_subprocess_exec") as spawn,
+        ):
+            assert not await scheduler._run_stage("search", source="linkedin")
+        spawn.assert_not_called()
+
+    async def test_catchup_uses_source_history_and_source_interval(self) -> None:
+        from datetime import timedelta, timezone
+
+        now = datetime(2026, 10, 28, 12, tzinfo=timezone.utc)
+        with tempfile.NamedTemporaryFile(suffix=".db") as tmp:
+            with sqlite3.connect(tmp.name) as conn:
+                conn.execute("CREATE TABLE sync_runs (id INTEGER, status TEXT, finished_at TEXT)")
+                conn.execute(
+                    "CREATE TABLE cell_observations (sync_run_id INTEGER, source TEXT, status TEXT)"
+                )
+                # Indeed is recent. LinkedIn's last completed visit is old, despite
+                # an unfinished newer run and a recent Indeed run.
+                for run_id, source, age, status in [
+                    (1, "linkedin", 8, "partial"),
+                    (2, "indeed", 1, "ok"),
+                    (3, "linkedin", 0, "running"),
+                ]:
+                    conn.execute(
+                        "INSERT INTO sync_runs VALUES (?, ?, ?)",
+                        (run_id, status, (now - timedelta(hours=age)).isoformat()),
+                    )
+                    conn.execute(
+                        "INSERT INTO cell_observations VALUES (?, ?, 'ok')", (run_id, source)
+                    )
+            scheduler = PipelineScheduler()
+            scheduler._running = True
+            with (
+                mock.patch("findajob.core.scheduler.DB_PATH", tmp.name),
+                mock.patch("findajob.core.scheduler._now", return_value=now),
+                mock.patch("asyncio.sleep", new_callable=mock.AsyncMock),
+                mock.patch.object(scheduler, "_run_stage", new_callable=mock.AsyncMock) as run,
+            ):
+                await scheduler._boot_catchup_check()
+                run.assert_awaited_once_with("search", manual=False, source="linkedin")
+
+    async def test_interval_timer_does_not_add_worker_duration(self) -> None:
+        from datetime import timedelta, timezone
+
+        scheduler = PipelineScheduler()
+        scheduler._running = True
+        now = datetime(2026, 10, 28, 12, tzinfo=timezone.utc)
+        delays = []
+
+        async def sleep(delay: float) -> None:
+            nonlocal now
+            delays.append(delay)
+            now += timedelta(seconds=delay)
+            if len(delays) == 2:
+                scheduler._running = False
+
+        async def run(*args: object, **kwargs: object) -> bool:
+            nonlocal now
+            now += timedelta(minutes=20)
+            return True
+
+        with (
+            mock.patch("findajob.core.scheduler._now", side_effect=lambda: now),
+            mock.patch("findajob.core.scheduler.random.uniform", return_value=0),
+            mock.patch("asyncio.sleep", side_effect=sleep),
+            mock.patch.object(scheduler, "_run_stage", side_effect=run),
+        ):
+            await scheduler._schedule_loop_search("indeed")
+        assert delays == [180 * 60, 160 * 60]
+
+    async def test_shutdown_cancels_queue_and_reaps_worker(self) -> None:
+        import asyncio
+
+        scheduler = PipelineScheduler()
+        scheduler._running = True
+        entered = asyncio.Event()
+        killed = asyncio.Event()
+        proc = mock.Mock()
+        proc.returncode = None
+        proc.stdout = proc.stderr = None
+
+        async def wait() -> int:
+            entered.set()
+            await killed.wait()
+            return -9
+
+        def kill() -> None:
+            proc.returncode = -9
+            killed.set()
+
+        proc.wait = wait
+        proc.kill = kill
+        with mock.patch("asyncio.create_subprocess_exec", return_value=proc) as spawn:
+            first = asyncio.create_task(scheduler._run_stage("search", source="linkedin"))
+            await entered.wait()
+            second = asyncio.create_task(scheduler._run_stage("search", source="indeed"))
+            await asyncio.sleep(0)
+            await scheduler.stop()
+            await asyncio.gather(first, second, return_exceptions=True)
+        assert spawn.call_count == 1
+        assert killed.is_set()
+        assert scheduler.get_status()["pending"] == []
+        assert scheduler.get_status()["active_stage"] is None

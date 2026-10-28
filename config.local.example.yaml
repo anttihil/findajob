@@ -17,3 +17,16 @@
 
 # scheduler:
 #   enabled: true
+#   search:
+#     sources:
+#       indeed:
+#         interval_minutes: 180
+#       linkedin:
+#         interval_minutes: 360
+#     jitter_minutes: 15
+#     persistent_catchup: true
+#     timeout_minutes: 90
+#     # Instead of an interval, a source can specify UTC daily times:
+#     # sources:
+#     #   linkedin:
+#     #     schedule: ["01:00", "07:00", "13:00", "19:00"]

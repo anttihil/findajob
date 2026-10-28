@@ -185,3 +185,47 @@ findajob search seed-cells --prune
 
 The next search pass uses the refreshed matrix. Existing postings are not reclassified merely
 because a search target changes.
+
+## Source schedules and sweep estimates
+
+Automatic search defaults to Indeed every three hours and LinkedIn every six hours,
+with up to 15 minutes of jitter. Configure each source independently in `config.local.yaml`:
+
+```yaml
+scheduler:
+  search:
+    sources:
+      indeed:
+        interval_minutes: 180
+      linkedin:
+        interval_minutes: 360
+    jitter_minutes: 15
+    persistent_catchup: true
+    timeout_minutes: 90
+```
+
+A source can use `schedule: ["01:00", "07:00", "13:00", "19:00"]` instead of
+`interval_minutes`; daily times are UTC. Existing `scheduler.search.schedule` settings
+remain a fallback for sources without their own schedule. Source settings can also override
+jitter, timeout, and catch-up. Restart the service after changing schedules or enabled sources.
+Automatic updates still require the persisted opt-in in Settings.
+
+Due sources queue independently, with one writing worker executing at a time. Duplicate
+requests for a source already queued or running are coalesced. Manual `findajob search run`
+still searches all enabled sources; use `--source indeed` or `--source linkedin` to select one.
+Startup catch-up uses completed observations for each source, its longest scheduled gap,
+and a jitter allowance. Completing an Indeed run does not mark LinkedIn as caught up.
+Successful searches request scoring; requests from adjacent source completions are coalesced
+while scoring is queued or running.
+
+The query window's matrix sweep estimate uses the cell count scoped to each source, its
+schedule, and effective search, request, and page budgets (including proxy overrides).
+It counts whole runs needed for a rotation and displays the slowest source's sweep time.
+This is a nominal estimate using default result sizes: jitter, backoff, saturated cells
+requesting more results, network time, and queued writing stages can extend the sweep.
+The estimate describes configured capacity even when automatic updates are off.
+
+The legacy `scraper.cadence_hours` setting is ignored. Execution follows the schedules above;
+coverage warnings use `scraper.max_staleness_hours` (72 hours by default). Analytics plan
+fingerprints include normalized effective source schedules, so adopting the new fingerprint
+creates a plan boundary; historical run fingerprints remain intact.

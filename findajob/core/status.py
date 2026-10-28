@@ -103,7 +103,7 @@ def render(report: dict[str, Any]) -> str:
         if row["backed_off"]:
             flags.append(f"{row['backed_off']} backed off")
         if row["stale"]:
-            flags.append(f"oldest is past {row['cadence_hours']}h cadence")
+            flags.append(f"oldest is past {row['max_staleness_hours']:g}h coverage threshold")
         suffix = f"   {', '.join(flags)}" if flags else ""
         out.append(f"  {'active':<9} {row['cells']:>4} cells, oldest success {age}{suffix}")
 

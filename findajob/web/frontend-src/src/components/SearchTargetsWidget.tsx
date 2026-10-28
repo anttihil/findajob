@@ -672,7 +672,13 @@ export function SearchTargetsWidget({
               Query × Location ({capacity?.total_cells ?? activeQueriesCount * activeLocationsCount}{" "}
               cells)
             </span>
-            {capacity && <span class="matrix-chip-badge">~{capacity.cycle_hours}h sweep</span>}
+            {capacity && (
+              <span class="matrix-chip-badge">
+                {capacity.cycle_hours === null
+                  ? "Sweep unavailable"
+                  : `~${capacity.cycle_hours}h sweep`}
+              </span>
+            )}
           </div>
         </div>
 
@@ -1181,7 +1187,25 @@ export function SearchTargetsWidget({
 
                     <div class="capacity-status-banner mt-4">
                       <div class="capacity-banner-left">
-                        <h4>Estimated sweep: ~{capacity?.cycle_hours || 0} hours</h4>
+                        <h4>
+                          Estimated sweep:{" "}
+                          {capacity?.cycle_hours == null
+                            ? "unavailable"
+                            : `~${capacity.cycle_hours} hours`}
+                        </h4>
+                        {Object.entries(capacity?.sources ?? {}).map(([source, estimate]) => (
+                          <p class="card-note" key={source}>
+                            {source === "linkedin" ? "LinkedIn" : "Indeed"}: {estimate.cells} cells,{" "}
+                            {estimate.runs_per_day} runs/day,{" "}
+                            {estimate.cycle_hours === null
+                              ? "budget cannot fit a cell"
+                              : `~${estimate.cycle_hours}h sweep`}
+                          </p>
+                        ))}
+                        <p class="card-note">
+                          Nominal estimate using source scopes and per-run budgets. Jitter, backoff,
+                          and queued work can extend the sweep.
+                        </p>
                       </div>
                       <div class="capacity-banner-right">
                         <button

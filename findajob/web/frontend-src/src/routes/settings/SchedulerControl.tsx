@@ -2,11 +2,17 @@ import { useEffect, useState } from "preact/hooks";
 import { getJSON, putJSON, reportError } from "../../api/client";
 import type { SchedulerPreferences } from "../../api/types";
 
-function nextSearchRun(preferences: SchedulerPreferences | null): string | null {
-  const value = preferences?.status.next_runs.search;
-  if (!value) return null;
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? null : date.toLocaleString();
+function nextSearchRuns(preferences: SchedulerPreferences | null): string[] {
+  return Object.entries(preferences?.status.next_runs ?? {})
+    .filter(([key]) => key.startsWith("search:"))
+    .flatMap(([key, value]) => {
+      if (!value) return [];
+      const date = new Date(value);
+      if (Number.isNaN(date.getTime())) return [];
+      const source = key.slice("search:".length);
+      const name = source === "linkedin" ? "LinkedIn" : source === "indeed" ? "Indeed" : source;
+      return [`${name}: ${date.toLocaleString()}`];
+    });
 }
 
 export function SchedulerControl({ compact = false }: { compact?: boolean }) {
@@ -18,6 +24,16 @@ export function SchedulerControl({ compact = false }: { compact?: boolean }) {
       .then(setPreferences)
       .catch((err) => reportError("Loading automatic update settings", err));
   }, []);
+
+  useEffect(() => {
+    if (!preferences?.enabled) return;
+    const timer = window.setInterval(() => {
+      getJSON<SchedulerPreferences>("/api/scheduler/preferences")
+        .then(setPreferences)
+        .catch((err) => reportError("Refreshing automatic update settings", err));
+    }, 15000);
+    return () => window.clearInterval(timer);
+  }, [preferences?.enabled]);
 
   async function toggle() {
     if (!preferences || saving) return;
@@ -36,7 +52,7 @@ export function SchedulerControl({ compact = false }: { compact?: boolean }) {
   }
 
   const enabled = preferences?.enabled ?? false;
-  const next = nextSearchRun(preferences);
+  const next = nextSearchRuns(preferences);
   return (
     <div class={compact ? "scheduler-control-compact" : "glass-card scheduler-control"}>
       {!compact && (
@@ -49,8 +65,8 @@ export function SchedulerControl({ compact = false }: { compact?: boolean }) {
           <strong>{enabled ? "Automatic updates are on" : "Keep searches up to date"}</strong>
           <p class="card-note">
             {enabled
-              ? next
-                ? `Next search: ${next}`
+              ? next.length
+                ? `Next searches — ${next.join("; ")}`
                 : "Preparing the next search…"
               : "Periodically scrapes enabled sources and scores new postings. This may use API credits."}
           </p>

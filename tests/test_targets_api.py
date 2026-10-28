@@ -1,3 +1,4 @@
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -98,3 +99,50 @@ def test_target_location_crud(client: TestClient) -> None:
 
     res_after = client.get("/api/targets")
     assert not any(loc["id"] == loc_id for loc in res_after.json()["locations"])
+
+
+def test_capacity_and_refresh_share_source_scoped_estimates(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from findajob.core.database import Database
+    from findajob.search import targets
+    from findajob.web import app as web
+
+    path = str(tmp_path / "capacity.db")
+    db = Database(path)
+    targets.save_location(db.conn, loc_id="remote", label="Remote")
+    targets.add_query(db.conn, "Indeed role", sources=["indeed"])
+    targets.add_query(db.conn, "LinkedIn role", sources=["linkedin"])
+    db.close()
+    monkeypatch.setattr(web, "get_db", lambda: Database(path))
+    monkeypatch.setattr(
+        web,
+        "load_config",
+        lambda: {
+            "scraper": {
+                "sources": {"indeed": True, "linkedin": True},
+                "proxies": {"enabled": False},
+            },
+            "scheduler": {
+                "search": {
+                    "sources": {
+                        "indeed": {"interval_minutes": 120},
+                        "linkedin": {"interval_minutes": 480},
+                    }
+                }
+            },
+        },
+    )
+    # Matrix refresh itself is covered by target repository tests; here pin its
+    # response to the same calculation as GET, without touching another database.
+    monkeypatch.setattr(web, "_sync_target_cells", lambda: None)
+    capacity = client.get("/api/targets/capacity").json()
+    refreshed = client.post("/api/targets/sync-cells").json()
+    assert refreshed["capacity"] == capacity
+    assert refreshed["total_cells"] == 2
+    assert capacity["sources"]["indeed"]["cells"] == 1
+    assert capacity["sources"]["indeed"]["cycle_hours"] == 2
+    assert capacity["sources"]["linkedin"]["cycle_hours"] == 8
+    assert capacity["cycle_hours"] == 8

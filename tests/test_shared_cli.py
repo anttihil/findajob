@@ -155,3 +155,20 @@ def test_jobs_list_rejects_retired_filters(option: str, value: str | None) -> No
     with pytest.raises(SystemExit) as exc:
         cli.build_parser().parse_args(args)
     assert exc.value.code == 2
+
+
+@pytest.mark.parametrize("source", [None, "indeed", "linkedin"])
+def test_search_run_passes_source_filter(source: str | None) -> None:
+    from findajob.search import runner
+
+    argv = ["search", "run", "--dry-run"]
+    if source:
+        argv.extend(["--source", source])
+    args = cli.build_parser().parse_args(argv)
+    with mock.patch.object(runner, "run_sync", return_value={}) as run:
+        assert cli._cmd_search(args) == 0
+    run.assert_called_once_with(
+        dry_run=True,
+        force=False,
+        sources=[source] if source else None,
+    )

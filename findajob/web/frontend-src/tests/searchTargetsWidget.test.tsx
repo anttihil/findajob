@@ -201,3 +201,44 @@ describe("SearchTargetsWidget", () => {
     });
   });
 });
+
+describe("source sweep estimates", () => {
+  it("shows independent source estimates and preserves them after matrix refresh", async () => {
+    const capacity = {
+      ...mockCapacity,
+      cycle_hours: 12,
+      sources: {
+        indeed: { cells: 24, runs_per_day: 8, cycle_hours: 3 },
+        linkedin: { cells: 40, runs_per_day: 4, cycle_hours: 12 },
+      },
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockImplementation((url: string) =>
+        Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () =>
+            Promise.resolve(
+              url === "/api/targets"
+                ? mockTargets
+                : url === "/api/targets/capacity"
+                  ? capacity
+                  : url === "/api/targets/sync-cells"
+                    ? { success: true, capacity }
+                    : { scraper: { sources: { indeed: true, linkedin: true } } },
+            ),
+        }),
+      ),
+    );
+    const view = render(<SearchTargetsWidget />);
+    await waitFor(() => expect(view.getByText("~12h sweep")).toBeTruthy());
+    fireEvent.click(view.getByTitle("Click to view capacity analysis"));
+    await waitFor(() =>
+      expect(view.getByText(/Indeed: 24 cells, 8 runs\/day, ~3h sweep/)).toBeTruthy(),
+    );
+    expect(view.getByText(/LinkedIn: 40 cells, 4 runs\/day, ~12h sweep/)).toBeTruthy();
+    fireEvent.click(view.getByText(/Force Matrix Re-sync/));
+    await waitFor(() => expect(view.getByText("Estimated sweep: ~12 hours")).toBeTruthy());
+  });
+});

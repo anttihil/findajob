@@ -593,8 +593,18 @@ export interface TargetCapacity {
   total_cells: number;
   runs_per_day: number;
   daily_capacity_pairs: number;
-  cycle_days: number;
-  cycle_hours: number;
+  cycle_days: number | null;
+  cycle_hours: number | null;
+  sources: Record<
+    string,
+    {
+      cells: number;
+      searches_per_run: number;
+      runs_per_day: number;
+      daily_capacity: number;
+      cycle_hours: number | null;
+    }
+  >;
   zone: "optimal" | "balanced" | "overloaded" | "empty" | string;
   message: string;
   optimal_threshold_hours: number;

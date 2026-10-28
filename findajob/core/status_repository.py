@@ -36,7 +36,7 @@ def collect_status_report(
     now = now or datetime.now(timezone.utc)
     config = load_config()
     scraper = config.get("scraper", {}) or {}
-    cadence = scraper.get("cadence_hours") or {}
+    max_staleness_hours = float(scraper.get("max_staleness_hours", 72))
 
     report: dict[str, Any] = {"generated_at": now.isoformat()}
 
@@ -104,7 +104,6 @@ def collect_status_report(
         )
     ]
 
-    cadence_hours = int(cadence) if isinstance(cadence, (int, float)) else 24
     row = conn.execute(
         "SELECT COUNT(*) AS cells, "
         "SUM(CASE WHEN last_success_at IS NULL THEN 1 ELSE 0 END) AS never, "
@@ -122,8 +121,8 @@ def collect_status_report(
                 "cells": row["cells"],
                 "never_scraped": row["never"],
                 "oldest_success_hours": oldest_hours,
-                "cadence_hours": cadence_hours,
-                "stale": bool(oldest_hours and oldest_hours > cadence_hours * STALL_MULTIPLE),
+                "max_staleness_hours": max_staleness_hours,
+                "stale": bool(oldest_hours and oldest_hours > max_staleness_hours),
                 "erroring": row["erroring"],
                 "backed_off": row["backed_off"],
             }

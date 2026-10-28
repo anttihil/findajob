@@ -14,10 +14,6 @@ from findajob.core.config import load_config
 from findajob.core.database import Database
 from findajob.search.targets import load_targets
 
-# Only used for the cycle-length line this command prints. The schedule lives in
-# config.yaml (scheduler.search.schedule), defaulting to 4 runs/day.
-RUNS_PER_DAY = 4
-
 
 def seed_cells(prune: bool = False) -> int:
     config = load_config()
@@ -56,17 +52,20 @@ def seed_cells(prune: bool = False) -> int:
             by_source[cell.source] = by_source.get(cell.source, 0) + 1
         print(f"by source:      {by_source}")
 
-        from findajob.search.capacity import calculate_capacity
+        from findajob.search.capacity import capacity_for_targets
 
         active_queries = len(targets.queries)
         active_locations = sum(1 for loc in targets.locations.values() if loc.enabled)
-        cap = calculate_capacity(
-            active_queries, active_locations, config, scheduled_cells=len(specs)
-        )
+        cap = capacity_for_targets(targets, config)
         print(
             f"\nmatrix: {active_queries} queries x {active_locations} locations "
             f"= {cap['search_pairs']} query-location combinations ({cap['total_cells']} cells)"
         )
+        for source, estimate in cap["sources"].items():
+            print(
+                f"{source} sweep: {estimate['cycle_hours']}h "
+                f"({estimate['runs_per_day']:g} runs/day)"
+            )
         print(f"status: [{cap['zone'].upper()}] - {cap['message']}")
     finally:
         db.close()

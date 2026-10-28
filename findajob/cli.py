@@ -31,6 +31,7 @@ def _cmd_search(args: argparse.Namespace) -> int:
     res = run_sync(
         dry_run=getattr(args, "dry_run", False),
         force=getattr(args, "force", False),
+        sources=[args.source] if getattr(args, "source", None) else None,
     )
     if isinstance(res, dict):
         if res.get("cells_planned") and not res.get("cells_succeeded"):
@@ -495,6 +496,7 @@ def build_parser() -> argparse.ArgumentParser:
     ssub = s.add_subparsers(dest="subcommand", required=True)
     sr = ssub.add_parser("run", help="run one scrape pass")
     sr.add_argument("--dry-run", action="store_true", help="plan and fetch, but write nothing")
+    sr.add_argument("--source", choices=["indeed", "linkedin"])
     sr.add_argument("--force", action="store_true", help="ignore the sync lock")
     sr.set_defaults(func=_cmd_search, stage="search")
 
