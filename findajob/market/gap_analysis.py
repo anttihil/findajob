@@ -106,11 +106,9 @@ class GapAnalysis:
     ) -> tuple[list[dict[str, Any]], dict[int, dict[str, bool]]]:
         """Postings eligible for SKILL statistics.
 
-        Uses v_skill_eligible, which requires desc_selection='census'. LinkedIn descriptions
-        are fetched only for a top-scoring subset, and that subset is selected by a score
-        correlated with the user's own skills -- pooling them would inflate demand for
-        skills they already have, biasing the gap analysis in the one direction that makes
-        it useless.
+        Uses v_skill_eligible: either an in-response description census or complete
+        LinkedIn content coverage, including fresh reused details. Incomplete cohorts
+        and stale fallback content are excluded to avoid pooling a selected subset.
         """
         window_start = datetime.now(timezone.utc) - timedelta(days=window_days)
         postings = market_repo.load_gap_analysis_corpus(

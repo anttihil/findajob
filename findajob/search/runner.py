@@ -3,6 +3,7 @@
 findajob search run [--dry-run]
 """
 
+import time
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 
@@ -17,24 +18,24 @@ from findajob.core.status_manager import (
     load_sync_status,
     set_sync_progress,
 )
+from findajob.search.enrichment import enrich_linkedin
 from findajob.search.guard import (
-    ERROR_TRANSIENT,
     SourceCircuit,
-    SourceTripped,
 )
 from findajob.search.normalizer import normalize_rows
-from findajob.search.proxies import apply_proxy_budgets, is_rotating, load_proxies, pin_for
+from findajob.search.policy import source_policy
+from findajob.search.proxies import load_proxies
 from findajob.search.scheduler import (
     ScrapeTaskPayload,
-    is_saturated,
     overdue_cells,
     select_cells,
 )
+from findajob.search.sources.linkedin_details import LinkedInDetailsAdapter
 from findajob.search.targets import load_targets
+from findajob.search.traffic import SourceTraffic
 
 if TYPE_CHECKING:
     from findajob.search.scheduler import ScrapeTask
-    from findajob.search.sources.base import BaseJobSource
     from findajob.search.sources.jobspy_source import JobSpySource
     from findajob.search.targets import SearchTargets
 
@@ -68,7 +69,11 @@ def plan_hash(targets: "SearchTargets | None", config: dict[str, Any]) -> str:
                 },
                 sort_keys=True,
             ),
-            str(sorted((scraper.get("budgets") or {}).keys())),
+            "page-budget-v1",
+            json.dumps(
+                {source: source_policy(scraper, source) for source in sorted(schedules)},
+                sort_keys=True,
+            ),
         ]
     )
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
@@ -88,12 +93,8 @@ def run_sync(
     config = load_config()
     targets = load_targets()
 
-    # Proxies raise the LinkedIn budget substantially, so they are resolved before the
-    # scheduler sees the config.
     proxies = load_proxies(config)
-    scraper_config = apply_proxy_budgets(config.get("scraper", {}), proxies)
-    scraper_config["proxies_list"] = proxies
-    rotating = bool(proxies) and is_rotating(config)
+    scraper_config = dict(config.get("scraper", {}), proxies_list=proxies)
 
     if targets:
         problems = targets.validate()
@@ -130,6 +131,7 @@ def run_sync(
         "duplicates_merged": 0,
     }
     circuits: dict[str, SourceCircuit] = {}
+    any_budget_limited = False
 
     try:
         if not dry_run:
@@ -151,7 +153,6 @@ def run_sync(
                 source,
                 scraper_config,
                 db=None if dry_run else db,
-                rotating_proxies=rotating,
             )
             circuits[source] = circuit
 
@@ -183,34 +184,40 @@ def run_sync(
 
             logger.info(f"[{source}] {len(tasks)} cells planned")
 
+            traffic = SourceTraffic(source, scraper_config, proxies, circuit)
+
             empty = 0
             errored = 0
-            for task in tasks:
-                outcome = _scrape_one(
-                    db,
-                    source_client,
-                    circuit,
-                    task,
-                    run_id,
-                    config,
-                    dry_run,
-                )
-                if outcome == "tripped":
-                    remaining = len(tasks) - tasks.index(task) - 1
-                    totals["cells_skipped"] += remaining
-                    add_sync_error(
-                        source,
-                        f"{circuit.trip_reason} — {remaining} cells deferred to the next run.",
+            try:
+                for index, task in enumerate(tasks):
+                    if not traffic.can_start_page:
+                        totals["cells_skipped"] += len(tasks) - index
+                        break
+                    outcome = _scrape_one(
+                        db,
+                        source_client,
+                        circuit,
+                        task,
+                        run_id,
+                        config,
+                        dry_run,
+                        traffic=traffic,
                     )
-                    break
-                if outcome == "ok":
-                    totals["cells_succeeded"] += 1
-                elif outcome == "empty":
-                    empty += 1
-                else:
-                    errored += 1
-                for key in ("postings_fetched", "postings_new", "duplicates_merged"):
-                    totals[key] += _LAST_CELL_STATS.get(key, 0)
+                    for key in ("postings_fetched", "postings_new", "duplicates_merged"):
+                        totals[key] += _LAST_CELL_STATS.get(key, 0)
+                    any_budget_limited = any_budget_limited or outcome == "budget_limited"
+                    if outcome in ("ok", "budget_limited"):
+                        totals["cells_succeeded"] += 1
+                    elif outcome == "empty":
+                        empty += 1
+                    else:
+                        errored += 1
+                    if outcome == "tripped":
+                        totals["cells_skipped"] += len(tasks) - index - 1
+                        break
+            finally:
+                traffic.close()
+            logger.info("[%s] %d/%d requests spent", source, traffic.spent, traffic.limit)
 
             totals["cells_empty"] += empty
             totals["cells_error"] += errored
@@ -226,7 +233,11 @@ def run_sync(
 
         lost = totals["cells_empty"] + totals["cells_error"]
         status = "ok"
-        if any(c.is_open for c in circuits.values()) or totals["cells_skipped"]:
+        if (
+            any(c.is_open for c in circuits.values())
+            or totals["cells_skipped"]
+            or any_budget_limited
+        ):
             status = "partial"
         if totals["cells_planned"] and lost >= LOST_CELLS_PARTIAL * totals["cells_planned"]:
             status = "partial"
@@ -297,6 +308,166 @@ def store_postings(
     return job_ids, new_count, duplicates
 
 
+def run_cell(
+    db: Database,
+    client: "JobSpySource",
+    circuit: SourceCircuit,
+    payload: ScrapeTaskPayload,
+    traffic: SourceTraffic,
+    run_id: int | None,
+    config: dict[str, Any],
+    dry_run: bool = False,
+) -> dict[str, Any]:
+    """Persist each page; finish that page's details before checking the allowance.
+
+    A budget stop is a censored observation, never proof that a feed is exhausted.
+    No cursor or detail backlog is persisted: the next visit starts at the front.
+    """
+    observed_at = datetime.now(timezone.utc)
+    started, initial_requests = time.monotonic(), traffic.spent
+    returned = new_count = duplicates = 0
+    job_ids: list[int] = []
+    detail_stats: dict[str, int] = {}
+    stop_reason = "budget_limit"
+    error = None
+    full = 0
+    pages = client.iter_pages(payload, traffic)
+    try:
+        while traffic.can_start_page:
+            try:
+                page = next(pages)
+            except StopIteration:
+                stop_reason = "exhausted"
+                break
+            rows = page.rows[: payload["results_wanted"] - returned]
+            postings, stats = normalize_rows(rows, payload, observed_at, config)
+            returned += stats["returned"]
+            if payload["source"] == "linkedin":
+                adapter = LinkedInDetailsAdapter(
+                    [page.proxy] if page.proxy else [], session=traffic.bound_session(page.proxy)
+                )
+                try:
+                    counts, _ = enrich_linkedin(
+                        db,
+                        postings,
+                        adapter,
+                        circuit,
+                        config,
+                        fetch=True,
+                        now=observed_at,
+                    )
+                    for key, value in counts.items():
+                        detail_stats[key] = detail_stats.get(key, 0) + value
+                finally:
+                    adapter.close()
+                if (payload.get("indeed_country") or "usa").lower() in {"usa", "us"}:
+                    from findajob.search.sources.jobspy_source import extract_description_salary
+
+                    for posting in postings:
+                        extract_description_salary(posting)
+            full += sum(p["description_quality"] == "full" for p in postings)
+            if not dry_run:
+                ids, added, merged = store_postings(db, postings, run_id)
+                job_ids.extend(ids)
+                new_count += added
+                duplicates += merged
+            if circuit.is_open:
+                stop_reason, error = "error", circuit.trip_reason
+                break
+            if returned >= payload["results_wanted"]:
+                stop_reason = "result_limit"
+                break
+            if page.end_reason:
+                stop_reason = page.end_reason
+                break
+    except Exception as exc:  # noqa: BLE001 - keep earlier persisted pages on failure
+        stop_reason, error = "error", str(exc)
+        circuit.on_error(exc, cell=payload.get("cell_id"))
+    finally:
+        pages.close()
+    limited = stop_reason == "budget_limit"
+    status = (
+        "error"
+        if error
+        else "budget_limited"
+        if limited
+        else "empty"
+        if not returned and stop_reason == "exhausted"
+        else "ok"
+    )
+    incomplete = (
+        limited or bool(error) or bool(detail_stats.get("missing") or detail_stats.get("stale"))
+    )
+    selection = (
+        ("available" if incomplete else "complete") if payload["source"] == "linkedin" else "census"
+    )
+    if not dry_run and job_ids and incomplete:
+        for start in range(0, len(job_ids), 400):
+            chunk = job_ids[start : start + 400]
+            marks = ",".join("?" for _ in chunk)
+            db.conn.execute(
+                f"UPDATE jobs SET desc_selection = 'available' WHERE id IN ({marks})", chunk
+            )
+        db.conn.commit()
+    observation_payload = dict(payload, desc_selection=selection)
+    saturated = int(stop_reason in ("budget_limit", "result_limit", "pagination_limit"))
+    cost = {
+        "requests_made": traffic.spent - initial_requests,
+        "duration_ms": round((time.monotonic() - started) * 1000),
+    }
+    if not dry_run:
+        db.record_observation(
+            run_id,
+            observation_payload,
+            observed_at.isoformat(),
+            returned=returned,
+            new_unique=new_count,
+            saturated=saturated,
+            descriptions_full=full,
+            status=status,
+            error=error,
+            detail_stats=detail_stats or None,
+            stop_reason=stop_reason,
+            requests_made=cost["requests_made"],
+            duration_ms=cost["duration_ms"],
+        )
+        if payload.get("cell_id") is not None:
+            db.record_cell_attempt(
+                payload["cell_id"],
+                observed_at.isoformat(),
+                payload["hours_old"],
+                payload["results_wanted"],
+                returned=returned,
+                new_unique=new_count,
+                saturated=saturated,
+                status=status,
+                error=error,
+            )
+    if not error and not detail_stats.get("failed"):
+        circuit.on_success(returned) if returned else circuit.on_empty()
+    logger.info(
+        "[%s] %r: %d/%d listings, %d requests, stop=%s",
+        payload["source"],
+        payload["query"],
+        returned,
+        payload["results_wanted"],
+        cost["requests_made"],
+        stop_reason,
+    )
+    return {
+        "status": status,
+        "stop_reason": stop_reason,
+        "job_ids": job_ids,
+        "postings_fetched": returned,
+        "postings_new": new_count,
+        "duplicates_merged": duplicates,
+        "descriptions_full": full,
+        "detail_stats": detail_stats,
+        "saturated": bool(saturated),
+        **cost,
+    }
+
+
 def _scrape_one(
     db: Database,
     client: "JobSpySource",
@@ -305,184 +476,17 @@ def _scrape_one(
     run_id: int | None,
     config: dict[str, Any],
     dry_run: bool,
+    *,
+    traffic: SourceTraffic,
 ) -> str:
-    """Scrape, normalize, and store one cell without regex NLP. Returns ok|empty|error|tripped."""
     global _LAST_CELL_STATS
-    _LAST_CELL_STATS = {}
-
-    payload = task.to_dict()
-    observed_at = datetime.now(timezone.utc)
-    attempts = 0
-    max_attempts = 1 + (scraper_retries(config))
-    pool = payload.get("proxies") or []
-    cost = {"duration_ms": 0, "requests_made": 0}
-
-    while True:
-        attempts += 1
-        payload["proxies"] = pin_for(pool, task.cell_id, attempts - 1)
-        try:
-            circuit.before_request()
-        except SourceTripped:
-            return "tripped"
-
-        try:
-            rows = client.fetch_for_task(payload)
-            break
-        except Exception as exc:  # noqa: BLE001 - classification decides what to do
-            _add_cost(cost, client)
-            error_class = circuit.on_error(exc, cell=task.cell_id)
-            if circuit.is_open:
-                _record_failure(db, run_id, payload, observed_at, exc, dry_run, cost=cost)
-                return "tripped"
-            if error_class == ERROR_TRANSIENT and attempts < max_attempts:
-                logger.warning(
-                    f"[{task.source}] transient error, retry {attempts}/{max_attempts}: {exc}"
-                )
-                continue
-            _record_failure(
-                db, run_id, payload, observed_at, exc, dry_run, circuit=circuit, cost=cost
-            )
-            return "error"
-    _add_cost(cost, client)
-
-    postings, stats = normalize_rows(
-        rows,
-        payload,
-        observed_at=observed_at,
-        config=config.get("scraper", {}),
+    result = run_cell(
+        db, client, circuit, task.to_dict(), traffic, run_id, config.get("scraper", {}), dry_run
     )
-    saturated = 1 if is_saturated(stats["returned"], task.results_wanted) else 0
-
-    stored = postings
-    if dry_run:
-        for posting in stored:
-            posting.update(
-                skills={},
-                blockers=[],
-                seniority=None,
-                match_score=None,
-                matched_skills=[],
-                matched_count=0,
-                required_count=0,
-                pipeline_state="new",
-            )
-        new_count = duplicates = 0
-    else:
-        _job_ids, new_count, duplicates = store_postings(db, postings, run_id)
-
-    if dry_run:
-        _print_dry_run(task, stats, stored, saturated)
-    else:
-        db.record_observation(
-            run_id,
-            payload,
-            observed_at.isoformat(),
-            returned=stats["returned"],
-            new_unique=new_count,
-            saturated=saturated,
-            descriptions_full=stats["with_full_description"],
-            status="ok" if stats["returned"] else "empty",
-            duration_ms=cost["duration_ms"],
-            requests_made=cost["requests_made"],
-        )
-        db.record_cell_attempt(
-            task.cell_id,
-            observed_at.isoformat(),
-            task.hours_old,
-            task.results_wanted,
-            returned=stats["returned"],
-            new_unique=new_count,
-            saturated=saturated,
-            status="ok" if stats["returned"] else "empty",
-        )
-
-    if stats["returned"]:
-        circuit.on_success(stats["returned"])
-    else:
-        circuit.on_empty()
-
     _LAST_CELL_STATS = {
-        "postings_fetched": stats["returned"],
-        "postings_new": new_count,
-        "duplicates_merged": duplicates,
+        key: result[key] for key in ("postings_fetched", "postings_new", "duplicates_merged")
     }
-    return "ok" if stats["returned"] else "empty"
-
-
-def _add_cost(cost: dict[str, int], client: "BaseJobSource") -> None:
-    """Fold one attempt's measured cost into the cell's total, then clear it."""
-    measured = client.last_fetch or {}
-    cost["duration_ms"] += measured.get("duration_ms", 0)
-    cost["requests_made"] += measured.get("requests_made", 0)
-    client.last_fetch = {}
-
-
-def scraper_retries(config: dict[str, Any]) -> int:
-    return ((config.get("scraper") or {}).get("circuit_breaker") or {}).get("transient_retries", 2)
-
-
-def _record_failure(
-    db: Database,
-    run_id: int | None,
-    payload: ScrapeTaskPayload,
-    observed_at: datetime,
-    exc: BaseException,
-    dry_run: bool,
-    circuit: SourceCircuit | None = None,
-    cost: dict[str, int] | None = None,
-) -> None:
-    if dry_run:
-        print(f"  ERROR {payload.get('query')!r}: {exc}")
-        return
-    db.record_observation(
-        run_id,
-        payload,
-        observed_at.isoformat(),
-        status="error",
-        error=str(exc),
-        duration_ms=(cost or {}).get("duration_ms"),
-        requests_made=(cost or {}).get("requests_made"),
-    )
-    backoff = circuit.cell_backoff(1) if circuit else None
-    db.record_cell_attempt(
-        payload["cell_id"],
-        observed_at.isoformat(),
-        payload.get("hours_old"),
-        payload.get("results_wanted") or 0,
-        status="error",
-        error=str(exc),
-        backoff_until=backoff,
-    )
-
-
-def _print_dry_run(
-    task: "ScrapeTask",
-    stats: dict[str, Any],
-    stored: list[dict[str, Any]],
-    saturated: int,
-) -> None:
-    """Show what would be written, without writing it."""
-    print(f"\n{'=' * 78}")
-    print(
-        f"{task.source} | {task.query!r} | {task.location_label} "
-        f"({task.location_id}) | hours_old={task.hours_old}"
-    )
-    print(
-        f"  returned={stats['returned']}/{task.results_wanted} "
-        f"full_desc={stats['with_full_description']} "
-        f"with_salary={stats['with_salary']} saturated={bool(saturated)}"
-    )
-
-    for posting in stored[:6]:
-        print(f"\n  {posting['title'][:62]}")
-        print(f"        {posting['company'][:40]:42} {posting['location'][:28]}")
-        print(f"        remote={posting.get('is_remote')}")
-        if posting.get("salary_annual_usd"):
-            print(
-                f"        salary=${posting['salary_annual_usd']:,.0f}/yr "
-                f"({posting.get('salary_currency')} "
-                f"{posting.get('salary_interval')})"
-            )
+    return "tripped" if circuit.is_open else result["status"]
 
 
 def _report_coverage(db: Database, scraper_config: dict[str, Any]) -> None:

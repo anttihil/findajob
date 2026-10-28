@@ -6,8 +6,9 @@ from typing import TYPE_CHECKING, Any
 
 from findajob.core.config import DEFAULT_CONFIG, deep_merge
 from findajob.core.search_schedule import SearchSchedule, search_schedules
-from findajob.search.proxies import apply_proxy_budgets, load_proxies
-from findajob.search.scheduler import estimate_pages, estimate_units
+from findajob.search.policy import source_policy
+from findajob.search.proxies import load_proxies
+from findajob.search.scheduler import estimate_units, results_wanted_for
 
 if TYPE_CHECKING:
     from findajob.search.targets import SearchTargets
@@ -46,34 +47,35 @@ def calculate_capacity(
     scheduled_cells: int | None = None,
     cells_by_source: dict[str, int] | None = None,
 ) -> dict[str, Any]:
-    """Estimate full rotation time, including whole runs and all per-run budget caps.
+    """Forecast full rotation time assuming a cold cache and full result sets.
 
     This is a nominal schedule estimate: jitter, source backoff, network duration,
     and time queued behind other writing stages can lengthen the observed sweep.
     """
     config = deep_merge(DEFAULT_CONFIG, config or {})
-    scraper = apply_proxy_budgets(config["scraper"], load_proxies(config))
+    scraper = config["scraper"]
+    endpoints = max(1, len(load_proxies(config)))
     schedules = search_schedules(config)
     search_pairs = active_queries_count * active_locations_count
     sources = {}
     for source, schedule in schedules.items():
         cells = cells_by_source.get(source, 0) if cells_by_source is not None else search_pairs
-        budget = scraper["budgets"][source]
-        wanted = min(
-            budget.get("max_results_wanted", 200), max(25, budget.get("results_wanted_default", 50))
+        policy = source_policy(scraper, source)
+        wanted = results_wanted_for(scraper, source)
+        units = estimate_units(
+            source,
+            wanted,
+            scraper,
+            True,
         )
-        pages = estimate_pages(source, wanted, scraper)
-        units = estimate_units(source, wanted, scraper, budget.get("fetch_descriptions", False))
-        per_run = min(
-            budget.get("searches_per_run", 10), math.floor(budget.get("request_units", 100) / units)
-        )
-        if budget.get("max_pages_per_run") is not None:
-            per_run = min(per_run, math.floor(budget["max_pages_per_run"] / pages))
-        per_run = max(0, per_run)
+        allowance = policy["requests_per_proxy"] * endpoints
+        # A page-limited cell still occupies one visit; this forecasts full 500-row
+        # coverage work, not a guarantee that one visit exhausts a query.
+        per_run = max(0, min(cells, math.ceil(allowance / units))) if allowance else 0
         cycle_hours = _sweep_hours(schedule, math.ceil(cells / per_run)) if per_run else None
         sources[source] = {
             "cells": cells,
-            "searches_per_run": per_run,
+            "estimated_cells_per_run": per_run,
             "runs_per_day": schedule.runs_per_day,
             "daily_capacity": per_run * schedule.runs_per_day,
             "cycle_hours": round(cycle_hours, 1) if cycle_hours is not None else None,

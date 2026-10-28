@@ -3,6 +3,20 @@
 #
 # Uncomment and adjust only the values you want to override.
 
+# scraper:
+#   policies:
+#     indeed:
+#       requests_per_proxy: 100
+#       request_interval_seconds: 2
+#       results_wanted: 500
+#     linkedin:
+#       requests_per_proxy: 100
+#       request_interval_seconds: 3
+#       results_wanted: 500
+#   # Detail freshness is independent of the posting-age search window.
+#   linkedin_details_ttl_hours: 168
+#   linkedin_details_retry_hours: 1
+
 # llm:
 #   provider: deepseek
 

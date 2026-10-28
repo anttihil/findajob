@@ -218,14 +218,84 @@ and a jitter allowance. Completing an Indeed run does not mark LinkedIn as caugh
 Successful searches request scoring; requests from adjacent source completions are coalesced
 while scoring is queued or running.
 
-The query window's matrix sweep estimate uses the cell count scoped to each source, its
-schedule, and effective search, request, and page budgets (including proxy overrides).
-It counts whole runs needed for a rotation and displays the slowest source's sweep time.
-This is a nominal estimate using default result sizes: jitter, backoff, saturated cells
-requesting more results, network time, and queued writing stages can extend the sweep.
-The estimate describes configured capacity even when automatic updates are off.
+The query window forecasts a visit cycle using source scopes, schedules, and the
+configured request allowance. It assumes full result sets and no cached LinkedIn
+descriptions. A visit can stop before retrieving all results; the estimate does
+not certify exhaustive query coverage. Reuse and quiet queries shorten the cycle,
+while pacing, backoff, jitter, and queued writing work can lengthen it.
 
 The legacy `scraper.cadence_hours` setting is ignored. Execution follows the schedules above;
 coverage warnings use `scraper.max_staleness_hours` (72 hours by default). Analytics plan
 fingerprints include normalized effective source schedules, so adopting the new fingerprint
 creates a plan boundary; historical run fingerprints remain intact.
+
+## Page budgets and LinkedIn details
+
+Operational settings are together in `scraper.policies.<source>`. Python supplies
+fallback defaults; `config.yaml` supplies the normal policy and
+`config.local.yaml` supplies personal overrides. Proxy availability never replaces
+these values with a hidden profile.
+
+```yaml
+scraper:
+  policies:
+    indeed:
+      requests_per_proxy: 100
+      request_interval_seconds: 2
+      results_wanted: 500
+    linkedin:
+      requests_per_proxy: 100
+      request_interval_seconds: 3
+      results_wanted: 500
+```
+
+Each source run gets `requests_per_proxy * max(1, unique configured proxy count)`
+requests. No proxies means one direct connection; a rotating gateway counts as
+one configured endpoint. This is an initial operating policy to measure and
+adjust, not a validated ban threshold. Both sources fetch available descriptions
+regardless of proxy presence. Old `scraper.budgets`, `searches_per_run`, page
+limits, and proxy-specific budget profiles no longer control execution.
+
+Cells are visited oldest-attempt-first. Before fetching a page, the runner checks
+actual request spending. Once started, a page's listings and uncached details are
+finished and saved before checking again. With 25 uncached LinkedIn jobs, a page
+normally costs 26 requests; a 100-request run can stop at 104 after four such
+pages. Real page sizes vary. Budget overruns are limited to the current page's
+work, except that a blocking response or other error can interrupt it.
+
+The source's transport counts every issued request, including failed attempts,
+and spaces request starts by `request_interval_seconds` per endpoint. Automatic
+HTTP retries and redirects are disabled so they cannot bypass pacing or multiply
+traffic invisibly. Each page chooses the least-used endpoint; connections are
+reused. Rate limits and blocking responses trigger source backoff, even with
+proxies. New cells are not started once the source allowance is spent.
+
+`results_wanted` is a ceiling, not a target that overrides the request allowance.
+Empty raw pages terminate pagination; duplicate-only pages do not prove exhaustion.
+LinkedIn retains its upstream offset ceiling of 1,000. Posting-age settings are
+unchanged: a 72-hour floor and 168-hour ceiling for normal searches.
+
+Observations distinguish `budget_limited` from clean exhaustion, with
+`stop_reason` values `budget_limit`, `exhausted`, `result_limit`,
+`pagination_limit`, or `error`. Budget stops are saturated/censored observations.
+They advance the attempt timestamp for rotation but do not advance the last
+successful window used for job liveness. Automatic scheduling recognizes the run
+as attempted, avoiding immediate startup catch-up loops.
+
+There is no persisted pagination cursor or detail backlog. A later visit starts
+at the beginning and reuses stored descriptions, which can allow it to reach
+deeper pages. Progress depends on ranking stability and the cache remaining
+fresh between visits; repeated visits do not guarantee exhaustive discovery.
+
+Detail freshness defaults to seven days through
+`scraper.linkedin_details_ttl_hours`. Changes to title, company, or location also
+require refresh. Failed details preserve existing content and its original fetch
+timestamp, and can be retried when encountered again after the one-hour cooldown
+in `scraper.linkedin_details_retry_hours`. Jobs that leave the search window are
+not independently retried by a background queue.
+
+`cell_observations.detail_stats` distinguishes fetched, reused, failed, missing,
+skipped, and stale details. Complete fresh cohorts use `desc_selection='complete'`;
+budget-limited and incomplete cohorts are excluded from skill-demand eligibility.
+Actual fetches remain distinct from content availability. Policy changes create
+an analytics plan boundary.

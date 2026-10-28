@@ -1,20 +1,10 @@
-"""Per-source circuit breaker and request pacing.
+"""Per-source failure classification and persisted backoff.
 
-The central rule here departs deliberately from the usual HTTP client policy of retrying a
-429 with exponential backoff. That is correct for a polite API, which is telling you to slow
-down, and wrong for a job board, which is telling you the IP is flagged -- retrying inside
-the same run deepens the flag rather than recovering from it. So a 429 trips the source for
-the remainder of the run and persists an escalating backoff; only 5xx and timeouts are
-retried.
-
-The one case where a 429 IS retryable is a rotating proxy pool, because then it flagged one
-exit IP rather than the account and the retry arrives from a different one. That is the
-`rotating_proxies` branch in `on_error`, and nothing else here relaxes the rule.
+SourceTraffic owns request pacing. Blocking and rate-limit responses interrupt
+work regardless of proxy availability; switching endpoints is not proof of recovery.
 """
 
-import random
 import re
-import time
 from collections.abc import Callable
 from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING, Any
@@ -83,17 +73,10 @@ class SourceCircuit:
         config: dict[str, Any] | None,
         db: "Database | None" = None,
         now: Callable[[], datetime] | None = None,
-        sleep: Callable[[float], None] = time.sleep,
-        rotating_proxies: bool = False,
     ) -> None:
         self.source = source
-        # A rotating pool changes what a 429 means: one exit IP got flagged, not the
-        # account, and the next request arrives from a different IP. Retrying is then the
-        # correct response rather than the thing that deepens the flag.
-        self.rotating_proxies = bool(rotating_proxies)
         self.config = config or {}
         self.db = db
-        self.sleep = sleep
         self._now = now or (lambda: datetime.now(timezone.utc))
 
         breaker = self.config.get("circuit_breaker", {})
@@ -101,12 +84,6 @@ class SourceCircuit:
         self.rate_limit_trips_immediately = breaker.get("http_429_trips_immediately", True)
         self.source_backoff_minutes = breaker.get("source_backoff_minutes", [15, 60, 240, 1440])
         self.cell_backoff_minutes = breaker.get("cell_backoff_minutes", [60, 360, 1440])
-        self.proxy_rotation_retries = breaker.get("proxy_rotation_retries", 3)
-        self.rotation_attempts = 0
-
-        budget = (self.config.get("budgets") or {}).get(source, {})
-        self.min_interval = budget.get("min_seconds_between_searches", 2.0)
-        self.jitter = budget.get("jitter_seconds", [0.5, 2.0])
 
         self.tripped = False
         self.trip_reason: str | None = None
@@ -114,7 +91,6 @@ class SourceCircuit:
         self.searches_ok = 0
         self.rate_limit_hits = 0
         self.errors: list[dict[str, Any]] = []
-        self._last_request_at: datetime | None = None
 
     # -- state ------------------------------------------------------------------------
     @property
@@ -140,15 +116,11 @@ class SourceCircuit:
         if self.tripped:
             raise SourceTripped(f"{self.source} circuit is open: {self.trip_reason}")
 
-        if self._last_request_at is not None:
-            low, high = [*self.jitter, 0.0, 0.0][:2]
-            target = self.min_interval + random.uniform(float(low), float(high))
-            elapsed = (self._now() - self._last_request_at).total_seconds()
-            if elapsed < target:
-                self.sleep(target - elapsed)
-        self._last_request_at = self._now()
-
     # -- outcomes ---------------------------------------------------------------------
+    def on_detail_success(self) -> None:
+        """A successful enrichment request is not another completed search."""
+        self.consecutive_errors = 0
+
     def on_success(self, returned: int = 0) -> int:
         self.consecutive_errors = 0
         self.searches_ok += 1
@@ -171,15 +143,6 @@ class SourceCircuit:
 
         if error_class in (ERROR_RATE_LIMIT, ERROR_BLOCKED):
             self.rate_limit_hits += 1
-            if self.rotating_proxies and self.rotation_attempts < self.proxy_rotation_retries:
-                # Burn a rotation attempt instead of tripping: the retry comes from a
-                # different exit IP, so the flagged one is simply not used again.
-                self.rotation_attempts += 1
-                logger.warning(
-                    f"[{self.source}] {error_class} on one exit IP; rotating "
-                    f"({self.rotation_attempts}/{self.proxy_rotation_retries})"
-                )
-                return ERROR_TRANSIENT
             if self.rate_limit_trips_immediately:
                 self._trip(f"{error_class} ({message[:120]})", escalate=True)
             return error_class
@@ -234,7 +197,6 @@ class SourceCircuit:
             "reason": self.trip_reason,
             "searches_ok": self.searches_ok,
             "rate_limit_hits": self.rate_limit_hits,
-            "proxy_rotations": self.rotation_attempts,
             "errors": self.errors[:10],
         }
 

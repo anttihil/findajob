@@ -174,8 +174,13 @@ def record_cell_attempt(
             fields.append("consecutive_empty = consecutive_empty + 1")
         else:
             fields.append("consecutive_empty = 0")
-    else:
+    elif status == "error":
         fields.append("consecutive_error = consecutive_error + 1")
+
+    if status == "budget_limited":
+        # The old successful window remains the only one usable for liveness.
+        fields.remove("last_hours_old = ?")
+        params.pop(5)
 
     if backoff_until is not None:
         fields.append("backoff_until = ?")
@@ -323,6 +328,8 @@ def record_observation(
     error: str | BaseException | None = None,
     duration_ms: int | None = None,
     requests_made: int | None = None,
+    detail_stats: dict[str, int] | None = None,
+    stop_reason: str | None = None,
 ) -> None:
     """Write the sampling denominator for one cell visit."""
     window_start = None
@@ -336,8 +343,8 @@ def record_observation(
              observed_at, hours_old, window_start, window_end,
              requested, returned, new_unique, saturated,
              desc_selection, descriptions_full, status, error,
-             duration_ms, requests_made)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+             duration_ms, requests_made, detail_stats, stop_reason)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
         """,
         (
             run_id,
@@ -359,6 +366,8 @@ def record_observation(
             (error or None) and str(error)[:500],
             duration_ms,
             requests_made,
+            json.dumps(detail_stats) if detail_stats is not None else None,
+            stop_reason,
         ),
     )
     conn.commit()
@@ -369,6 +378,9 @@ def record_observation(
 # =====================================================================================
 
 POSTING_COLUMNS: list[str] = [
+    "details_fetched_at",
+    "details_attempted_at",
+    "details_error",
     "job_key",
     "title",
     "company",
@@ -410,6 +422,26 @@ POSTING_COLUMNS: list[str] = [
     "scorer_version",
     "pipeline_state",
 ]
+
+
+def get_linkedin_details(
+    conn: sqlite3.Connection, job_keys: list[str]
+) -> dict[str, dict[str, Any]]:
+    """Batch read existing detail records, without exposing storage to the adapter."""
+    records = {}
+    keys = list(dict.fromkeys(job_keys))
+    for start in range(0, len(keys), 400):
+        chunk = keys[start : start + 400]
+        marks = ",".join("?" for _ in chunk)
+        rows = conn.execute(
+            "SELECT job_key, title, company, location, description, description_quality, "
+            "company_industry, url_direct, details_fetched_at, details_attempted_at, "
+            f"details_error FROM jobs WHERE job_key IN ({marks}) "
+            "AND source = 'linkedin'",
+            chunk,
+        )
+        records.update((row["job_key"], dict(row)) for row in rows)
+    return records
 
 
 def upsert_posting(

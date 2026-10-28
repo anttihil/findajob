@@ -62,6 +62,11 @@ class PlanHashTests(unittest.TestCase):
             plan_hash(self.targets, {"scraper": {"cadence_hours": 48}}),
         )
 
+    def test_retrieval_depth_creates_a_plan_boundary(self) -> None:
+        shallow = {"scraper": {"policies": {"linkedin": {"results_wanted": 75}}}}
+        deep = {"scraper": {"policies": {"linkedin": {"results_wanted": 500}}}}
+        self.assertNotEqual(plan_hash(self.targets, shallow), plan_hash(self.targets, deep))
+
     def test_plan_hash_changes_when_enabled_targets_change(self) -> None:
         config = {"scraper": {"cadence_hours": 24}}
         base = SearchTargets.from_spec(

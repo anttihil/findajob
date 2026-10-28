@@ -1,7 +1,9 @@
 """Source-scoped scheduled query regression tests."""
 
 import sqlite3
+from unittest.mock import patch
 
+from findajob.core import migrations
 from findajob.core.migrations import migrate
 from findajob.search.repository import prune_cells, seed_cells
 from findajob.search.targets import add_query, load_targets, save_location, update_query
@@ -21,13 +23,14 @@ def _seed(conn: sqlite3.Connection, sources: tuple[str, ...] = ("indeed", "linke
 
 
 def test_migration_backfills_existing_queries_to_both_sources() -> None:
-    conn = _migrated()
-    conn.execute("DROP TABLE search_query_sources")
+    conn = sqlite3.connect(":memory:")
+    conn.row_factory = sqlite3.Row
+    with patch.object(migrations, "MIGRATIONS", migrations.MIGRATIONS[:30]):
+        migrate(conn)
     conn.execute("INSERT INTO search_queries (query) VALUES ('Platform Engineer')")
     query_id = conn.execute(
         "SELECT id FROM search_queries WHERE query = 'Platform Engineer'"
     ).fetchone()[0]
-    conn.execute("PRAGMA user_version = 30")
     conn.commit()
     migrate(conn)
     rows = conn.execute(

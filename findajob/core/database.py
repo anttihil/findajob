@@ -261,6 +261,8 @@ class Database:
         error: str | BaseException | None = None,
         duration_ms: int | None = None,
         requests_made: int | None = None,
+        detail_stats: dict[str, int] | None = None,
+        stop_reason: str | None = None,
     ) -> None:
         search_repo.record_observation(
             self.conn,
@@ -275,6 +277,8 @@ class Database:
             error=error,
             duration_ms=duration_ms,
             requests_made=requests_made,
+            detail_stats=detail_stats,
+            stop_reason=stop_reason,
         )
 
     def upsert_posting(

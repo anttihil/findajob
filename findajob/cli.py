@@ -385,7 +385,7 @@ def _cmd_shared(args: argparse.Namespace) -> int:
         result = _result(args.subcommand, {"status": "error", "error": str(exc)})
 
     _emit_result(result, as_json=args.json)
-    return 0 if result["status"] in ("ok", "empty") else 1
+    return 0 if result["status"] in ("ok", "empty", "budget_limited") else 1
 
 
 def _cmd_llm(args: argparse.Namespace) -> int:
@@ -517,7 +517,7 @@ def build_parser() -> argparse.ArgumentParser:
     query.add_argument("--remote", action="store_true")
     query.add_argument("--distance", type=int, default=50)
     query.add_argument("--hours-old", type=int, default=168)
-    query.add_argument("--results-wanted", type=int, default=25)
+    query.add_argument("--results-wanted", type=int, help="override the source's configured depth")
     query.add_argument("--json", action="store_true", help="emit one machine-readable result")
     query.set_defaults(func=_cmd_shared, stage="search")
 

@@ -19,14 +19,14 @@ def test_capacity_uses_whole_source_runs():
     res = calculate_capacity(4, 3)
     assert res["total_cells"] == 24
     assert res["sources"]["indeed"]["cycle_hours"] == 3
-    assert res["sources"]["linkedin"]["cycle_hours"] == 12
-    assert res["cycle_hours"] == 12
-    assert res["zone"] == "optimal"
+    assert res["sources"]["linkedin"]["cycle_hours"] == 72
+    assert res["cycle_hours"] == 72
+    assert res["zone"] == "overloaded"
 
 
 def test_capacity_balanced_and_overloaded():
-    assert calculate_capacity(10, 5)["zone"] == "balanced"
-    assert calculate_capacity(20, 5)["zone"] == "overloaded"
+    assert calculate_capacity(2, 3)["zone"] == "balanced"
+    assert calculate_capacity(6, 3)["zone"] == "overloaded"
 
 
 def test_source_scopes_and_independent_schedules():
@@ -62,25 +62,28 @@ def test_disabled_and_empty_sources_do_not_limit_sweep():
     assert res["cycle_hours"] == 3
 
 
-def test_request_and_page_budgets_limit_capacity():
+def test_request_forecast_uses_cell_boundaries_and_ignores_legacy_page_cap():
     config = {
         "scraper": {
-            "budgets": {
+            "policies": {
                 "linkedin": {
+                    "results_wanted": 60,
                     "searches_per_run": 30,
-                    "request_units": 21,
+                    "requests_per_proxy": 21,
                     "max_pages_per_run": 14,
                 }
             }
         }
     }
     res = calculate_capacity(1, 5, config)
-    assert res["sources"]["linkedin"]["searches_per_run"] == 2
-    assert res["cycle_hours"] == 18
+    assert res["sources"]["linkedin"]["estimated_cells_per_run"] == 1
+    assert res["cycle_hours"] == 30
 
 
 def test_zero_budget_reports_unavailable_sweep():
-    res = calculate_capacity(1, 1, {"scraper": {"budgets": {"linkedin": {"request_units": 0}}}})
+    res = calculate_capacity(
+        1, 1, {"scraper": {"policies": {"linkedin": {"requests_per_proxy": 0}}}}
+    )
     assert res["cycle_hours"] is None
     assert res["zone"] == "overloaded"
 
@@ -94,6 +97,6 @@ def test_legacy_uneven_daily_schedule_uses_longest_revisit_gap():
 def test_proxy_budget_is_used(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("SCRAPER_PROXIES", "example:1234")
     res = calculate_capacity(1, 40)
-    # 30 cells fit the proxy request/page limits at default result sizes.
-    assert res["sources"]["linkedin"]["searches_per_run"] == 30
-    assert res["cycle_hours"] == 12
+    # One configured endpoint has 100 requests, regardless of proxy presence.
+    assert res["sources"]["linkedin"]["estimated_cells_per_run"] == 1
+    assert res["cycle_hours"] == 240

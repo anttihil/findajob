@@ -23,7 +23,8 @@ def test_upgrade_removes_assessment_view_without_changing_verdicts() -> None:
         conn.commit()
         verdicts = conn.execute("SELECT * FROM job_verdicts").fetchall()
         history = conn.execute("SELECT * FROM job_verdict_history").fetchall()
-        assert migrations.migrate(conn) == 1
+        with patch.object(migrations, "MIGRATIONS", migrations.MIGRATIONS[:38]):
+            assert migrations.migrate(conn) == 1
         assert migrations.current_version(conn) == 38
         assert (
             conn.execute("SELECT 1 FROM sqlite_master WHERE name='v_job_assessments'").fetchone()
@@ -32,6 +33,7 @@ def test_upgrade_removes_assessment_view_without_changing_verdicts() -> None:
         assert conn.execute("SELECT * FROM job_verdicts").fetchall() == verdicts
         assert conn.execute("SELECT * FROM job_verdict_history").fetchall() == history
         assert conn.execute("PRAGMA foreign_key_check").fetchall() == []
-        assert migrations.migrate(conn) == 0
+        with patch.object(migrations, "MIGRATIONS", migrations.MIGRATIONS[:38]):
+            assert migrations.migrate(conn) == 0
     finally:
         conn.close()

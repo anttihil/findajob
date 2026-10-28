@@ -599,7 +599,7 @@ export interface TargetCapacity {
     string,
     {
       cells: number;
-      searches_per_run: number;
+      estimated_cells_per_run: number;
       runs_per_day: number;
       daily_capacity: number;
       cycle_hours: number | null;

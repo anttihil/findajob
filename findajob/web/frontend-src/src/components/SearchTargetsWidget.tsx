@@ -1203,8 +1203,8 @@ export function SearchTargetsWidget({
                           </p>
                         ))}
                         <p class="card-note">
-                          Nominal estimate using source scopes and per-run budgets. Jitter, backoff,
-                          and queued work can extend the sweep.
+                          Estimate of visits with no cached descriptions. A visit can stop at the
+                          request budget before all results are retrieved.
                         </p>
                       </div>
                       <div class="capacity-banner-right">

@@ -131,18 +131,18 @@ CONFIG = {
     "max_hours_old": 336,
     "backfill_hours_old": 336,
     "max_staleness_hours": 72,
-    "budgets": {
+    "policies": {
         "indeed": {
             "searches_per_run": 20,
             "request_units": 200,
-            "results_wanted_default": 75,
+            "results_wanted": 75,
             "max_results_wanted": 200,
             "fetch_descriptions": True,
         },
         "linkedin": {
             "searches_per_run": 6,
             "request_units": 60,
-            "results_wanted_default": 50,
+            "results_wanted": 50,
             "max_results_wanted": 100,
             "fetch_descriptions": False,
         },
@@ -253,7 +253,7 @@ class OrderingTests(unittest.TestCase):
     def test_a_cell_skipped_for_budget_leads_the_next_run(self) -> None:
         """The self-correcting property that makes a priority function unnecessary."""
         cells = make_cells("indeed", self.targets)
-        first = select_cells(cells, CONFIG, "indeed", NOW)
+        first = select_cells(cells, CONFIG, "indeed", NOW)[:3]
         picked = {t.cell_id for t in first}
         skipped = {c.id for c in cells if c.id not in picked}
         self.assertTrue(skipped, "budget must be tighter than the matrix for this test")
@@ -315,29 +315,30 @@ class BudgetTests(unittest.TestCase):
     def setUp(self) -> None:
         self.targets = SearchTargets.from_spec(SCHEDULER_TEST_TARGETS_SPEC)
 
-    def test_respects_searches_per_run(self) -> None:
+    def test_all_eligible_cells_are_candidates(self) -> None:
         cells = make_cells("indeed", self.targets)
         tasks = select_cells(cells, CONFIG, "indeed", NOW)
-        self.assertLessEqual(
-            (tasks and len(tasks)) or 0, CONFIG["budgets"]["indeed"]["searches_per_run"]
-        )
+        self.assertEqual(len(tasks), len(cells))
 
-    def test_respects_request_unit_budget(self) -> None:
+    def test_estimated_requests_do_not_exclude_candidate_cells(self) -> None:
         cells = make_cells("indeed", self.targets)
-        tasks = select_cells(cells, CONFIG, "indeed", NOW)
-        units = sum(t.est_request_units for t in tasks)
-        self.assertLessEqual(units, CONFIG["budgets"]["indeed"]["request_units"])
+        cfg = dict(CONFIG, budgets={"indeed": dict(CONFIG["policies"]["indeed"], request_units=1)})
+        tasks = select_cells(cells, cfg, "indeed", NOW)
+        units = sum(estimate_units(t.source, t.results_wanted, cfg) for t in tasks)
+        self.assertGreater(units, 1)
+        self.assertEqual(len(tasks), len(cells))
 
-    def test_respects_linkedin_page_ceiling(self) -> None:
+    def test_legacy_estimated_page_ceiling_does_not_exclude_candidate_cells(self) -> None:
         cells = make_cells("linkedin", self.targets)
         cfg = dict(CONFIG)
-        cfg["budgets"] = dict(
-            CONFIG["budgets"],
-            linkedin=dict(CONFIG["budgets"]["linkedin"], max_pages_per_run=10),
+        cfg["policies"] = dict(
+            CONFIG["policies"],
+            linkedin=dict(CONFIG["policies"]["linkedin"], max_pages_per_run=10),
         )
         tasks = select_cells(cells, cfg, "linkedin", NOW)
         pages = sum(estimate_pages("linkedin", t.results_wanted, cfg) for t in tasks)
-        self.assertLessEqual(pages, 10)
+        self.assertGreater(pages, 10)
+        self.assertEqual(len(tasks), len(cells))
 
     def test_indeed_tasks_request_a_description_census(self) -> None:
         cells = make_cells("indeed", self.targets)
@@ -346,20 +347,20 @@ class BudgetTests(unittest.TestCase):
             self.assertTrue(task.fetch_description)
             self.assertEqual(task.desc_selection, "census")
 
-    def test_linkedin_without_proxies_fetches_no_descriptions(self) -> None:
+    def test_linkedin_without_proxies_fetches_descriptions(self) -> None:
         cells = make_cells("linkedin", self.targets)
         tasks = select_cells(cells, CONFIG, "linkedin", NOW)
         for task in tasks:
-            self.assertFalse(task.fetch_description)
-            self.assertEqual(task.desc_selection, "none")
+            self.assertTrue(task.fetch_description)
+            self.assertEqual(task.desc_selection, "census")
 
     def test_proxies_turn_linkedin_into_a_description_census(self) -> None:
         cells = make_cells("linkedin", self.targets)
         cfg = dict(CONFIG)
-        cfg["budgets"] = dict(
-            CONFIG["budgets"],
+        cfg["policies"] = dict(
+            CONFIG["policies"],
             linkedin=dict(
-                CONFIG["budgets"]["linkedin"],
+                CONFIG["policies"]["linkedin"],
                 fetch_descriptions=True,
                 desc_selection="census",
             ),
@@ -372,8 +373,8 @@ class BudgetTests(unittest.TestCase):
     def test_linkedin_is_budgeted_far_below_indeed(self) -> None:
         """A budget sanity check: Indeed does 20 searches/run against LinkedIn's 6."""
         self.assertGreater(
-            CONFIG["budgets"]["indeed"]["searches_per_run"],
-            CONFIG["budgets"]["linkedin"]["searches_per_run"],
+            CONFIG["policies"]["indeed"]["searches_per_run"],
+            CONFIG["policies"]["linkedin"]["searches_per_run"],
         )
 
     def test_tasks_carry_location_and_country_from_the_query(self) -> None:
@@ -383,11 +384,11 @@ class BudgetTests(unittest.TestCase):
             self.assertTrue(task.location_label)
             self.assertTrue(task.country)
 
-    def test_backfill_maximises_results_and_window(self) -> None:
+    def test_backfill_preserves_fixed_depth_and_uses_backfill_window(self) -> None:
         cells = make_cells("indeed", self.targets)
         tasks = select_cells(cells, CONFIG, "indeed", NOW, backfill=True)
         for task in tasks:
-            self.assertEqual(task.results_wanted, CONFIG["budgets"]["indeed"]["max_results_wanted"])
+            self.assertEqual(task.results_wanted, CONFIG["policies"]["indeed"]["results_wanted"])
             self.assertEqual(task.hours_old, CONFIG["backfill_hours_old"])
 
 
@@ -641,7 +642,7 @@ class FakeDb:
 
 class CircuitBreakerTests(unittest.TestCase):
     def _circuit(self, db: Any = None) -> SourceCircuit:
-        return SourceCircuit("linkedin", CONFIG, db=db, now=lambda: NOW, sleep=lambda _s: None)
+        return SourceCircuit("linkedin", CONFIG, db=db, now=lambda: NOW)
 
     def test_429_trips_immediately_and_is_not_retried(self) -> None:
         """Departs from http_client.py on purpose: a 429 means the IP is flagged."""

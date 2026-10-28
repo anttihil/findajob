@@ -15,9 +15,6 @@ from typing import Any
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from findajob.core.database import Database
-from findajob.search.runner import _add_cost
-from findajob.search.sources.base import BaseJobSource
-from findajob.search.sources.jobspy_source import count_requests
 
 TASK: dict[str, Any] = {
     "cell_id": 1,
@@ -28,64 +25,6 @@ TASK: dict[str, Any] = {
     "results_wanted": 50,
     "desc_selection": "census",
 }
-
-
-class _FakeClient(BaseJobSource):
-    """Stands in for JobSpySource, which needs the library and a network."""
-
-    def __init__(self) -> None:
-        super().__init__()
-
-    def fetch_for_task(self, task: dict[str, Any]) -> list[dict[str, Any]]:
-        return []
-
-
-class RequestCountingTests(unittest.TestCase):
-    def test_counts_requests_and_restores_the_session_methods(self) -> None:
-        from jobspy.util import RequestsRotating, create_session
-        from requests.exceptions import RequestException
-
-        before = RequestsRotating.request
-        session = create_session(is_tls=False)
-        with count_requests() as counter:
-            for _ in range(3):
-                # Port 9 (discard) refuses immediately: the request is issued, which is
-                # what is counted, and no board is touched.
-                with self.assertRaises(RequestException):
-                    session.get("http://127.0.0.1:9/none", timeout=0.2)
-        self.assertEqual(counter.count, 3)
-        self.assertIs(RequestsRotating.request, before)
-
-    def test_counters_do_not_leak_between_scrapes(self) -> None:
-        with count_requests() as first:
-            pass
-        with count_requests() as second:
-            pass
-        self.assertEqual((first.count, second.count), (0, 0))
-
-
-class CostAccumulationTests(unittest.TestCase):
-    def test_attempts_are_summed(self) -> None:
-        client = _FakeClient()
-        cost = {"duration_ms": 0, "requests_made": 0}
-
-        client.last_fetch = {"duration_ms": 1200, "requests_made": 3}
-        _add_cost(cost, client)
-        client.last_fetch = {"duration_ms": 800, "requests_made": 55}
-        _add_cost(cost, client)
-
-        self.assertEqual(cost, {"duration_ms": 2000, "requests_made": 58})
-
-    def test_an_attempt_that_never_reached_the_board_is_not_counted_twice(self) -> None:
-        """`_add_cost` clears, so a retry that dies before `fetch_for_task` adds nothing."""
-        client = _FakeClient()
-        cost = {"duration_ms": 0, "requests_made": 0}
-
-        client.last_fetch = {"duration_ms": 1200, "requests_made": 3}
-        _add_cost(cost, client)
-        _add_cost(cost, client)
-
-        self.assertEqual(cost, {"duration_ms": 1200, "requests_made": 3})
 
 
 class ObservationStorageTests(unittest.TestCase):

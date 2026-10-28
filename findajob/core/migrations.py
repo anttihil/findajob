@@ -13,7 +13,7 @@ from findajob.core.logger import get_logger
 
 logger = get_logger()
 
-SCHEMA_VERSION = 38
+SCHEMA_VERSION = 39
 
 
 def _v1_baseline(cursor: sqlite3.Cursor) -> None:
@@ -2453,6 +2453,21 @@ def _v38_drop_assessment_view(cursor: sqlite3.Cursor) -> None:
     cursor.execute("DROP VIEW IF EXISTS v_job_assessments")
 
 
+def _v39_linkedin_detail_reuse(cursor: sqlite3.Cursor) -> None:
+    """Track detail freshness independently of sightings, including deferred work."""
+    cursor.execute("ALTER TABLE jobs ADD COLUMN details_fetched_at TEXT")
+    cursor.execute("ALTER TABLE jobs ADD COLUMN details_attempted_at TEXT")
+    cursor.execute("ALTER TABLE jobs ADD COLUMN details_error TEXT")
+    cursor.execute("ALTER TABLE cell_observations ADD COLUMN detail_stats TEXT")
+    cursor.execute("ALTER TABLE cell_observations ADD COLUMN stop_reason TEXT")
+    cursor.execute("DROP VIEW v_skill_eligible")
+    cursor.execute(
+        "CREATE VIEW v_skill_eligible AS SELECT * FROM jobs "
+        "WHERE sync_run_id IS NOT NULL AND duplicate_of IS NULL "
+        "AND description_quality = 'full' AND desc_selection IN ('census', 'complete')"
+    )
+
+
 MIGRATIONS: list[tuple[int, str, Callable[[sqlite3.Cursor], None]]] = [
     (1, "baseline jobs table", _v1_baseline),
     (2, "market analytics: cells, observations, skills, stats", _v2_analytics),
@@ -2552,6 +2567,7 @@ MIGRATIONS: list[tuple[int, str, Callable[[sqlite3.Cursor], None]]] = [
     (36, "single-stage priorities and assessment history", _v36_single_stage_priority),
     (37, "remove retired job screenings", _v37_drop_job_screenings),
     (38, "remove assessment stage compatibility view", _v38_drop_assessment_view),
+    (39, "LinkedIn detail freshness and page-budget accounting", _v39_linkedin_detail_reuse),
 ]
 
 

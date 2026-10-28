@@ -7,18 +7,16 @@ scraper:
     indeed: true
     linkedin: true
 
-  # Per-run limits. Keep these conservative unless you understand the board's limits.
-  budgets:
+  # Per-source policy; no proxies means one direct connection.
+  policies:
     indeed:
-      searches_per_run: 44
-      request_units: 130
-      results_wanted_default: 75
-      max_results_wanted: 200
+      requests_per_proxy: 100
+      request_interval_seconds: 2
+      results_wanted: 500
     linkedin:
-      searches_per_run: 15
-      results_wanted_default: 60
-      max_results_wanted: 100
-      max_pages_per_run: 60
+      requests_per_proxy: 100
+      request_interval_seconds: 3
+      results_wanted: 500
 
   # Excluded from market analytics by default.
   agencies:

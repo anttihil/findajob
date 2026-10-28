@@ -16,6 +16,7 @@ from datetime import datetime, timezone
 from typing import Any, TypedDict
 
 from findajob.core.database import Database
+from findajob.search.policy import source_policy
 
 
 @dataclass
@@ -58,7 +59,6 @@ class ScrapeTaskPayload(TypedDict):
     fetch_description: bool
     desc_selection: str
     active: bool
-    est_request_units: float
     proxies: list[str]
 
 
@@ -78,7 +78,6 @@ class ScrapeTask:
     fetch_description: bool
     desc_selection: str
     active: bool = True
-    est_request_units: float = 0.0
     extra: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> ScrapeTaskPayload:
@@ -97,7 +96,6 @@ class ScrapeTask:
             "fetch_description": self.fetch_description,
             "desc_selection": self.desc_selection,
             "active": self.active,
-            "est_request_units": self.est_request_units,
             "proxies": self.extra.get("proxies") or [],
         }
 
@@ -137,14 +135,9 @@ def adaptive_hours_old(cell: CellState, config: dict[str, Any], now: datetime) -
     return int(min(ceiling, max(floor, 1.5 * gap)))
 
 
-def results_wanted_for(cell: CellState, config: dict[str, Any], source: str) -> int:
-    budget = (config.get("budgets") or {}).get(source, {})
-    default = budget.get("results_wanted_default", 50)
-    maximum = budget.get("max_results_wanted", 200)
-    wanted = default
-    if cell.last_saturated:
-        wanted = int(wanted * 1.5)
-    return int(min(maximum, max(25, wanted)))
+def results_wanted_for(config: dict[str, Any], source: str) -> int:
+    """Fixed per-source retrieval depth, independent of previous saturation."""
+    return int(source_policy(config, source)["results_wanted"])
 
 
 def estimate_pages(source: str, results_wanted: int, config: dict[str, Any]) -> int:
@@ -159,7 +152,7 @@ def estimate_units(
     config: dict[str, Any],
     fetch_descriptions: bool = False,
 ) -> float:
-    """Total HTTP requests one cell will spend -- the thing `request_units` budgets."""
+    """Cold-cache request forecast; never used as an execution gate."""
     pages = estimate_pages(source, results_wanted, config)
     per_description = (config.get("requests_per_description") or {}).get(source, 0)
     descriptions = per_description * max(results_wanted, 1) if fetch_descriptions else 0
@@ -173,17 +166,8 @@ def _make_task(
     now: datetime,
     backfill: bool = False,
 ) -> ScrapeTask:
-    budget = (config.get("budgets") or {}).get(source, {})
-    fetch_setting = budget.get("fetch_descriptions", False)
-    if backfill:
-        results_wanted = budget.get("max_results_wanted", 200)
-    else:
-        results_wanted = results_wanted_for(cell, config, source)
-
-    if fetch_setting is True:
-        fetch_description, desc_selection = True, budget.get("desc_selection", "census")
-    else:
-        fetch_description, desc_selection = False, "none"
+    results_wanted = results_wanted_for(config, source)
+    fetch_description, desc_selection = True, "census"
 
     return ScrapeTask(
         cell_id=cell.id,
@@ -204,7 +188,6 @@ def _make_task(
         fetch_description=fetch_description,
         desc_selection=desc_selection,
         active=cell.active,
-        est_request_units=estimate_units(source, results_wanted, config, fetch_description),
         extra={"proxies": config.get("proxies_list") or []},
     )
 
@@ -216,34 +199,13 @@ def select_cells(
     now: datetime | None = None,
     backfill: bool = False,
 ) -> list[ScrapeTask]:
-    """Pick this run's cells for one source, oldest attempt first, within budget."""
+    """Order candidate cells; runtime request accounting decides when to stop."""
     now = now or datetime.now(timezone.utc)
-    budget = (config.get("budgets") or {}).get(source, {})
-    max_searches = budget.get("searches_per_run", 10)
-    max_units = budget.get("request_units", 100)
-    max_pages = budget.get("max_pages_per_run")
 
     eligible = [c for c in cells if is_eligible(c, now)]
     order = sorted(eligible, key=lambda c: (-hours_since(c.last_scraped_at, now), c.id))
 
-    picked: list[ScrapeTask] = []
-    units = 0.0
-    pages = 0
-
-    for cell in order:
-        if len(picked) >= max_searches:
-            break
-        task = _make_task(cell, config, source, now, backfill=backfill)
-        cell_pages = estimate_pages(source, task.results_wanted, config)
-        if units + task.est_request_units > max_units:
-            continue
-        if max_pages is not None and pages + cell_pages > max_pages:
-            continue
-        picked.append(task)
-        units += task.est_request_units
-        pages += cell_pages
-
-    return picked
+    return [_make_task(cell, config, source, now, backfill=backfill) for cell in order]
 
 
 def overdue_cells(

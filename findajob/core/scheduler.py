@@ -142,7 +142,8 @@ class PipelineScheduler:
                     conn.execute(
                         "SELECT o.source, MAX(r.finished_at) FROM sync_runs r "
                         "JOIN cell_observations o ON o.sync_run_id = r.id "
-                        "WHERE r.status IN ('ok', 'partial') AND o.status IN ('ok', 'empty') "
+                        "WHERE r.status IN ('ok', 'partial') "
+                        "AND o.status IN ('ok', 'empty', 'budget_limited') "
                         "GROUP BY o.source"
                     )
                 )

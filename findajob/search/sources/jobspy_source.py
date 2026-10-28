@@ -1,321 +1,148 @@
-"""JobSpy-backed source for LinkedIn and Indeed, behind the BaseJobSource interface.
+"""Page-oriented adapter using pinned JobSpy parsers and our explicit transport."""
 
-Wrapping the library rather than calling it directly keeps the blast radius small: board
-markup and endpoints change often, and `sources/base.py` is the seam where a
-hand-rolled fallback can take over.
-
-Two things about the library's real behaviour, verified against a live scrape rather than
-its README (which documents 11 columns; the actual output has 34):
-
-  Indeed returns full descriptions in-response, so a description census costs nothing extra
-  and Indeed cells carry the skill analytics.
-
-  LinkedIn charges one extra request per description, and that request is rewritten to the
-  guest fragment endpoint (see `guest_description_endpoint`), which returns the same
-  description ~2.6x faster than the full job page the library asks for. On a single IP the
-  per-description request is still unaffordable,
-  so those cells run desc_selection='none' -- titles only, complete for role supply,
-  contributing nothing to skill demand. With a proxy pool configured the with_proxies
-  budget flips them to a full census, and LinkedIn feeds the skill analytics too. The
-  'top_k' pre-scored subset the earlier design called for is not produced by either path:
-  selecting on pre-score correlates with the user's own skills, which is exactly the bias
-  the skill-demand denominators must not contain.
-"""
-
-import logging
-import re
-import time
-import warnings
 from collections.abc import Generator
-from contextlib import contextmanager
 from typing import Any, TypedDict
 
-from findajob.core.logger import get_logger
 from findajob.search.scheduler import ScrapeTaskPayload
-from findajob.search.sources.base import BaseJobSource
-
-logger = get_logger()
-
-# JobSpy names its per-board loggers "JobSpy:<Board>" (jobspy/util.py create_logger).
-JOBSPY_LOGGERS = {
-    "indeed": "JobSpy:Indeed",
-    "linkedin": "JobSpy:LinkedIn",
-}
+from findajob.search.sources.base import BaseJobSource, SearchPage
+from findajob.search.traffic import SourceTraffic
 
 
-class ScraperReportedError(RuntimeError):
-    """JobSpy logged a failure instead of raising it.
-
-    Its LinkedIn scraper catches network faults and non-2xx responses inside the pagination
-    loop, logs them, and returns whatever it had already collected:
-
-        except Exception as e:
-            log.error(f"LinkedIn: {str(e)}")
-            return JobResponse(jobs=job_list)     # partial, no raise
-
-    So a cell truncated by a read timeout or a 429 arrives here looking like an ordinary
-    short result. Nothing raises, the circuit breaker sees a clean run, and the observation
-    is stored as a complete count -- it is not even marked saturated, since `returned` is
-    well under `requested`. Downstream that reads as genuinely thin supply rather than as a
-    censored measurement, which is the silent-deflation failure adaptive_hours_old exists to
-    prevent, arriving by a path that bypasses every guard.
-
-    Carries `classify_text` so SourceCircuit keys on the board's own wording alone. The
-    human-readable message also names row and error counts, and those digits can collide
-    with the status-code markers -- "after 429 row(s)" reading as a rate limit would trip
-    the source and persist a backoff of up to a day off the back of a number we wrote
-    ourselves.
-    """
-
-    def __init__(self, message: str, board_messages: tuple[str, ...] | list[str] = ()):
-        super().__init__(message)
-        self.board_messages = list(board_messages)
-        self.classify_text = "; ".join(self.board_messages)
+def posting_row(job: Any, source: str) -> dict[str, Any]:
+    """Keep JobSpy's model parsing, without its full-search loop or DataFrame sorting."""
+    row = job.model_dump()
+    row["site"] = source
+    row["company"] = row.pop("company_name", None)
+    row["location"] = job.location.display_location() if job.location else None
+    if job.compensation:
+        comp = job.compensation
+        row.update(
+            interval=comp.interval.value if comp.interval else None,
+            min_amount=comp.min_amount,
+            max_amount=comp.max_amount,
+            currency=comp.currency,
+            salary_source="direct_data",
+        )
+    return row
 
 
-class _ErrorRecorder(logging.Handler):
-    """Collects ERROR-level records emitted by a board's logger."""
-
-    def __init__(self) -> None:
-        super().__init__(level=logging.ERROR)
-        self.messages: list[str] = []
-
-    def emit(self, record: logging.LogRecord) -> None:
-        try:
-            self.messages.append(record.getMessage())
-        except Exception:  # noqa: BLE001 - a broken log record must not fail a scrape
-            self.messages.append("<unformattable log record>")
-
-
-@contextmanager
-def capture_scraper_errors(source: str | None) -> Generator[_ErrorRecorder]:
-    """Watch a board's JobSpy logger for the duration of one scrape.
-
-    Records arrive from JobSpy's worker thread rather than this one (scrape_jobs runs each
-    site in a ThreadPoolExecutor), which is fine -- handlers are called on the emitting
-    thread and syncs are single-threaded, so one recorder per fetch is unambiguous.
-    """
-    name = JOBSPY_LOGGERS.get((source or "").lower())
-    recorder = _ErrorRecorder()
-    if not name:
-        yield recorder
+def extract_description_salary(row: dict[str, Any]) -> None:
+    """Fill missing compensation from the merged job description, when present."""
+    if row.get("min_amount") is not None or row.get("max_amount") is not None:
         return
+    from jobspy.util import extract_salary
 
-    board_logger = logging.getLogger(name)
-    board_logger.addHandler(recorder)
-    try:
-        yield recorder
-    finally:
-        board_logger.removeHandler(recorder)
-
-
-class _RequestCounter:
-    """Counts the HTTP requests one scrape issues."""
-
-    def __init__(self) -> None:
-        self.count = 0
-
-
-@contextmanager
-def count_requests() -> Generator[_RequestCounter]:
-    """Count every request JobSpy sends for the duration of one scrape.
-
-    Both boards build their session through jobspy.util.create_session with is_tls=False,
-    and every .get/.post on it funnels through RequestsRotating.request -- so one patch
-    counts search pages and per-description fetches alike. TLSRotating is patched too,
-    because create_session picks it on is_tls=True and an unpatched class would report a
-    confident zero rather than an absence.
-
-    What this counts is requests ISSUED by the library. urllib3 retries below this seam
-    (LinkedIn's session sets has_retry with a 429 in the status_forcelist), so the number
-    is a lower bound on packets that reached the board.
-
-    The patch is global and the counter is not thread-safe, which is sound only because
-    syncs are single-threaded: one cell is scraped at a time, and scrape_jobs runs one
-    site per call. Two concurrent scrapes would share the count.
-    """
-    counter = _RequestCounter()
-    try:
-        from jobspy.util import RequestsRotating, TLSRotating
-    except ImportError:
-        # The whole test suite runs without jobspy installed; counting is not what fails.
-        yield counter
-        return
-
-    patched = [(RequestsRotating, "request"), (TLSRotating, "execute_request")]
-    originals = [(cls, name, getattr(cls, name)) for cls, name in patched]
-
-    def wrap(original: Any) -> Any:
-        def counted(*args: Any, **kwargs: Any) -> Any:
-            counter.count += 1
-            return original(*args, **kwargs)
-
-        return counted
-
-    for cls, name, original in originals:
-        setattr(cls, name, wrap(original))
-    try:
-        yield counter
-    finally:
-        for cls, name, original in originals:
-            setattr(cls, name, original)
-
-
-# JobSpy fetches each LinkedIn description from the full public job page. This is the same
-# posting as a guest fragment: measured over 16 paired postings on 2026-08-15, it returns a
-# byte-identical description in 49KB median instead of 302KB, at 240ms median instead of
-# 630ms -- faster on 16 of 16, ~19s off a 50-description cell. See
-# scripts/probe_linkedin_description_endpoint.py and its results in experiments/.
-JOB_PAGE_URL = re.compile(r"^https?://[^/]*linkedin\.com/jobs/view/(\d+)/?$")
-GUEST_FRAGMENT_URL = "https://www.linkedin.com/jobs-guest/jobs/api/jobPosting/{job_id}"
-
-
-@contextmanager
-def guest_description_endpoint(enabled: bool) -> Generator[None]:
-    """Route JobSpy's per-description fetches to the guest fragment.
-
-    Rewriting the URL under the library rather than reimplementing `_get_job_details`: the
-    fragment carries the same markup, so JobSpy's own parsing of description, industry,
-    job function, employment type, apply URL and logo all still apply -- verified field by
-    field in the same probe. The one field that differs is `job_level`, which the fragment
-    reports as "Not Applicable" on most postings; nothing in this project reads it.
-
-    The request count does not change. A description still costs one request; it is a
-    cheaper one.
-
-    If LinkedIn ever retires the fragment, `_get_job_details` swallows the failure and
-    returns {} -- descriptions silently become None and the skill-demand denominators
-    deflate. `_scrape_one` watches for that: a census cell that returns postings with no
-    full descriptions logs a warning rather than storing the deflation quietly.
-    """
-    if not enabled:
-        yield
-        return
-    try:
-        from jobspy.util import RequestsRotating
-    except ImportError:
-        yield
-        return
-
-    original = RequestsRotating.request
-
-    def rewritten(self: Any, method: str, url: str, **kwargs: Any) -> Any:
-        match = JOB_PAGE_URL.match(url)
-        if match:
-            url = GUEST_FRAGMENT_URL.format(job_id=match.group(1))
-        return original(self, method, url, **kwargs)
-
-    RequestsRotating.request = rewritten
-    try:
-        yield
-    finally:
-        RequestsRotating.request = original
-
-
-# Columns JobSpy actually returns, verified live on 2026-07-29. Recorded here so a future
-# library upgrade that drops one is visible rather than silently producing empty fields.
-EXPECTED_COLUMNS = {
-    "id",
-    "site",
-    "job_url",
-    "job_url_direct",
-    "title",
-    "company",
-    "location",
-    "date_posted",
-    "job_type",
-    "salary_source",
-    "interval",
-    "min_amount",
-    "max_amount",
-    "currency",
-    "is_remote",
-    # job_level is deliberately absent: nothing reads it, and the guest description
-    # endpoint reports it as "Not Applicable" anyway.
-    "job_function",
-    "listing_type",
-    "emails",
-    "description",
-    "company_industry",
-    "company_url",
-    "company_logo",
-    "company_url_direct",
-    "company_addresses",
-    "company_num_employees",
-    "company_revenue",
-    "company_description",
-}
+    interval, low, high, currency = extract_salary(
+        row.get("description"), enforce_annual_salary=False
+    )
+    if low is not None or high is not None:
+        row.update(
+            interval=interval,
+            min_amount=low,
+            max_amount=high,
+            currency=currency,
+            salary_source="description",
+        )
 
 
 class JobSpySource(BaseJobSource):
-    """Fetches postings for one scrape task."""
-
     def __init__(self, description_format: str = "markdown"):
-        super().__init__()
         self.description_format = description_format
-        self._scrape: Any = None
 
-    def _loader(self) -> Any:
-        if self._scrape is None:
-            # Imported lazily so the rest of the app -- and the whole test suite -- runs
-            # without pandas/numpy/tls-client present.
-            from jobspy import scrape_jobs
+    def iter_pages(self, task: ScrapeTaskPayload, traffic: SourceTraffic) -> Generator[SearchPage]:
+        """Yield one board page at a time; the caller controls the budget boundary.
 
-            self._scrape = scrape_jobs
-        return self._scrape
-
-    # -- BaseJobSource -----------------------------------------------------------------
-    def fetch_for_task(self, task: ScrapeTaskPayload) -> list[dict[str, Any]]:
-        """Run one search and return raw row dicts.
-
-        Raises on failure so the caller's SourceCircuit can classify it -- a 429 must trip
-        the source rather than being swallowed and retried here.
+        Only pinned JobSpy parsers and Indeed's page builder are reused. The
+        library's pagination, pacing, retries, and swallowed HTTP errors are bypassed.
         """
-        scrape = self._loader()
-        kwargs = build_scrape_kwargs(task, self.description_format)
+        from bs4 import BeautifulSoup
+        from jobspy.indeed import Indeed
+        from jobspy.linkedin import LinkedIn
+        from jobspy.model import Country, DescriptionFormat, ScraperInput, Site
 
-        logger.info(
-            "[%s] %r in %s (want %d, hours_old=%s, desc=%s)",
-            task["source"],
-            task["query"],
-            task["location_label"],
-            kwargs.get("results_wanted"),
-            kwargs.get("hours_old"),
-            kwargs.get("linkedin_fetch_description", True),
+        source = task["source"]
+        kwargs: Any = build_scrape_kwargs(task, self.description_format)
+        scraper_input = ScraperInput(
+            site_type=[Site(source)],
+            search_term=kwargs["search_term"],
+            location=kwargs["location"],
+            distance=kwargs.get("distance", 50),
+            country=Country.from_string(task["indeed_country"] or "usa"),
+            is_remote=task["is_remote"],
+            hours_old=task["hours_old"],
+            description_format=DescriptionFormat(self.description_format),
+            results_wanted=task["results_wanted"],
         )
-
-        self.last_fetch = {"duration_ms": 0, "requests_made": 0}
-        started = time.monotonic()
-        with warnings.catch_warnings():
-            # JobSpy emits pandas FutureWarnings on concat of empty frames.
-            warnings.simplefilter("ignore")
-            with (
-                capture_scraper_errors(task["source"]) as reported,
-                count_requests() as calls,
-                guest_description_endpoint(task["source"] == "linkedin"),
-            ):
-                try:
-                    frame = scrape(**kwargs)
-                finally:
-                    # In `finally`, because a failed cell's cost is the interesting one:
-                    # a rate limit costs the requests that earned it, and the caller
-                    # records the failure with the same numbers as a success.
-                    self.last_fetch = {
-                        "duration_ms": round((time.monotonic() - started) * 1000),
-                        "requests_made": calls.count,
-                    }
-
-        rows = frame_to_rows(frame)
-        if reported.messages:
-            # Re-raise carrying JobSpy's own wording, because SourceCircuit classifies on
-            # message text -- "Read timed out" lands as transient and gets retried on a
-            # fresh exit IP, "429" as a rate limit that trips the source.
-            raise ScraperReportedError(
-                f"{task['source']} reported {len(reported.messages)} error(s) after "
-                f"{len(rows)} row(s): {'; '.join(reported.messages[:3])}",
-                board_messages=reported.messages,
+        client: Any = Indeed() if source == "indeed" else LinkedIn()
+        headers = dict(client.session.headers)
+        client.session.close()
+        client.scraper_input = scraper_input
+        cursor = None
+        cursors: set[str] = set()
+        offset = 0
+        seen: set[str] = set()
+        if source == "indeed":
+            assert scraper_input.country is not None
+            domain, client.api_country_code = scraper_input.country.indeed_domain_value
+            client.base_url = f"https://{domain}.indeed.com"
+        while True:
+            proxy = traffic.least_used()
+            session = traffic.bound_session(proxy)
+            session.headers.update(headers)
+            client.session = session
+            reason = None
+            if source == "indeed":
+                jobs, next_cursor = client._scrape_page(cursor)
+                raw_count = len(session.last_response.json()["data"]["jobSearch"]["results"])
+                if not raw_count or not next_cursor:
+                    reason = "exhausted"
+                elif next_cursor in cursors:
+                    reason = "pagination_limit"
+                else:
+                    cursors.add(next_cursor)
+                    cursor = next_cursor
+            else:
+                params = {
+                    "keywords": task["query"],
+                    "location": kwargs["location"],
+                    "distance": kwargs.get("distance", 50),
+                    "start": offset,
+                    "pageNum": 0,
+                }
+                if task["hours_old"]:
+                    params["f_TPR"] = f"r{task['hours_old'] * 3600}"
+                if task["is_remote"]:
+                    params["f_WT"] = 2
+                response = session.get(
+                    "https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search",
+                    params=params,
+                    timeout=10,
+                )
+                cards = BeautifulSoup(response.text, "html.parser").select(".base-search-card")
+                offset += len(cards)
+                jobs = []
+                for card in cards:
+                    link = card.select_one("a.base-card__full-link")
+                    if not link:
+                        continue
+                    identifier = str(link.get("href", "")).split("?")[0].rstrip("/").split("-")[-1]
+                    if identifier in seen:
+                        continue
+                    seen.add(identifier)
+                    job = client._process_job(card, identifier, False)
+                    if job:
+                        jobs.append(job)
+                if not cards:
+                    reason = "exhausted"
+                elif offset >= 1000:
+                    reason = "pagination_limit"
+            yield SearchPage(
+                [posting_row(job, source) for job in jobs],
+                proxy,
+                reason,
             )
-        return rows
+            if reason:
+                return
 
 
 class ScrapeJobsKwargs(TypedDict, total=False):
@@ -375,11 +202,8 @@ def build_scrape_kwargs(
     if source == "indeed":
         kwargs["country_indeed"] = task["indeed_country"] or "usa"
     elif source == "linkedin":
-        # All-or-nothing, matching the cell's desc_selection: 'census' when the budget
-        # affords a description per posting, 'none' otherwise. Never a top-scoring subset
-        # -- selecting on pre-score correlates with the user's own skills, which is exactly
-        # the bias the skill-demand denominators must not contain.
-        kwargs["linkedin_fetch_description"] = task["fetch_description"]
+        # Discovery only. The runner reuses stored details before requesting misses.
+        kwargs["linkedin_fetch_description"] = False
 
     if not task["is_remote"] and task["distance"]:
         # JobSpy sends this through to both Indeed and LinkedIn.  Keeping it outside
@@ -390,23 +214,3 @@ def build_scrape_kwargs(
         kwargs["proxies"] = task["proxies"]
 
     return kwargs
-
-
-def frame_to_rows(frame: Any) -> list[dict[str, Any]]:
-    """Convert a JobSpy DataFrame into plain dicts, warning on unexpected schema drift."""
-    if frame is None:
-        return []
-    if not hasattr(frame, "to_dict"):
-        return list(frame)
-    if len(frame) == 0:
-        return []
-
-    missing = EXPECTED_COLUMNS - set(frame.columns)
-    if missing:
-        # Not fatal -- board-specific columns are legitimately absent -- but a large gap
-        # means the library changed and the normalizer may be reading nothing.
-        logger.warning(
-            f"JobSpy returned {len(missing)} fewer columns than expected: {sorted(missing)[:8]}"
-        )
-
-    return frame.to_dict(orient="records")

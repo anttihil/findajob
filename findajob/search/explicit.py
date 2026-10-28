@@ -2,19 +2,16 @@
 
 from __future__ import annotations
 
-import contextlib
-import sys
-from datetime import datetime, timezone
 from typing import Any, cast
 
 from findajob.core.config import load_config
 from findajob.core.database import Database
-from findajob.search.guard import SourceCircuit, SourceTripped
-from findajob.search.normalizer import normalize_rows
-from findajob.search.proxies import apply_proxy_budgets, is_rotating, load_proxies, pin_for
-from findajob.search.runner import store_postings
-from findajob.search.scheduler import ScrapeTaskPayload
+from findajob.search.guard import SourceCircuit
+from findajob.search.proxies import load_proxies
+from findajob.search.runner import run_cell
+from findajob.search.scheduler import ScrapeTaskPayload, results_wanted_for
 from findajob.search.sources.jobspy_source import JobSpySource
+from findajob.search.traffic import SourceTraffic
 
 SUPPORTED_SOURCES = frozenset({"indeed", "linkedin"})
 
@@ -28,9 +25,14 @@ def run_query(args: Any) -> dict[str, Any]:
 
     config = load_config()
     proxies = load_proxies(config)
-    scraper_config = apply_proxy_budgets(config.get("scraper", {}), proxies)
-    budget = (scraper_config.get("budgets") or {}).get(args.source) or {}
-    fetch_descriptions = budget.get("fetch_descriptions", False) is True
+    scraper_config = config.get("scraper", {})
+    wanted = (
+        args.results_wanted
+        if args.results_wanted is not None
+        else results_wanted_for(scraper_config, args.source)
+    )
+    if wanted <= 0:
+        raise ValueError("--results-wanted must be positive")
     task: dict[str, Any] = {
         "cell_id": None,
         "source": args.source,
@@ -41,78 +43,49 @@ def run_query(args: Any) -> dict[str, Any]:
         "indeed_country": args.indeed_country,
         "is_remote": args.remote,
         "distance": args.distance,
-        "results_wanted": args.results_wanted,
+        "results_wanted": wanted,
         "hours_old": args.hours_old,
-        "fetch_description": fetch_descriptions,
-        "desc_selection": "census" if fetch_descriptions else "none",
+        "fetch_description": True,
+        "desc_selection": "census",
         "active": True,
-        "est_request_units": 0.0,
-        "proxies": pin_for(proxies, 0, 0),
+        "proxies": proxies,
     }
     db = Database()
     run_id = db.start_sync_run("explicit_query")
-    circuit = SourceCircuit(
-        args.source,
-        scraper_config,
-        db=db,
-        rotating_proxies=bool(proxies) and is_rotating(config),
-    )
-    client = JobSpySource()
-    observed_at = datetime.now(timezone.utc)
-    cost = {"duration_ms": 0, "requests_made": 0}
+    assert run_id is not None
+    circuit = SourceCircuit(args.source, scraper_config, db=db)
+    traffic = SourceTraffic(args.source, scraper_config, proxies, circuit)
     try:
         if circuit.persisted_backoff_active():
             raise ValueError(
                 f"{args.source} is in circuit-breaker backoff until {circuit.backoff_until()}"
             )
-        circuit.before_request()
-        with contextlib.redirect_stdout(sys.stderr):
-            rows = client.fetch_for_task(cast(ScrapeTaskPayload, task))
-        cost.update(client.last_fetch or {})
-        postings, stats = normalize_rows(rows, task, observed_at=observed_at, config=scraper_config)
-        job_ids, new_count, duplicates = store_postings(db, postings, run_id)
-        circuit.on_success(stats["returned"]) if stats["returned"] else circuit.on_empty()
-        db.record_observation(
+        result = run_cell(
+            db,
+            JobSpySource(),
+            circuit,
+            cast(ScrapeTaskPayload, task),
+            traffic,
             run_id,
-            task,
-            observed_at.isoformat(),
-            returned=stats["returned"],
-            new_unique=new_count,
-            saturated=int(stats["returned"] >= args.results_wanted),
-            descriptions_full=stats["with_full_description"],
-            status="ok" if stats["returned"] else "empty",
-            duration_ms=cost["duration_ms"],
-            requests_made=cost["requests_made"],
+            scraper_config,
         )
-        assert run_id is not None
         db.finish_sync_run(
             run_id,
-            "ok",
+            "partial"
+            if result["status"] == "budget_limited"
+            else "failed"
+            if result["status"] == "error"
+            else "ok",
             cells_planned=1,
-            cells_succeeded=int(bool(stats["returned"])),
-            postings_fetched=stats["returned"],
-            postings_new=new_count,
-            duplicates_merged=duplicates,
+            cells_succeeded=int(result["status"] != "error"),
+            postings_fetched=result["postings_fetched"],
+            postings_new=result["postings_new"],
+            duplicates_merged=result["duplicates_merged"],
         )
-        return {
-            "status": "ok" if stats["returned"] else "empty",
-            "query": args.query,
-            "location": args.location,
-            "source": args.source,
-            "job_ids": job_ids,
-            "postings_fetched": stats["returned"],
-            "postings_new": new_count,
-            "duplicates_merged": duplicates,
-            "descriptions_full": stats["with_full_description"],
-            **cost,
-        }
-    except SourceTripped as exc:
-        if run_id is not None:
-            db.finish_sync_run(run_id, "failed", error_summary=str(exc))
-        raise ValueError(f"{args.source} is in circuit-breaker backoff: {exc}") from exc
+        return {**result, "query": args.query, "location": args.location, "source": args.source}
     except Exception as exc:
-        if run_id is not None:
-            db.finish_sync_run(run_id, "failed", error_summary=str(exc))
+        db.finish_sync_run(run_id, "failed", error_summary=str(exc))
         raise
     finally:
+        traffic.close()
         db.close()
