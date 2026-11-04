@@ -1,6 +1,7 @@
 """Real page parsers with synthetic HTTP: budgets stop pages, never lose discoveries."""
 
 import json
+import random
 from datetime import datetime, timezone
 from typing import Any
 from unittest.mock import Mock
@@ -260,3 +261,86 @@ def test_pacing_and_failed_attempts_use_same_transport():
     assert traffic.spent == 2
     assert sleeps == [3]
     assert session.request.call_args.kwargs["allow_redirects"] is False
+
+
+def test_mid_cell_proxy_failover_recovers_pages_and_details(db: Database):
+    board = Board(available=30)
+    proxies = ["u:p@bad:8000", "u:p@flaky:8000", "u:p@good:8000"]
+    config = {"policies": {"linkedin": {"requests_per_proxy": 100, "request_interval_seconds": 0}}}
+    guard = SourceCircuit("linkedin", config, db=db, proxies=proxies)
+    traffic = SourceTraffic("linkedin", config, proxies, guard, rng=random.Random(0))
+
+    bad_session = Mock()
+    bad_session.request.side_effect = RuntimeError("407 Proxy Authentication Required")
+
+    flaky_calls = [0]
+
+    def flaky_request(method: str, url: str, **kwargs: Any) -> Any:
+        flaky_calls[0] += 1
+        if "jobPosting/" in url and flaky_calls[0] >= 2:
+            resp = Mock(status_code=429)
+            resp.raise_for_status.side_effect = RuntimeError("HTTP 429 Too Many Requests")
+            return resp
+        return board.request(method, url, **kwargs)
+
+    flaky_session = Mock()
+    flaky_session.request.side_effect = flaky_request
+
+    traffic.sessions["u:p@bad:8000"] = bad_session
+    traffic.sessions["u:p@flaky:8000"] = flaky_session
+    traffic.sessions["u:p@good:8000"] = board
+
+    run_id = db.start_sync_run("incremental")
+    task = ScrapeTask(
+        1,
+        "linkedin",
+        "Engineer",
+        "fi",
+        "Helsinki",
+        "FI",
+        "finland",
+        False,
+        50,
+        500,
+        72,
+        True,
+        "census",
+    )
+    result = run_cell(db, JobSpySource(), guard, task.to_dict(), traffic, run_id, config)
+
+    assert result["status"] == "ok"
+    assert result["postings_fetched"] == 30
+    assert (
+        db.conn.execute("SELECT count(*) FROM jobs WHERE description_quality='full'").fetchone()[0]
+        == 30
+    )
+    assert not guard.is_usable("u:p@bad:8000")
+    assert not guard.is_usable("u:p@flaky:8000")
+    assert guard.is_usable("u:p@good:8000")
+    assert len(db.get_proxy_states("linkedin")) == 2
+    assert len(db.get_proxy_states("indeed")) == 1
+
+
+def test_global_pacing_gap_across_multiple_proxies():
+    now = [0.0]
+    sleeps: list[float] = []
+
+    def sleep(delay: float) -> None:
+        sleeps.append(delay)
+        now[0] += delay
+
+    proxies = ["a:1", "b:1"]
+    config = {"policies": {"linkedin": {"request_interval_seconds": 3}}}
+    guard = SourceCircuit("linkedin", config, proxies=proxies)
+    traffic = SourceTraffic(
+        "linkedin", config, proxies, guard, clock=lambda: now[0], sleep=sleep, rng=random.Random(1)
+    )
+    for ep in proxies:
+        session = Mock()
+        session.request.return_value = Mock(status_code=200)
+        traffic.sessions[ep] = session
+
+    traffic.request(None, "GET", "https://example.test/1")
+    traffic.request(None, "GET", "https://example.test/2")
+    assert len(sleeps) == 1
+    assert 0.3 <= sleeps[0] <= 0.5

@@ -264,11 +264,16 @@ pages. Real page sizes vary. Budget overruns are limited to the current page's
 work, except that a blocking response or other error can interrupt it.
 
 The source's transport counts every issued request, including failed attempts,
-and spaces request starts by `request_interval_seconds` per endpoint. Automatic
-HTTP retries and redirects are disabled so they cannot bypass pacing or multiply
-traffic invisibly. Each page chooses the least-used endpoint; connections are
-reused. Rate limits and blocking responses trigger source backoff, even with
-proxies. New cells are not started once the source allowance is spent.
+and spaces request starts by `request_interval_seconds` per endpoint (with a
+small global gap across multiple proxies). Automatic library retries and
+redirects are disabled so they cannot bypass pacing; failed requests rotate up
+to two fallback healthy endpoints inside the cell. Rate limits and blocking
+responses back off only the affected `(proxy, source)` pair, while repeated
+proxy-tunnel or authentication failures mark that proxy broken across sources
+(inspect or reset via `findajob search proxies [--reset]`). A source stops early
+only when no usable endpoints remain or eight distinct endpoints fail
+consecutively in the same run. New cells are not started once usable endpoints
+have spent their allowance.
 
 `results_wanted` is a ceiling, not a target that overrides the request allowance.
 Empty raw pages terminate pagination; duplicate-only pages do not prove exhaustion.

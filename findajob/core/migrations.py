@@ -13,7 +13,7 @@ from findajob.core.logger import get_logger
 
 logger = get_logger()
 
-SCHEMA_VERSION = 39
+SCHEMA_VERSION = 40
 
 
 def _v1_baseline(cursor: sqlite3.Cursor) -> None:
@@ -2468,6 +2468,28 @@ def _v39_linkedin_detail_reuse(cursor: sqlite3.Cursor) -> None:
     )
 
 
+def _v40_proxy_state(cursor: sqlite3.Cursor) -> None:
+    """Replace global source_state circuit breaker with per-proxy health and backoff."""
+    cursor.execute("DROP TABLE IF EXISTS source_state")
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS proxy_state (
+            proxy_id             TEXT NOT NULL,
+            source               TEXT NOT NULL,
+            status               TEXT NOT NULL,
+            backoff_until        TEXT,
+            consecutive_failures INTEGER NOT NULL DEFAULT 1,
+            last_error           TEXT,
+            PRIMARY KEY (proxy_id, source)
+        )
+        """
+    )
+    cursor.execute(
+        "CREATE INDEX IF NOT EXISTS idx_proxy_state_lookup "
+        "ON proxy_state(source, status, backoff_until)"
+    )
+
+
 MIGRATIONS: list[tuple[int, str, Callable[[sqlite3.Cursor], None]]] = [
     (1, "baseline jobs table", _v1_baseline),
     (2, "market analytics: cells, observations, skills, stats", _v2_analytics),
@@ -2568,6 +2590,7 @@ MIGRATIONS: list[tuple[int, str, Callable[[sqlite3.Cursor], None]]] = [
     (37, "remove retired job screenings", _v37_drop_job_screenings),
     (38, "remove assessment stage compatibility view", _v38_drop_assessment_view),
     (39, "LinkedIn detail freshness and page-budget accounting", _v39_linkedin_detail_reuse),
+    (40, "per-proxy health and backoff state", _v40_proxy_state),
 ]
 
 

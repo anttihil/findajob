@@ -172,3 +172,57 @@ def test_search_run_passes_source_filter(source: str | None) -> None:
         force=False,
         sources=[source] if source else None,
     )
+
+
+def test_search_proxies_inspects_and_resets_state(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from findajob.core import config as config_mod
+    from findajob.core import database as db_mod
+    from findajob.search import proxies as proxies_mod
+
+    with tempfile.NamedTemporaryFile(suffix=".db") as tmp:
+        seed_db = Database(db_path=tmp.name)
+        try:
+            p1 = "u:p@10.0.0.1:8000"
+            p2 = "u:p@10.0.0.2:8000"
+            seed_db.set_proxy_failure(
+                proxies_mod.proxy_id(p1),
+                ("linkedin", "indeed"),
+                status="broken",
+                backoff_until=None,
+                consecutive_failures=3,
+                last_error="407 Proxy Authentication Required",
+            )
+            seed_db.set_proxy_failure(
+                proxies_mod.proxy_id(p2),
+                ("linkedin",),
+                status="backoff",
+                backoff_until="2099-01-01T00:00:00+00:00",
+                consecutive_failures=1,
+                last_error="HTTP 429",
+            )
+        finally:
+            seed_db.close()
+
+        with (
+            mock.patch.object(config_mod, "load_config", return_value={"scraper": {}}),
+            mock.patch.object(proxies_mod, "load_proxies", return_value=[p1, p2]),
+            mock.patch.object(db_mod, "Database", side_effect=lambda: Database(db_path=tmp.name)),
+        ):
+            inspect_args = cli.build_parser().parse_args(["search", "proxies"])
+            assert cli._cmd_search_proxies(inspect_args) == 0
+            out = capsys.readouterr().out
+            assert "[linkedin] 2 configured: 0 usable, 1 backoff, 1 broken" in out
+            assert "[indeed] 2 configured: 1 usable, 0 backoff, 1 broken" in out
+            assert "u:p" not in out
+
+            reset_broken = cli.build_parser().parse_args(
+                ["search", "proxies", "--reset", "--broken-only", "--source", "linkedin"]
+            )
+            assert cli._cmd_search_proxies(reset_broken) == 0
+            assert "Cleared 1 proxy state row(s)." in capsys.readouterr().out
+
+            reset_all = cli.build_parser().parse_args(["search", "proxies", "--reset"])
+            assert cli._cmd_search_proxies(reset_all) == 0
+            assert "Cleared 2 proxy state row(s)." in capsys.readouterr().out

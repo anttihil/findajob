@@ -19,15 +19,18 @@ from typing import Any
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from findajob.core.database import Database
 from findajob.search.guard import (
     ERROR_BLOCKED,
     ERROR_FATAL,
+    ERROR_PROXY,
     ERROR_RATE_LIMIT,
     ERROR_TRANSIENT,
     SourceCircuit,
     SourceTripped,
     classify_error,
 )
+from findajob.search.proxies import proxy_id
 from findajob.search.scheduler import (
     CellState,
     adaptive_hours_old,
@@ -604,6 +607,18 @@ class ErrorClassificationTests(unittest.TestCase):
         ]:
             self.assertEqual(classify_error(exc), ERROR_BLOCKED, str(exc))
 
+    def test_proxy_transport_is_recognised_before_transient(self) -> None:
+        class ProxyError(Exception):
+            pass
+
+        for exc in [
+            Exception("407 Proxy Authentication Required"),
+            ProxyError("('Unable to connect to proxy', ConnectTimeoutError('timed out'))"),
+            Exception("Tunnel connection failed: 407"),
+            Exception("bad proxy"),
+        ]:
+            self.assertEqual(classify_error(exc), ERROR_PROXY, str(exc))
+
     def test_transient_is_recognised(self) -> None:
         for exc in [
             Exception("503 Service Unavailable"),
@@ -618,40 +633,87 @@ class ErrorClassificationTests(unittest.TestCase):
 
 class FakeDb:
     def __init__(self) -> None:
-        self.backoff: dict[str, str] = {}
-        self.trips: dict[str, int] = {}
-        self.reasons: dict[str, str | None] = {}
+        self.rows: dict[tuple[str, str], dict[str, Any]] = {}
+        self.writes = 0
 
-    def get_source_backoff(self, source: str) -> str | None:
-        return self.backoff.get(source)
+    def get_proxy_states(self, source: str | None = None) -> list[dict[str, Any]]:
+        return [dict(row) for (_, src), row in self.rows.items() if source is None or src == source]
 
-    def get_source_trips(self, source: str) -> int:
-        return self.trips.get(source, 0)
-
-    def set_source_backoff(
-        self, source: str, until: str, reason: str | None = None, escalate: bool = False
+    def set_proxy_failure(
+        self,
+        pid: str,
+        sources: Any,
+        *,
+        status: str,
+        backoff_until: str | None,
+        consecutive_failures: int,
+        last_error: str,
     ) -> None:
-        self.backoff[source] = until
-        self.reasons[source] = reason
-        if escalate:
-            self.trips[source] = self.trips.get(source, 0) + 1
+        self.writes += 1
+        for source in sources:
+            self.rows[(pid, source)] = {
+                "proxy_id": pid,
+                "source": source,
+                "status": status,
+                "backoff_until": backoff_until,
+                "consecutive_failures": consecutive_failures,
+                "last_error": last_error,
+            }
 
-    def reset_source_trips(self, source: str) -> None:
-        self.trips[source] = 0
+    def clear_proxy_state(
+        self,
+        *,
+        proxy_id: str | None = None,
+        source: str | None = None,
+        broken_only: bool = False,
+    ) -> int:
+        self.writes += 1
+        removed = 0
+        for key in list(self.rows):
+            pid, src = key
+            if proxy_id is not None and pid != proxy_id:
+                continue
+            if source is not None and src != source:
+                continue
+            if broken_only and self.rows[key]["status"] != "broken":
+                continue
+            del self.rows[key]
+            removed += 1
+        return removed
 
 
 class CircuitBreakerTests(unittest.TestCase):
-    def _circuit(self, db: Any = None) -> SourceCircuit:
-        return SourceCircuit("linkedin", CONFIG, db=db, now=lambda: NOW)
+    def _circuit(
+        self, db: Any = None, proxies: list[str] | None = None, source: str = "linkedin"
+    ) -> SourceCircuit:
+        return SourceCircuit(source, CONFIG, db=db, now=lambda: NOW, proxies=proxies)
 
-    def test_429_trips_immediately_and_is_not_retried(self) -> None:
-        """Departs from http_client.py on purpose: a 429 means the IP is flagged."""
+    def test_429_on_single_endpoint_backs_off_and_opens_circuit(self) -> None:
         db = FakeDb()
         circuit = self._circuit(db)
         error_class = circuit.on_error(Exception("HTTP 429 Too Many Requests"))
         self.assertEqual(error_class, ERROR_RATE_LIMIT)
         self.assertTrue(circuit.is_open)
-        self.assertIn("linkedin", db.backoff)
+        self.assertIn(("direct", "linkedin"), db.rows)
+        self.assertEqual(
+            db.rows[("direct", "linkedin")]["backoff_until"],
+            (NOW + timedelta(minutes=60)).isoformat(),
+        )
+
+    def test_429_on_one_proxy_isolates_that_proxy_and_source(self) -> None:
+        db = Database(":memory:")
+        try:
+            proxies = ["u:p@10.0.0.1:8000", "u:p@10.0.0.2:8000"]
+            circuit = self._circuit(db, proxies=proxies, source="linkedin")
+            circuit.on_request_error(Exception("HTTP 429 Too Many Requests"), proxies[0])
+            self.assertFalse(circuit.is_open)
+            self.assertFalse(circuit.is_usable(proxies[0]))
+            self.assertTrue(circuit.is_usable(proxies[1]))
+
+            indeed = self._circuit(db, proxies=proxies, source="indeed")
+            self.assertTrue(indeed.is_usable(proxies[0]))
+        finally:
+            db.close()
 
     def test_open_circuit_refuses_further_requests(self) -> None:
         circuit = self._circuit(FakeDb())
@@ -668,50 +730,150 @@ class CircuitBreakerTests(unittest.TestCase):
         circuit.on_error(Exception("timeout"))
         self.assertTrue(circuit.is_open)
 
-    def test_success_resets_the_consecutive_error_count(self) -> None:
-        circuit = self._circuit(FakeDb())
+    def test_multi_proxy_transient_gives_one_free_strike_then_backs_off(self) -> None:
+        db = FakeDb()
+        proxies = ["10.0.0.1:8000", "10.0.0.2:8000"]
+        circuit = self._circuit(db, proxies=proxies)
+        circuit.on_request_error(Exception("read timeout"), proxies[0])
+        self.assertTrue(circuit.is_usable(proxies[0]))
+        self.assertEqual(db.writes, 0)
+
+        circuit.on_request_error(Exception("read timeout"), proxies[0])
+        self.assertFalse(circuit.is_usable(proxies[0]))
+        self.assertEqual(
+            db.rows[(proxy_id(proxies[0]), "linkedin")]["backoff_until"],
+            (NOW + timedelta(minutes=15)).isoformat(),
+        )
+
+    def test_success_clears_proxy_state_and_healthy_requests_do_not_write(self) -> None:
+        db = FakeDb()
+        circuit = self._circuit(db)
+        circuit.on_request_success(None)
+        self.assertEqual(db.writes, 0)
+
         circuit.on_error(Exception("timeout"))
         circuit.on_error(Exception("timeout"))
         circuit.on_success(10)
         circuit.on_error(Exception("timeout"))
         self.assertFalse(circuit.is_open)
 
-    def test_empty_result_is_not_an_error(self) -> None:
+        proxies = ["10.0.0.1:8000", "10.0.0.2:8000"]
+        proxied = self._circuit(db, proxies=proxies)
+        proxied.on_request_error(Exception("429"), proxies[0])
+        self.assertIn((proxy_id(proxies[0]), "linkedin"), db.rows)
+        proxied.on_request_success(proxies[0])
+        self.assertNotIn((proxy_id(proxies[0]), "linkedin"), db.rows)
+
+    def test_empty_result_and_content_value_error_do_not_penalise_proxy(self) -> None:
         circuit = self._circuit(FakeDb())
         for _ in range(5):
             circuit.on_empty()
+            circuit.on_error(ValueError("LinkedIn detail response has no description"))
         self.assertFalse(circuit.is_open)
+        self.assertTrue(circuit.is_usable(None))
 
-    def test_backoff_escalates_across_trips(self) -> None:
+    def test_rate_limit_backoff_escalates_60_240_1440_and_never_marks_broken(self) -> None:
         db = FakeDb()
-        first = self._circuit(db)
-        first.on_error(Exception("429"))
-        first_until = db.backoff["linkedin"]
+        expected = [60, 240, 1440, 1440]
+        for minutes in expected:
+            circuit = self._circuit(db)
+            circuit.on_error(Exception("429"))
+            row = db.rows[("direct", "linkedin")]
+            self.assertEqual(row["status"], "backoff")
+            self.assertEqual(row["backoff_until"], (NOW + timedelta(minutes=minutes)).isoformat())
 
-        second = self._circuit(db)
-        second.on_error(Exception("429"))
-        second_until = db.backoff["linkedin"]
-        self.assertGreater(second_until, first_until)
+    def test_proxy_transport_failure_applies_across_sources_and_marks_broken_at_three(self) -> None:
+        db = Database(":memory:")
+        try:
+            proxy = "u:p@10.0.0.9:8000"
+            others = ["u:p@10.0.0.10:8000"]
+            pid = proxy_id(proxy)
 
-    def test_persisted_backoff_blocks_a_later_run(self) -> None:
+            r1 = SourceCircuit("linkedin", CONFIG, db=db, now=lambda: NOW, proxies=[proxy, *others])
+            r1.on_request_error(Exception("407 Proxy Authentication Required"), proxy)
+            states = {r["source"]: r for r in db.get_proxy_states()}
+            self.assertEqual(set(states), {"indeed", "linkedin"})
+            self.assertEqual(states["indeed"]["status"], "backoff")
+            self.assertEqual(
+                states["indeed"]["backoff_until"], (NOW + timedelta(minutes=60)).isoformat()
+            )
+
+            t2 = NOW + timedelta(minutes=61)
+            r2 = SourceCircuit("indeed", CONFIG, db=db, now=lambda: t2, proxies=[proxy, *others])
+            self.assertTrue(r2.is_usable(proxy))
+            r2.on_request_error(Exception("Unable to connect to proxy"), proxy)
+            states = {r["source"]: r for r in db.get_proxy_states()}
+            self.assertEqual(states["linkedin"]["consecutive_failures"], 2)
+            self.assertEqual(
+                states["linkedin"]["backoff_until"], (t2 + timedelta(minutes=300)).isoformat()
+            )
+
+            t3 = t2 + timedelta(minutes=301)
+            r3 = SourceCircuit("linkedin", CONFIG, db=db, now=lambda: t3, proxies=[proxy, *others])
+            r3.on_request_error(Exception("407 Proxy Authentication Required"), proxy)
+            for source in ("indeed", "linkedin"):
+                later = SourceCircuit(
+                    source, CONFIG, db=db, now=lambda: t3 + timedelta(days=30), proxies=[proxy]
+                )
+                self.assertFalse(later.is_usable(proxy))
+                self.assertEqual(later.proxy_states[pid]["status"], "broken")
+        finally:
+            db.close()
+
+    def test_direct_endpoint_never_becomes_permanently_broken(self) -> None:
         db = FakeDb()
-        db.backoff["linkedin"] = (NOW + timedelta(hours=1)).isoformat()
-        self.assertTrue(self._circuit(db).persisted_backoff_active())
+        for _ in range(4):
+            circuit = self._circuit(db)
+            circuit.on_error(Exception("Unable to connect to proxy"))
+        self.assertEqual(db.rows[("direct", "linkedin")]["status"], "backoff")
+
+    def test_systemic_tripwire_stops_run_after_eight_distinct_endpoints_fail(self) -> None:
+        db = FakeDb()
+        proxies = [f"10.0.0.{i}:8000" for i in range(1, 21)]
+        circuit = self._circuit(db, proxies=proxies)
+        for i in range(7):
+            circuit.on_request_error(Exception("429 Too Many Requests"), proxies[i])
+            self.assertFalse(circuit.is_open)
+        circuit.on_request_error(Exception("429 Too Many Requests"), proxies[7])
+        self.assertTrue(circuit.is_open)
+        self.assertEqual(len(db.rows), 8)
+
+    def test_persisted_backoff_blocks_only_when_all_endpoints_unavailable(self) -> None:
+        db = FakeDb()
+        proxies = ["10.0.0.1:8000", "10.0.0.2:8000"]
+        db.set_proxy_failure(
+            proxy_id(proxies[0]),
+            ("linkedin",),
+            status="backoff",
+            backoff_until=(NOW + timedelta(hours=1)).isoformat(),
+            consecutive_failures=1,
+            last_error="429",
+        )
+        self.assertFalse(self._circuit(db, proxies=proxies).persisted_backoff_active())
+
+        db.set_proxy_failure(
+            proxy_id(proxies[1]),
+            ("linkedin",),
+            status="backoff",
+            backoff_until=(NOW + timedelta(minutes=30)).isoformat(),
+            consecutive_failures=1,
+            last_error="429",
+        )
+        blocked = self._circuit(db, proxies=proxies)
+        self.assertTrue(blocked.persisted_backoff_active())
+        self.assertEqual(blocked.backoff_until(), (NOW + timedelta(minutes=30)).isoformat())
 
     def test_expired_persisted_backoff_does_not_block(self) -> None:
         db = FakeDb()
-        db.backoff["linkedin"] = (NOW - timedelta(hours=1)).isoformat()
+        db.set_proxy_failure(
+            "direct",
+            ("linkedin",),
+            status="backoff",
+            backoff_until=(NOW - timedelta(hours=1)).isoformat(),
+            consecutive_failures=1,
+            last_error="429",
+        )
         self.assertFalse(self._circuit(db).persisted_backoff_active())
-
-    def test_clean_run_decays_the_escalation_counter(self) -> None:
-        """Otherwise one bad afternoon pins the source at a 24h backoff forever."""
-        db = FakeDb()
-        db.trips["linkedin"] = 3
-        circuit = self._circuit(db)
-        for _ in range(5):
-            circuit.on_success(10)
-        circuit.note_clean_run()
-        self.assertEqual(db.trips["linkedin"], 0)
 
     def test_cell_backoff_escalates(self) -> None:
         circuit = self._circuit(FakeDb())
@@ -719,13 +881,17 @@ class CircuitBreakerTests(unittest.TestCase):
         third = circuit.cell_backoff(3)
         self.assertLess(first, third)
 
-    def test_summary_reports_state(self) -> None:
+    def test_summary_reports_state_and_pool_counts(self) -> None:
         circuit = self._circuit(FakeDb())
         circuit.on_error(Exception("429 rate limited"))
         summary = circuit.summary()
         self.assertTrue(summary["tripped"])
         self.assertEqual(summary["source"], "linkedin")
         self.assertEqual(summary["rate_limit_hits"], 1)
+        self.assertEqual(
+            summary["pool"],
+            {"configured": 1, "usable": 0, "backoff": 1, "broken": 0},
+        )
 
 
 if __name__ == "__main__":

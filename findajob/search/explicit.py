@@ -53,7 +53,7 @@ def run_query(args: Any) -> dict[str, Any]:
     db = Database()
     run_id = db.start_sync_run("explicit_query")
     assert run_id is not None
-    circuit = SourceCircuit(args.source, scraper_config, db=db)
+    circuit = SourceCircuit(args.source, scraper_config, db=db, proxies=proxies)
     traffic = SourceTraffic(args.source, scraper_config, proxies, circuit)
     try:
         if circuit.persisted_backoff_active():

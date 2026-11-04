@@ -222,21 +222,42 @@ class Database:
     def update_cell_quality(self, cell_id: int, fit: bool) -> None:
         search_repo.update_cell_quality(self.conn, cell_id, fit)
 
-    def get_source_backoff(self, source: str) -> str | None:
-        return search_repo.get_source_backoff(self.conn, source)
+    def get_proxy_states(self, source: str | None = None) -> list[dict[str, Any]]:
+        return search_repo.get_proxy_states(self.conn, source=source)
 
-    def get_source_trips(self, source: str) -> int:
-        return search_repo.get_source_trips(self.conn, source)
-
-    def set_source_backoff(
-        self, source: str, until: str, reason: str | None = None, escalate: bool = False
+    def set_proxy_failure(
+        self,
+        proxy_id: str,
+        sources: Any,
+        *,
+        status: str,
+        backoff_until: str | None,
+        consecutive_failures: int,
+        last_error: str | None = None,
     ) -> None:
-        search_repo.set_source_backoff(
-            self.conn, source=source, until=until, reason=reason, escalate=escalate
+        search_repo.set_proxy_failure(
+            self.conn,
+            proxy_id=proxy_id,
+            sources=sources,
+            status=status,
+            backoff_until=backoff_until,
+            consecutive_failures=consecutive_failures,
+            last_error=last_error,
         )
 
-    def reset_source_trips(self, source: str) -> None:
-        search_repo.reset_source_trips(self.conn, source)
+    def clear_proxy_state(
+        self,
+        *,
+        proxy_id: str | None = None,
+        source: str | None = None,
+        broken_only: bool = False,
+    ) -> int:
+        return search_repo.clear_proxy_state(
+            self.conn,
+            proxy_id=proxy_id,
+            source=source,
+            broken_only=broken_only,
+        )
 
     def start_sync_run(
         self,

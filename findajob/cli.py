@@ -46,6 +46,49 @@ def _cmd_search_seed(args: argparse.Namespace) -> int:
     return seed_cells(prune=getattr(args, "prune", False))
 
 
+def _cmd_search_proxies(args: argparse.Namespace) -> int:
+    from findajob.core.config import load_config
+    from findajob.core.database import Database
+    from findajob.search.guard import ALL_SOURCES, SourceCircuit
+    from findajob.search.proxies import load_proxies
+
+    config = load_config()
+    proxies = load_proxies(config)
+    db = Database()
+    try:
+        if getattr(args, "reset", False):
+            cleared = db.clear_proxy_state(
+                source=getattr(args, "source", None),
+                broken_only=getattr(args, "broken_only", False),
+            )
+            print(f"Cleared {cleared} proxy state row(s).")
+            return 0
+
+        sources = [args.source] if getattr(args, "source", None) else list(ALL_SOURCES)
+        for src in sources:
+            counts = SourceCircuit(src, config.get("scraper"), db=db, proxies=proxies).pool_counts()
+            print(
+                f"[{src}] {counts['configured']} configured: "
+                f"{counts['usable']} usable, {counts['backoff']} backoff, {counts['broken']} broken"
+            )
+        rows = db.get_proxy_states(source=getattr(args, "source", None))
+        if rows:
+            print()
+            print(f"{'Source':<10} {'Proxy ID':<28} {'Status':<8} {'Fail':<5} {'Backoff Until'}")
+            print("-" * 80)
+            for row in rows:
+                until = row["backoff_until"] or "-"
+                print(
+                    f"{row['source']:<10} {row['proxy_id']:<28} {row['status']:<8} "
+                    f"{row['consecutive_failures']:<5} {until}"
+                )
+                if row["last_error"]:
+                    print(f"  error: {row['last_error'][:100]}")
+        return 0
+    finally:
+        db.close()
+
+
 def _cmd_score(args: argparse.Namespace) -> Any:
     from findajob.scoring.worker import run_scoring
 
@@ -507,6 +550,14 @@ def build_parser() -> argparse.ArgumentParser:
         "--prune", action="store_true", help="disable cells that are no longer in the matrix"
     )
     ssd.set_defaults(func=_cmd_search_seed)
+
+    spx = ssub.add_parser("proxies", help="inspect or reset per-proxy backoff and broken state")
+    spx.add_argument("--source", choices=["indeed", "linkedin"])
+    spx.add_argument("--reset", action="store_true", help="clear persisted proxy failure state")
+    spx.add_argument(
+        "--broken-only", action="store_true", help="with --reset, only clear broken proxies"
+    )
+    spx.set_defaults(func=_cmd_search_proxies)
 
     query = ssub.add_parser("query", help="run one explicit board query outside the rotation")
     query.add_argument("--query", required=True)

@@ -13,6 +13,7 @@ from findajob.search.guard import SourceCircuit
 from findajob.search.normalizer import normalize_rows
 from findajob.search.scheduler import CellState, select_cells
 from findajob.search.sources.linkedin_details import (
+    LINKEDIN_HEADERS,
     LinkedInDetails,
     LinkedInDetailsAdapter,
     parse_details,
@@ -241,14 +242,17 @@ def test_detail_parser_preserves_used_fields_and_rejects_empty_content():
 
 
 def test_adapter_uses_one_guest_request_and_propagates_errors():
-    adapter = LinkedInDetailsAdapter([])
+    session = Mock()
+    session.headers = {}
+    adapter = LinkedInDetailsAdapter([], session=session)
+    assert "Chrome/" in session.headers["user-agent"]
+    assert session.headers == LINKEDIN_HEADERS
     response = Mock(status_code=429)
     response.raise_for_status.side_effect = RuntimeError("HTTP 429")
-    adapter._session = Mock()
-    adapter._session.get.return_value = response
+    session.get.return_value = response
     with pytest.raises(RuntimeError, match="429"):
         adapter.fetch("li-123")
-    adapter._session.get.assert_called_once_with(
+    session.get.assert_called_once_with(
         "https://www.linkedin.com/jobs-guest/jobs/api/jobPosting/123",
         timeout=10,
         allow_redirects=False,

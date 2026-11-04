@@ -153,6 +153,7 @@ def run_sync(
                 source,
                 scraper_config,
                 db=None if dry_run else db,
+                proxies=proxies,
             )
             circuits[source] = circuit
 
@@ -165,6 +166,17 @@ def run_sync(
                     severity="info",
                 )
                 continue
+
+            pool = circuit.pool_counts()
+            if pool["configured"] > 1 or pool["backoff"] or pool["broken"]:
+                logger.info(
+                    "[%s] endpoints: %d usable, %d backoff, %d broken (of %d)",
+                    source,
+                    pool["usable"],
+                    pool["backoff"],
+                    pool["broken"],
+                    pool["configured"],
+                )
 
             cells = db.get_cells(source=source)
             if not cells:
@@ -226,8 +238,6 @@ def run_sync(
                     f"[{source}] {empty + errored} of {len(tasks)} planned cells returned no "
                     f"postings ({empty} empty, {errored} error)."
                 )
-
-            circuit.note_clean_run()
 
         _report_coverage(db, scraper_config)
 
@@ -343,9 +353,7 @@ def run_cell(
             postings, stats = normalize_rows(rows, payload, observed_at, config)
             returned += stats["returned"]
             if payload["source"] == "linkedin":
-                adapter = LinkedInDetailsAdapter(
-                    [page.proxy] if page.proxy else [], session=traffic.bound_session(page.proxy)
-                )
+                adapter = LinkedInDetailsAdapter([], session=traffic.bound_session(None))
                 try:
                     counts, _ = enrich_linkedin(
                         db,

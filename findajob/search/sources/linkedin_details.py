@@ -10,6 +10,18 @@ from bs4 import BeautifulSoup
 
 from findajob.search.normalizer import description_quality
 
+LINKEDIN_HEADERS = {
+    "user-agent": (
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    ),
+    "accept": (
+        "text/html,application/xhtml+xml,application/xml;q=0.9,"
+        "image/avif,image/webp,image/apng,*/*;q=0.8"
+    ),
+    "accept-language": "en-US,en;q=0.9",
+}
+
 
 @dataclass(frozen=True)
 class LinkedInDetails:
@@ -33,7 +45,7 @@ class LinkedInDetailsAdapter:
         self.last_fetch = {"requests_made": 0, "duration_ms": 0}
         self._session: Any = session
         if session is not None:
-            session.headers.update({"User-Agent": "Mozilla/5.0"})
+            session.headers.update(LINKEDIN_HEADERS)
 
     def fetch(self, site_job_id: str) -> LinkedInDetails:
         job_id = site_job_id.removeprefix("li-")
@@ -45,7 +57,7 @@ class LinkedInDetailsAdapter:
             self._session = create_session(
                 proxies=self.proxies[0] if self.proxies else None, is_tls=False, has_retry=False
             )
-            self._session.headers.update({"User-Agent": "Mozilla/5.0"})
+            self._session.headers.update(LINKEDIN_HEADERS)
         self.last_fetch = {"requests_made": 1, "duration_ms": 0}
         started = time.monotonic()
         try:

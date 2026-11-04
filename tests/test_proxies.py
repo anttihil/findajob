@@ -14,6 +14,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from findajob.search.proxies import (
     ENV_VAR,
     load_proxies,
+    proxy_id,
     redact,
 )
 
@@ -52,6 +53,26 @@ class RedactTests(unittest.TestCase):
 
     def test_passthrough_without_credentials(self) -> None:
         self.assertEqual(redact("host:7000"), "host:7000")
+
+
+class ProxyIdTests(unittest.TestCase):
+    def test_direct_when_empty_or_none(self) -> None:
+        self.assertEqual(proxy_id(None), "direct")
+        self.assertEqual(proxy_id(""), "direct")
+        self.assertEqual(proxy_id("   "), "direct")
+
+    def test_never_exposes_credentials_and_changes_on_rotation(self) -> None:
+        first = proxy_id("alice:secret123@10.0.0.1:8080")
+        second = proxy_id("alice:newsecret@10.0.0.1:8080")
+        self.assertTrue(first.startswith("10.0.0.1:8080#"))
+        self.assertNotIn("alice", first)
+        self.assertNotIn("secret", first)
+        self.assertNotEqual(first, second)
+
+    def test_strips_scheme_and_trailing_slash(self) -> None:
+        pid = proxy_id("http://user:pw@proxy.example:3128/")
+        self.assertTrue(pid.startswith("proxy.example:3128#"))
+        self.assertEqual(len(pid.split("#")[1]), 8)
 
 
 if __name__ == "__main__":

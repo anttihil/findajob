@@ -50,8 +50,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "proxies": {"enabled": True},
         "circuit_breaker": {
             "consecutive_errors_to_trip": 3,
-            "http_429_trips_immediately": True,
-            "source_backoff_minutes": [15, 60, 240, 1440],
+            "systemic_trip_endpoints": 8,
             "cell_backoff_minutes": [60, 360, 1440],
         },
     },

@@ -5,6 +5,7 @@ file is committed.
 
 """
 
+import hashlib
 import os
 from typing import Any
 
@@ -41,3 +42,16 @@ def redact(proxy: str | None) -> str | None:
     if not proxy or "@" not in proxy:
         return proxy
     return "***@" + proxy.rsplit("@", 1)[1]
+
+
+def proxy_id(proxy: str | None) -> str:
+    """Credential-safe persistent identifier for an endpoint (or 'direct')."""
+    cleaned = (proxy or "").strip()
+    if not cleaned:
+        return "direct"
+    host_port = cleaned.rsplit("@", 1)[-1]
+    if "://" in host_port:
+        host_port = host_port.split("://", 1)[1]
+    host_port = host_port.rstrip("/")
+    digest = hashlib.sha256(cleaned.encode("utf-8")).hexdigest()[:8]
+    return f"{host_port}#{digest}"

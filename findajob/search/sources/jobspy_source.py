@@ -85,11 +85,11 @@ class JobSpySource(BaseJobSource):
             assert scraper_input.country is not None
             domain, client.api_country_code = scraper_input.country.indeed_domain_value
             client.base_url = f"https://{domain}.indeed.com"
+        session = traffic.bound_session(None)
+        session.headers.update(headers)
+        client.session = session
         while True:
-            proxy = traffic.least_used()
-            session = traffic.bound_session(proxy)
-            session.headers.update(headers)
-            client.session = session
+            proxy = None
             reason = None
             if source == "indeed":
                 jobs, next_cursor = client._scrape_page(cursor)

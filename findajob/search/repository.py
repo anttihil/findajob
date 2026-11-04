@@ -2,7 +2,7 @@
 
 import json
 import sqlite3
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING, Any
 
@@ -209,65 +209,71 @@ def update_cell_quality(conn: sqlite3.Connection, cell_id: int, fit: bool) -> No
 
 
 # =====================================================================================
-# Source circuit-breaker state
+# Per-proxy health and backoff state
 # =====================================================================================
 
 
-def get_source_backoff(conn: sqlite3.Connection, source: str) -> str | None:
-    row = conn.execute(
-        "SELECT backoff_until FROM source_state WHERE source = ?", (source,)
-    ).fetchone()
-    return row["backoff_until"] if row else None
+def get_proxy_states(conn: sqlite3.Connection, source: str | None = None) -> list[dict[str, Any]]:
+    query = (
+        "SELECT proxy_id, source, status, backoff_until, consecutive_failures, last_error "
+        "FROM proxy_state"
+    )
+    params: tuple[Any, ...] = ()
+    if source is not None:
+        query += " WHERE source = ?"
+        params = (source,)
+    query += " ORDER BY source, proxy_id"
+    return [dict(row) for row in conn.execute(query, params).fetchall()]
 
 
-def get_source_trips(conn: sqlite3.Connection, source: str) -> int:
-    row = conn.execute(
-        "SELECT consecutive_trips FROM source_state WHERE source = ?", (source,)
-    ).fetchone()
-    return (row["consecutive_trips"] if row else 0) or 0
-
-
-def set_source_backoff(
+def set_proxy_failure(
     conn: sqlite3.Connection,
-    source: str,
-    until: str,
-    reason: str | None = None,
-    escalate: bool = False,
+    proxy_id: str,
+    sources: Iterable[str],
+    *,
+    status: str,
+    backoff_until: str | None,
+    consecutive_failures: int,
+    last_error: str | None = None,
 ) -> None:
-    now = _utcnow()
-    conn.execute(
+    error = last_error[:500] if last_error else None
+    conn.executemany(
         """
-        INSERT INTO source_state
-            (source, backoff_until, consecutive_trips, last_trip_at,
-             last_trip_reason, total_429)
+        INSERT INTO proxy_state
+            (proxy_id, source, status, backoff_until, consecutive_failures, last_error)
         VALUES (?, ?, ?, ?, ?, ?)
-        ON CONFLICT (source) DO UPDATE SET
+        ON CONFLICT (proxy_id, source) DO UPDATE SET
+            status = excluded.status,
             backoff_until = excluded.backoff_until,
-            consecutive_trips = source_state.consecutive_trips + ?,
-            last_trip_at = excluded.last_trip_at,
-            last_trip_reason = excluded.last_trip_reason,
-            total_429 = source_state.total_429 + ?
+            consecutive_failures = excluded.consecutive_failures,
+            last_error = excluded.last_error
         """,
-        (
-            source,
-            until,
-            1 if escalate else 0,
-            now,
-            reason,
-            1 if escalate else 0,
-            1 if escalate else 0,
-            1 if escalate else 0,
-        ),
+        [(proxy_id, src, status, backoff_until, consecutive_failures, error) for src in sources],
     )
     conn.commit()
 
 
-def reset_source_trips(conn: sqlite3.Connection, source: str) -> None:
-    conn.execute(
-        "UPDATE source_state SET consecutive_trips = 0, backoff_until = NULL WHERE source = ?",
-        (source,),
-    )
+def clear_proxy_state(
+    conn: sqlite3.Connection,
+    *,
+    proxy_id: str | None = None,
+    source: str | None = None,
+    broken_only: bool = False,
+) -> int:
+    clauses: list[str] = []
+    params: list[Any] = []
+    if proxy_id is not None:
+        clauses.append("proxy_id = ?")
+        params.append(proxy_id)
+    if source is not None:
+        clauses.append("source = ?")
+        params.append(source)
+    if broken_only:
+        clauses.append("status = 'broken'")
+    where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
+    cursor = conn.execute(f"DELETE FROM proxy_state{where}", params)
     conn.commit()
+    return cursor.rowcount
 
 
 # =====================================================================================
