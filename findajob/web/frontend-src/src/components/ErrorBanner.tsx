@@ -16,8 +16,7 @@ export function ErrorBanner() {
       <ul class="sync-errors-list">
         {appErrors.value.map((err, i) => (
           <li key={i} class="sync-error-item severity-error">
-            <strong>{err.what}</strong>
-            <span>{err.detail}</span>
+            <strong>{err.what}</strong>: <span>{err.detail}</span>
           </li>
         ))}
       </ul>

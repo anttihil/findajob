@@ -81,6 +81,7 @@ class LiveEventHub:
         self.subscribers: set[asyncio.Queue[str | None]] = set()
         self._last_data_version: int | None = None
         self._last_sync_running: bool = False
+        self._last_scheduler_preferences: dict[str, Any] | None = None
         self._ping_counter: int = 0
 
     async def subscribe(self) -> AsyncGenerator[str, None]:
@@ -103,6 +104,7 @@ class LiveEventHub:
                 "pipeline_progress", self._get_pipeline_status(db, sync_running)
             )
             yield format_sse_message("stats_update", db.get_stats())
+            yield format_sse_message("scheduler_preferences", self._get_scheduler_preferences(db))
         finally:
             db.close()
 
@@ -176,12 +178,25 @@ class LiveEventHub:
             self._last_data_version = current_version
             self._last_sync_running = sync_running
 
+            prefs = self._get_scheduler_preferences(db)
+            if (
+                self._last_scheduler_preferences is not None
+                and prefs != self._last_scheduler_preferences
+            ):
+                self.broadcast(event_type="scheduler_preferences", data=prefs)
+            self._last_scheduler_preferences = prefs
+
             if self._ping_counter % 10 == 0:
                 self.broadcast(event_type="ping", data={})
 
             self._ping_counter += 1
         finally:
             db.close()
+
+    def publish_scheduler_preferences(self, payload: dict[str, Any]) -> None:
+        """Broadcast updated scheduler preferences and record the latest snapshot."""
+        self._last_scheduler_preferences = payload
+        self.broadcast("scheduler_preferences", payload)
 
     async def start_monitor(self, poll_interval_seconds: float = 1.5) -> None:
         """Long-running async background task to monitor for database/pipeline updates.
@@ -204,6 +219,13 @@ class LiveEventHub:
             sync_running=sync_running,
             db_instance=db,
         )
+
+    def _get_scheduler_preferences(self, db: Database) -> dict[str, Any]:
+        from findajob.core.scheduler import scheduler
+        from findajob.core.scheduler_preferences import get_scheduler_preferences
+
+        preferences = get_scheduler_preferences(db.conn)
+        return {**preferences, "status": scheduler.get_status()}
 
 
 # Global singleton instance for the FastAPI web server

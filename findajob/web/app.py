@@ -1165,7 +1165,9 @@ async def update_scheduler_preferences_endpoint(payload: SchedulerPreferencesUpd
         await scheduler.start()
     else:
         await scheduler.stop()
-    return {**preferences, "status": scheduler.get_status()}
+    result = {**preferences, "status": scheduler.get_status()}
+    live_hub.publish_scheduler_preferences(result)
+    return result
 
 
 @app.post("/api/scheduler/trigger/{stage}")

@@ -1,5 +1,5 @@
 import { signal } from "@preact/signals";
-import type { PipelineStatusResponse, Stats } from "../api/types";
+import type { PipelineStatusResponse, SchedulerPreferences, Stats } from "../api/types";
 
 import { stats } from "./stats";
 
@@ -8,6 +8,9 @@ export const liveConnected = signal<boolean>(false);
 
 /** Real-time pipeline scrape/scoring progress pushed from backend SSE. */
 export const livePipelineStatus = signal<PipelineStatusResponse | null>(null);
+
+/** Real-time automatic-update preference and scheduler next-run snapshot pushed from backend SSE. */
+export const liveSchedulerPreferences = signal<SchedulerPreferences | null>(null);
 
 /** Number of newly scored/ingested jobs since the current feed was rendered. */
 export const newJobsPendingCount = signal<number>(0);
@@ -38,6 +41,12 @@ export function initLiveEvents(): void {
     const data: PipelineStatusResponse = JSON.parse(e.data);
 
     livePipelineStatus.value = data;
+  });
+
+  eventSource.addEventListener("scheduler_preferences", (e) => {
+    const data: SchedulerPreferences = JSON.parse(e.data);
+
+    liveSchedulerPreferences.value = data;
   });
 
   eventSource.addEventListener("jobs_changed", () => {

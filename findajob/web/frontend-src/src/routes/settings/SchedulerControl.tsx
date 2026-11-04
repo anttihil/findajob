@@ -1,6 +1,7 @@
 import { useEffect, useState } from "preact/hooks";
 import { getJSON, putJSON, reportError } from "../../api/client";
 import type { SchedulerPreferences } from "../../api/types";
+import { liveSchedulerPreferences } from "../../state/liveEvents";
 
 function nextSearchRuns(preferences: SchedulerPreferences | null): string[] {
   return Object.entries(preferences?.status.next_runs ?? {})
@@ -16,33 +17,31 @@ function nextSearchRuns(preferences: SchedulerPreferences | null): string[] {
 }
 
 export function SchedulerControl({ compact = false }: { compact?: boolean }) {
-  const [preferences, setPreferences] = useState<SchedulerPreferences | null>(null);
   const [saving, setSaving] = useState(false);
+  const preferences = liveSchedulerPreferences.value;
 
   useEffect(() => {
-    getJSON<SchedulerPreferences>("/api/scheduler/preferences")
-      .then(setPreferences)
-      .catch((err) => reportError("Loading automatic update settings", err));
+    if (!liveSchedulerPreferences.value) {
+      getJSON<SchedulerPreferences>("/api/scheduler/preferences")
+        .then((data) => {
+          if (data && !liveSchedulerPreferences.value) {
+            liveSchedulerPreferences.value = data;
+          }
+        })
+        .catch((err) => reportError("Loading automatic update settings", err));
+    }
   }, []);
 
-  useEffect(() => {
-    if (!preferences?.enabled) return;
-    const timer = window.setInterval(() => {
-      getJSON<SchedulerPreferences>("/api/scheduler/preferences")
-        .then(setPreferences)
-        .catch((err) => reportError("Refreshing automatic update settings", err));
-    }, 15000);
-    return () => window.clearInterval(timer);
-  }, [preferences?.enabled]);
-
   async function toggle() {
-    if (!preferences || saving) return;
+    const current = liveSchedulerPreferences.value;
+    if (!current || saving) return;
     setSaving(true);
     try {
-      setPreferences(
-        await putJSON<SchedulerPreferences>("/api/scheduler/preferences", {
-          enabled: !preferences.enabled,
-        }),
+      liveSchedulerPreferences.value = await putJSON<SchedulerPreferences>(
+        "/api/scheduler/preferences",
+        {
+          enabled: !current.enabled,
+        },
       );
     } catch (err) {
       reportError("Updating automatic updates", err);
