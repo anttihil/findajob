@@ -35,6 +35,7 @@ function job(overrides: Partial<Job>): Job {
     reason_description: null,
     pipeline_state: null,
     liveness: "unknown",
+    search_query: null,
     ...overrides,
   };
 }

@@ -77,6 +77,9 @@ export function JobDrawer({
                     <i class="fa-solid fa-location-dot"></i> {job.location || job.country}
                   </span>
                 </div>
+                <div class="job-query-attribution">
+                  Last found by: {job.search_query || "Unknown"}
+                </div>
               </div>
 
               <div class="drawer-actions-row">

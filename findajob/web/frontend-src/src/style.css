@@ -499,6 +499,14 @@ body {
   margin-top: 2px;
 }
 
+.job-query-attribution {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  color: var(--ink-muted);
+  overflow-wrap: anywhere;
+  margin-top: 2px;
+}
+
 .matched-skills-preview {
   display: flex;
   flex-wrap: wrap;

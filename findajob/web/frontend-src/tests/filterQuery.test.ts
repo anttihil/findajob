@@ -37,6 +37,24 @@ describe("FilterQuery", () => {
   });
 
   describe("url()", () => {
+    it("preserves exact query terms through API, paging, drawer and saved filters", () => {
+      const term = 'Platform & "SRE" + C++';
+      const query = new FilterQuery(`?search_query=${encodeURIComponent(term)}&offset=50`);
+      expect(query.search_query).toBe(term);
+      expect(query.asApiParams().get("search_query")).toBe(term);
+      for (const url of [
+        query.page(100),
+        query.withJob(42),
+        query.withoutJob(),
+        query.url({ country: "FI" }),
+      ]) {
+        expect(new URL(url, "http://localhost").searchParams.get("search_query")).toBe(term);
+      }
+      expect(new FilterQuery(query.preferenceSearch()).search_query).toBe(term);
+      expect(query.url({ search_query: "Backend" })).toBe("/?search_query=Backend");
+      expect(query.url({ search_query: "" })).toBe("/");
+    });
+
     it("drops keys left at their default", () => {
       const q = new FilterQuery("?status=saved");
       expect(q.url({ status: "saved" })).toBe("/?status=saved");

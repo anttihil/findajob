@@ -185,6 +185,12 @@ the profile, editing search targets and settings, browsing and filtering posting
 verdicts, importing jobs, and generating resumes. Use the **Sync Now** action for a manual
 search-and-score pass.
 
+Job cards and details show **Last found by**, the latest recorded search query term.
+Use **Search query term** in the feed filters to inspect that term's jobs alongside
+other filters. Jobs without recorded query attribution show **Unknown**. A repeat search
+can move a job's attribution to another term; search-performance counts use that same
+single attribution, rather than recording every term that has returned the job.
+
 Automatic scheduling is disabled by default. Enable it from the **Automatic updates**
 control in the dashboard; the choice is stored in the local application database. Schedule
 times, scrape budgets, and other operational limits remain configuration settings.

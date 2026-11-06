@@ -39,7 +39,8 @@ beforeEach(() => {
   get.mockReset();
   vi.mocked(putJSON).mockReset().mockResolvedValue({ success: true });
   get.mockImplementation(async (url) => {
-    if (url === "/api/meta") return { countries: [["FI", "Finland"]], locations: [] };
+    if (url === "/api/meta")
+      return { countries: [["FI", "Finland"]], locations: [], search_queries: ["Platform & SRE"] };
     if (url.startsWith("/api/stats?")) return counters(3);
     return { jobs: [], total: 0, limit: 50, offset: 0, has_more: false };
   });
@@ -92,10 +93,36 @@ it("loads filtered counters and keeps the card and dropdown filters identical", 
   });
 });
 
+it("filters by search term, keeps other filters, and resets pagination", async () => {
+  window.history.replaceState(null, "", "/?country=FI&priority=&offset=50");
+  const view = render(<DashboardPage />);
+  const select = view.getByLabelText("Search query term") as HTMLSelectElement;
+  await view.findByRole("option", { name: "Platform & SRE" });
+  fireEvent.change(select, { target: { value: "Platform & SRE" } });
+  await waitFor(() => {
+    for (const prefix of ["/api/jobs?", "/api/stats?"]) {
+      const url = get.mock.calls.filter(([url]) => url.startsWith(prefix)).at(-1)![0];
+      const params = new URL(url, "http://localhost").searchParams;
+      expect(params.get("search_query")).toBe("Platform & SRE");
+      expect(params.get("country")).toBe("FI");
+      expect(params.get("offset")).toBe("0");
+    }
+  });
+  await waitFor(() =>
+    expect(window.localStorage.getItem("findajob.preferences.dashboard-filter")).toContain(
+      "search_query=",
+    ),
+  );
+  fireEvent.click(view.getByRole("link", { name: "Reset" }));
+  await waitFor(() => expect(select.value).toBe(""));
+  expect(window.localStorage.getItem("findajob.preferences.dashboard-filter")).toBeNull();
+});
+
 it("ignores an older counter response after filters change", async () => {
   let resolveOld: (value: Stats) => void = () => {};
   get.mockImplementation(async (url) => {
-    if (url === "/api/meta") return { countries: [["FI", "Finland"]], locations: [] };
+    if (url === "/api/meta")
+      return { countries: [["FI", "Finland"]], locations: [], search_queries: [] };
     if (url.startsWith("/api/stats?")) {
       if (new URL(url, "http://localhost").searchParams.get("priority") === "first")
         return counters(2);
