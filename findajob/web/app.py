@@ -343,11 +343,10 @@ def get_observability_stats():
 @app.get("/api/observability/verdicts")
 def get_observability_verdicts(
     q: str | None = None,
-    fit: str | None = None,
-    reason_type: str | None = None,
+    priority: str | None = Query(None, pattern="^(first|consider|low)$"),
     model: str | None = None,
     sort: str = Query(
-        "tokens_out_desc",
+        "date_desc",
         pattern="^(tokens_out_desc|tokens_out_asc|cost_desc|date_desc|date_asc)$",
     ),
     limit: int = Query(20, ge=1, le=100),
@@ -357,8 +356,7 @@ def get_observability_verdicts(
     try:
         return db.query_observability_verdicts(
             q=q,
-            fit=fit,
-            reason_type=reason_type,
+            priority=priority,
             model=model,
             sort=sort,
             limit=limit,

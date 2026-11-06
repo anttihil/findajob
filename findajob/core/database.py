@@ -169,18 +169,16 @@ class Database:
     def query_observability_verdicts(
         self,
         q: str | None = None,
-        fit: str | None = None,
-        reason_type: str | None = None,
+        priority: str | None = None,
         model: str | None = None,
-        sort: str = "tokens_out_desc",
+        sort: str = "date_desc",
         limit: int = 20,
         offset: int = 0,
     ) -> dict[str, Any]:
         return scoring_repo.query_observability_verdicts(
             self.conn,
             q=q,
-            fit=fit,
-            reason_type=reason_type,
+            priority=priority,
             model=model,
             sort=sort,
             limit=limit,

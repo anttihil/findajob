@@ -3,11 +3,19 @@ import { getJSON, guard } from "../../api/client";
 import { useStoredPreference } from "../../lib/preferences";
 import type {
   ObservabilityPromptResponse,
-  ObservabilityReason,
   ObservabilityStats,
   ObservabilityVerdictItem,
   ObservabilityVerdictsResponse,
+  VerdictPriority,
 } from "../../api/types";
+
+const priorities: VerdictPriority[] = ["first", "consider", "low"];
+const priorityLabels = {
+  first: "Review first",
+  consider: "Worth considering",
+  low: "Low priority",
+};
+const priorityIcons = { first: "fa-flag", consider: "fa-circle-info", low: "fa-arrow-down" };
 
 export function ObservabilityPage() {
   const [stats, setStats] = useState<ObservabilityStats | null>(null);
@@ -21,17 +29,13 @@ export function ObservabilityPage() {
 
   const [searchTerm, setSearchTerm] = useStoredPreference("observability-search-term", "");
   const [activeQuery, setActiveQuery] = useStoredPreference("observability-active-query", "");
-  const [fitFilter, setFitFilter] = useStoredPreference<"all" | "fit" | "no_fit">(
-    "observability-fit-filter",
-    "all",
-  );
-  const [reasonFilter, setReasonFilter] = useStoredPreference<string>(
-    "observability-reason-filter",
+  const [priorityFilter, setPriorityFilter] = useStoredPreference<"all" | VerdictPriority>(
+    "observability-priority-filter",
     "all",
   );
   const [sortOrder, setSortOrder] = useStoredPreference<string>(
-    "observability-sort-order",
-    "tokens_out_desc",
+    "observability-sort-order-v2",
+    "date_desc",
   );
   const [limit, setLimit] = useStoredPreference<number>("observability-limit", 20);
   const [offset, setOffset] = useState<number>(0);
@@ -65,8 +69,7 @@ export function ObservabilityPage() {
 
     const params = new URLSearchParams();
     if (activeQuery) params.set("q", activeQuery);
-    if (fitFilter !== "all") params.set("fit", fitFilter);
-    if (reasonFilter !== "all") params.set("reason_type", reasonFilter);
+    if (priorityFilter !== "all") params.set("priority", priorityFilter);
     params.set("sort", sortOrder);
     params.set("limit", limit.toString());
     params.set("offset", offset.toString());
@@ -83,7 +86,7 @@ export function ObservabilityPage() {
     return () => {
       cancelled = true;
     };
-  }, [activeQuery, fitFilter, reasonFilter, sortOrder, limit, offset]);
+  }, [activeQuery, priorityFilter, sortOrder, limit, offset]);
 
   function handleSearchSubmit(e: Event) {
     e.preventDefault();
@@ -91,14 +94,9 @@ export function ObservabilityPage() {
     setActiveQuery(searchTerm);
   }
 
-  function handleFilterFit(val: "all" | "fit" | "no_fit") {
+  function handleFilterPriority(val: "all" | VerdictPriority) {
     setOffset(0);
-    setFitFilter(val);
-  }
-
-  function handleFilterReason(val: string) {
-    setOffset(0);
-    setReasonFilter(val);
+    setPriorityFilter(val);
   }
 
   function handleSortChange(val: string) {
@@ -132,294 +130,48 @@ export function ObservabilityPage() {
 
   return (
     <section class="tab-pane active observability-page">
-      <div class="stats-grid obs-stats-grid">
-        <div class="stat-card obs-stat-card">
-          <div class="stat-icon purple">
-            <i class="fa-solid fa-microchip"></i>
-          </div>
-          <div class="stat-info">
-            <span class="stat-label">Output Tokens</span>
-            <h3>{stats ? stats.total_tokens_out.toLocaleString() : "..."}</h3>
-            <div class="obs-card-sub">
-              <span>
-                Avg: <strong>{stats?.avg_tokens_out ?? 0}</strong> tok/job
-              </span>
-              <span class="obs-sub-tag">Expected: ~60</span>
-            </div>
-            <div class="obs-card-range">
-              Min: {stats?.min_tokens_out ?? 0} · Max: {stats?.max_tokens_out ?? 0}
-            </div>
-          </div>
-        </div>
-
-        <div class="stat-card obs-stat-card">
-          <div class="stat-icon blue">
-            <i class="fa-solid fa-bolt"></i>
-          </div>
-          <div class="stat-info">
-            <span class="stat-label">Prompt Cache Rate</span>
-            <h3>{stats ? `${(stats.cache_hit_rate * 100).toFixed(1)}%` : "..."}</h3>
-            <div class="obs-card-sub">
-              <span>
-                Cached:{" "}
-                <strong>{stats ? (stats.total_tokens_cached / 1_000_000).toFixed(2) : 0}M</strong>{" "}
-                in
-              </span>
-            </div>
-            <div class="obs-card-range">
-              Total In: {stats ? (stats.total_tokens_in / 1_000_000).toFixed(2) : 0}M tokens
-            </div>
-          </div>
-        </div>
-
-        <div class="stat-card obs-stat-card">
-          <div class="stat-icon gold">
-            <i class="fa-solid fa-dollar-sign"></i>
-          </div>
-          <div class="stat-info">
-            <span class="stat-label">Model Spend (USD)</span>
-            <h3>${stats ? stats.total_cost_usd.toFixed(4) : "..."}</h3>
-            <div class="obs-card-sub">
-              <span>
-                Avg/verdict: <strong>${stats ? stats.avg_cost_usd.toFixed(6) : 0}</strong>
-              </span>
-            </div>
-            <div class="obs-card-range">
-              ~${stats ? (stats.avg_cost_usd * 1000).toFixed(3) : 0} / 1k jobs
-            </div>
-          </div>
-        </div>
-
-        <div class="stat-card obs-stat-card">
-          <div class="stat-icon green">
-            <i class="fa-solid fa-check-double"></i>
-          </div>
-          <div class="stat-info">
-            <span class="stat-label">Scored Postings</span>
-            <h3>{stats ? stats.total_verdicts.toLocaleString() : "..."}</h3>
-            <div class="obs-card-sub">
-              <span class="text-green">
-                Historical fit: <strong>{stats?.fit_count.toLocaleString() ?? 0}</strong>
-              </span>
-              <span class="text-muted">({stats ? (stats.fit_rate * 100).toFixed(1) : 0}%)</span>
-            </div>
-            <div class="obs-card-range">
-              Historical no-fit: {stats?.no_fit_count.toLocaleString() ?? 0}
-            </div>
-          </div>
-        </div>
+      <div class="obs-page-intro">
+        <h2>Priority verdict review</h2>
+        <p>Compare each priority with its reason to check whether they agree.</p>
       </div>
-
-      <div class="obs-analytics-row">
-        <div class="glass-card obs-panel">
-          <div class="obs-panel-header">
-            <h4>
-              <i class="fa-solid fa-chart-pie text-purple"></i> Verdict Reason Distribution
-            </h4>
-            <span class="obs-panel-hint">Click a category to filter inspection table</span>
-          </div>
-
-          <div class="obs-reasons-list">
-            {(!stats || stats.reasons.length === 0) && (
-              <p class="text-muted">No verdicts recorded yet.</p>
-            )}
-            {stats?.reasons.map((r: ObservabilityReason) => {
-              const isSelected = reasonFilter === r.reason_type;
-              return (
-                <div
-                  key={r.reason_type}
-                  class={`obs-reason-row ${isSelected ? "is-selected" : ""}`}
-                  onClick={() => handleFilterReason(isSelected ? "all" : r.reason_type)}
-                >
-                  <div class="obs-reason-meta">
-                    <span class="obs-reason-badge">{r.reason_type}</span>
-                    <span class="obs-reason-count">
-                      {r.count.toLocaleString()} ({(r.percentage * 100).toFixed(1)}%)
-                    </span>
-                    <span class="obs-reason-tokens">avg {r.avg_tokens_out} tok out</span>
-                  </div>
-                  <div class="obs-progress-bg">
-                    <div
-                      class="obs-progress-bar"
-                      style={{ width: `${Math.max(2, r.percentage * 100)}%` }}
-                    ></div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-
-        <div class="glass-card obs-panel">
-          <div class="obs-panel-header">
-            <h4>
-              <i class="fa-solid fa-gauge-high text-blue"></i> Token Accounting & Diagnostics
-            </h4>
-          </div>
-
-          <div class="obs-diagnostics-content">
-            {stats && stats.models.length > 0 && (
-              <div class="obs-models-table-wrap">
-                <table class="obs-table">
-                  <thead>
-                    <tr>
-                      <th>Model</th>
-                      <th>Verdicts</th>
-                      <th>Avg Tokens Out</th>
-                      <th>Total Spend</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {stats.models.map((m) => (
-                      <tr key={m.model}>
-                        <td>
-                          <code>{m.model}</code>
-                        </td>
-                        <td>{m.count.toLocaleString()}</td>
-                        <td>
-                          <strong>{m.avg_tokens_out}</strong> tok
-                        </td>
-                        <td>${m.total_cost_usd.toFixed(4)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
-
-      <div class="glass-card obs-panel" style={{ marginBottom: "18px" }}>
-        <div
-          class="obs-panel-header"
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-            flexWrap: "wrap",
-            gap: "0.75rem",
-          }}
+      <div class="stats-grid obs-stats-grid" aria-label="Priority verdict summary">
+        <button
+          class={`stat-card obs-stat-card obs-summary-card ${priorityFilter === "all" ? "active" : ""}`}
+          aria-pressed={priorityFilter === "all"}
+          onClick={() => handleFilterPriority("all")}
         >
-          <div>
-            <h4
-              style={{
-                margin: 0,
-                display: "flex",
-                alignItems: "center",
-                gap: "0.5rem",
-              }}
-            >
-              <i class="fa-solid fa-code text-blue"></i> Active Scoring Prompt & Cached System
-              Prefix
-            </h4>
-            <span class="obs-panel-hint">
-              Byte-identical prompt prefix cached on DeepSeek/LLM. Paid once, then read from cache.
-            </span>
-          </div>
-
-          <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-            {promptData?.prompt_hash && (
-              <span
-                style={{
-                  fontSize: "0.75rem",
-                  fontFamily: "var(--font-mono)",
-                  padding: "0.2rem 0.5rem",
-                  border: "1px solid var(--ink-primary)",
-                  backgroundColor: "var(--bg-screen-alt)",
-                }}
-              >
-                hash: <strong>{promptData.prompt_hash}</strong>
-              </span>
-            )}
+          <span class="stat-label">All priority verdicts</span>
+          <strong class="obs-summary-count">
+            {stats ? stats.total_verdicts.toLocaleString() : "..."}
+          </strong>
+        </button>
+        {priorities.map((priority) => {
+          const summary = stats?.priorities.find((item) => item.priority === priority);
+          return (
             <button
-              class="action-pill"
-              onClick={() => setPromptExpanded(!promptExpanded)}
-              style={{ fontSize: "0.8rem", padding: "0.25rem 0.6rem" }}
+              key={priority}
+              class={`stat-card obs-stat-card obs-summary-card ${priorityFilter === priority ? "active" : ""}`}
+              aria-pressed={priorityFilter === priority}
+              onClick={() => handleFilterPriority(priorityFilter === priority ? "all" : priority)}
             >
-              <i class={`fa-solid ${promptExpanded ? "fa-chevron-up" : "fa-chevron-down"}`}></i>{" "}
-              {promptExpanded ? "Collapse" : "Inspect Prompt"}
+              <span class="stat-label">{priorityLabels[priority]}</span>
+              <strong class="obs-summary-count">
+                {stats ? (summary?.count ?? 0).toLocaleString() : "..."}
+              </strong>
+              <span>{((summary?.percentage ?? 0) * 100).toFixed(1)}%</span>
             </button>
-          </div>
-        </div>
-
-        {promptExpanded && (
-          <div style={{ marginTop: "1rem" }}>
-            <div
-              style={{
-                display: "flex",
-                justifyContent: "space-between",
-                alignItems: "center",
-                marginBottom: "0.75rem",
-                flexWrap: "wrap",
-                gap: "0.5rem",
-              }}
-            >
-              <div class="subtab-bar" style={{ gap: "0.35rem" }}>
-                <button
-                  class={`action-pill ${promptViewMode === "system" ? "active" : ""}`}
-                  onClick={() => setPromptViewMode("system")}
-                  style={{ fontSize: "0.8rem", padding: "0.25rem 0.6rem" }}
-                >
-                  <i class="fa-solid fa-layer-group"></i> Full Cached System Prompt (
-                  {displayedPromptText.length} chars)
-                </button>
-                <button
-                  class={`action-pill ${promptViewMode === "profile" ? "active" : ""}`}
-                  onClick={() => setPromptViewMode("profile")}
-                  style={{ fontSize: "0.8rem", padding: "0.25rem 0.6rem" }}
-                >
-                  <i class="fa-solid fa-user"></i> Candidate Profile Prefix
-                </button>
-                <button
-                  class={`action-pill ${promptViewMode === "rules" ? "active" : ""}`}
-                  onClick={() => setPromptViewMode("rules")}
-                  style={{ fontSize: "0.8rem", padding: "0.25rem 0.6rem" }}
-                >
-                  <i class="fa-solid fa-gavel"></i> Scoring Rules
-                </button>
-              </div>
-
-              <button
-                class="action-pill text-blue"
-                onClick={() => handleCopyPrompt(displayedPromptText)}
-                disabled={!displayedPromptText}
-                style={{ fontSize: "0.8rem", padding: "0.25rem 0.6rem" }}
-              >
-                <i class={`fa-solid ${copiedPrompt ? "fa-check text-green" : "fa-copy"}`}></i>{" "}
-                {copiedPrompt ? "Copied!" : "Copy Text"}
-              </button>
-            </div>
-
-            <pre
-              style={{
-                backgroundColor: "var(--bg-screen-alt)",
-                padding: "1rem",
-                fontSize: "0.8rem",
-                fontFamily: "var(--font-mono)",
-                whiteSpace: "pre-wrap",
-                border: "1px solid var(--ink-primary)",
-                maxHeight: "350px",
-                overflowY: "auto",
-                lineHeight: 1.45,
-                margin: 0,
-              }}
-            >
-              {displayedPromptText || "No active prompt loaded."}
-            </pre>
-          </div>
-        )}
+          );
+        })}
       </div>
 
       <div class="glass-card obs-explorer-card">
         <div class="obs-explorer-header">
           <div class="obs-explorer-title">
             <h3>
-              <i class="fa-solid fa-magnifying-glass-chart text-purple"></i> Model Output & Token
-              Inspector
+              <i class="fa-solid fa-magnifying-glass-chart text-purple"></i> Verdicts and reasons
             </h3>
             <span class="obs-explorer-subtitle">
-              Inspect raw model verdicts, generated explanations, and output token distributions
+              Priority verdicts only · newest first by default
             </span>
           </div>
 
@@ -428,8 +180,9 @@ export function ObservabilityPage() {
               <i class="fa-solid fa-magnifying-glass obs-search-icon"></i>
               <input
                 type="text"
+                aria-label="Search verdicts"
                 class="obs-search-input"
-                placeholder="Search job title, company, or reasoning text..."
+                placeholder="Search job title, company, or reason..."
                 value={searchTerm}
                 onInput={(e) => setSearchTerm((e.target as HTMLInputElement).value)}
               />
@@ -437,6 +190,7 @@ export function ObservabilityPage() {
                 <button
                   type="button"
                   class="obs-search-clear"
+                  aria-label="Clear search"
                   onClick={() => {
                     setSearchTerm("");
                     setActiveQuery("");
@@ -455,53 +209,39 @@ export function ObservabilityPage() {
 
         <div class="obs-controls-bar">
           <div class="obs-filter-group">
-            <span class="obs-filter-label">Fit Verdict:</span>
-            <div class="obs-btn-group">
-              <button
-                class={`obs-filter-btn ${fitFilter === "all" ? "active" : ""}`}
-                onClick={() => handleFilterFit("all")}
-              >
-                All
-              </button>
-              <button
-                class={`obs-filter-btn btn-fit ${fitFilter === "fit" ? "active" : ""}`}
-                onClick={() => handleFilterFit("fit")}
-              >
-                <i class="fa-solid fa-check"></i> Fit
-              </button>
-              <button
-                class={`obs-filter-btn btn-no-fit ${fitFilter === "no_fit" ? "active" : ""}`}
-                onClick={() => handleFilterFit("no_fit")}
-              >
-                <i class="fa-solid fa-xmark"></i> No Fit
-              </button>
-            </div>
-          </div>
-
-          <div class="obs-filter-group">
-            <span class="obs-filter-label">Reason:</span>
+            <label class="obs-filter-label" for="obs-priority">
+              Priority:
+            </label>
             <select
+              id="obs-priority"
               class="obs-select"
-              value={reasonFilter}
-              onChange={(e) => handleFilterReason((e.target as HTMLSelectElement).value)}
+              value={priorityFilter}
+              onChange={(e) =>
+                handleFilterPriority(
+                  (e.target as HTMLSelectElement).value as "all" | VerdictPriority,
+                )
+              }
             >
-              <option value="all">All Reasons ({stats?.reasons.length ?? 0})</option>
-              {stats?.reasons.map((r) => (
-                <option key={r.reason_type} value={r.reason_type}>
-                  {r.reason_type} ({r.count})
+              <option value="all">All priorities</option>
+              {priorities.map((priority) => (
+                <option key={priority} value={priority}>
+                  {priorityLabels[priority]}
                 </option>
               ))}
             </select>
           </div>
 
           <div class="obs-filter-group">
-            <span class="obs-filter-label">Sort:</span>
+            <label class="obs-filter-label" for="obs-sort">
+              Sort:
+            </label>
             <select
               class="obs-select"
+              id="obs-sort"
               value={sortOrder}
               onChange={(e) => handleSortChange((e.target as HTMLSelectElement).value)}
             >
-              <option value="tokens_out_desc">Outlier Tokens (Highest First)</option>
+              <option value="tokens_out_desc">Output Tokens (Highest First)</option>
               <option value="tokens_out_asc">Fewest Tokens (Lowest First)</option>
               <option value="cost_desc">Highest Cost</option>
               <option value="date_desc">Most Recent Verdict</option>
@@ -510,9 +250,12 @@ export function ObservabilityPage() {
           </div>
 
           <div class="obs-filter-group">
-            <span class="obs-filter-label">Page size:</span>
+            <label class="obs-filter-label" for="obs-limit">
+              Page size:
+            </label>
             <select
               class="obs-select obs-select-sm"
+              id="obs-limit"
               value={limit}
               onChange={(e) => handleLimitChange(Number((e.target as HTMLSelectElement).value))}
             >
@@ -535,20 +278,14 @@ export function ObservabilityPage() {
             <div class="obs-empty-state">
               <i class="fa-solid fa-inbox"></i>
               <h4>No matching verdicts found</h4>
-              <p>Try adjusting your search query, fit filter, or reason category.</p>
+              <p>
+                Try adjusting your search or priority filter. Only priority verdicts appear here.
+              </p>
             </div>
           )}
 
           {!loadingVerdicts &&
             items.map((item: ObservabilityVerdictItem) => {
-              const isOutlier = item.tokens_out > 250;
-              const isElevated = item.tokens_out > 140 && !isOutlier;
-              const tokenClass = isOutlier
-                ? "token-tag-outlier"
-                : isElevated
-                  ? "token-tag-elevated"
-                  : "token-tag-normal";
-
               const cacheRate =
                 item.tokens_in > 0 ? ((item.tokens_cached / item.tokens_in) * 100).toFixed(0) : "0";
 
@@ -592,45 +329,29 @@ export function ObservabilityPage() {
                     </div>
 
                     <div class="obs-verdict-badges">
-                      <span
-                        class={`obs-badge-verdict ${item.priority ? (item.priority === "first" ? "is-fit" : item.priority === "low" ? "is-no-fit" : "") : item.fit === null ? "" : item.fit ? "is-fit" : "is-no-fit"}`}
-                      >
-                        <i
-                          class={`fa-solid ${item.priority === "consider" || item.fit === null ? "fa-circle-info" : item.fit ? "fa-circle-check" : "fa-circle-xmark"}`}
-                        ></i>{" "}
-                        {item.priority
-                          ? {
-                              first: "Review first",
-                              consider: "Worth considering",
-                              low: "Low priority",
-                            }[item.priority]
-                          : item.fit === null
-                            ? "No fit judgment"
-                            : item.fit
-                              ? "FIT"
-                              : "NO FIT"}
+                      <span class={`obs-badge-verdict priority-${item.priority}`}>
+                        <i class={`fa-solid ${priorityIcons[item.priority]}`}></i>{" "}
+                        {priorityLabels[item.priority]}
                       </span>
-                      <span class="obs-badge-reason">{item.reason_type}</span>
                     </div>
                   </div>
 
                   <div class="obs-explanation-box">
                     <div class="obs-explanation-label">
-                      <i class="fa-solid fa-quote-left"></i> Model Output:
+                      <i class="fa-solid fa-quote-left"></i> Reason:
                     </div>
                     <p class="obs-explanation-text">
-                      {item.reason_description || (
-                        <span class="text-muted italic">(No explanation recorded)</span>
+                      {item.reason_description.trim() || (
+                        <span class="text-muted italic">No reason recorded</span>
                       )}
                     </p>
                   </div>
 
                   <div class="obs-verdict-footer">
                     <div class="obs-token-pills">
-                      <span class={`obs-token-pill ${tokenClass}`}>
+                      <span class="obs-token-pill">
                         <i class="fa-solid fa-arrow-right-from-bracket"></i>{" "}
                         <strong>{item.tokens_out.toLocaleString()}</strong> output tokens
-                        {isOutlier && <span class="obs-pill-badge">Outlier / Retry</span>}
                       </span>
                       <span class="obs-token-pill pill-prompt">
                         <i class="fa-solid fa-arrow-right-to-bracket"></i>{" "}
@@ -670,6 +391,226 @@ export function ObservabilityPage() {
           </nav>
         )}
       </div>
+      <section class="obs-diagnostics" aria-label="Model diagnostics">
+        <h3>Model diagnostics</h3>
+        <div class="stats-grid obs-stats-grid">
+          <div class="stat-card obs-stat-card">
+            <div class="stat-icon purple">
+              <i class="fa-solid fa-microchip"></i>
+            </div>
+            <div class="stat-info">
+              <span class="stat-label">Output Tokens</span>
+              <h3>{stats ? stats.total_tokens_out.toLocaleString() : "..."}</h3>
+              <div class="obs-card-sub">
+                <span>
+                  Avg: <strong>{stats?.avg_tokens_out ?? 0}</strong> tok/job
+                </span>
+              </div>
+              <div class="obs-card-range">
+                Min: {stats?.min_tokens_out ?? 0} · Max: {stats?.max_tokens_out ?? 0}
+              </div>
+            </div>
+          </div>
+
+          <div class="stat-card obs-stat-card">
+            <div class="stat-icon blue">
+              <i class="fa-solid fa-bolt"></i>
+            </div>
+            <div class="stat-info">
+              <span class="stat-label">Prompt Cache Rate</span>
+              <h3>{stats ? `${(stats.cache_hit_rate * 100).toFixed(1)}%` : "..."}</h3>
+              <div class="obs-card-sub">
+                <span>
+                  Cached:{" "}
+                  <strong>{stats ? (stats.total_tokens_cached / 1_000_000).toFixed(2) : 0}M</strong>{" "}
+                  in
+                </span>
+              </div>
+              <div class="obs-card-range">
+                Total In: {stats ? (stats.total_tokens_in / 1_000_000).toFixed(2) : 0}M tokens
+              </div>
+            </div>
+          </div>
+
+          <div class="stat-card obs-stat-card">
+            <div class="stat-icon gold">
+              <i class="fa-solid fa-dollar-sign"></i>
+            </div>
+            <div class="stat-info">
+              <span class="stat-label">Model Spend (USD)</span>
+              <h3>${stats ? stats.total_cost_usd.toFixed(4) : "..."}</h3>
+              <div class="obs-card-sub">
+                <span>
+                  Avg/verdict: <strong>${stats ? stats.avg_cost_usd.toFixed(6) : 0}</strong>
+                </span>
+              </div>
+              <div class="obs-card-range">
+                ~${stats ? (stats.avg_cost_usd * 1000).toFixed(3) : 0} / 1k jobs
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="glass-card obs-panel">
+          <div class="obs-panel-header">
+            <h4>
+              <i class="fa-solid fa-gauge-high text-blue"></i> Token Accounting & Diagnostics
+            </h4>
+          </div>
+
+          <div class="obs-diagnostics-content">
+            {stats && stats.models.length > 0 && (
+              <div class="obs-models-table-wrap">
+                <table class="obs-table">
+                  <thead>
+                    <tr>
+                      <th>Model</th>
+                      <th>Verdicts</th>
+                      <th>Avg Tokens Out</th>
+                      <th>Total Spend</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {stats.models.map((m) => (
+                      <tr key={m.model}>
+                        <td>
+                          <code>{m.model}</code>
+                        </td>
+                        <td>{m.count.toLocaleString()}</td>
+                        <td>
+                          <strong>{m.avg_tokens_out}</strong> tok
+                        </td>
+                        <td>${m.total_cost_usd.toFixed(4)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
+        <div class="glass-card obs-panel" style={{ marginBottom: "18px" }}>
+          <div
+            class="obs-panel-header"
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              flexWrap: "wrap",
+              gap: "0.75rem",
+            }}
+          >
+            <div>
+              <h4
+                style={{
+                  margin: 0,
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "0.5rem",
+                }}
+              >
+                <i class="fa-solid fa-code text-blue"></i> Active Scoring Prompt & Cached System
+                Prefix
+              </h4>
+              <span class="obs-panel-hint">
+                Byte-identical prompt prefix cached on DeepSeek/LLM. Paid once, then read from
+                cache.
+              </span>
+            </div>
+
+            <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+              {promptData?.prompt_hash && (
+                <span
+                  style={{
+                    fontSize: "0.75rem",
+                    fontFamily: "var(--font-mono)",
+                    padding: "0.2rem 0.5rem",
+                    border: "1px solid var(--ink-primary)",
+                    backgroundColor: "var(--bg-screen-alt)",
+                  }}
+                >
+                  hash: <strong>{promptData.prompt_hash}</strong>
+                </span>
+              )}
+              <button
+                class="action-pill"
+                onClick={() => setPromptExpanded(!promptExpanded)}
+                style={{ fontSize: "0.8rem", padding: "0.25rem 0.6rem" }}
+              >
+                <i class={`fa-solid ${promptExpanded ? "fa-chevron-up" : "fa-chevron-down"}`}></i>{" "}
+                {promptExpanded ? "Collapse" : "Inspect Prompt"}
+              </button>
+            </div>
+          </div>
+
+          {promptExpanded && (
+            <div style={{ marginTop: "1rem" }}>
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  marginBottom: "0.75rem",
+                  flexWrap: "wrap",
+                  gap: "0.5rem",
+                }}
+              >
+                <div class="subtab-bar" style={{ gap: "0.35rem" }}>
+                  <button
+                    class={`action-pill ${promptViewMode === "system" ? "active" : ""}`}
+                    onClick={() => setPromptViewMode("system")}
+                    style={{ fontSize: "0.8rem", padding: "0.25rem 0.6rem" }}
+                  >
+                    <i class="fa-solid fa-layer-group"></i> Full Cached System Prompt (
+                    {displayedPromptText.length} chars)
+                  </button>
+                  <button
+                    class={`action-pill ${promptViewMode === "profile" ? "active" : ""}`}
+                    onClick={() => setPromptViewMode("profile")}
+                    style={{ fontSize: "0.8rem", padding: "0.25rem 0.6rem" }}
+                  >
+                    <i class="fa-solid fa-user"></i> Candidate Profile Prefix
+                  </button>
+                  <button
+                    class={`action-pill ${promptViewMode === "rules" ? "active" : ""}`}
+                    onClick={() => setPromptViewMode("rules")}
+                    style={{ fontSize: "0.8rem", padding: "0.25rem 0.6rem" }}
+                  >
+                    <i class="fa-solid fa-gavel"></i> Scoring Rules
+                  </button>
+                </div>
+
+                <button
+                  class="action-pill text-blue"
+                  onClick={() => handleCopyPrompt(displayedPromptText)}
+                  disabled={!displayedPromptText}
+                  style={{ fontSize: "0.8rem", padding: "0.25rem 0.6rem" }}
+                >
+                  <i class={`fa-solid ${copiedPrompt ? "fa-check text-green" : "fa-copy"}`}></i>{" "}
+                  {copiedPrompt ? "Copied!" : "Copy Text"}
+                </button>
+              </div>
+
+              <pre
+                style={{
+                  backgroundColor: "var(--bg-screen-alt)",
+                  padding: "1rem",
+                  fontSize: "0.8rem",
+                  fontFamily: "var(--font-mono)",
+                  whiteSpace: "pre-wrap",
+                  border: "1px solid var(--ink-primary)",
+                  maxHeight: "350px",
+                  overflowY: "auto",
+                  lineHeight: 1.45,
+                  margin: 0,
+                }}
+              >
+                {displayedPromptText || "No active prompt loaded."}
+              </pre>
+            </div>
+          )}
+        </div>
+      </section>
     </section>
   );
 }

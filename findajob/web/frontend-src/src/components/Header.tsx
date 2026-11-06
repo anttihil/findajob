@@ -5,7 +5,7 @@ const PAGE_SUBTITLES: Record<string, string> = {
   "/": "Jobs",
   "/market": "Market",
   "/skills": "Skills",
-  "/observability": "Model Observability & Token Inspector",
+  "/observability": "Priority Verdict Review",
   "/resumes": "Resumes",
 };
 

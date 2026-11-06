@@ -481,7 +481,7 @@ def get_verdict_distribution_stats(
 
 
 def get_observability_stats(conn: sqlite3.Connection) -> dict[str, Any]:
-    """Aggregate token counts, costs, and reason distributions across all scored verdicts."""
+    """Aggregate priorities and diagnostics for priority verdicts only."""
     cursor = conn.cursor()
     has_table = cursor.execute(
         "SELECT 1 FROM sqlite_master WHERE type='table' AND name='job_verdicts'"
@@ -499,10 +499,10 @@ def get_observability_stats(conn: sqlite3.Connection) -> dict[str, Any]:
             "avg_tokens_in": 0.0,
             "total_cost_usd": 0.0,
             "avg_cost_usd": 0.0,
-            "fit_count": 0,
-            "no_fit_count": 0,
-            "fit_rate": 0.0,
-            "reasons": [],
+            "priorities": [
+                {"priority": priority, "count": 0, "percentage": 0.0}
+                for priority in ("first", "consider", "low")
+            ],
             "models": [],
         }
 
@@ -517,42 +517,31 @@ def get_observability_stats(conn: sqlite3.Connection) -> dict[str, Any]:
             COALESCE(MAX(v.tokens_out), 0) AS max_tokens_out,
             COALESCE(ROUND(AVG(v.tokens_in), 1), 0.0) AS avg_tokens_in,
             COALESCE(SUM(v.cost_usd), 0.0) AS total_cost_usd,
-            COALESCE(ROUND(AVG(v.cost_usd), 6), 0.0) AS avg_cost_usd,
-            SUM(CASE WHEN v.fit = 1 THEN 1 ELSE 0 END) AS fit_count,
-            SUM(CASE WHEN v.fit = 0 THEN 1 ELSE 0 END) AS no_fit_count
+            COALESCE(ROUND(AVG(v.cost_usd), 6), 0.0) AS avg_cost_usd
         FROM job_verdicts v
+        WHERE v.priority IN ('first', 'consider', 'low')
     """
     row = cursor.execute(stats_sql).fetchone()
     total_verdicts = row["total_verdicts"] or 0
     total_in = row["total_tokens_in"] or 0
     total_cached = row["total_tokens_cached"] or 0
     cache_hit_rate = round(total_cached / total_in, 4) if total_in > 0 else 0.0
-    fit_count = row["fit_count"] or 0
-    no_fit_count = row["no_fit_count"] or 0
-    qualified_total = fit_count + no_fit_count
-    fit_rate = round(fit_count / qualified_total, 4) if qualified_total else 0.0
-
-    reasons_sql = """
-        SELECT
-            COALESCE(v.reason_type, 'unspecified') AS reason_type,
-            COUNT(*) AS count,
-            COALESCE(ROUND(AVG(v.tokens_out), 1), 0.0) AS avg_tokens_out
-        FROM job_verdicts v
-        GROUP BY COALESCE(v.reason_type, 'unspecified')
-        ORDER BY count DESC
-    """
-    reasons = []
-    for r in cursor.execute(reasons_sql).fetchall():
-        rtype = r["reason_type"] or "unspecified"
-        rcnt = r["count"]
-        reasons.append(
-            {
-                "reason_type": rtype,
-                "count": rcnt,
-                "avg_tokens_out": r["avg_tokens_out"],
-                "percentage": round(rcnt / total_verdicts, 4) if total_verdicts > 0 else 0.0,
-            }
-        )
+    counts = dict(
+        cursor.execute("""
+        SELECT priority, COUNT(*) FROM job_verdicts
+        WHERE priority IN ('first', 'consider', 'low') GROUP BY priority
+    """).fetchall()
+    )
+    priorities = [
+        {
+            "priority": priority,
+            "count": counts.get(priority, 0),
+            "percentage": round(counts.get(priority, 0) / total_verdicts, 4)
+            if total_verdicts
+            else 0.0,
+        }
+        for priority in ("first", "consider", "low")
+    ]
 
     models_sql = """
         SELECT
@@ -562,6 +551,7 @@ def get_observability_stats(conn: sqlite3.Connection) -> dict[str, Any]:
             COALESCE(ROUND(AVG(v.tokens_out), 1), 0.0) AS avg_tokens_out,
             COALESCE(SUM(v.cost_usd), 0.0) AS total_cost_usd
         FROM job_verdicts v
+        WHERE v.priority IN ('first', 'consider', 'low')
         GROUP BY COALESCE(v.model, 'unknown')
         ORDER BY count DESC
     """
@@ -588,10 +578,7 @@ def get_observability_stats(conn: sqlite3.Connection) -> dict[str, Any]:
         "avg_tokens_in": row["avg_tokens_in"] or 0.0,
         "total_cost_usd": round(row["total_cost_usd"] or 0.0, 4),
         "avg_cost_usd": row["avg_cost_usd"] or 0.0,
-        "fit_count": fit_count,
-        "no_fit_count": no_fit_count,
-        "fit_rate": fit_rate,
-        "reasons": reasons,
+        "priorities": priorities,
         "models": models,
     }
 
@@ -599,14 +586,13 @@ def get_observability_stats(conn: sqlite3.Connection) -> dict[str, Any]:
 def query_observability_verdicts(
     conn: sqlite3.Connection,
     q: str | None = None,
-    fit: str | None = None,
-    reason_type: str | None = None,
+    priority: str | None = None,
     model: str | None = None,
-    sort: str = "tokens_out_desc",
+    sort: str = "date_desc",
     limit: int = 20,
     offset: int = 0,
 ) -> dict[str, Any]:
-    """Query verdicts with token usage details and search filters."""
+    """Query priorities and their free-text reasons, with diagnostic details."""
     cursor = conn.cursor()
     has_table = cursor.execute(
         "SELECT 1 FROM sqlite_master WHERE type='table' AND name='job_verdicts'"
@@ -614,60 +600,17 @@ def query_observability_verdicts(
     if not has_table:
         return {"items": [], "total": 0, "limit": limit, "offset": offset}
 
-    cols = {row[1] for row in cursor.execute("PRAGMA table_info(job_verdicts)").fetchall()}
-    has_fit = "fit" in cols
-    has_reason_type = "reason_type" in cols
-    has_reason_desc = "reason_description" in cols
-    has_verdict = "verdict" in cols
-    has_reasoning = "reasoning" in cols
-
-    fit_expr = (
-        "v.fit"
-        if has_fit
-        else (
-            "(CASE WHEN v.verdict IN ('strong', 'worth_applying') "
-            "OR (v.fit_score IS NOT NULL AND v.fit_score >= 60) THEN 1 ELSE 0 END)"
-            if has_verdict
-            else "0"
-        )
-    )
-
-    reason_expr = (
-        "COALESCE(v.reason_type, v.verdict, 'unspecified')"
-        if (has_reason_type and has_verdict)
-        else (
-            "COALESCE(v.reason_type, 'unspecified')"
-            if has_reason_type
-            else ("COALESCE(v.verdict, 'unspecified')" if has_verdict else "'unspecified'")
-        )
-    )
-
-    desc_expr = (
-        "COALESCE(v.reason_description, v.reasoning, '')"
-        if (has_reason_desc and has_reasoning)
-        else (
-            "COALESCE(v.reason_description, '')"
-            if has_reason_desc
-            else ("COALESCE(v.reasoning, '')" if has_reasoning else "''")
-        )
-    )
-
-    where_clauses: list[str] = ["1=1"]
+    where_clauses: list[str] = ["v.priority IN ('first', 'consider', 'low')"]
     params: list[Any] = []
 
     if q and q.strip():
         term = f"%{q.strip()}%"
-        where_clauses.append(f"(j.title LIKE ? OR j.company LIKE ? OR {desc_expr} LIKE ?)")
+        where_clauses.append("(j.title LIKE ? OR j.company LIKE ? OR v.reason_description LIKE ?)")
         params.extend([term, term, term])
 
-    if fit in ("true", "1", "fit"):
-        where_clauses.append(f"({fit_expr} = 1)")
-    elif fit in ("false", "0", "no_fit"):
-        where_clauses.append(f"({fit_expr} = 0)")
-
-    if reason_type and reason_type.lower() not in ("all", ""):
-        where_clauses.append(f"LOWER({reason_expr}) = LOWER(?)")
-        params.append(reason_type.strip())
+    if priority:
+        where_clauses.append("v.priority = ?")
+        params.append(priority)
 
     if model and model.lower() not in ("all", ""):
         where_clauses.append("COALESCE(v.model, 'unknown') = ?")
@@ -694,6 +637,8 @@ def query_observability_verdicts(
     else:
         order_by = "v.created_at DESC"
 
+    order_by += ", v.id ASC" if sort == "date_asc" else ", v.id DESC"
+
     query_sql = f"""
         SELECT
             v.id,
@@ -702,10 +647,8 @@ def query_observability_verdicts(
             j.company,
             j.location,
             j.url,
-            {fit_expr} AS fit,
             v.priority,
-            {reason_expr} AS reason_type,
-            {desc_expr} AS reason_description,
+            COALESCE(v.reason_description, '') AS reason_description,
             COALESCE(v.tokens_in, 0) AS tokens_in,
             COALESCE(v.tokens_cached, 0) AS tokens_cached,
             COALESCE(v.tokens_out, 0) AS tokens_out,
@@ -729,9 +672,7 @@ def query_observability_verdicts(
             "company": r["company"] or "Unknown Company",
             "location": r["location"],
             "url": r["url"] or "",
-            "fit": bool(r["fit"]) if r["fit"] is not None else None,
             "priority": r["priority"],
-            "reason_type": r["reason_type"] or "unknown",
             "reason_description": r["reason_description"] or "",
             "tokens_in": r["tokens_in"],
             "tokens_cached": r["tokens_cached"],

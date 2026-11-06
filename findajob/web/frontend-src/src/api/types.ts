@@ -502,10 +502,11 @@ export interface PipelineStatusResponse {
   score: PipelineScoreStatus;
 }
 
-export interface ObservabilityReason {
-  reason_type: string;
+export type VerdictPriority = "first" | "consider" | "low";
+
+export interface ObservabilityPriority {
+  priority: VerdictPriority;
   count: number;
-  avg_tokens_out: number;
   percentage: number;
 }
 
@@ -529,10 +530,7 @@ export interface ObservabilityStats {
   avg_tokens_in: number;
   total_cost_usd: number;
   avg_cost_usd: number;
-  fit_count: number;
-  no_fit_count: number;
-  fit_rate: number;
-  reasons: ObservabilityReason[];
+  priorities: ObservabilityPriority[];
   models: ObservabilityModel[];
 }
 
@@ -543,9 +541,7 @@ export interface ObservabilityVerdictItem {
   company: string;
   location: string | null;
   url: string;
-  fit: boolean | null;
-  priority: "first" | "consider" | "low" | null;
-  reason_type: string;
+  priority: VerdictPriority;
   reason_description: string;
   tokens_in: number;
   tokens_cached: number;
