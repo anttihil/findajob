@@ -7,7 +7,7 @@
             "type": "command",
             "command": "python3 \"$(git rev-parse --show-toplevel)/scripts/verify_stop.py\"",
             "timeout": 600,
-            "statusMessage": "Verifying lint, formatting, types, tests, and build..."
+            "statusMessage": "Checking changed files and verification freshness..."
           }
         ]
       }

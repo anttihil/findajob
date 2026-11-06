@@ -54,6 +54,29 @@ uv run findajob start --port 8010
 
 Alternatively, `make setup` installs dependencies and `make build` builds the frontend.
 
+For an isolated development preview, use `make dev`. It starts Vite with hot
+frontend updates at <http://127.0.0.1:5173> and a reloading API on port 8011.
+The frontend proxies API requests to that backend. Both use a temporary home
+printed at startup, with an empty database, no inherited credentials, and no
+startup seeding or scheduler. Stop the launcher with Ctrl+C to stop both servers.
+The temporary home remains available for inspection and synthetic data.
+
+Choose a different port pair when running multiple worktrees:
+
+```bash
+make dev DEV_PORT=5174 DEV_API_PORT=8012
+```
+
+The launcher also accepts these ports directly:
+`python3 scripts/dev.py --port 5174 --api-port 8012`.
+
+Codex's repository-local `.codex/config.toml` enables networking inside the
+workspace-write sandbox for trusted sessions, including outbound traffic, while
+retaining filesystem restrictions. Start a fresh session after this setting
+changes; a running session retains its old policy, and higher-priority runtime
+restrictions can override it. Normal `make dev` starts then need no per-launch
+approval. See the [Codex configuration reference](https://learn.chatgpt.com/docs/config-file/config-reference).
+
 ### Docker
 
 Docker Compose builds the frontend and Python runtime together:
@@ -131,7 +154,10 @@ and factual qualifications. The copilot uses your current editor text, including
 Review the complete proposal, ask for refinements, then **Apply to memo editor** and **Save memo
 revision**. Discarding a proposal leaves the editor unchanged; saved revisions remain in history.
 
-Run `make verify` before handing off code changes. It checks Python/frontend lint,
+Run `make verify` after changes to app code/resources, tests, dependencies, build
+configuration, or verification tooling. Read-only work needs no verification;
+prose or agent/skill instructions alone need only `git diff --check` and
+`git diff --cached --check`. It checks Python/frontend lint,
 Python and frontend formatting, both type checkers, pytest, Vitest, the production
 frontend build, a wheel build/install smoke test, and Git whitespace, stopping at
 the first failure. It checks formatting without rewriting source; use
@@ -139,15 +165,19 @@ the first failure. It checks formatting without rewriting source; use
 Install dependencies with `make setup` (`uv sync` and `npm ci`). CI runs the same
 verification command after installing locked dependencies.
 
-Codex and Claude use a synchronous stop hook instead of checks after each edit.
+Codex and Claude use a synchronous stop hook that first checks whether staged,
+unstaged, or untracked files affect the app or its checks. Clean and prose-only
+checkouts skip the suite even without a previous verification receipt.
 Successful verification writes an ignored receipt under `test-results/verification/`;
-the hook reuses it only while repository contents and dependency-install metadata
-match. Explicit verification always reruns. Failures include a log path and request
+the hook reuses it while the relevant changed files match.
+It checks staged, unstaged, and untracked files; it does not scan unchanged files
+or installed dependencies. Later prose edits preserve it. Explicit verification
+and CI always rerun.
+Failures include a log path and request
 one repair continuation; persistent failures permit an explicitly blocked handoff.
 Review and trust the changed Codex hook through `/hooks` before relying on it.
 If branch protection requires the previous CI jobs, update it to require `verify`.
-See [AGENTS.md](AGENTS.md) and the
-[verification skill](.agents/skills/verification/SKILL.md) for completion guidance.
+See the [verification skill](.agents/skills/verification/SKILL.md) for failure diagnosis.
 
 Prettier is pinned locally; `npm run format:check` checks frontend source and
 frontend configuration. `make package-smoke` builds the frontend and

@@ -11,11 +11,17 @@ import sys
 import tempfile
 from pathlib import Path
 
-from verify import ROOT, STATE_DIR, has_fresh_success
+from verify import ROOT, STATE_DIR, changed_files, has_fresh_success
 
 
 def check(root: Path) -> str | None:
-    if has_fresh_success(root):
+    # Prose still gets whitespace checks even when app inputs have a fresh receipt.
+    for command in (["git", "diff", "--check"], ["git", "diff", "--cached", "--check"]):
+        result = subprocess.run(command, cwd=root, capture_output=True, text=True, check=False)
+        if result.returncode:
+            return f"Whitespace check failed: {' '.join(command)}\n{result.stdout}{result.stderr}"
+    # A clean checkout or prose-only edit needs no app tooling or success receipt.
+    if not changed_files(root) or has_fresh_success(root):
         return None
     log_dir = root / STATE_DIR
     log_dir.mkdir(parents=True, exist_ok=True)

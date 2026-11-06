@@ -16,21 +16,36 @@ STATE_DIR = Path("test-results/verification")
 RECEIPT = STATE_DIR / "success.json"
 
 
+def is_verification_input(name: str) -> bool:
+    """Exclude prose and agent instructions, while keeping packaged app resources."""
+    path = Path(name)
+    if path.parts[0] == "findajob":
+        return True
+    if path.parts[0] in {"docs", ".agents"}:
+        return False
+    return path.suffix.lower() not in {".md", ".rst"} and path.name != "LICENSE"
+
+
+def changed_files(root: Path) -> list[str]:
+    """Relevant staged, unstaged, and untracked files, including deleted paths."""
+    names: set[str] = set()
+    commands = [
+        ["git", "diff", "--name-only", "--no-renames", "-z", "--"],
+        ["git", "diff", "--cached", "--name-only", "--no-renames", "-z", "--"],
+        ["git", "ls-files", "-z", "--others", "--exclude-standard"],
+    ]
+    for command in commands:
+        result = subprocess.run(command, cwd=root, capture_output=True, check=True)
+        names.update(os.fsdecode(name) for name in result.stdout.split(b"\0") if name)
+    return sorted(name for name in names if is_verification_input(name))
+
+
 def fingerprint(root: Path) -> str:
-    """Hash tracked and non-ignored untracked contents, including deletions and modes."""
-    result = subprocess.run(
-        ["git", "ls-files", "-z", "--cached", "--others", "--exclude-standard"],
-        cwd=root,
-        capture_output=True,
-        check=True,
-    )
+    """Hash only changed files so the hook can reuse their successful verification."""
     digest = hashlib.sha256()
-    for name in sorted(set(result.stdout.split(b"\0")) - {b""}):
-        path = root / os.fsdecode(name)
-        # Also exclude receipts when exercising the runner in a temporary repository.
-        if path.is_relative_to(root / STATE_DIR):
-            continue
-        digest.update(name + b"\0")
+    for name in changed_files(root):
+        path = root / name
+        digest.update(os.fsencode(name) + b"\0")
         try:
             digest.update(str(path.lstat().st_mode).encode() + b"\0")
             if path.is_symlink():
@@ -40,19 +55,6 @@ def fingerprint(root: Path) -> str:
         except FileNotFoundError:
             digest.update(b"deleted")
         digest.update(b"\0")
-    # Track installation metadata, not site-packages directory timestamps: Python can
-    # create __pycache__ there without changing installed dependencies.
-    for pattern in (
-        ".venv/pyvenv.cfg",
-        ".venv/lib/*/site-packages/*.dist-info/**/*",
-        "node_modules/.package-lock.json",
-    ):
-        for path in sorted(root.glob(pattern)):
-            if not path.is_file():
-                continue
-            stat = path.stat()
-            digest.update(f"{path.relative_to(root)}:{stat.st_mtime_ns}:{stat.st_size}".encode())
-            digest.update(hashlib.sha256(path.read_bytes()).digest())
     return digest.hexdigest()
 
 

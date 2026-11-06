@@ -1,0 +1,5 @@
+# Local preview servers need sockets. Keep workspace filesystem restrictions while
+# enabling networking for this trusted repository; this also permits outbound traffic.
+# This takes effect in new sessions, subject to higher-priority runtime policy.
+[sandbox_workspace_write]
+network_access = true

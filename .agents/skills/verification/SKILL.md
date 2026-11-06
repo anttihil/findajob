@@ -1,11 +1,27 @@
 ---
 name: verification
-description: Verify careerradar code, tests, dependency, or configuration changes before completing a coding task, and diagnose failed repository checks.
+description: Verify actual careerradar application, test, dependency, build, or verification-tooling changes and diagnose failed checks. Skip read-only tasks and prose or agent-instruction edits alone; task completion is not a trigger.
 ---
 
 # Repository verification
 
-Run from the repository root:
+## Decide whether verification applies
+
+Inspect `git status --short`, the staged and unstaged diff, and relevant untracked
+files. Run the full suite only when actual changes affect the app or its checks:
+application code and packaged resources, tests, dependencies/lockfiles,
+build/deployment configuration, or verification tooling. Treat deletions and
+renames as changes. Preserve unrelated user changes.
+
+Read-only questions, reviews with no edits, planning, and finishing a turn do not
+trigger verification. Prose and agent/skill instructions alone need only
+`git diff --check` and `git diff --cached --check`. Markdown resources inside
+`findajob/` can affect the app and still require verification. If the user
+explicitly asks for verification, run it regardless of changes.
+
+## Verify changed inputs
+
+Run from the repository root after the last relevant edit:
 
 ```sh
 make verify
@@ -40,8 +56,13 @@ preview fixture is required. Distinguish browser checks from API and
 unit tests, and report visual failures even when automated checks pass.
 
 Successful runs write a local receipt under `test-results/verification/`. The stop
-hook reuses it only while repository contents and dependency-install metadata
-match. Explicit `make verify` and CI always execute checks. Changes during a run
+hook first checks whitespace and whether staged, unstaged, or untracked changes
+affect verification inputs. Clean and prose-only checkouts do not run the suite,
+even without a receipt. Otherwise, the hook reuses success while the relevant changed files match.
+It hashes staged, unstaged, and untracked files, including deletions, without
+scanning unchanged files or installed dependencies. Later prose edits do not
+invalidate it.
+Explicit `make verify` and CI always execute checks. Relevant changes during a run
 invalidate it. These receipts are a convenience, not a security boundary.
 
 On hook failure, inspect the referenced log. The hook requests one automatic repair
