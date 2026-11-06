@@ -142,7 +142,9 @@ def test_id_page_keeps_wide_projections_out_of_window(postings: Database) -> Non
     assert "COUNT(*) OVER ()" in narrow
     assert "description" not in narrow
     assert "tailored_resume_id" not in narrow
+    assert "AS search_query" not in narrow
     assert "jobs.description" in outer
+    assert "cell.query AS search_query" in outer
     plan = [row[3] for row in postings.conn.execute("EXPLAIN QUERY PLAN " + sql)]
     assert "MATERIALIZE page" in plan
     assert "SEARCH jobs USING INTEGER PRIMARY KEY (rowid=?)" in plan

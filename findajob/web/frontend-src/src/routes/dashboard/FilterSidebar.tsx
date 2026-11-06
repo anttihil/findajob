@@ -120,6 +120,29 @@ export function FilterSidebar({
       </div>
 
       <div class="filter-group">
+        <label for="filter-search-query">Search query term</label>
+        <select
+          id="filter-search-query"
+          class="form-select"
+          value={query.search_query}
+          title="Filter by the latest recorded query attribution."
+          onChange={(e) =>
+            navigate(query.url({ search_query: (e.target as HTMLSelectElement).value }))
+          }
+        >
+          <option value="">All Query Terms</option>
+          {query.search_query && !meta?.search_queries.includes(query.search_query) && (
+            <option value={query.search_query}>{query.search_query}</option>
+          )}
+          {meta?.search_queries.map((term) => (
+            <option key={term} value={term}>
+              {term}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      <div class="filter-group">
         <label for="filter-priority">Application priority</label>
         <select
           id="filter-priority"

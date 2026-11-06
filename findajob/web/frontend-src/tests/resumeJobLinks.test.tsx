@@ -37,6 +37,7 @@ function mockJob(overrides: Partial<Job> = {}): Job {
     reason_description: "Great skills match",
     pipeline_state: "scored",
     liveness: "live",
+    search_query: null,
     ...overrides,
   };
 }
@@ -54,6 +55,25 @@ describe("Bidirectional Job and Resume Links", () => {
   });
 
   describe("JobCard", () => {
+    it.each(["Platform & SRE", null])(
+      "shows latest query attribution %s on the card and drawer",
+      (term) => {
+        const job = mockJob({ search_query: term });
+        const label = `Last found by: ${term || "Unknown"}`;
+        const card = render(<JobCard job={job} query={new FilterQuery("")} />);
+        expect(card.getByText(label)).toBeTruthy();
+        card.unmount();
+        const drawer = render(
+          <JobDrawer
+            context={{ job, next_job_id: null }}
+            onClose={() => {}}
+            onStatusChange={() => {}}
+          />,
+        );
+        expect(drawer.getByText(label)).toBeTruthy();
+      },
+    );
+
     it("renders resume badge when job has tailored_resume_id", () => {
       const jobWithResume = mockJob({ tailored_resume_id: 101 });
       const query = new FilterQuery("");

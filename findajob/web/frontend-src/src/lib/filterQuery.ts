@@ -7,6 +7,7 @@ export interface FilterValues {
   status: JobStatusFilter;
   country: string;
   location: string;
+  search_query: string;
   priority: string;
   liveness: string;
   date_posted: string;
@@ -19,6 +20,7 @@ export const FILTER_DEFAULTS: FilterValues = {
   status: "unread",
   country: "",
   location: "",
+  search_query: "",
   priority: "first",
   liveness: "",
   date_posted: "",
@@ -44,6 +46,7 @@ function parseValues(search: string): FilterValues {
     status: (raw.status as JobStatusFilter) || FILTER_DEFAULTS.status,
     country: raw.country ?? FILTER_DEFAULTS.country,
     location: raw.location ?? FILTER_DEFAULTS.location,
+    search_query: raw.search_query ?? FILTER_DEFAULTS.search_query,
     priority: raw.priority ?? FILTER_DEFAULTS.priority,
     liveness: raw.liveness ?? FILTER_DEFAULTS.liveness,
     date_posted: raw.date_posted ?? FILTER_DEFAULTS.date_posted,
@@ -68,6 +71,9 @@ export class FilterQuery {
   }
   get location() {
     return this.values.location;
+  }
+  get search_query() {
+    return this.values.search_query;
   }
   get priority() {
     return this.values.priority;

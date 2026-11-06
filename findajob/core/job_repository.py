@@ -117,7 +117,10 @@ def select_columns(
         )
     ]
     columns_str = ",\n                   ".join(
-        job_columns + verdict_columns + resume_columns + [f"{LIVENESS_CASE} AS liveness"]
+        job_columns
+        + verdict_columns
+        + resume_columns
+        + ["cell.query AS search_query", f"{LIVENESS_CASE} AS liveness"]
     )
     return columns_str, cached_columns
 
@@ -139,6 +142,7 @@ def feed_filters(
     priority: str | None = None,
     date_posted: str | None = None,
     q: str | None = None,
+    search_query: str | None = None,
 ) -> tuple[str, list[Any]]:
     """The shared WHERE clause for feed queries, as (sql, params)."""
     sql = ""
@@ -166,6 +170,9 @@ def feed_filters(
         # it; scrape-cell provenance can.
         sql += " AND cell.location_id = ?"
         params.append(location.strip())
+    if search_query:
+        sql += " AND cell.query = ?"
+        params.append(search_query)
     if priority:
         sql += " AND v.priority = ?"
         params.append(priority)
@@ -211,6 +218,7 @@ def query_jobs(
     priority: str | None = None,
     date_posted: str | None = None,
     q: str | None = None,
+    search_query: str | None = None,
     limit: int = 200,
     offset: int = 0,
     detail: bool = False,
@@ -236,6 +244,7 @@ def query_jobs(
         priority=priority,
         date_posted=date_posted,
         q=q,
+        search_query=search_query,
     )
     cols_sql, new_cached_columns = select_columns(conn, detail, cached_columns)
     # Count and sort narrow rows first. Materialization keeps wide job fields and
@@ -298,6 +307,7 @@ def job_ids_for(
     priority: str | None = None,
     date_posted: str | None = None,
     q: str | None = None,
+    search_query: str | None = None,
     limit: int = 200,
     offset: int = 0,
     detail: bool | None = None,  # noqa: ARG001
@@ -319,6 +329,7 @@ def job_ids_for(
         priority=priority,
         date_posted=date_posted,
         q=q,
+        search_query=search_query,
     )
     query = f"SELECT jobs.id{FEED_FROM} WHERE 1=1{where}"
     query += f" ORDER BY {FEED_ORDER_BY} LIMIT ? OFFSET ?"

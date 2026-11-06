@@ -22,6 +22,7 @@ FILTER_DEFAULTS: dict[str, Any] = {
     "status": "unread",
     "country": "",
     "location": "",
+    "search_query": "",
     "priority": "",
     "liveness": "",
     "date_posted": "",

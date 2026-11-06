@@ -23,6 +23,7 @@ export function JobCard({ job, query }: { job: Job; query: FilterQuery }) {
             <i class="fa-solid fa-server"></i> {sourceLabel(job.source)}
           </span>
         </div>
+        <div class="job-query-attribution">Last found by: {job.search_query || "Unknown"}</div>
         <div class="matched-skills-preview">
           {job.matched_skills.slice(0, 5).map((skill) => (
             <span key={skill} class="skill-tag-sm">

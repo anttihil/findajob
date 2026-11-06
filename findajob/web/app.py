@@ -284,6 +284,7 @@ def get_jobs(
     pipeline_state: str | None = Query(None, pattern="^(new|scored)?$"),
     date_posted: str | None = Query(None, pattern="^(24h|3d|7d|14d|30d)?$"),
     q: str | None = None,
+    search_query: str | None = None,
     limit: int = Query(200, ge=1, le=1000),
     offset: int = Query(0, ge=0),
 ):
@@ -304,6 +305,7 @@ def get_jobs(
             pipeline_state=pipeline_state,
             date_posted=date_posted,
             q=q,
+            search_query=search_query,
             limit=limit,
             offset=offset,
             detail=False,
@@ -1303,6 +1305,7 @@ def filter_query(
     status: str = Query("unread", pattern="^(unread|saved|applied|rejected)$"),
     country: str = "",
     location: str = "",
+    search_query: str = "",
     priority: str = Query("", pattern="^(first|consider|low)?$"),
     liveness: str = Query("", pattern="^(live|stale|likely_closed|unknown)?$"),
     date_posted: str = Query("", pattern="^(24h|3d|7d|14d|30d)?$"),
@@ -1315,6 +1318,7 @@ def filter_query(
             "status": status,
             "country": country,
             "location": location,
+            "search_query": search_query,
             "priority": priority,
             "liveness": liveness,
             "date_posted": date_posted,
@@ -1339,10 +1343,25 @@ def get_stats(query: rendering.FilterQuery = Depends(filter_query)):
 
 @app.get("/api/meta")
 def get_meta():
-    targets = load_targets()
+    db = get_db()
+    try:
+        targets = load_targets(conn=db.conn)
+        # Include configured terms with no results and historical terms from disabled
+        # cells, without scanning the job feed or discarding deleted targets' provenance.
+        search_queries = [
+            row[0]
+            for row in db.conn.execute(
+                "SELECT query FROM search_queries UNION SELECT query FROM scrape_cells "
+                "ORDER BY query"
+            )
+            if row[0]
+        ]
+    finally:
+        db.close()
     return {
         "countries": rendering.country_choices(targets),
         "locations": [location.to_dict() for location in targets.locations.values()],
+        "search_queries": search_queries,
     }
 
 

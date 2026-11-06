@@ -60,6 +60,7 @@ export interface Job {
   pipeline_state: PipelineState | null;
 
   // Computed server-side, not raw columns.
+  search_query: string | null;
   liveness: Liveness;
   tailored_resume_id?: number | null;
 }
@@ -191,6 +192,7 @@ export interface GeneratedResumeRecord {
 export interface Meta {
   countries: [string, string][];
   locations: { id: string; label: string; enabled: boolean }[];
+  search_queries: string[];
   verdicts?: [string, string][];
 }
 
