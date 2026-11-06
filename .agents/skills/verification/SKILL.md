@@ -31,9 +31,12 @@ require network access for the build backend and locked dependencies.
 
 For changes to visible behavior, also exercise the affected flow in a browser.
 Read [Browser checks](references/browser-checks.md) for an isolated local server
-and the sandbox fallback. Use the available
-[Playwright CLI skill](../playwright-cli/SKILL.md); no repository Playwright test
-harness or preview fixture is required. Distinguish browser checks from API and
+and the sandbox fallback. Run browser commands with `npx --yes @playwright/cli`
+and use the available [Playwright CLI skill](../playwright-cli/SKILL.md) for command
+syntax. Its `playwright-cli` examples name the executable; substitute
+`npx --yes @playwright/cli` to select the current npm package rather than the
+deprecated `playwright-cli` package. No repository Playwright test harness or
+preview fixture is required. Distinguish browser checks from API and
 unit tests, and report visual failures even when automated checks pass.
 
 Successful runs write a local receipt under `test-results/verification/`. The stop

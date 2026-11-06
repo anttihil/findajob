@@ -55,12 +55,21 @@ in use, choose another local port and update the browser URL. Do not stop an
 unrelated listener. If the approved retry also fails, diagnose that failure
 instead of repeatedly escalating or changing ports without evidence.
 
-Use a named browser session through the
-[Playwright CLI skill](../../playwright-cli/SKILL.md), for example:
+Use `npx --yes @playwright/cli` with a named browser session. The npm package is
+`@playwright/cli`; `playwright-cli` is its executable name and also the name of a
+deprecated npm package. Avoid `npx playwright-cli`, which can fetch that deprecated
+package. Use the [Playwright CLI skill](../../playwright-cli/SKILL.md) for command
+syntax, substituting `npx --yes @playwright/cli` for its `playwright-cli` examples:
 
 ```sh
-playwright-cli -s=careerradar-check open http://127.0.0.1:8011
+npx --yes @playwright/cli --help
+npx --yes @playwright/cli -s=careerradar-check open http://127.0.0.1:8011
+npx --yes @playwright/cli -s=careerradar-check snapshot
 ```
+
+If `open` reports that Chromium is missing, install the version required by the
+CLI with `npx --yes @playwright/cli install-browser chromium`, using the session's
+permissions, then retry the same named session.
 
 If an apparently successful browser launch is followed by “Browser is not open”
 in the next call, the session may not have survived the execution boundary.
@@ -87,7 +96,8 @@ report such failures even when DOM assertions pass. Keep screenshots or traces
 in the temporary home or ignored `test-results/` directory when they help explain
 the result.
 
-Close only the named browser session and stop the server using its execution
-session handle. Preserve diagnostic artifacts if useful; do not kill unrelated
-browser sessions or listeners. Report the flows and viewports checked, the
+Close only the named browser session with
+`npx --yes @playwright/cli -s=careerradar-check close` and stop the server using its
+execution session handle. Preserve diagnostic artifacts if useful; do not kill
+unrelated browser sessions or listeners. Report the flows and viewports checked, the
 automated verification result, and any remaining failures or unavailable checks.
