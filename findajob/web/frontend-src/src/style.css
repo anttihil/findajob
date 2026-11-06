@@ -1581,6 +1581,53 @@ body {
 }
 
 /* Observability Stats & Verdict Cards */
+.obs-page-intro {
+  margin-bottom: 18px;
+}
+
+.obs-page-intro p {
+  color: var(--ink-muted);
+  margin-top: 6px;
+}
+
+.obs-summary-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  color: var(--ink-primary);
+  cursor: pointer;
+  text-align: left;
+}
+
+.obs-summary-card.active {
+  background-color: var(--bg-inverse);
+  color: var(--ink-inverse);
+}
+
+.obs-summary-card.active .stat-label {
+  color: inherit;
+}
+
+.obs-summary-count {
+  font-size: 24px;
+}
+
+.obs-diagnostics {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  margin-top: 28px;
+}
+
+.obs-diagnostics .obs-stats-grid {
+  margin-bottom: 0;
+}
+
+.obs-models-table-wrap {
+  overflow-x: auto;
+}
+
 .obs-stats-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
@@ -1607,13 +1654,6 @@ body {
   color: var(--ink-muted);
 }
 
-.obs-analytics-row {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 18px;
-  margin-bottom: 18px;
-}
-
 .obs-panel-header {
   margin-bottom: 12px;
   border-bottom: 1px solid var(--ink-primary);
@@ -1628,56 +1668,6 @@ body {
 .obs-panel-hint {
   font-size: 11px;
   color: var(--ink-muted);
-}
-
-.obs-reasons-list {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.obs-reason-row {
-  border: 1px solid var(--ink-primary);
-  padding: 10px;
-  background-color: var(--bg-screen-alt);
-  cursor: pointer;
-}
-
-.obs-reason-row.is-selected {
-  background-color: var(--bg-inverse);
-  color: var(--ink-inverse);
-}
-
-.obs-reason-meta {
-  display: flex;
-  justify-content: space-between;
-  font-size: 12px;
-  font-weight: 700;
-  margin-bottom: 6px;
-}
-
-.obs-progress-bg {
-  height: 8px;
-  border: 1px solid var(--ink-primary);
-  background-color: var(--bg-screen);
-}
-
-.obs-progress-bar {
-  height: 100%;
-  background-color: var(--bg-inverse);
-}
-
-.obs-reason-row.is-selected .obs-progress-bar {
-  background-color: var(--ink-inverse);
-}
-
-.obs-info-callout {
-  border: 1px solid var(--ink-primary);
-  padding: 12px;
-  background-color: var(--bg-screen-alt);
-  margin-bottom: 14px;
-  font-size: 12.5px;
-  line-height: 1.5;
 }
 
 .obs-explorer-header {
@@ -1699,6 +1689,7 @@ body {
 
 .obs-search-input-wrap {
   flex: 1;
+  min-width: 0;
   position: relative;
   display: flex;
   align-items: center;
@@ -1749,27 +1740,6 @@ body {
   text-transform: uppercase;
 }
 
-.obs-btn-group {
-  display: flex;
-  gap: 6px;
-}
-
-.obs-filter-btn {
-  border: 1px solid var(--ink-primary);
-  background-color: var(--bg-screen-alt);
-  color: var(--ink-primary);
-  padding: 6px 10px;
-  font-family: var(--font-mono);
-  font-size: 12px;
-  font-weight: 700;
-  cursor: pointer;
-}
-
-.obs-filter-btn.active {
-  background-color: var(--bg-inverse);
-  color: var(--ink-inverse);
-}
-
 .obs-verdict-card {
   border: 1px solid var(--ink-primary);
   background-color: var(--bg-screen-alt);
@@ -1780,6 +1750,8 @@ body {
 
 .obs-verdict-top {
   display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
   justify-content: space-between;
   align-items: flex-start;
   margin-bottom: 10px;
@@ -1803,6 +1775,7 @@ body {
 
 .obs-verdict-meta-row {
   display: flex;
+  flex-wrap: wrap;
   gap: 12px;
   font-size: 12px;
   color: var(--ink-muted);
@@ -1818,24 +1791,17 @@ body {
   padding: 3px 10px;
   font-weight: 800;
   font-size: 11.5px;
+  border: 1px solid var(--ink-primary);
 }
 
-.obs-badge-verdict.is-fit {
+.obs-badge-verdict.priority-first {
   background-color: var(--bg-inverse);
   color: var(--ink-inverse);
 }
 
-.obs-badge-verdict.is-no-fit {
-  border: 1px solid var(--ink-primary);
+.obs-badge-verdict.priority-low {
   background-color: transparent;
   color: var(--ink-primary);
-}
-
-.obs-badge-reason {
-  border: 1px solid var(--ink-primary);
-  padding: 3px 8px;
-  font-size: 11.5px;
-  font-weight: 700;
 }
 
 .obs-explanation-box {
@@ -1847,8 +1813,20 @@ body {
   line-height: 1.5;
 }
 
+.obs-explanation-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.obs-verdict-job-info {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
 .obs-verdict-footer {
   display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
   justify-content: space-between;
   align-items: center;
   font-size: 12px;
@@ -1856,6 +1834,7 @@ body {
 
 .obs-token-pills {
   display: flex;
+  flex-wrap: wrap;
   gap: 10px;
 }
 
