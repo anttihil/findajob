@@ -82,3 +82,32 @@ def test_global_source_switch_intersects_query_scope() -> None:
     _seed(conn, sources=("indeed",))
     rows = conn.execute("SELECT source FROM scrape_cells WHERE enabled = 1").fetchall()
     assert [row["source"] for row in rows] == ["indeed"]
+
+
+def test_google_requires_explicit_assignment_and_prunes_without_losing_history() -> None:
+    conn = _migrated()
+    save_location(conn, loc_id="fi", label="Helsinki")
+    add_query(conn, "Legacy")
+    google_id = add_query(conn, "Google role", sources=["google"])
+    specs = load_targets(conn=conn).cell_specs()
+    assert {(s["query"], s["source"]) for s in specs} == {
+        ("Legacy", "indeed"),
+        ("Legacy", "linkedin"),
+        ("Google role", "google"),
+    }
+    seed_cells(conn, specs)
+    cell = conn.execute("SELECT id FROM scrape_cells WHERE source='google'").fetchone()[0]
+    conn.execute("UPDATE scrape_cells SET total_scrapes=5 WHERE id=?", (cell,))
+    conn.commit()
+    _seed(conn)  # Global Google disable prunes its cell.
+    old = conn.execute(
+        "SELECT enabled,total_scrapes FROM scrape_cells WHERE id=?", (cell,)
+    ).fetchone()
+    assert tuple(old) == (0, 5)
+    seed_cells(conn, load_targets(conn=conn).cell_specs())
+    assert conn.execute("SELECT enabled FROM scrape_cells WHERE id=?", (cell,)).fetchone()[0] == 1
+    update_query(conn, google_id, sources=["indeed"])
+    specs = load_targets(conn=conn).cell_specs()
+    seed_cells(conn, specs)
+    prune_cells(conn, specs)
+    assert conn.execute("SELECT enabled FROM scrape_cells WHERE id=?", (cell,)).fetchone()[0] == 0

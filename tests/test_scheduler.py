@@ -613,7 +613,7 @@ class ErrorClassificationTests(unittest.TestCase):
 
         for exc in [
             Exception("407 Proxy Authentication Required"),
-            ProxyError("('Unable to connect to proxy', ConnectTimeoutError('timed out'))"),
+            ProxyError("Unable to connect to proxy"),
             Exception("Tunnel connection failed: 407"),
             Exception("bad proxy"),
         ]:
@@ -622,7 +622,6 @@ class ErrorClassificationTests(unittest.TestCase):
     def test_transient_is_recognised(self) -> None:
         for exc in [
             Exception("503 Service Unavailable"),
-            Exception("read timeout"),
             Exception("connection reset by peer"),
         ]:
             self.assertEqual(classify_error(exc), ERROR_TRANSIENT, str(exc))
@@ -648,6 +647,7 @@ class FakeDb:
         backoff_until: str | None,
         consecutive_failures: int,
         last_error: str,
+        failure_class: str | None = None,
     ) -> None:
         self.writes += 1
         for source in sources:
@@ -658,6 +658,7 @@ class FakeDb:
                 "backoff_until": backoff_until,
                 "consecutive_failures": consecutive_failures,
                 "last_error": last_error,
+                "failure_class": failure_class,
             }
 
     def clear_proxy_state(
@@ -723,22 +724,22 @@ class CircuitBreakerTests(unittest.TestCase):
 
     def test_transient_errors_trip_only_after_the_threshold(self) -> None:
         circuit = self._circuit(FakeDb())
-        circuit.on_error(Exception("timeout"))
+        circuit.on_error(Exception("connection reset by peer"))
         self.assertFalse(circuit.is_open)
-        circuit.on_error(Exception("timeout"))
+        circuit.on_error(Exception("connection reset by peer"))
         self.assertFalse(circuit.is_open)
-        circuit.on_error(Exception("timeout"))
+        circuit.on_error(Exception("connection reset by peer"))
         self.assertTrue(circuit.is_open)
 
     def test_multi_proxy_transient_gives_one_free_strike_then_backs_off(self) -> None:
         db = FakeDb()
         proxies = ["10.0.0.1:8000", "10.0.0.2:8000"]
         circuit = self._circuit(db, proxies=proxies)
-        circuit.on_request_error(Exception("read timeout"), proxies[0])
+        circuit.on_request_error(Exception("connection reset by peer"), proxies[0])
         self.assertTrue(circuit.is_usable(proxies[0]))
         self.assertEqual(db.writes, 0)
 
-        circuit.on_request_error(Exception("read timeout"), proxies[0])
+        circuit.on_request_error(Exception("connection reset by peer"), proxies[0])
         self.assertFalse(circuit.is_usable(proxies[0]))
         self.assertEqual(
             db.rows[(proxy_id(proxies[0]), "linkedin")]["backoff_until"],
@@ -751,10 +752,10 @@ class CircuitBreakerTests(unittest.TestCase):
         circuit.on_request_success(None)
         self.assertEqual(db.writes, 0)
 
-        circuit.on_error(Exception("timeout"))
-        circuit.on_error(Exception("timeout"))
+        circuit.on_error(Exception("connection reset by peer"))
+        circuit.on_error(Exception("connection reset by peer"))
         circuit.on_success(10)
-        circuit.on_error(Exception("timeout"))
+        circuit.on_error(Exception("connection reset by peer"))
         self.assertFalse(circuit.is_open)
 
         proxies = ["10.0.0.1:8000", "10.0.0.2:8000"]
@@ -792,7 +793,7 @@ class CircuitBreakerTests(unittest.TestCase):
             r1 = SourceCircuit("linkedin", CONFIG, db=db, now=lambda: NOW, proxies=[proxy, *others])
             r1.on_request_error(Exception("407 Proxy Authentication Required"), proxy)
             states = {r["source"]: r for r in db.get_proxy_states()}
-            self.assertEqual(set(states), {"indeed", "linkedin"})
+            self.assertEqual(set(states), {"indeed", "linkedin", "google"})
             self.assertEqual(states["indeed"]["status"], "backoff")
             self.assertEqual(
                 states["indeed"]["backoff_until"], (NOW + timedelta(minutes=60)).isoformat()
@@ -811,7 +812,7 @@ class CircuitBreakerTests(unittest.TestCase):
             t3 = t2 + timedelta(minutes=301)
             r3 = SourceCircuit("linkedin", CONFIG, db=db, now=lambda: t3, proxies=[proxy, *others])
             r3.on_request_error(Exception("407 Proxy Authentication Required"), proxy)
-            for source in ("indeed", "linkedin"):
+            for source in ("indeed", "linkedin", "google"):
                 later = SourceCircuit(
                     source, CONFIG, db=db, now=lambda: t3 + timedelta(days=30), proxies=[proxy]
                 )

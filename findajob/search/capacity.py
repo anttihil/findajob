@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Any
 
 from findajob.core.config import DEFAULT_CONFIG, deep_merge
 from findajob.core.search_schedule import SearchSchedule, search_schedules
+from findajob.core.sources import DEFAULT_QUERY_SOURCES
 from findajob.search.policy import source_policy
 from findajob.search.proxies import load_proxies
 from findajob.search.scheduler import estimate_units, results_wanted_for
@@ -59,7 +60,13 @@ def calculate_capacity(
     search_pairs = active_queries_count * active_locations_count
     sources = {}
     for source, schedule in schedules.items():
-        cells = cells_by_source.get(source, 0) if cells_by_source is not None else search_pairs
+        cells = (
+            cells_by_source.get(source, 0)
+            if cells_by_source is not None
+            else search_pairs
+            if source in DEFAULT_QUERY_SOURCES
+            else 0
+        )
         policy = source_policy(scraper, source)
         wanted = results_wanted_for(scraper, source)
         units = estimate_units(

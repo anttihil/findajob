@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "preact/hooks";
 import type { ComponentChildren } from "preact";
 import { useStoredPreference } from "../lib/preferences";
+import { SOURCE_LABELS } from "../lib/sources";
 import { deleteJSON, getJSON, guard, postJSON, putJSON, reportError } from "../api/client";
 import type {
   Config,
@@ -9,11 +10,6 @@ import type {
   TargetQuery,
   TargetsResponse,
 } from "../api/types";
-
-const SOURCE_LABELS: Record<string, string> = {
-  indeed: "Indeed",
-  linkedin: "LinkedIn",
-};
 
 interface PresetItem {
   id: string;
@@ -811,6 +807,7 @@ export function SearchTargetsWidget({
                         <option value="all">All Sources</option>
                         <option value="indeed">Indeed</option>
                         <option value="linkedin">LinkedIn</option>
+                        <option value="google">Google Jobs</option>
                       </select>
 
                       <button
@@ -1195,7 +1192,7 @@ export function SearchTargetsWidget({
                         </h4>
                         {Object.entries(capacity?.sources ?? {}).map(([source, estimate]) => (
                           <p class="card-note" key={source}>
-                            {source === "linkedin" ? "LinkedIn" : "Indeed"}: {estimate.cells} cells,{" "}
+                            {SOURCE_LABELS[source] || source}: {estimate.cells} cells,{" "}
                             {estimate.runs_per_day} runs/day,{" "}
                             {estimate.cycle_hours === null
                               ? "budget cannot fit a cell"
@@ -1256,8 +1253,7 @@ export function SearchTargetsWidget({
                   required
                 ></textarea>
                 <span class="form-hint">
-                  Add board-specific terms here. Create separate query records for Indeed and
-                  LinkedIn.
+                  Add board-specific terms here. Create separate query records for each provider.
                 </span>
               </div>
 
@@ -1280,6 +1276,12 @@ export function SearchTargetsWidget({
                     <code>"quoted phrases"</code> for exact matches, <code>-word</code> to exclude
                     noise, and <code>(python OR go)</code> for alternatives. Example:{" "}
                     <code>"platform engineer" (python OR go) -marketing</code>.
+                  </span>
+                )}
+                {newQuerySource === "google" && (
+                  <span class="form-hint" style={{ display: "block", marginTop: "8px" }}>
+                    Google Jobs combines your term with location, remote status, and an age bucket.
+                    The configured radius is not enforced. Google is opt in for each query.
                   </span>
                 )}
               </div>
@@ -1360,7 +1362,7 @@ export function SearchTargetsWidget({
                   <input
                     type="text"
                     class="form-input"
-                    placeholder="e.g. San Francisco, CA (Sent to Indeed/LinkedIn search)"
+                    placeholder="e.g. San Francisco, CA (Sent to provider search)"
                     value={locSearchLabel}
                     onInput={(e) => setLocSearchLabel((e.target as HTMLInputElement).value)}
                   />

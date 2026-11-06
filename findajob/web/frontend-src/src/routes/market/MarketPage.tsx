@@ -1,3 +1,4 @@
+import { sourceLabel } from "../../lib/sources";
 import { useEffect, useMemo, useState } from "preact/hooks";
 import { getJSON } from "../../api/client";
 import type {
@@ -294,7 +295,8 @@ export function MarketPage() {
               ← All search tuples
             </button>
             <h4 class="market-tuple-title">
-              {selected.query} · {selected.source} · {locationLabel(selected.location_id)}
+              {selected.query} · {sourceLabel(selected.source)} ·{" "}
+              {locationLabel(selected.location_id)}
             </h4>
             <TupleProgression
               key={`${selected.cell_id}:${windowDays}`}
@@ -354,7 +356,7 @@ export function MarketPage() {
                           {tuple.query} <span aria-hidden="true">→</span>
                         </button>
                       </th>
-                      <td data-label="Provider">{tuple.source}</td>
+                      <td data-label="Provider">{sourceLabel(tuple.source)}</td>
                       <td data-label="Location">{locationLabel(tuple.location_id)}</td>
                       <td data-label="Jobs found">{tuple.total_postings.toLocaleString()}</td>
                       <td data-label="Scored">{tuple.scored_postings.toLocaleString()}</td>

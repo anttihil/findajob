@@ -1,3 +1,4 @@
+import { sourceLabel } from "../lib/sources";
 import { Link } from "wouter-preact";
 import type { Job } from "../api/types";
 import type { FilterQuery } from "../lib/filterQuery";
@@ -19,7 +20,7 @@ export function JobCard({ job, query }: { job: Job; query: FilterQuery }) {
             <i class="fa-solid fa-location-dot"></i> {job.location || "Remote"}
           </span>
           <span>
-            <i class="fa-solid fa-server"></i> {job.source}
+            <i class="fa-solid fa-server"></i> {sourceLabel(job.source)}
           </span>
         </div>
         <div class="matched-skills-preview">

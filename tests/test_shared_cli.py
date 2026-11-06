@@ -157,7 +157,7 @@ def test_jobs_list_rejects_retired_filters(option: str, value: str | None) -> No
     assert exc.value.code == 2
 
 
-@pytest.mark.parametrize("source", [None, "indeed", "linkedin"])
+@pytest.mark.parametrize("source", [None, "indeed", "linkedin", "google"])
 def test_search_run_passes_source_filter(source: str | None) -> None:
     from findajob.search import runner
 
@@ -226,3 +226,19 @@ def test_search_proxies_inspects_and_resets_state(
             reset_all = cli.build_parser().parse_args(["search", "proxies", "--reset"])
             assert cli._cmd_search_proxies(reset_all) == 0
             assert "Cleared 2 proxy state row(s)." in capsys.readouterr().out
+
+
+@pytest.mark.parametrize(
+    "argv",
+    [
+        ["search", "proxies"],
+        ["search", "run"],
+        ["search", "query", "--query", "Engineer", "--location", "Helsinki"],
+        ["target", "add", "Engineer"],
+        ["target", "edit", "1"],
+        ["jobs", "list"],
+    ],
+)
+def test_google_cli_source_choices(argv: list[str]) -> None:
+    args = cli.build_parser().parse_args([*argv, "--source", "google"])
+    assert getattr(args, "sources", None) == ["google"] or args.source == "google"

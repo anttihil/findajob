@@ -16,6 +16,8 @@ import json
 import sys
 from typing import Any
 
+from findajob.core.sources import SCHEDULED_SOURCES
+
 CONTRACT_VERSION = 1
 
 
@@ -539,7 +541,7 @@ def build_parser() -> argparse.ArgumentParser:
     ssub = s.add_subparsers(dest="subcommand", required=True)
     sr = ssub.add_parser("run", help="run one scrape pass")
     sr.add_argument("--dry-run", action="store_true", help="plan and fetch, but write nothing")
-    sr.add_argument("--source", choices=["indeed", "linkedin"])
+    sr.add_argument("--source", choices=SCHEDULED_SOURCES)
     sr.add_argument("--force", action="store_true", help="ignore the sync lock")
     sr.set_defaults(func=_cmd_search, stage="search")
 
@@ -552,7 +554,7 @@ def build_parser() -> argparse.ArgumentParser:
     ssd.set_defaults(func=_cmd_search_seed)
 
     spx = ssub.add_parser("proxies", help="inspect or reset per-proxy backoff and broken state")
-    spx.add_argument("--source", choices=["indeed", "linkedin"])
+    spx.add_argument("--source", choices=SCHEDULED_SOURCES)
     spx.add_argument("--reset", action="store_true", help="clear persisted proxy failure state")
     spx.add_argument(
         "--broken-only", action="store_true", help="with --reset, only clear broken proxies"
@@ -562,7 +564,7 @@ def build_parser() -> argparse.ArgumentParser:
     query = ssub.add_parser("query", help="run one explicit board query outside the rotation")
     query.add_argument("--query", required=True)
     query.add_argument("--location", required=True)
-    query.add_argument("--source", choices=["indeed", "linkedin"], default="indeed")
+    query.add_argument("--source", choices=SCHEDULED_SOURCES, default="indeed")
     query.add_argument("--country", default="US", help="ISO country code used for normalization")
     query.add_argument("--indeed-country", default="usa", help="JobSpy Indeed country slug")
     query.add_argument("--remote", action="store_true")
@@ -654,8 +656,8 @@ def build_parser() -> argparse.ArgumentParser:
         "--source",
         dest="sources",
         action="append",
-        choices=["indeed", "linkedin"],
-        help="board to schedule (repeat for both; defaults to both)",
+        choices=SCHEDULED_SOURCES,
+        help="board to schedule (repeat for multiple; defaults to Indeed and LinkedIn)",
     )
 
     tar_edit = tar_sub.add_parser("edit", help="edit a query term or its board scope")
@@ -665,8 +667,8 @@ def build_parser() -> argparse.ArgumentParser:
         "--source",
         dest="sources",
         action="append",
-        choices=["indeed", "linkedin"],
-        help="replacement board scope (repeat for both)",
+        choices=SCHEDULED_SOURCES,
+        help="replacement board scope (repeat for multiple)",
     )
 
     tar_tog = tar_sub.add_parser("toggle", help="enable or pause a search query")
@@ -716,7 +718,7 @@ def build_parser() -> argparse.ArgumentParser:
     jobs = jobs_sub.add_parser("list", help="list postings with stable filters")
     jobs.add_argument("--country")
     jobs.add_argument("--location")
-    jobs.add_argument("--source", choices=["indeed", "linkedin"])
+    jobs.add_argument("--source", choices=SCHEDULED_SOURCES)
     jobs.add_argument("--remote", action="store_true")
     jobs.add_argument("--pipeline-state", choices=["new", "scored"])
     jobs.add_argument("--priority", choices=["first", "consider", "low"])

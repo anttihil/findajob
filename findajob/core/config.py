@@ -24,11 +24,11 @@ load_env()
 
 DEFAULT_CONFIG: dict[str, Any] = {
     "scraper": {
-        "sources": {"indeed": True, "linkedin": True},
+        "sources": {"indeed": True, "linkedin": True, "google": True},
         # Board mechanics and safe operating limits belong to the application.  Users may
         # still override them locally if a board changes its behaviour.
-        "page_size": {"indeed": 100, "linkedin": 10},
-        "requests_per_description": {"indeed": 0, "linkedin": 1},
+        "page_size": {"indeed": 100, "linkedin": 10, "google": 10},
+        "requests_per_description": {"indeed": 0, "linkedin": 1, "google": 0},
         "hours_old_floor": 72,
         "max_hours_old": 168,
         "backfill_hours_old": 168,
@@ -39,6 +39,11 @@ DEFAULT_CONFIG: dict[str, Any] = {
             "indeed": {
                 "requests_per_proxy": 100,
                 "request_interval_seconds": 2.0,
+                "results_wanted": 500,
+            },
+            "google": {
+                "requests_per_proxy": 100,
+                "request_interval_seconds": 3.0,
                 "results_wanted": 500,
             },
             "linkedin": {

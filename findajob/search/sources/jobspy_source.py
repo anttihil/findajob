@@ -52,7 +52,7 @@ class JobSpySource(BaseJobSource):
     def iter_pages(self, task: ScrapeTaskPayload, traffic: SourceTraffic) -> Generator[SearchPage]:
         """Yield one board page at a time; the caller controls the budget boundary.
 
-        Only pinned JobSpy parsers and Indeed's page builder are reused. The
+        Pinned JobSpy parsers and the Indeed/Google page builders are reused. The
         library's pagination, pacing, retries, and swallowed HTTP errors are bypassed.
         """
         from bs4 import BeautifulSoup
@@ -73,6 +73,13 @@ class JobSpySource(BaseJobSource):
             description_format=DescriptionFormat(self.description_format),
             results_wanted=task["results_wanted"],
         )
+        if source == "google":
+            from findajob.search.sources.google import google_pages
+
+            yield from google_pages(scraper_input, traffic)
+            return
+        if source not in {"indeed", "linkedin"}:
+            raise ValueError(f"Unsupported source: {source}")
         client: Any = Indeed() if source == "indeed" else LinkedIn()
         headers = dict(client.session.headers)
         client.session.close()
@@ -149,7 +156,8 @@ class ScrapeJobsKwargs(TypedDict, total=False):
     """Arguments for jobspy's `scrape_jobs()`.
 
     Optional throughout, because the call is assembled per board rather than filled in
-    once: `country_indeed` and `distance` are Indeed-only, `linkedin_fetch_description` is
+    once: `country_indeed` is Indeed-only, `distance` applies to Indeed/LinkedIn,
+    `linkedin_fetch_description` is
     LinkedIn-only, and the rest are omitted when the cell does not ask for them. Omitting a
     key and passing its default are not the same to the library.
     """
@@ -181,8 +189,10 @@ def build_scrape_kwargs(
     """
     source = task["source"]
     location = task["location_label"] or None
-    if source == "linkedin" and task["location_id"] == "us_remote":
+    if source in {"linkedin", "google"} and task["location_id"] == "us_remote":
         location = "United States"
+    if source == "google" and task["location_id"] == "global_remote":
+        location = None
 
     kwargs: ScrapeJobsKwargs = {
         "site_name": [source],
@@ -205,7 +215,7 @@ def build_scrape_kwargs(
         # Discovery only. The runner reuses stored details before requesting misses.
         kwargs["linkedin_fetch_description"] = False
 
-    if not task["is_remote"] and task["distance"]:
+    if source != "google" and not task["is_remote"] and task["distance"]:
         # JobSpy sends this through to both Indeed and LinkedIn.  Keeping it outside
         # the board branch avoids silently broadening LinkedIn searches.
         kwargs["distance"] = task["distance"]

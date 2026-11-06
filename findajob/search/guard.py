@@ -6,6 +6,7 @@ from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING, Any
 
 from findajob.core.logger import get_logger
+from findajob.core.sources import SCHEDULED_SOURCES
 from findajob.search.proxies import proxy_id, redact
 
 if TYPE_CHECKING:
@@ -13,11 +14,12 @@ if TYPE_CHECKING:
 
 logger = get_logger()
 
-ALL_SOURCES = ("indeed", "linkedin")
+ALL_SOURCES = SCHEDULED_SOURCES
 
 # Error classes, in precedence order.
 ERROR_RATE_LIMIT = "rate_limit"
 ERROR_PROXY = "proxy_transport"
+ERROR_TIMEOUT = "timeout"
 ERROR_BLOCKED = "blocked"
 ERROR_TRANSIENT = "transient"
 ERROR_FATAL = "fatal"
@@ -28,6 +30,14 @@ _RATE_LIMIT_MARKERS = re.compile(
 _PROXY_MARKERS = re.compile(
     r"\b(?:407|proxy authentication|proxyerror|unable to connect to proxy|"
     r"tunnel connection failed|bad proxy|proxy responded|proxy error)\b",
+    re.IGNORECASE,
+)
+_AUTH_MARKERS = re.compile(r"\b(?:407|proxy authentication)\b", re.IGNORECASE)
+_TIMEOUT_MARKERS = re.compile(
+    r"\b(?:(?:connect|read)?timeout(?:error)?|timed out)\b", re.IGNORECASE
+)
+_CONNECT_TIMEOUT_MARKERS = re.compile(
+    r"\b(?:connecttimeout(?:error)?|connect timeout|connection to .+ timed out)\b",
     re.IGNORECASE,
 )
 _BLOCKED_MARKERS = re.compile(
@@ -45,17 +55,44 @@ PROXY_BACKOFF_MINUTES = (60, 300)
 PROXY_BROKEN_FAILURES = 3
 BOARD_BLOCK_BACKOFF_MINUTES = (60, 240, 1440)
 TRANSIENT_BACKOFF_MINUTES = (15, 60, 240)
+TIMEOUT_BACKOFF_MINUTES = (15, 60, 240)
+
+
+def _error_text(exc: BaseException) -> str:
+    """Include nested transport exceptions even when their wrapper hides the cause."""
+    pending = [exc]
+    seen: set[int] = set()
+    parts = []
+    while pending:
+        error = pending.pop()
+        if id(error) in seen:
+            continue
+        seen.add(id(error))
+        parts.append(getattr(error, "classify_text", None) or f"{type(error).__name__}: {error}")
+        for nested in (
+            error.__cause__,
+            error.__context__,
+            getattr(error, "reason", None),
+            *error.args,
+        ):
+            if isinstance(nested, BaseException):
+                pending.append(nested)
+    return "\n".join(parts)
 
 
 def classify_error(exc: BaseException) -> str:
-    """Classify a scrape exception into proxy, rate-limit, blocked, transient, or fatal."""
-    message = getattr(exc, "classify_text", None) or f"{type(exc).__name__}: {exc}"
+    """Distinguish temporary timeouts from proxy transport and board failures."""
+    message = _error_text(exc)
     if _RATE_LIMIT_MARKERS.search(message):
         return ERROR_RATE_LIMIT
-    if _PROXY_MARKERS.search(message):
+    if _AUTH_MARKERS.search(message):
         return ERROR_PROXY
     if _BLOCKED_MARKERS.search(message):
         return ERROR_BLOCKED
+    if _TIMEOUT_MARKERS.search(message):
+        return ERROR_TIMEOUT
+    if _PROXY_MARKERS.search(message):
+        return ERROR_PROXY
     if _TRANSIENT_MARKERS.search(message):
         return ERROR_TRANSIENT
     return ERROR_FATAL
@@ -207,12 +244,26 @@ class SourceCircuit:
         self.errors.append({"class": error_class, "proxy": label, "error": message})
 
         prev = self.proxy_states.get(pid)
-        failures = (int(prev["consecutive_failures"]) if prev else 0) + 1
+        failures = (
+            int(prev["consecutive_failures"]) + 1
+            if prev is not None and prev.get("failure_class") == error_class
+            else 1
+        )
         minutes: int | None = None
         status = "backoff"
         sources: tuple[str, ...] = (self.source,)
 
-        if error_class == ERROR_PROXY:
+        if error_class == ERROR_TIMEOUT:
+            # A slow board is source-specific; a proxy connection timeout affects both.
+            text = _error_text(exc)
+            if (
+                endpoint is not None
+                and (_PROXY_MARKERS.search(text) or _CONNECT_TIMEOUT_MARKERS.search(text))
+                and not re.search(r"read\s*time(?:out|d out)", text, re.I)
+            ):
+                sources = ALL_SOURCES
+            minutes = TIMEOUT_BACKOFF_MINUTES[min(failures - 1, len(TIMEOUT_BACKOFF_MINUTES) - 1)]
+        elif error_class == ERROR_PROXY:
             sources = ALL_SOURCES
             if pid != "direct" and failures >= PROXY_BROKEN_FAILURES:
                 status = "broken"
@@ -239,6 +290,7 @@ class SourceCircuit:
             "backoff_until": until,
             "consecutive_failures": failures,
             "last_error": message,
+            "failure_class": error_class,
         }
         self.proxy_states[pid] = state
         if self.db is not None and (status == "broken" or until is not None or prev is not None):
@@ -249,6 +301,7 @@ class SourceCircuit:
                 backoff_until=until,
                 consecutive_failures=failures,
                 last_error=message,
+                failure_class=error_class,
             )
 
         if status == "broken":

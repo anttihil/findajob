@@ -146,3 +146,53 @@ def test_capacity_and_refresh_share_source_scoped_estimates(
     assert capacity["sources"]["indeed"]["cycle_hours"] == 2
     assert capacity["sources"]["linkedin"]["cycle_hours"] == 8
     assert capacity["cycle_hours"] == 8
+
+
+def test_google_assignment_and_filtering(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from findajob.core.database import Database
+    from findajob.web import app as web
+
+    path = str(tmp_path / "google.db")
+    Database(path).close()
+    monkeypatch.setattr(web, "get_db", lambda: Database(path))
+    monkeypatch.setattr(web, "_sync_target_cells", lambda: None)
+    response = client.post(
+        "/api/targets/queries", json={"query": "Google engineer", "sources": ["google"]}
+    )
+    assert response.status_code == 200
+    query_id = response.json()["id"]
+    assert client.get("/api/targets").json()["queries"][0]["sources"] == ["google"]
+    assert (
+        client.put(f"/api/targets/queries/{query_id}", json={"sources": ["indeed"]}).status_code
+        == 200
+    )
+    assert (
+        client.put(f"/api/targets/queries/{query_id}", json={"sources": ["google"]}).status_code
+        == 200
+    )
+    assert client.get("/api/targets").json()["queries"][0]["sources"] == ["google"]
+    db = Database(path)
+    db.upsert_posting(
+        {
+            "job_key": "google-go-1",
+            "source": "google",
+            "title": "Engineer",
+            "company": "Acme",
+            "url": "https://example.test/1",
+        }
+    )
+    db.upsert_posting(
+        {
+            "job_key": "indeed-in-1",
+            "source": "indeed",
+            "title": "Engineer",
+            "company": "Acme",
+            "url": "https://example.test/2",
+        }
+    )
+    db.close()
+    response = client.get("/api/jobs", params={"source": "google"})
+    assert response.status_code == 200
+    assert [job["source"] for job in response.json()["jobs"]] == ["google"]

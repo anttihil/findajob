@@ -26,6 +26,7 @@ it("shows the next search separately for each source", async () => {
           next_runs: {
             "search:indeed": "2026-10-28T15:00:00Z",
             "search:linkedin": "2026-10-28T18:00:00Z",
+            "search:google": "2026-10-28T18:00:00Z",
             score: "2026-10-28T12:30:00Z",
           },
         },
@@ -37,6 +38,7 @@ it("shows the next search separately for each source", async () => {
     const text = view.getByText(/Next searches/).textContent;
     expect(text).toContain("Indeed:");
     expect(text).toContain("LinkedIn:");
+    expect(text).toContain("Google Jobs:");
     expect(text).not.toContain("score:");
   });
 });

@@ -9,6 +9,10 @@
 #       requests_per_proxy: 100
 #       request_interval_seconds: 2
 #       results_wanted: 500
+#     google:  # Assign queries explicitly in Settings or with target add --source google.
+#       requests_per_proxy: 100
+#       request_interval_seconds: 3
+#       results_wanted: 500
 #     linkedin:
 #       requests_per_proxy: 100
 #       request_interval_seconds: 3
@@ -35,6 +39,8 @@
 #     sources:
 #       indeed:
 #         interval_minutes: 180
+#       google:
+#         interval_minutes: 360
 #       linkedin:
 #         interval_minutes: 360
 #     jitter_minutes: 15

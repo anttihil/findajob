@@ -1,3 +1,4 @@
+import { sourceLabel } from "../../lib/sources";
 import { TierBadge } from "../../components/badges/TierBadge";
 import { useEffect, useState } from "preact/hooks";
 import { Link } from "wouter-preact";
@@ -65,7 +66,7 @@ export function JobDrawer({
               <div class="drawer-header">
                 <div class="drawer-badge-row">
                   <TierBadge job={job} />
-                  <span class="source-badge">{job.source}</span>
+                  <span class="source-badge">{sourceLabel(job.source)}</span>
                 </div>
                 <h2>{job.title}</h2>
                 <div class="drawer-meta">

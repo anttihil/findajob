@@ -181,6 +181,7 @@ describe("SearchTargetsWidget", () => {
       expect(getByText("Enabled Crawler Sources")).toBeTruthy();
       expect(getByLabelText(/Indeed/)).toBeTruthy();
       expect(getByLabelText(/LinkedIn/)).toBeTruthy();
+      expect(getByLabelText(/Google Jobs/)).toBeTruthy();
     });
   });
 
@@ -210,6 +211,7 @@ describe("source sweep estimates", () => {
       sources: {
         indeed: { cells: 24, runs_per_day: 8, cycle_hours: 3 },
         linkedin: { cells: 40, runs_per_day: 4, cycle_hours: 12 },
+        google: { cells: 2, runs_per_day: 4, cycle_hours: 6 },
       },
     };
     vi.stubGlobal(
@@ -238,7 +240,56 @@ describe("source sweep estimates", () => {
       expect(view.getByText(/Indeed: 24 cells, 8 runs\/day, ~3h sweep/)).toBeTruthy(),
     );
     expect(view.getByText(/LinkedIn: 40 cells, 4 runs\/day, ~12h sweep/)).toBeTruthy();
+    expect(view.getByText(/Google Jobs: 2 cells, 4 runs\/day, ~6h sweep/)).toBeTruthy();
     fireEvent.click(view.getByText(/Force Matrix Re-sync/));
     await waitFor(() => expect(view.getByText("Estimated sweep: ~12 hours")).toBeTruthy());
+  });
+});
+
+describe("Google Jobs queries", () => {
+  it("creates, selects, filters, and reloads explicitly assigned queries", async () => {
+    let queries = [{ id: 1, query: "Existing engineer", enabled: 1, sources: ["indeed"] }];
+    const fetchMock = vi.fn(async (url: string, opts?: { method?: string; body?: string }) => {
+      if (url === "/api/targets/queries" && opts?.method === "POST") {
+        const payload = JSON.parse(opts.body!);
+        queries = [...queries, { id: 2, ...payload }];
+      }
+      if (url === "/api/targets/queries/1" && opts?.method === "PUT") {
+        queries = queries.map((q) => (q.id === 1 ? { ...q, ...JSON.parse(opts.body!) } : q));
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () =>
+          url === "/api/targets"
+            ? { ...mockTargets, queries }
+            : url === "/api/targets/capacity"
+              ? mockCapacity
+              : { scraper: { sources: { indeed: true, linkedin: true, google: true } } },
+      };
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    window.localStorage.clear();
+    const view = render(<SearchTargetsWidget initialExpanded />);
+    await waitFor(() => expect(view.getByText("Existing engineer")).toBeTruthy());
+    const existing = view.getByText("Existing engineer").closest("tr")!;
+    fireEvent.click(existing.querySelectorAll('input[type="radio"]')[2]);
+    await waitFor(() => expect(queries[0].sources).toEqual(["google"]));
+    fireEvent.click(view.getByText("Add Query Term"));
+    const modal = view.container.querySelector(".retro-modal-box")!;
+    fireEvent.click(modal.querySelectorAll('input[name="new-query-source"]')[2]);
+    expect(view.getByText(/The configured radius is not enforced/)).toBeTruthy();
+    fireEvent.input(modal.querySelector("textarea")!, { target: { value: "Google engineer" } });
+    fireEvent.submit(modal.querySelector("form")!);
+    await waitFor(() => expect(view.getByText("Google engineer")).toBeTruthy());
+    expect(queries[1].sources).toEqual(["google"]);
+    const sourceFilter = view.container.querySelectorAll(".toolbar-filters select")[1];
+    fireEvent.change(sourceFilter, { target: { value: "google" } });
+    expect(view.getByText("Google engineer")).toBeTruthy();
+    view.unmount();
+    const reloaded = render(<SearchTargetsWidget initialExpanded />);
+    await waitFor(() => expect(reloaded.getByText("Google engineer")).toBeTruthy());
+    const row = reloaded.getByText("Google engineer").closest("tr")!;
+    expect((row.querySelectorAll('input[type="radio"]')[2] as HTMLInputElement).checked).toBe(true);
   });
 });

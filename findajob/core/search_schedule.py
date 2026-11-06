@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 from typing import Any
 
-DEFAULT_INTERVALS = {"indeed": 180, "linkedin": 360}
+DEFAULT_INTERVALS = {"indeed": 180, "linkedin": 360, "google": 360}
 
 
 @dataclass(frozen=True)

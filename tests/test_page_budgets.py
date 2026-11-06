@@ -253,9 +253,9 @@ def test_pacing_and_failed_attempts_use_same_transport():
         "linkedin", config, [], SourceCircuit("linkedin", config), clock=lambda: now[0], sleep=sleep
     )
     session = Mock()
-    session.request.side_effect = [RuntimeError("Read timeout"), Mock(status_code=200)]
+    session.request.side_effect = [RuntimeError("connection reset by peer"), Mock(status_code=200)]
     traffic.sessions[None] = session
-    with pytest.raises(RuntimeError, match="timeout"):
+    with pytest.raises(RuntimeError, match="connection reset"):
         traffic.request(None, "GET", "https://example.test/page")
     traffic.request(None, "GET", "https://example.test/detail")
     assert traffic.spent == 2
@@ -263,7 +263,11 @@ def test_pacing_and_failed_attempts_use_same_transport():
     assert session.request.call_args.kwargs["allow_redirects"] is False
 
 
-def test_mid_cell_proxy_failover_recovers_pages_and_details(db: Database):
+@pytest.mark.parametrize(
+    "bad_error",
+    ["407 Proxy Authentication Required", "ProxyError: ConnectTimeoutError: timed out"],
+)
+def test_mid_cell_proxy_failover_recovers_pages_and_details(db: Database, bad_error: str):
     board = Board(available=30)
     proxies = ["u:p@bad:8000", "u:p@flaky:8000", "u:p@good:8000"]
     config = {"policies": {"linkedin": {"requests_per_proxy": 100, "request_interval_seconds": 0}}}
@@ -271,7 +275,7 @@ def test_mid_cell_proxy_failover_recovers_pages_and_details(db: Database):
     traffic = SourceTraffic("linkedin", config, proxies, guard, rng=random.Random(0))
 
     bad_session = Mock()
-    bad_session.request.side_effect = RuntimeError("407 Proxy Authentication Required")
+    bad_session.request.side_effect = RuntimeError(bad_error)
 
     flaky_calls = [0]
 

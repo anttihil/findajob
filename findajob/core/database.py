@@ -234,6 +234,7 @@ class Database:
         backoff_until: str | None,
         consecutive_failures: int,
         last_error: str | None = None,
+        failure_class: str | None = None,
     ) -> None:
         search_repo.set_proxy_failure(
             self.conn,
@@ -243,6 +244,7 @@ class Database:
             backoff_until=backoff_until,
             consecutive_failures=consecutive_failures,
             last_error=last_error,
+            failure_class=failure_class,
         )
 
     def clear_proxy_state(

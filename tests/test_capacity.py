@@ -100,3 +100,22 @@ def test_proxy_budget_is_used(monkeypatch: pytest.MonkeyPatch):
     # One configured endpoint has 100 requests, regardless of proxy presence.
     assert res["sources"]["linkedin"]["estimated_cells_per_run"] == 1
     assert res["cycle_hours"] == 240
+
+
+def test_google_capacity_is_opt_in_with_no_description_requests():
+    from findajob.core.config import DEFAULT_CONFIG
+    from findajob.core.search_schedule import search_schedules
+    from findajob.search.scheduler import estimate_units
+
+    targets = SearchTargets.from_spec(
+        {"queries": ["Engineer"], "locations": [{"id": "fi", "label": "Helsinki"}]}
+    )
+    assert capacity_for_targets(targets, {})["sources"]["google"]["cells"] == 0
+    targets.query_sources = {"Engineer": ("google",)}
+    capacity = capacity_for_targets(targets, {})
+    assert capacity["total_cells"] == 1
+    assert capacity["sources"]["google"]["runs_per_day"] == 4
+    assert capacity["cycle_hours"] == 6
+    assert estimate_units("google", 500, DEFAULT_CONFIG["scraper"], True) == 51
+    assert search_schedules({})["google"].interval_minutes == 360
+    assert "google" not in search_schedules({"scraper": {"sources": {"google": False}}})

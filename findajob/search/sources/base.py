@@ -14,6 +14,7 @@ class SearchPage:
     rows: list[dict[str, Any]]
     proxy: str | None = None
     end_reason: str | None = None
+    raw_count: int | None = None
 
 
 class BaseJobSource(ABC):

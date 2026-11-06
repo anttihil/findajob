@@ -188,7 +188,7 @@ because a search target changes.
 
 ## Source schedules and sweep estimates
 
-Automatic search defaults to Indeed every three hours and LinkedIn every six hours,
+Automatic search defaults to Indeed every three hours, and LinkedIn and Google Jobs every six hours,
 with up to 15 minutes of jitter. Configure each source independently in `config.local.yaml`:
 
 ```yaml
@@ -197,6 +197,8 @@ scheduler:
     sources:
       indeed:
         interval_minutes: 180
+      google:
+        interval_minutes: 360
       linkedin:
         interval_minutes: 360
     jitter_minutes: 15
@@ -212,7 +214,7 @@ Automatic updates still require the persisted opt-in in Settings.
 
 Due sources queue independently, with one writing worker executing at a time. Duplicate
 requests for a source already queued or running are coalesced. Manual `findajob search run`
-still searches all enabled sources; use `--source indeed` or `--source linkedin` to select one.
+still searches all enabled sources; use `--source indeed`, `--source linkedin`, or `--source google` to select one.
 Startup catch-up uses completed observations for each source, its longest scheduled gap,
 and a jitter allowance. Completing an Indeed run does not mark LinkedIn as caught up.
 Successful searches request scoring; requests from adjacent source completions are coalesced
@@ -252,7 +254,7 @@ scraper:
 Each source run gets `requests_per_proxy * max(1, unique configured proxy count)`
 requests. No proxies means one direct connection; a rotating gateway counts as
 one configured endpoint. This is an initial operating policy to measure and
-adjust, not a validated ban threshold. Both sources fetch available descriptions
+adjust, not a validated ban threshold. All sources fetch available descriptions
 regardless of proxy presence. Old `scraper.budgets`, `searches_per_run`, page
 limits, and proxy-specific budget profiles no longer control execution.
 
@@ -270,7 +272,14 @@ redirects are disabled so they cannot bypass pacing; failed requests rotate up
 to two fallback healthy endpoints inside the cell. Rate limits and blocking
 responses back off only the affected `(proxy, source)` pair, while repeated
 proxy-tunnel or authentication failures mark that proxy broken across sources
-(inspect or reset via `findajob search proxies [--reset]`). A source stops early
+(inspect or reset via `findajob search proxies [--reset]`). Timeouts instead back
+off for 15 minutes, then 1 hour, then at most 4 hours; they never mark a proxy
+permanently broken. Proxy connection timeouts affect all sources, while read
+timeouts affect only the source being requested. Each failure category has its
+own consecutive streak, reset when the category changes or a request succeeds.
+The v41 upgrade adds failure categories without changing existing proxy state.
+After upgrading, run `uv run findajob search proxies --reset` to let the new
+policy reassess all endpoints. A source stops early
 only when no usable endpoints remain or eight distinct endpoints fail
 consecutively in the same run. New cells are not started once usable endpoints
 have spent their allowance.
@@ -304,3 +313,27 @@ skipped, and stale details. Complete fresh cohorts use `desc_selection='complete
 budget-limited and incomplete cohorts are excluded from skill-demand eligibility.
 Actual fetches remain distinct from content availability. Policy changes create
 an analytics plan boundary.
+
+## Google Jobs queries
+
+Google Jobs is enabled globally by default but requires explicit assignment per query.
+Existing queries and omitted `sources` assignments retain Indeed and LinkedIn only.
+Choose **Google Jobs** when adding a query in Settings, select it on an existing
+query, or use `findajob target add "Platform Engineer" --source google`.
+The API accepts `sources: ["google"]` in the existing target payloads.
+For a one-off search, use:
+
+```sh
+findajob search query --source google --query "Platform Engineer" --location "Helsinki"
+```
+
+The pinned JobSpy Google adapter combines the query term with location, remote status,
+and its age buckets (one day, three days, one week, or one month). Legacy US remote
+locations are scoped to United States; global remote queries omit geography.
+Google does not enforce the configured radius. Google uses nominal ten-result pages,
+includes descriptions without separate requests, and defaults to 100 requests per
+endpoint, three seconds between requests, and 500 requested results.
+Requests have a ten-second timeout and use the same counted transport and proxy
+failover as the other providers. Duplicate-only pages continue; exhausted feeds and
+repeated cursors stop pagination. HTTP, challenge, and parsing failures are recorded
+as errors while earlier pages remain saved. Unknown posting dates remain unknown.

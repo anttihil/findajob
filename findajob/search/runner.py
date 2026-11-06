@@ -218,11 +218,11 @@ def run_sync(
                     for key in ("postings_fetched", "postings_new", "duplicates_merged"):
                         totals[key] += _LAST_CELL_STATS.get(key, 0)
                     any_budget_limited = any_budget_limited or outcome == "budget_limited"
-                    if outcome in ("ok", "budget_limited"):
+                    if outcome in ("ok", "empty", "budget_limited"):
                         totals["cells_succeeded"] += 1
-                    elif outcome == "empty":
+                    if outcome == "empty":
                         empty += 1
-                    else:
+                    elif outcome not in ("ok", "budget_limited"):
                         errored += 1
                     if outcome == "tripped":
                         totals["cells_skipped"] += len(tasks) - index - 1
@@ -351,7 +351,10 @@ def run_cell(
                 break
             rows = page.rows[: payload["results_wanted"] - returned]
             postings, stats = normalize_rows(rows, payload, observed_at, config)
-            returned += stats["returned"]
+            returned += min(
+                page.raw_count if page.raw_count is not None else stats["returned"],
+                payload["results_wanted"] - returned,
+            )
             if payload["source"] == "linkedin":
                 adapter = LinkedInDetailsAdapter([], session=traffic.bound_session(None))
                 try:

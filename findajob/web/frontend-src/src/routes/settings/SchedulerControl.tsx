@@ -1,3 +1,4 @@
+import { sourceLabel } from "../../lib/sources";
 import { useEffect, useState } from "preact/hooks";
 import { getJSON, putJSON, reportError } from "../../api/client";
 import type { SchedulerPreferences } from "../../api/types";
@@ -11,7 +12,7 @@ function nextSearchRuns(preferences: SchedulerPreferences | null): string[] {
       const date = new Date(value);
       if (Number.isNaN(date.getTime())) return [];
       const source = key.slice("search:".length);
-      const name = source === "linkedin" ? "LinkedIn" : source === "indeed" ? "Indeed" : source;
+      const name = sourceLabel(source);
       return [`${name}: ${date.toLocaleString()}`];
     });
 }

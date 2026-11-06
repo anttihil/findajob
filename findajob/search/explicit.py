@@ -6,6 +6,7 @@ from typing import Any, cast
 
 from findajob.core.config import load_config
 from findajob.core.database import Database
+from findajob.core.sources import SCHEDULED_SOURCES
 from findajob.search.guard import SourceCircuit
 from findajob.search.proxies import load_proxies
 from findajob.search.runner import run_cell
@@ -13,13 +14,15 @@ from findajob.search.scheduler import ScrapeTaskPayload, results_wanted_for
 from findajob.search.sources.jobspy_source import JobSpySource
 from findajob.search.traffic import SourceTraffic
 
-SUPPORTED_SOURCES = frozenset({"indeed", "linkedin"})
+SUPPORTED_SOURCES = frozenset(SCHEDULED_SOURCES)
 
 
 def run_query(args: Any) -> dict[str, Any]:
     """Fetch and persist an explicit query without altering configured cells."""
     if args.source not in SUPPORTED_SOURCES:
-        raise ValueError(f"unsupported source {args.source!r}; choose indeed or linkedin")
+        raise ValueError(
+            f"unsupported source {args.source!r}; choose one of {', '.join(SCHEDULED_SOURCES)}"
+        )
     if not args.query.strip() or not args.location.strip():
         raise ValueError("--query and --location must not be empty")
 

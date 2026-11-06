@@ -115,6 +115,10 @@ class SchedulerEngineTests(unittest.IsolatedAsyncioTestCase):
 
         with (
             mock.patch("findajob.core.scheduler.DB_PATH", tmp_db.name),
+            mock.patch(
+                "findajob.core.scheduler.load_config",
+                return_value={"scraper": {"sources": {"indeed": True, "linkedin": True}}},
+            ),
             mock.patch.object(self.scheduler, "_run_stage", return_value=True) as mock_run,
             mock.patch("asyncio.sleep", return_value=None),
         ):
@@ -240,6 +244,10 @@ class SourceQueueTests(unittest.IsolatedAsyncioTestCase):
             scheduler._running = True
             with (
                 mock.patch("findajob.core.scheduler.DB_PATH", tmp.name),
+                mock.patch(
+                    "findajob.core.scheduler.load_config",
+                    return_value={"scraper": {"sources": {"indeed": True, "linkedin": True}}},
+                ),
                 mock.patch("findajob.core.scheduler._now", return_value=now),
                 mock.patch("asyncio.sleep", new_callable=mock.AsyncMock),
                 mock.patch.object(scheduler, "_run_stage", new_callable=mock.AsyncMock) as run,

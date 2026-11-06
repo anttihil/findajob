@@ -8,8 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from findajob.core.paths import DB_PATH
-
-SCHEDULED_SOURCES = ("indeed", "linkedin")
+from findajob.core.sources import DEFAULT_QUERY_SOURCES, SCHEDULED_SOURCES
 
 
 @dataclass
@@ -50,7 +49,7 @@ class SearchTargets:
         return cls(
             queries=queries,
             locations=locations,
-            query_sources=dict.fromkeys(queries, SCHEDULED_SOURCES),
+            query_sources=dict.fromkeys(queries, DEFAULT_QUERY_SOURCES),
         )
 
     @property
@@ -79,8 +78,8 @@ class SearchTargets:
         return problems
 
     def sources_for(self, query: str) -> tuple[str, ...]:
-        """Return a query's board scope, defaulting legacy in-memory plans to both."""
-        return (self.query_sources or {}).get(query, SCHEDULED_SOURCES)
+        """Return the board scope; legacy plans default to Indeed and LinkedIn."""
+        return (self.query_sources or {}).get(query, DEFAULT_QUERY_SOURCES)
 
     def cell_specs(self, sources: tuple[str, ...] = SCHEDULED_SOURCES) -> list[dict[str, Any]]:
         """Build the active query × location × mapped-and-enabled-source matrix."""
@@ -152,7 +151,7 @@ def load_targets(path: str | None = None, conn: sqlite3.Connection | None = None
 
 
 def _validate_sources(sources: list[str] | tuple[str, ...] | None) -> tuple[str, ...]:
-    requested = SCHEDULED_SOURCES if sources is None else tuple(dict.fromkeys(sources))
+    requested = DEFAULT_QUERY_SOURCES if sources is None else tuple(dict.fromkeys(sources))
     invalid = set(requested) - set(SCHEDULED_SOURCES)
     if invalid:
         raise ValueError(f"Unsupported scheduled source(s): {', '.join(sorted(invalid))}")

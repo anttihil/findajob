@@ -215,7 +215,8 @@ def update_cell_quality(conn: sqlite3.Connection, cell_id: int, fit: bool) -> No
 
 def get_proxy_states(conn: sqlite3.Connection, source: str | None = None) -> list[dict[str, Any]]:
     query = (
-        "SELECT proxy_id, source, status, backoff_until, consecutive_failures, last_error "
+        "SELECT proxy_id, source, status, backoff_until, consecutive_failures, last_error, "
+        "failure_class "
         "FROM proxy_state"
     )
     params: tuple[Any, ...] = ()
@@ -235,20 +236,26 @@ def set_proxy_failure(
     backoff_until: str | None,
     consecutive_failures: int,
     last_error: str | None = None,
+    failure_class: str | None = None,
 ) -> None:
     error = last_error[:500] if last_error else None
     conn.executemany(
         """
         INSERT INTO proxy_state
-            (proxy_id, source, status, backoff_until, consecutive_failures, last_error)
-        VALUES (?, ?, ?, ?, ?, ?)
+            (proxy_id, source, status, backoff_until,
+             consecutive_failures, last_error, failure_class)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT (proxy_id, source) DO UPDATE SET
             status = excluded.status,
             backoff_until = excluded.backoff_until,
             consecutive_failures = excluded.consecutive_failures,
-            last_error = excluded.last_error
+            last_error = excluded.last_error,
+            failure_class = excluded.failure_class
         """,
-        [(proxy_id, src, status, backoff_until, consecutive_failures, error) for src in sources],
+        [
+            (proxy_id, src, status, backoff_until, consecutive_failures, error, failure_class)
+            for src in sources
+        ],
     )
     conn.commit()
 

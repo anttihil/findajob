@@ -1,9 +1,7 @@
 """Cell accounting for one sync run.
 
-The failure this guards against is a run that loses cells and still calls itself ok. The
-counters used to record "ok" and "tripped" only, so a cell that came back empty -- the
-common outcome for a thin market queried over a 24h window -- landed in no counter at all,
-and the only way to see it was to subtract cells_succeeded from cells_planned by hand.
+Empty searches finish successfully and count toward progress. Their separate yield
+counter still lets a run warn when a material share of searches returns no postings.
 """
 
 import os
@@ -84,19 +82,37 @@ def _run(outcomes: list[str]) -> tuple[dict[str, Any], list[str], list[str]]:
 
 
 class CellAccountingTests(unittest.TestCase):
-    def test_every_outcome_lands_in_exactly_one_counter(self) -> None:
+    def test_empty_searches_are_successes_and_errors_remain_separate(self) -> None:
         totals, _, _ = _run(["ok", "empty", "error", "ok"])
         self.assertEqual(totals["cells_planned"], 4)
-        self.assertEqual(totals["cells_succeeded"], 2)
+        self.assertEqual(totals["cells_succeeded"], 3)
         self.assertEqual(totals["cells_empty"], 1)
         self.assertEqual(totals["cells_error"], 1)
         self.assertEqual(
             totals["cells_planned"],
-            totals["cells_succeeded"]
-            + totals["cells_empty"]
-            + totals["cells_error"]
-            + totals["cells_skipped"],
+            totals["cells_succeeded"] + totals["cells_error"] + totals["cells_skipped"],
         )
+
+    def test_empty_searches_complete_the_production_sized_run(self) -> None:
+        totals, info, _ = _run(["ok"] * 34 + ["empty"] * 10)
+        self.assertEqual(totals["cells_succeeded"], totals["cells_planned"])
+        self.assertEqual(totals["cells_succeeded"], 44)
+        self.assertEqual(totals["cells_empty"], 10)
+        self.assertEqual(totals["cells_error"], 0)
+        self.assertEqual(totals["cells_skipped"], 0)
+        self.assertIn("Sync finished (partial)", info)
+
+    def test_all_empty_searches_finish_without_being_called_failed(self) -> None:
+        totals, info, _ = _run(["empty"] * 4)
+        self.assertEqual(totals["cells_succeeded"], 4)
+        self.assertEqual(totals["cells_empty"], 4)
+        self.assertIn("Sync finished (partial)", info)
+
+    def test_all_errors_still_fail_the_run(self) -> None:
+        totals, info, _ = _run(["error"] * 4)
+        self.assertEqual(totals["cells_succeeded"], 0)
+        self.assertEqual(totals["cells_error"], 4)
+        self.assertIn("Sync finished (failed)", info)
 
     def test_a_run_that_loses_a_material_share_is_not_ok(self) -> None:
         _, info, warnings = _run(["ok"] * 6 + ["empty"] * 4)

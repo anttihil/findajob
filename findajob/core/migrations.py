@@ -13,7 +13,7 @@ from findajob.core.logger import get_logger
 
 logger = get_logger()
 
-SCHEMA_VERSION = 40
+SCHEMA_VERSION = 41
 
 
 def _v1_baseline(cursor: sqlite3.Cursor) -> None:
@@ -2490,6 +2490,11 @@ def _v40_proxy_state(cursor: sqlite3.Cursor) -> None:
     )
 
 
+def _v41_proxy_failure_class(cursor: sqlite3.Cursor) -> None:
+    """Track the category of new failures without inferring historical state."""
+    cursor.execute("ALTER TABLE proxy_state ADD COLUMN failure_class TEXT")
+
+
 MIGRATIONS: list[tuple[int, str, Callable[[sqlite3.Cursor], None]]] = [
     (1, "baseline jobs table", _v1_baseline),
     (2, "market analytics: cells, observations, skills, stats", _v2_analytics),
@@ -2591,6 +2596,7 @@ MIGRATIONS: list[tuple[int, str, Callable[[sqlite3.Cursor], None]]] = [
     (38, "remove assessment stage compatibility view", _v38_drop_assessment_view),
     (39, "LinkedIn detail freshness and page-budget accounting", _v39_linkedin_detail_reuse),
     (40, "per-proxy health and backoff state", _v40_proxy_state),
+    (41, "proxy failure category", _v41_proxy_failure_class),
 ]
 
 
