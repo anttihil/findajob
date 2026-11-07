@@ -32,7 +32,7 @@ def _seed(conn: sqlite3.Connection) -> None:
 def test_query_rename_keeps_the_cell_and_its_history() -> None:
     conn = _migrated()
     save_location(conn, loc_id="testville", label="Testville", country="US")
-    query_id = add_query(conn, query_term="Backend Enginer")
+    query_id = add_query(conn, query_term="Backend Enginer", location_ids=["testville"])
     _seed(conn)
 
     conn.execute("UPDATE scrape_cells SET total_scrapes = 7 WHERE query = 'Backend Enginer'")
@@ -60,7 +60,7 @@ def test_query_rename_keeps_the_cell_and_its_history() -> None:
 def test_query_rename_keeps_the_market_join_intact() -> None:
     conn = _migrated()
     save_location(conn, loc_id="testville", label="Testville", country="US")
-    query_id = add_query(conn, query_term="Backend Enginer")
+    query_id = add_query(conn, query_term="Backend Enginer", location_ids=["testville"])
     _seed(conn)
 
     update_query(conn, query_id=query_id, query_term="Backend Engineer")
@@ -95,9 +95,10 @@ def test_cli_target_edits_recompile_the_matrix(
     conn.row_factory = sqlite3.Row
     migrate(conn)
     save_location(conn, loc_id="testville", label="Testville", country="US")
+    save_location(conn, loc_id="remote", label="Remote", country="US")
     conn.close()
 
-    assert cli.main(["target", "add", "Backend Engineer"]) == 0
+    assert cli.main(["target", "add", "Backend Engineer", "--location", "testville"]) == 0
 
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
@@ -105,3 +106,17 @@ def test_cli_target_edits_recompile_the_matrix(
     conn.close()
     assert [r["query"] for r in cells] == ["Backend Engineer"] * len(cells)
     assert cells, "the CLI wrote the query but never recompiled scrape_cells"
+    assert cli.main(["target", "edit", "1", "--location", "testville", "--location", "remote"]) == 0
+    conn = sqlite3.connect(db_path)
+    assert {
+        row[0] for row in conn.execute("SELECT location_id FROM scrape_cells WHERE enabled=1")
+    } == {"testville", "remote"}
+    conn.close()
+    assert cli.main(["target", "toggle", "1", "--disable"]) == 0
+    conn = sqlite3.connect(db_path)
+    assert conn.execute("SELECT COUNT(*) FROM scrape_cells WHERE enabled=1").fetchone()[0] == 0
+    conn.close()
+    assert cli.main(["target", "delete", "1"]) == 0
+    conn = sqlite3.connect(db_path)
+    assert conn.execute("SELECT COUNT(*) FROM search_query_locations").fetchone()[0] == 0
+    conn.close()

@@ -10,11 +10,8 @@ build:
 start: build
 	uv run findajob start --port 8010
 
-DEV_PORT ?= 5173
-DEV_API_PORT ?= 8011
-
 dev:
-	python3 scripts/dev.py --port "$(DEV_PORT)" --api-port "$(DEV_API_PORT)"
+	uv run findajob start --dev
 
 test:
 	uv run pytest -q

@@ -23,7 +23,6 @@ TEST_TARGETS_SPEC: dict[str, Any] = {
             "indeed_country": "usa",
             "is_remote": True,
             "distance": 50,
-            "enabled": True,
         },
         {
             "id": "los_angeles",
@@ -33,7 +32,6 @@ TEST_TARGETS_SPEC: dict[str, Any] = {
             "indeed_country": "usa",
             "is_remote": False,
             "distance": 50,
-            "enabled": True,
         },
         {
             "id": "us_nat",
@@ -43,7 +41,6 @@ TEST_TARGETS_SPEC: dict[str, Any] = {
             "indeed_country": "usa",
             "is_remote": False,
             "distance": 50,
-            "enabled": True,
         },
         {
             "id": "sydney",
@@ -53,10 +50,13 @@ TEST_TARGETS_SPEC: dict[str, Any] = {
             "indeed_country": "australia",
             "is_remote": False,
             "distance": 50,
-            "enabled": False,
         },
     ],
 }
+
+TEST_TARGETS_SPEC["query_locations"] = dict.fromkeys(
+    TEST_TARGETS_SPEC["queries"], ("us_remote", "los_angeles", "us_nat")
+)
 
 
 class SearchTargetsIntegrityTests(unittest.TestCase):
@@ -80,18 +80,20 @@ class SearchTargetsIntegrityTests(unittest.TestCase):
 class CellPlanningTests(unittest.TestCase):
     def setUp(self) -> None:
         self.targets = SearchTargets.from_spec(TEST_TARGETS_SPEC)
-        self.enabled_locations = [loc for loc in self.targets.locations.values() if loc.enabled]
+        self.assigned_locations = [
+            loc for loc in self.targets.locations.values() if loc.id != "sydney"
+        ]
 
     def test_cells_are_unique_on_the_schema_key(self) -> None:
         specs = self.targets.cell_specs()
         keys = {(s["source"], s["location_id"], s["query"]) for s in specs}
         self.assertEqual(len(keys), len(specs), "duplicate cell keys would break UNIQUE")
 
-    def test_cell_planning_covers_every_enabled_location(self) -> None:
+    def test_cell_planning_covers_every_assigned_location(self) -> None:
         planned = {s["location_id"] for s in self.targets.cell_specs()}
-        self.assertEqual(planned, {loc.id for loc in self.enabled_locations})
+        self.assertEqual(planned, {loc.id for loc in self.assigned_locations})
 
-    def test_a_disabled_location_is_not_searched(self) -> None:
+    def test_an_unassigned_location_is_not_searched(self) -> None:
         self.assertNotIn("sydney", {s["location_id"] for s in self.targets.cell_specs()})
 
     def test_both_sources_are_planned(self) -> None:
@@ -104,7 +106,7 @@ class CellPlanningTests(unittest.TestCase):
 
     def test_the_matrix_is_queries_by_locations_by_sources(self) -> None:
         specs = self.targets.cell_specs(sources=("indeed", "linkedin"))
-        self.assertEqual(len(specs), len(self.targets.queries) * len(self.enabled_locations) * 2)
+        self.assertEqual(len(specs), len(self.targets.queries) * len(self.assigned_locations) * 2)
 
     def test_specs_carry_the_whole_jobspy_call(self) -> None:
         """The cell is built from one spec and joins nothing at task-build time."""

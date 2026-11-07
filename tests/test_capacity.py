@@ -33,7 +33,7 @@ def test_source_scopes_and_independent_schedules():
     targets = SearchTargets.from_spec(
         {
             "queries": ["Indeed role", "LinkedIn role"],
-            "locations": [{"id": "remote", "label": "Remote", "enabled": True}],
+            "locations": [{"id": "remote", "label": "Remote"}],
         }
     )
     targets.query_sources = {"Indeed role": ("indeed",), "LinkedIn role": ("linkedin",)}

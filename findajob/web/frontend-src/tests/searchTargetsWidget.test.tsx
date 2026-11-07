@@ -1,12 +1,24 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { render, fireEvent, waitFor } from "@testing-library/preact";
+import { render, fireEvent, waitFor, within } from "@testing-library/preact";
 import { SearchTargetsWidget } from "../src/components/SearchTargetsWidget";
 
 const mockTargets = {
   queries: [
-    { id: 1, query: "Agentic AI", enabled: 1 },
-    { id: 2, query: "GenAI Specialist", enabled: 0 },
-    { id: 3, query: "Kubernetes Architect", enabled: 1 },
+    { id: 1, query: "Agentic AI", enabled: 1, sources: ["indeed"], location_ids: ["us_remote"] },
+    {
+      id: 2,
+      query: "GenAI Specialist",
+      enabled: 0,
+      sources: ["indeed"],
+      location_ids: ["helsinki"],
+    },
+    {
+      id: 3,
+      query: "Kubernetes Architect",
+      enabled: 1,
+      sources: ["indeed"],
+      location_ids: ["us_remote"],
+    },
   ],
   locations: [
     {
@@ -17,7 +29,7 @@ const mockTargets = {
       indeed_country: "usa",
       is_remote: 1,
       distance: 50,
-      enabled: 1,
+      last_used_at: "2026-11-06T12:00:00Z",
     },
     {
       id: "helsinki",
@@ -27,14 +39,14 @@ const mockTargets = {
       indeed_country: "finland",
       is_remote: 0,
       distance: 50,
-      enabled: 0,
+      last_used_at: null,
     },
   ],
 };
 
 const mockCapacity = {
   active_queries: 2,
-  active_locations: 1,
+  locations_in_use: 1,
   search_pairs: 2,
   total_cells: 4,
   runs_per_day: 4,
@@ -129,25 +141,14 @@ describe("SearchTargetsWidget", () => {
     });
   });
 
-  it("switches to locations tab and shows configured locations and presets", async () => {
-    const { getByText, container, queryByText } = render(
-      <SearchTargetsWidget initialExpanded={true} />,
-    );
-
-    await waitFor(() => {
-      expect(getByText("Agentic AI")).toBeTruthy();
-    });
-
-    // Click Locations Tab
-    const locTabBtn = getByText(/Search Locations/);
-    fireEvent.click(locTabBtn);
-
-    await waitFor(() => {
-      expect(container.querySelector(".locations-table-wrap")).toBeTruthy();
-      expect(container.textContent).toContain("United States (remote)");
-      expect(container.textContent).toContain("Helsinki, Finland");
-      expect(queryByText("Agentic AI")).toBeNull();
-    });
+  it("edits locations on a query instead of a global locations tab", async () => {
+    const view = render(<SearchTargetsWidget initialExpanded />);
+    await waitFor(() => expect(view.getByText("Agentic AI")).toBeTruthy());
+    expect(view.queryByText(/Search Locations/)).toBeNull();
+    fireEvent.click(view.getByRole("button", { name: "Edit locations for Agentic AI" }));
+    const dialog = view.getByRole("dialog", { name: "Edit query locations" });
+    expect(dialog.textContent).toContain("Recently used");
+    expect(dialog.textContent).toContain("Helsinki, Finland");
   });
 
   it("switches to capacity tab and renders metric calculations", async () => {
@@ -162,7 +163,10 @@ describe("SearchTargetsWidget", () => {
 
     await waitFor(() => {
       expect(getByText("Active Search Queries").previousElementSibling?.textContent).toBe("2");
-      expect(getByText("Active Locations").previousElementSibling?.textContent).toBe("1");
+      expect(
+        getByText("Locations in Use", { selector: ".metric-lbl" }).previousElementSibling
+          ?.textContent,
+      ).toBe("1");
       expect(getByText("Query × Location Combinations").previousElementSibling?.textContent).toBe(
         "2",
       );
@@ -248,7 +252,15 @@ describe("source sweep estimates", () => {
 
 describe("Google Jobs queries", () => {
   it("creates, selects, filters, and reloads explicitly assigned queries", async () => {
-    let queries = [{ id: 1, query: "Existing engineer", enabled: 1, sources: ["indeed"] }];
+    let queries = [
+      {
+        id: 1,
+        query: "Existing engineer",
+        enabled: 1,
+        sources: ["indeed"],
+        location_ids: ["us_remote"],
+      },
+    ];
     const fetchMock = vi.fn(async (url: string, opts?: { method?: string; body?: string }) => {
       if (url === "/api/targets/queries" && opts?.method === "POST") {
         const payload = JSON.parse(opts.body!);
@@ -280,6 +292,7 @@ describe("Google Jobs queries", () => {
     fireEvent.click(modal.querySelectorAll('input[name="new-query-source"]')[2]);
     expect(view.getByText(/The configured radius is not enforced/)).toBeTruthy();
     fireEvent.input(modal.querySelector("textarea")!, { target: { value: "Google engineer" } });
+    fireEvent.click(modal.querySelector('input[type="checkbox"]')!);
     fireEvent.submit(modal.querySelector("form")!);
     await waitFor(() => expect(view.getByText("Google engineer")).toBeTruthy());
     expect(queries[1].sources).toEqual(["google"]);
@@ -291,5 +304,154 @@ describe("Google Jobs queries", () => {
     await waitFor(() => expect(reloaded.getByText("Google engineer")).toBeTruthy());
     const row = reloaded.getByText("Google engineer").closest("tr")!;
     expect((row.querySelectorAll('input[type="radio"]')[2] as HTMLInputElement).checked).toBe(true);
+  });
+});
+
+describe("per-query location selection", () => {
+  let targets: typeof mockTargets;
+  let failSave: boolean;
+  let fetchMock: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    window.localStorage.clear();
+    targets = structuredClone(mockTargets);
+    failSave = false;
+    fetchMock = vi.fn(async (url: string, opts?: { method?: string; body?: string }) => {
+      if (url.startsWith("/api/targets/queries") && ["PUT", "POST"].includes(opts?.method || "")) {
+        if (failSave) return { ok: false, status: 503, text: async () => "Try again" };
+        const payload = JSON.parse(opts!.body!);
+        if (opts?.method === "POST") {
+          targets.queries.push({ id: targets.queries.length + 1, ...payload });
+        } else {
+          const id = Number(url.split("/").pop());
+          targets.queries = targets.queries.map((q) => (q.id === id ? { ...q, ...payload } : q));
+        }
+        for (const loc of targets.locations) {
+          if (payload.location_ids?.includes(loc.id)) loc.last_used_at = "2026-11-06T14:00:00Z";
+        }
+      }
+      if (url === "/api/targets/locations" && opts?.method === "POST") {
+        const payload = JSON.parse(opts.body!);
+        targets.locations.push({ ...payload, last_used_at: null });
+        return { ok: true, status: 200, json: async () => ({ id: payload.id }) };
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () =>
+          url === "/api/targets"
+            ? targets
+            : url === "/api/targets/capacity"
+              ? mockCapacity
+              : { scraper: { sources: { indeed: true, linkedin: true } } },
+      };
+    });
+    vi.stubGlobal("fetch", fetchMock);
+  });
+
+  it("requires an explicit choice and applies the same locations to a batch", async () => {
+    const view = render(<SearchTargetsWidget initialExpanded />);
+    await waitFor(() => expect(view.getByText("Agentic AI")).toBeTruthy());
+    fireEvent.click(view.getByText("Add Query Term"));
+    const modal = within(view.getByRole("dialog", { name: "Add search query" }));
+    const save = modal.getByRole("button", { name: "Add Query Term(s)" }) as HTMLButtonElement;
+    expect(save.disabled).toBe(true);
+    expect(
+      (modal.getByRole("checkbox", { name: /United States \(remote\)/ }) as HTMLInputElement)
+        .checked,
+    ).toBe(false);
+    fireEvent.input(modal.getByRole("textbox", { name: "Search Query String(s)" }), {
+      target: { value: "product engineer, platform engineer" },
+    });
+    fireEvent.click(modal.getByRole("checkbox", { name: /United States \(remote\)/ }));
+    fireEvent.click(save);
+    await waitFor(() => expect(view.queryByRole("dialog")).toBeNull());
+    expect(targets.queries.slice(-2).map((q) => q.location_ids)).toEqual([
+      ["us_remote"],
+      ["us_remote"],
+    ]);
+    expect(targets.queries.slice(-2).map((q) => q.query)).toEqual([
+      "product engineer",
+      "platform engineer",
+    ]);
+  });
+
+  it("cancels drafts, saves changes, and reloads only the query's selected locations", async () => {
+    const view = render(<SearchTargetsWidget initialExpanded />);
+    await waitFor(() => expect(view.getByText("Agentic AI")).toBeTruthy());
+    const open = () =>
+      fireEvent.click(view.getByRole("button", { name: "Edit locations for Agentic AI" }));
+    open();
+    let modal = within(view.getByRole("dialog", { name: "Edit query locations" }));
+    fireEvent.click(modal.getByRole("checkbox", { name: /Helsinki/ }));
+    fireEvent.click(modal.getByRole("button", { name: "Cancel" }));
+    expect(targets.queries[0].location_ids).toEqual(["us_remote"]);
+    open();
+    modal = within(view.getByRole("dialog", { name: "Edit query locations" }));
+    expect((modal.getByRole("checkbox", { name: /Helsinki/ }) as HTMLInputElement).checked).toBe(
+      false,
+    );
+    fireEvent.click(modal.getByRole("checkbox", { name: /United States \(remote\)/ }));
+    expect(
+      (modal.getByRole("button", { name: "Save locations" }) as HTMLButtonElement).disabled,
+    ).toBe(true);
+    fireEvent.click(modal.getByRole("checkbox", { name: /Helsinki/ }));
+    fireEvent.click(modal.getByRole("button", { name: "Save locations" }));
+    await waitFor(() => expect(view.queryByRole("dialog")).toBeNull());
+    expect(targets.queries[0].location_ids).toEqual(["helsinki"]);
+    expect(targets.queries[2].location_ids).toEqual(["us_remote"]);
+    view.unmount();
+    const reloaded = render(<SearchTargetsWidget initialExpanded />);
+    await waitFor(() =>
+      expect(reloaded.getByText("Agentic AI").closest("tr")?.textContent).toContain(
+        "Helsinki, Finland",
+      ),
+    );
+  });
+
+  it("keeps failed edits open with selections intact for retry", async () => {
+    const errorLog = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const view = render(<SearchTargetsWidget initialExpanded />);
+      await waitFor(() => expect(view.getByText("Agentic AI")).toBeTruthy());
+      fireEvent.click(view.getByRole("button", { name: "Edit locations for Agentic AI" }));
+      const modal = within(view.getByRole("dialog", { name: "Edit query locations" }));
+      fireEvent.click(modal.getByRole("checkbox", { name: /Helsinki/ }));
+      failSave = true;
+      fireEvent.click(modal.getByRole("button", { name: "Save locations" }));
+      await waitFor(() => expect(errorLog).toHaveBeenCalled());
+      expect(modal.getByRole("alert").textContent).toContain("Your selections are kept");
+      expect((modal.getByRole("checkbox", { name: /Helsinki/ }) as HTMLInputElement).checked).toBe(
+        true,
+      );
+      expect(targets.queries[0].location_ids).toEqual(["us_remote"]);
+      failSave = false;
+      fireEvent.click(modal.getByRole("button", { name: "Save locations" }));
+      await waitFor(() => expect(view.queryByRole("dialog")).toBeNull());
+      expect(targets.queries[0].location_ids).toEqual(["us_remote", "helsinki"]);
+    } finally {
+      errorLog.mockRestore();
+    }
+  });
+
+  it("creates a custom location inside a query and records recency only when the query saves", async () => {
+    const view = render(<SearchTargetsWidget initialExpanded />);
+    await waitFor(() => expect(view.getByText("Agentic AI")).toBeTruthy());
+    fireEvent.click(view.getByText("Add Query Term"));
+    const modal = within(view.getByRole("dialog", { name: "Add search query" }));
+    fireEvent.click(modal.getByRole("button", { name: "New custom location" }));
+    fireEvent.input(modal.getByLabelText("Location name"), { target: { value: "Portland, OR" } });
+    fireEvent.click(modal.getByRole("button", { name: "Use location" }));
+    await waitFor(() => expect(modal.getByRole("checkbox", { name: /Portland/ })).toBeTruthy());
+    await waitFor(() => expect(modal.queryByRole("status")).toBeNull());
+    expect(targets.locations.at(-1)?.last_used_at).toBeNull();
+    expect(targets.queries).toHaveLength(3);
+    fireEvent.input(modal.getByRole("textbox", { name: "Search Query String(s)" }), {
+      target: { value: "Oregon engineer" },
+    });
+    fireEvent.click(modal.getByRole("button", { name: "Add Query Term(s)" }));
+    await waitFor(() => expect(view.queryByRole("dialog")).toBeNull());
+    expect(targets.queries.at(-1)?.location_ids).toEqual(["portland_or"]);
+    expect(targets.locations.at(-1)?.last_used_at).toBeTruthy();
   });
 });

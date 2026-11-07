@@ -229,12 +229,14 @@ class SchedulerPreferencesUpdate(BaseModel):
 
 
 class TargetQueryCreate(BaseModel):
+    location_ids: list[str]
     query: str
     enabled: bool = True
     sources: list[str] | None = None
 
 
 class TargetQueryUpdate(BaseModel):
+    location_ids: list[str] | None = None
     query: str | None = None
     enabled: bool | None = None
     sources: list[str] | None = None
@@ -252,7 +254,6 @@ class TargetLocationPayload(BaseModel):
     indeed_country: str = "usa"
     is_remote: bool = False
     distance: int = 50
-    enabled: bool = True
 
 
 class TargetLocationUpdate(BaseModel):
@@ -262,7 +263,6 @@ class TargetLocationUpdate(BaseModel):
     indeed_country: str | None = None
     is_remote: bool | None = None
     distance: int | None = None
-    enabled: bool | None = None
 
 
 # --- Jobs ------------------------------------------------------------------------------
@@ -494,7 +494,11 @@ def create_target_query(payload: TargetQueryCreate):
     try:
         try:
             query_id = target_repo.add_query(
-                db.conn, query_term=term, enabled=payload.enabled, sources=payload.sources
+                db.conn,
+                query_term=term,
+                enabled=payload.enabled,
+                sources=payload.sources,
+                location_ids=payload.location_ids,
             )
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e)) from e
@@ -510,6 +514,8 @@ def update_target_query_endpoint(query_id: int, payload: TargetQueryUpdate):
 
     db = get_db()
     try:
+        if not any(q["id"] == query_id for q in target_repo.get_queries(db.conn)):
+            raise HTTPException(status_code=404, detail="Query not found")
         try:
             target_repo.update_query(
                 db.conn,
@@ -517,6 +523,7 @@ def update_target_query_endpoint(query_id: int, payload: TargetQueryUpdate):
                 query_term=payload.query.strip() if payload.query is not None else None,
                 enabled=payload.enabled,
                 sources=payload.sources,
+                location_ids=payload.location_ids,
             )
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e)) from e
@@ -566,19 +573,27 @@ def create_target_location(payload: TargetLocationPayload):
 
     db = get_db()
     try:
-        target_repo.save_location(
-            db.conn,
-            loc_id=loc_id,
-            label=label,
-            search_label=search_label,
-            country=payload.country.strip().upper(),
-            indeed_country=payload.indeed_country.strip().lower(),
-            is_remote=payload.is_remote,
-            distance=payload.distance,
-            enabled=payload.enabled,
-        )
-        _sync_target_cells()
+        location = {
+            "label": label,
+            "search_label": search_label,
+            "country": payload.country.strip().upper(),
+            "indeed_country": payload.indeed_country.strip().lower(),
+            "is_remote": payload.is_remote,
+            "distance": payload.distance,
+        }
+        existing = target_repo.get_locations(db.conn)
+        for saved in existing:
+            if all(saved[key] == value for key, value in location.items()):
+                return {"success": True, "id": saved["id"]}
+        if any(saved["id"] == loc_id for saved in existing):
+            import hashlib
+            import json
+
+            suffix = hashlib.sha256(json.dumps(location, sort_keys=True).encode()).hexdigest()[:12]
+            loc_id = f"{loc_id}_{suffix}"
+        target_repo.save_location(db.conn, loc_id=loc_id, **location)
         return {"success": True, "id": loc_id}
+
     finally:
         db.close()
 
@@ -615,23 +630,9 @@ def update_target_location_endpoint(loc_id: str, payload: TargetLocationUpdate):
                 payload.is_remote if payload.is_remote is not None else bool(loc["is_remote"])
             ),
             distance=payload.distance if payload.distance is not None else loc["distance"],
-            enabled=payload.enabled if payload.enabled is not None else bool(loc["enabled"]),
         )
         _sync_target_cells()
         return {"success": True}
-    finally:
-        db.close()
-
-
-@app.put("/api/targets/locations/{loc_id}/toggle")
-def toggle_target_location_endpoint(loc_id: str, payload: TargetToggle):
-    from findajob.search import targets as target_repo
-
-    db = get_db()
-    try:
-        target_repo.toggle_location(db.conn, loc_id=loc_id, enabled=payload.enabled)
-        _sync_target_cells()
-        return {"success": True, "enabled": payload.enabled}
     finally:
         db.close()
 
@@ -1105,6 +1106,8 @@ def update_current_config(payload: ConfigUpdate):
     """
     incoming = payload.model_dump(exclude_unset=True)
     save_config(incoming)
+    if "sources" in (incoming.get("scraper") or {}):
+        _sync_target_cells()
     return {"success": True, "config": load_config()}
 
 

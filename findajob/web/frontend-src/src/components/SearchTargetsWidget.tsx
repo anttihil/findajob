@@ -1,8 +1,17 @@
 import { useEffect, useMemo, useState } from "preact/hooks";
 import type { ComponentChildren } from "preact";
 import { useStoredPreference } from "../lib/preferences";
+import { LocationPicker } from "./LocationPicker";
 import { SOURCE_LABELS } from "../lib/sources";
-import { deleteJSON, getJSON, guard, postJSON, putJSON, reportError } from "../api/client";
+import {
+  ApiError,
+  deleteJSON,
+  getJSON,
+  guard,
+  postJSON,
+  putJSON,
+  reportError,
+} from "../api/client";
 import type {
   Config,
   TargetCapacity,
@@ -11,274 +20,22 @@ import type {
   TargetsResponse,
 } from "../api/types";
 
-interface PresetItem {
-  id: string;
-  label: string;
-  search_label: string;
-  country: string;
-  indeed_country: string;
-  is_remote: boolean;
-  distance: number;
-  region: "Remote" | "North America" | "Europe & UK" | "Asia-Pacific";
-}
-
-const LOCATION_PRESETS: PresetItem[] = [
-  {
-    id: "us_remote",
-    label: "United States (remote)",
-    search_label: "United States",
-    country: "US",
-    indeed_country: "usa",
-    is_remote: true,
-    distance: 50,
-    region: "Remote",
-  },
-  {
-    id: "eu_remote",
-    label: "European Union (remote)",
-    search_label: "European Union",
-    country: "EU",
-    indeed_country: "uk",
-    is_remote: true,
-    distance: 50,
-    region: "Remote",
-  },
-  {
-    id: "global_remote",
-    label: "Worldwide / Global (remote)",
-    search_label: "Remote",
-    country: "US",
-    indeed_country: "usa",
-    is_remote: true,
-    distance: 50,
-    region: "Remote",
-  },
-  {
-    id: "san_francisco",
-    label: "San Francisco Bay Area, CA",
-    search_label: "San Francisco, CA",
-    country: "US",
-    indeed_country: "usa",
-    is_remote: false,
-    distance: 50,
-    region: "North America",
-  },
-  {
-    id: "new_york",
-    label: "New York, NY",
-    search_label: "New York, NY",
-    country: "US",
-    indeed_country: "usa",
-    is_remote: false,
-    distance: 50,
-    region: "North America",
-  },
-  {
-    id: "seattle",
-    label: "Seattle, WA",
-    search_label: "Seattle, WA",
-    country: "US",
-    indeed_country: "usa",
-    is_remote: false,
-    distance: 50,
-    region: "North America",
-  },
-  {
-    id: "austin",
-    label: "Austin, TX",
-    search_label: "Austin, TX",
-    country: "US",
-    indeed_country: "usa",
-    is_remote: false,
-    distance: 50,
-    region: "North America",
-  },
-  {
-    id: "boston",
-    label: "Boston, MA",
-    search_label: "Boston, MA",
-    country: "US",
-    indeed_country: "usa",
-    is_remote: false,
-    distance: 50,
-    region: "North America",
-  },
-  {
-    id: "los_angeles",
-    label: "Los Angeles, CA",
-    search_label: "Los Angeles, CA",
-    country: "US",
-    indeed_country: "usa",
-    is_remote: false,
-    distance: 50,
-    region: "North America",
-  },
-  {
-    id: "chicago",
-    label: "Chicago, IL",
-    search_label: "Chicago, IL",
-    country: "US",
-    indeed_country: "usa",
-    is_remote: false,
-    distance: 50,
-    region: "North America",
-  },
-  {
-    id: "toronto",
-    label: "Toronto, ON, Canada",
-    search_label: "Toronto, ON",
-    country: "CA",
-    indeed_country: "canada",
-    is_remote: false,
-    distance: 50,
-    region: "North America",
-  },
-  {
-    id: "vancouver",
-    label: "Vancouver, BC, Canada",
-    search_label: "Vancouver, BC",
-    country: "CA",
-    indeed_country: "canada",
-    is_remote: false,
-    distance: 50,
-    region: "North America",
-  },
-  {
-    id: "london",
-    label: "London, United Kingdom",
-    search_label: "London, UK",
-    country: "GB",
-    indeed_country: "uk",
-    is_remote: false,
-    distance: 50,
-    region: "Europe & UK",
-  },
-  {
-    id: "berlin",
-    label: "Berlin, Germany",
-    search_label: "Berlin, Germany",
-    country: "DE",
-    indeed_country: "germany",
-    is_remote: false,
-    distance: 50,
-    region: "Europe & UK",
-  },
-  {
-    id: "amsterdam",
-    label: "Amsterdam, Netherlands",
-    search_label: "Amsterdam, Netherlands",
-    country: "NL",
-    indeed_country: "netherlands",
-    is_remote: false,
-    distance: 50,
-    region: "Europe & UK",
-  },
-  {
-    id: "paris",
-    label: "Paris, France",
-    search_label: "Paris, France",
-    country: "FR",
-    indeed_country: "france",
-    is_remote: false,
-    distance: 50,
-    region: "Europe & UK",
-  },
-  {
-    id: "dublin",
-    label: "Dublin, Ireland",
-    search_label: "Dublin, Ireland",
-    country: "IE",
-    indeed_country: "ireland",
-    is_remote: false,
-    distance: 50,
-    region: "Europe & UK",
-  },
-  {
-    id: "stockholm",
-    label: "Stockholm, Sweden",
-    search_label: "Stockholm, Sweden",
-    country: "SE",
-    indeed_country: "sweden",
-    is_remote: false,
-    distance: 50,
-    region: "Europe & UK",
-  },
-  {
-    id: "helsinki",
-    label: "Helsinki, Finland",
-    search_label: "Helsinki, Finland",
-    country: "FI",
-    indeed_country: "finland",
-    is_remote: false,
-    distance: 50,
-    region: "Europe & UK",
-  },
-  {
-    id: "oslo",
-    label: "Oslo, Norway",
-    search_label: "Oslo, Norway",
-    country: "NO",
-    indeed_country: "norway",
-    is_remote: false,
-    distance: 50,
-    region: "Europe & UK",
-  },
-  {
-    id: "copenhagen",
-    label: "Copenhagen, Denmark",
-    search_label: "Copenhagen, Denmark",
-    country: "DK",
-    indeed_country: "denmark",
-    is_remote: false,
-    distance: 50,
-    region: "Europe & UK",
-  },
-  {
-    id: "zurich",
-    label: "Zurich, Switzerland",
-    search_label: "Zurich, Switzerland",
-    country: "CH",
-    indeed_country: "switzerland",
-    is_remote: false,
-    distance: 50,
-    region: "Europe & UK",
-  },
-  {
-    id: "singapore",
-    label: "Singapore",
-    search_label: "Singapore",
-    country: "SG",
-    indeed_country: "singapore",
-    is_remote: false,
-    distance: 50,
-    region: "Asia-Pacific",
-  },
-  {
-    id: "sydney",
-    label: "Sydney, Australia",
-    search_label: "Sydney, Australia",
-    country: "AU",
-    indeed_country: "australia",
-    is_remote: false,
-    distance: 50,
-    region: "Asia-Pacific",
-  },
-  {
-    id: "tokyo",
-    label: "Tokyo, Japan",
-    search_label: "Tokyo, Japan",
-    country: "JP",
-    indeed_country: "japan",
-    is_remote: false,
-    distance: 50,
-    region: "Asia-Pacific",
-  },
-];
-
 interface SearchTargetsWidgetProps {
   initialExpanded?: boolean;
   onTargetsChanged?: () => void;
   operations?: ComponentChildren;
+}
+
+function querySaveError(error: unknown): string {
+  if (error instanceof ApiError) {
+    try {
+      const { detail } = JSON.parse(error.body);
+      if (typeof detail === "string") return detail;
+    } catch {
+      // Network and proxy failures may return plain text instead of an API error.
+    }
+  }
+  return "Could not save the query. Your selections are kept; please try again.";
 }
 
 export function SearchTargetsWidget({
@@ -287,9 +44,9 @@ export function SearchTargetsWidget({
   operations,
 }: SearchTargetsWidgetProps) {
   const [expanded, setExpanded] = useState(initialExpanded);
-  const [activeTab, setActiveTab] = useState<
-    "queries" | "locations" | "sources" | "capacity" | "operations"
-  >("queries");
+  const [activeTab, setActiveTab] = useState<"queries" | "sources" | "capacity" | "operations">(
+    "queries",
+  );
 
   const [queries, setQueries] = useState<TargetQuery[]>([]);
   const [locations, setLocations] = useState<TargetLocation[]>([]);
@@ -314,21 +71,15 @@ export function SearchTargetsWidget({
   const [newQueryText, setNewQueryText] = useState("");
   const [newQueryEnabled, setNewQueryEnabled] = useState(true);
   const [newQuerySource, setNewQuerySource] = useState("indeed");
+  const [newQueryLocations, setNewQueryLocations] = useState<string[]>([]);
+  const [locationQuery, setLocationQuery] = useState<TargetQuery | null>(null);
+  const [editingLocations, setEditingLocations] = useState<string[]>([]);
+  const [savingQuery, setSavingQuery] = useState(false);
+  const [savingLocation, setSavingLocation] = useState(false);
+  const [queryError, setQueryError] = useState("");
 
   const [editingQueryId, setEditingQueryId] = useState<number | null>(null);
   const [editingQueryText, setEditingQueryText] = useState("");
-
-  const [showAddLocationModal, setShowAddLocationModal] = useState(false);
-  const [selectedPresetRegion, setSelectedPresetRegion] = useState<string>("All");
-  const [locId, setLocId] = useState("");
-  const [locLabel, setLocLabel] = useState("");
-  const [locSearchLabel, setLocSearchLabel] = useState("");
-  const [locCountry, setLocCountry] = useState("US");
-  const [locIndeedCountry, setLocIndeedCountry] = useState("usa");
-  const [locIsRemote, setLocIsRemote] = useState(false);
-  const [locDistance, setLocDistance] = useState(50);
-  const [locEnabled, setLocEnabled] = useState(true);
-  const [isEditingLoc, setIsEditingLoc] = useState(false);
 
   const loadData = async () => {
     setLoading(true);
@@ -474,126 +225,54 @@ export function SearchTargetsWidget({
       return;
     }
 
+    if (!newQueryLocations.length || savingQuery || savingLocation) return;
+    setQueryError("");
+    setSavingQuery(true);
     try {
       for (const term of terms) {
         await postJSON("/api/targets/queries", {
           query: term,
           enabled: newQueryEnabled,
           sources: [newQuerySource],
+          location_ids: newQueryLocations,
         });
       }
       setShowAddQueryModal(false);
       setNewQueryText("");
+      setNewQueryLocations([]);
       await loadData();
       showNotification(`Added ${terms.length} new search query term(s).`);
       if (onTargetsChanged) onTargetsChanged();
     } catch (err) {
+      setQueryError(querySaveError(err));
       reportError("Adding search query", err);
+    } finally {
+      setSavingQuery(false);
     }
   };
 
-  const handleToggleLocation = async (locIdVal: string, currentEnabled: boolean | number) => {
-    const nextEnabled = !currentEnabled;
-    try {
-      await putJSON(`/api/targets/locations/${locIdVal}/toggle`, { enabled: nextEnabled });
-      setLocations((prev) =>
-        prev.map((l) => (l.id === locIdVal ? { ...l, enabled: nextEnabled ? 1 : 0 } : l)),
-      );
-      getJSON<TargetCapacity>("/api/targets/capacity").then((c) => c && setCapacity(c));
-      showNotification(`Location "${locIdVal}" marked ${nextEnabled ? "ACTIVE" : "PAUSED"}.`);
-      if (onTargetsChanged) onTargetsChanged();
-    } catch (err) {
-      reportError("Toggling location", err);
-    }
-  };
-
-  const handleDeleteLocation = async (locIdVal: string, locName: string) => {
-    if (!window.confirm(`Delete search location "${locName}" (${locIdVal})?`)) return;
-    try {
-      await deleteJSON(`/api/targets/locations/${locIdVal}`);
-      setLocations((prev) => prev.filter((l) => l.id !== locIdVal));
-      getJSON<TargetCapacity>("/api/targets/capacity").then((c) => c && setCapacity(c));
-      showNotification(`Deleted location "${locName}".`);
-      if (onTargetsChanged) onTargetsChanged();
-    } catch (err) {
-      reportError("Deleting location", err);
-    }
-  };
-
-  const handleOpenAddLocation = (preset?: PresetItem) => {
-    if (preset) {
-      setLocId(preset.id);
-      setLocLabel(preset.label);
-      setLocSearchLabel(preset.search_label);
-      setLocCountry(preset.country);
-      setLocIndeedCountry(preset.indeed_country);
-      setLocIsRemote(preset.is_remote);
-      setLocDistance(preset.distance);
-      setLocEnabled(true);
-      setIsEditingLoc(false);
-    } else {
-      setLocId("");
-      setLocLabel("");
-      setLocSearchLabel("");
-      setLocCountry("US");
-      setLocIndeedCountry("usa");
-      setLocIsRemote(false);
-      setLocDistance(50);
-      setLocEnabled(true);
-      setIsEditingLoc(false);
-    }
-    setShowAddLocationModal(true);
-  };
-
-  const handleOpenEditLocation = (loc: TargetLocation) => {
-    setLocId(loc.id);
-    setLocLabel(loc.label);
-    setLocSearchLabel(loc.search_label || loc.label);
-    setLocCountry(loc.country || "US");
-    setLocIndeedCountry(loc.indeed_country || "usa");
-    setLocIsRemote(Boolean(loc.is_remote));
-    setLocDistance(loc.distance ?? 50);
-    setLocEnabled(Boolean(loc.enabled));
-    setIsEditingLoc(true);
-    setShowAddLocationModal(true);
-  };
-
-  const handleSaveLocation = async (e: Event) => {
+  const handleSaveQueryLocations = async (e: Event) => {
     e.preventDefault();
-    const cleanId = locId
-      .trim()
-      .toLowerCase()
-      .replace(/[^a-z0-9_]/g, "_");
-    if (!cleanId || !locLabel.trim()) {
-      alert("Please provide a location ID and label.");
-      return;
-    }
-
-    const payload = {
-      id: cleanId,
-      label: locLabel.trim(),
-      search_label: locSearchLabel.trim() || locLabel.trim(),
-      country: locCountry.trim().toUpperCase(),
-      indeed_country: locIndeedCountry.trim().toLowerCase(),
-      is_remote: locIsRemote,
-      distance: Number(locDistance) || 50,
-      enabled: locEnabled,
-    };
-
+    if (!locationQuery || !editingLocations.length || savingQuery || savingLocation) return;
+    setQueryError("");
+    setSavingQuery(true);
     try {
-      if (isEditingLoc) {
-        await putJSON(`/api/targets/locations/${cleanId}`, payload);
-        showNotification(`Location "${locLabel}" updated.`);
-      } else {
-        await postJSON("/api/targets/locations", payload);
-        showNotification(`Location "${locLabel}" added.`);
-      }
-      setShowAddLocationModal(false);
+      await putJSON(`/api/targets/queries/${locationQuery.id}`, { location_ids: editingLocations });
+      setLocationQuery(null);
       await loadData();
-      if (onTargetsChanged) onTargetsChanged();
+      showNotification("Query locations updated.");
+      onTargetsChanged?.();
     } catch (err) {
-      reportError("Saving location", err);
+      setQueryError(querySaveError(err));
+      reportError("Updating query locations", err);
+    } finally {
+      setSavingQuery(false);
     }
+  };
+
+  const refreshLocations = async () => {
+    const data = await getJSON<TargetsResponse>("/api/targets");
+    setLocations(data.locations);
   };
 
   const filteredQueries = useMemo(() => {
@@ -615,15 +294,19 @@ export function SearchTargetsWidget({
     () => queries.filter((q) => Boolean(q.enabled)).length,
     [queries],
   );
-  const activeLocationsCount = useMemo(
-    () => locations.filter((l) => Boolean(l.enabled)).length,
-    [locations],
-  );
-
-  const filteredPresets = useMemo(() => {
-    if (selectedPresetRegion === "All") return LOCATION_PRESETS;
-    return LOCATION_PRESETS.filter((p) => p.region === selectedPresetRegion);
-  }, [selectedPresetRegion]);
+  const locationsInUseCount = new Set(
+    queries.filter((q) => q.enabled).flatMap((q) => q.location_ids),
+  ).size;
+  const assignedPairsCount = queries
+    .filter((q) => q.enabled)
+    .reduce((sum, q) => sum + q.location_ids.length, 0);
+  const scheduledCellsCount = queries
+    .filter((q) => q.enabled)
+    .reduce(
+      (sum, q) =>
+        sum + q.location_ids.length * q.sources.filter((source) => sources[source]).length,
+      0,
+    );
 
   return (
     <div class="panel-section-box search-targets-panel mb-4">
@@ -648,12 +331,12 @@ export function SearchTargetsWidget({
               class="matrix-chip clickable"
               onClick={() => {
                 setExpanded(true);
-                setActiveTab("locations");
+                setActiveTab("queries");
               }}
-              title="Click to set locations"
+              title="Click to inspect query locations"
             >
-              <i class="fa-solid fa-location-dot"></i> <strong>{activeLocationsCount}</strong> /{" "}
-              {locations.length} Locations
+              <i class="fa-solid fa-location-dot"></i> <strong>{locationsInUseCount}</strong>{" "}
+              Locations in Use
             </span>
             <span
               class="matrix-chip clickable"
@@ -664,9 +347,8 @@ export function SearchTargetsWidget({
               title="Click to view capacity analysis"
             >
               <i class="fa-solid fa-layer-group"></i>{" "}
-              <strong>{capacity?.search_pairs ?? activeQueriesCount * activeLocationsCount}</strong>{" "}
-              Query × Location ({capacity?.total_cells ?? activeQueriesCount * activeLocationsCount}{" "}
-              cells)
+              <strong>{capacity?.search_pairs ?? assignedPairsCount}</strong> Query × Location (
+              {capacity?.total_cells ?? scheduledCellsCount} cells)
             </span>
             {capacity && (
               <span class="matrix-chip-badge">
@@ -718,13 +400,6 @@ export function SearchTargetsWidget({
                 onClick={() => setActiveTab("queries")}
               >
                 <i class="fa-solid fa-magnifying-glass"></i> Search Query Terms ({queries.length})
-              </button>
-              <button
-                type="button"
-                class={`action-pill ${activeTab === "locations" ? "active" : ""}`}
-                onClick={() => setActiveTab("locations")}
-              >
-                <i class="fa-solid fa-location-dot"></i> Search Locations ({locations.length})
               </button>
               <button
                 type="button"
@@ -813,7 +488,11 @@ export function SearchTargetsWidget({
                       <button
                         type="button"
                         class="btn btn-primary"
-                        onClick={() => setShowAddQueryModal(true)}
+                        onClick={() => {
+                          setQueryError("");
+                          setNewQueryLocations([]);
+                          setShowAddQueryModal(true);
+                        }}
                       >
                         <i class="fa-solid fa-plus"></i> Add Query Term
                       </button>
@@ -827,12 +506,18 @@ export function SearchTargetsWidget({
                         filter.
                       </div>
                     ) : (
-                      <div class="queries-table-wrap">
+                      <div
+                        class="queries-table-wrap"
+                        role="region"
+                        aria-label="Search query settings"
+                        tabIndex={0}
+                      >
                         <table class="retro-table">
                           <thead>
                             <tr>
                               <th style={{ width: "110px" }}>STATUS</th>
                               <th>SEARCH QUERY TERM</th>
+                              <th>LOCATIONS</th>
                               <th style={{ width: "190px" }}>SCHEDULED SOURCES</th>
                               <th style={{ width: "130px", textAlign: "right" }}>ACTIONS</th>
                             </tr>
@@ -883,6 +568,28 @@ export function SearchTargetsWidget({
                                         <strong>{q.query}</strong>
                                       </span>
                                     )}
+                                  </td>
+                                  <td>
+                                    <span class="query-location-labels">
+                                      {q.location_ids
+                                        .map(
+                                          (id) =>
+                                            locations.find((loc) => loc.id === id)?.label || id,
+                                        )
+                                        .join(", ") || "Choose locations"}
+                                    </span>
+                                    <button
+                                      type="button"
+                                      class="btn btn-xs btn-outline"
+                                      aria-label={`Edit locations for ${q.query}`}
+                                      onClick={() => {
+                                        setQueryError("");
+                                        setLocationQuery(q);
+                                        setEditingLocations([...q.location_ids]);
+                                      }}
+                                    >
+                                      Edit locations
+                                    </button>
                                   </td>
                                   <td>
                                     {querySources.length > 1 && (
@@ -963,157 +670,6 @@ export function SearchTargetsWidget({
                 </div>
               )}
 
-              {activeTab === "locations" && (
-                <div class="target-locations-tab">
-                  <div class="location-presets-box mb-4">
-                    <div class="presets-header">
-                      <span>
-                        <i class="fa-solid fa-wand-magic-sparkles text-gold"></i> POPULAR TECH HUB
-                        PRESETS:
-                      </span>
-                      <button
-                        type="button"
-                        class="btn btn-primary btn-sm"
-                        onClick={() => handleOpenAddLocation()}
-                      >
-                        <i class="fa-solid fa-plus"></i> Custom Location
-                      </button>
-                    </div>
-
-                    <div class="preset-regions-bar mt-2">
-                      {["All", "Remote", "North America", "Europe & UK", "Asia-Pacific"].map(
-                        (reg) => (
-                          <button
-                            key={reg}
-                            type="button"
-                            class={`preset-region-btn ${selectedPresetRegion === reg ? "active" : ""}`}
-                            onClick={() => setSelectedPresetRegion(reg)}
-                          >
-                            {reg}
-                          </button>
-                        ),
-                      )}
-                    </div>
-
-                    <div class="presets-chips-grid mt-2">
-                      {filteredPresets.map((preset) => {
-                        const exists = locations.some((l) => l.id === preset.id);
-                        return (
-                          <button
-                            key={preset.id}
-                            type="button"
-                            class={`preset-chip ${exists ? "installed" : ""}`}
-                            onClick={() => handleOpenAddLocation(preset)}
-                            title={
-                              exists
-                                ? `Already configured (${preset.id}). Click to edit.`
-                                : `Click to add ${preset.label}`
-                            }
-                          >
-                            <i class={`fa-solid ${exists ? "fa-check text-green" : "fa-plus"}`}></i>{" "}
-                            {preset.label}
-                            {preset.is_remote && <span class="preset-tag-remote">REMOTE</span>}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-
-                  <div class="locations-table-wrap">
-                    <table class="retro-table">
-                      <thead>
-                        <tr>
-                          <th style={{ width: "110px" }}>STATUS</th>
-                          <th>LOCATION & SEARCH STRING</th>
-                          <th style={{ width: "110px" }}>COUNTRY</th>
-                          <th style={{ width: "130px" }}>WORKPLACE</th>
-                          <th style={{ width: "90px" }}>RADIUS</th>
-                          <th style={{ width: "130px", textAlign: "right" }}>ACTIONS</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {locations.map((loc) => {
-                          const isEnabled = Boolean(loc.enabled);
-                          const isRemote = Boolean(loc.is_remote);
-
-                          return (
-                            <tr key={loc.id} class={isEnabled ? "row-active" : "row-paused"}>
-                              <td>
-                                <button
-                                  type="button"
-                                  class={`status-toggle-pill ${isEnabled ? "active" : "paused"}`}
-                                  onClick={() => handleToggleLocation(loc.id, loc.enabled)}
-                                  title={
-                                    isEnabled
-                                      ? "Click to Pause Location"
-                                      : "Click to Activate Location"
-                                  }
-                                >
-                                  <i
-                                    class={`fa-solid ${isEnabled ? "fa-circle-check" : "fa-circle-pause"}`}
-                                  ></i>{" "}
-                                  {isEnabled ? "ACTIVE" : "PAUSED"}
-                                </button>
-                              </td>
-                              <td>
-                                <div class="location-name-cell">
-                                  <strong>{loc.label}</strong>
-                                  <span class="location-id-sub">
-                                    ID: <code>{loc.id}</code> · Board Search: &quot;
-                                    {loc.search_label || loc.label}&quot;
-                                  </span>
-                                </div>
-                              </td>
-                              <td>
-                                <span class="country-badge">
-                                  {loc.country || "US"} ({loc.indeed_country || "usa"})
-                                </span>
-                              </td>
-                              <td>
-                                <span
-                                  class={`workplace-tag workplace-${isRemote ? "remote" : "onsite"}`}
-                                >
-                                  {isRemote ? (
-                                    <>
-                                      <i class="fa-solid fa-wifi"></i> Remote
-                                    </>
-                                  ) : (
-                                    <>
-                                      <i class="fa-solid fa-building"></i> Onsite
-                                    </>
-                                  )}
-                                </span>
-                              </td>
-                              <td>{loc.distance ?? 50} mi</td>
-                              <td style={{ textAlign: "right" }}>
-                                <div class="row-action-btns">
-                                  <button
-                                    type="button"
-                                    class="btn btn-xs btn-outline"
-                                    onClick={() => handleOpenEditLocation(loc)}
-                                    title="Edit location parameters"
-                                  >
-                                    <i class="fa-solid fa-pen-to-square"></i>
-                                  </button>
-                                  <button
-                                    type="button"
-                                    class="btn btn-xs btn-outline text-red"
-                                    onClick={() => handleDeleteLocation(loc.id, loc.label)}
-                                    title="Delete location"
-                                  >
-                                    <i class="fa-solid fa-trash-can"></i>
-                                  </button>
-                                </div>
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              )}
-
               {activeTab === "sources" && (
                 <div class="target-sources-tab">
                   <h3>Enabled Crawler Sources</h3>
@@ -1161,22 +717,19 @@ export function SearchTargetsWidget({
                         <span class="metric-num">{activeQueriesCount}</span>
                         <span class="metric-lbl">Active Search Queries</span>
                       </div>
-                      <div class="metric-operator">×</div>
                       <div class="capacity-metric-box">
-                        <span class="metric-num">{activeLocationsCount}</span>
-                        <span class="metric-lbl">Active Locations</span>
+                        <span class="metric-num">{locationsInUseCount}</span>
+                        <span class="metric-lbl">Locations in Use</span>
                       </div>
-                      <div class="metric-operator">=</div>
                       <div class="capacity-metric-box highlight">
                         <span class="metric-num">
-                          {capacity?.search_pairs ?? activeQueriesCount * activeLocationsCount}
+                          {capacity?.search_pairs ?? assignedPairsCount}
                         </span>
                         <span class="metric-lbl">Query × Location Combinations</span>
                       </div>
-                      <div class="metric-operator">→</div>
                       <div class="capacity-metric-box">
                         <span class="metric-num">
-                          {capacity?.total_cells ?? activeQueriesCount * activeLocationsCount}
+                          {capacity?.total_cells ?? scheduledCellsCount}
                         </span>
                         <span class="metric-lbl">Scheduled Scrape Cells</span>
                       </div>
@@ -1227,8 +780,17 @@ export function SearchTargetsWidget({
       )}
 
       {showAddQueryModal && (
-        <div class="retro-modal-overlay" onClick={() => setShowAddQueryModal(false)}>
-          <div class="retro-modal-box" onClick={(e) => e.stopPropagation()}>
+        <div
+          class="retro-modal-overlay"
+          onClick={() => !savingQuery && !savingLocation && setShowAddQueryModal(false)}
+        >
+          <div
+            class="retro-modal-box"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Add search query"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div class="retro-modal-header">
               <h3>
                 <i class="fa-solid fa-plus"></i> Add Search Query Term
@@ -1236,15 +798,20 @@ export function SearchTargetsWidget({
               <button
                 type="button"
                 class="close-modal-btn"
-                onClick={() => setShowAddQueryModal(false)}
+                aria-label="Close"
+                disabled={savingQuery || savingLocation}
+                onClick={() => !savingQuery && !savingLocation && setShowAddQueryModal(false)}
               >
                 <i class="fa-solid fa-xmark"></i>
               </button>
             </div>
             <form onSubmit={handleAddQuery} class="retro-modal-body">
               <div class="form-group mb-3">
-                <label class="form-label">Search Query String(s)</label>
+                <label class="form-label" for="new-query-text">
+                  Search Query String(s)
+                </label>
                 <textarea
+                  id="new-query-text"
                   class="form-textarea"
                   rows={3}
                   placeholder="e.g. AI Engineer, Agentic AI, Cloud Architect (Separate terms with commas or newlines)"
@@ -1253,7 +820,7 @@ export function SearchTargetsWidget({
                   required
                 ></textarea>
                 <span class="form-hint">
-                  Add board-specific terms here. Create separate query records for each provider.
+                  Each term uses the board and locations selected below.
                 </span>
               </div>
 
@@ -1286,6 +853,16 @@ export function SearchTargetsWidget({
                 )}
               </div>
 
+              <LocationPicker
+                locations={locations}
+                selectedIds={newQueryLocations}
+                onChange={setNewQueryLocations}
+                onLocationSaved={refreshLocations}
+                disabled={savingQuery}
+                onBusyChange={setSavingLocation}
+              />
+
+              {queryError && <p role="alert">{queryError}</p>}
               <div class="form-group mb-4">
                 <label class="checkbox-label">
                   <input
@@ -1301,12 +878,17 @@ export function SearchTargetsWidget({
                 <button
                   type="button"
                   class="btn btn-outline"
-                  onClick={() => setShowAddQueryModal(false)}
+                  disabled={savingQuery || savingLocation}
+                  onClick={() => !savingQuery && !savingLocation && setShowAddQueryModal(false)}
                 >
                   Cancel
                 </button>
-                <button type="submit" class="btn btn-primary">
-                  <i class="fa-solid fa-check"></i> Add Query Term(s)
+                <button
+                  type="submit"
+                  class="btn btn-primary"
+                  disabled={!newQueryLocations.length || savingQuery || savingLocation}
+                >
+                  <i class="fa-solid fa-check"></i> {savingQuery ? "Saving…" : "Add Query Term(s)"}
                 </button>
               </div>
             </form>
@@ -1314,134 +896,55 @@ export function SearchTargetsWidget({
         </div>
       )}
 
-      {showAddLocationModal && (
-        <div class="retro-modal-overlay" onClick={() => setShowAddLocationModal(false)}>
-          <div class="retro-modal-box modal-wide" onClick={(e) => e.stopPropagation()}>
+      {locationQuery && (
+        <div
+          class="retro-modal-overlay"
+          onClick={() => !savingQuery && !savingLocation && setLocationQuery(null)}
+        >
+          <div
+            class="retro-modal-box"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Edit query locations"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div class="retro-modal-header">
-              <h3>
-                <i class={`fa-solid ${isEditingLoc ? "fa-pen-to-square" : "fa-location-dot"}`}></i>{" "}
-                {isEditingLoc ? `Edit Search Location (${locId})` : "Configure New Search Location"}
-              </h3>
+              <h3>Locations for {locationQuery.query}</h3>
               <button
                 type="button"
                 class="close-modal-btn"
-                onClick={() => setShowAddLocationModal(false)}
+                aria-label="Close"
+                disabled={savingQuery || savingLocation}
+                onClick={() => setLocationQuery(null)}
               >
-                <i class="fa-solid fa-xmark"></i>
+                ×
               </button>
             </div>
-            <form onSubmit={handleSaveLocation} class="retro-modal-body">
-              <div class="form-grid-2col">
-                <div class="form-group mb-3">
-                  <label class="form-label">Location ID (Unique Slug)</label>
-                  <input
-                    type="text"
-                    class="form-input"
-                    placeholder="e.g. san_francisco or us_remote"
-                    value={locId}
-                    disabled={isEditingLoc}
-                    onInput={(e) => setLocId((e.target as HTMLInputElement).value)}
-                    required
-                  />
-                </div>
-
-                <div class="form-group mb-3">
-                  <label class="form-label">Display Label</label>
-                  <input
-                    type="text"
-                    class="form-input"
-                    placeholder="e.g. San Francisco, CA or United States (remote)"
-                    value={locLabel}
-                    onInput={(e) => setLocLabel((e.target as HTMLInputElement).value)}
-                    required
-                  />
-                </div>
-
-                <div class="form-group mb-3">
-                  <label class="form-label">Job Board Search String</label>
-                  <input
-                    type="text"
-                    class="form-input"
-                    placeholder="e.g. San Francisco, CA (Sent to provider search)"
-                    value={locSearchLabel}
-                    onInput={(e) => setLocSearchLabel((e.target as HTMLInputElement).value)}
-                  />
-                </div>
-
-                <div class="form-group mb-3">
-                  <label class="form-label">Country Code (ISO 2-letter)</label>
-                  <input
-                    type="text"
-                    class="form-input"
-                    placeholder="e.g. US, FI, SE, NO, DK, GB, DE, CA, etc."
-                    value={locCountry}
-                    maxLength={2}
-                    onInput={(e) =>
-                      setLocCountry((e.target as HTMLInputElement).value.toUpperCase())
-                    }
-                    required
-                  />
-                </div>
-
-                <div class="form-group mb-3">
-                  <label class="form-label">Indeed Country Domain</label>
-                  <input
-                    type="text"
-                    class="form-input"
-                    placeholder="e.g. usa, uk, germany, canada, finland, sweden"
-                    value={locIndeedCountry}
-                    onInput={(e) =>
-                      setLocIndeedCountry((e.target as HTMLInputElement).value.toLowerCase())
-                    }
-                    required
-                  />
-                </div>
-
-                <div class="form-group mb-3">
-                  <label class="form-label">Search Radius Distance (Miles)</label>
-                  <input
-                    type="number"
-                    step="5"
-                    min="5"
-                    max="250"
-                    class="form-input"
-                    value={locDistance}
-                    onInput={(e) => setLocDistance(Number((e.target as HTMLInputElement).value))}
-                  />
-                </div>
-              </div>
-
-              <div class="form-checkbox-row mb-4">
-                <label class="checkbox-label mr-4">
-                  <input
-                    type="checkbox"
-                    checked={locIsRemote}
-                    onChange={(e) => setLocIsRemote((e.target as HTMLInputElement).checked)}
-                  />{" "}
-                  Is Remote Location Flag
-                </label>
-
-                <label class="checkbox-label">
-                  <input
-                    type="checkbox"
-                    checked={locEnabled}
-                    onChange={(e) => setLocEnabled((e.target as HTMLInputElement).checked)}
-                  />{" "}
-                  Enable immediately in search matrix
-                </label>
-              </div>
-
+            <form class="retro-modal-body" onSubmit={handleSaveQueryLocations}>
+              <LocationPicker
+                locations={locations}
+                selectedIds={editingLocations}
+                onChange={setEditingLocations}
+                onLocationSaved={refreshLocations}
+                disabled={savingQuery}
+                onBusyChange={setSavingLocation}
+              />
+              {queryError && <p role="alert">{queryError}</p>}
               <div class="retro-modal-footer">
                 <button
                   type="button"
                   class="btn btn-outline"
-                  onClick={() => setShowAddLocationModal(false)}
+                  disabled={savingQuery || savingLocation}
+                  onClick={() => setLocationQuery(null)}
                 >
                   Cancel
                 </button>
-                <button type="submit" class="btn btn-primary">
-                  <i class="fa-solid fa-floppy-disk"></i>{" "}
-                  {isEditingLoc ? "Save Location" : "Add Location"}
+                <button
+                  type="submit"
+                  class="btn btn-primary"
+                  disabled={!editingLocations.length || savingQuery || savingLocation}
+                >
+                  {savingQuery ? "Saving…" : "Save locations"}
                 </button>
               </div>
             </form>

@@ -1,9 +1,8 @@
 import { defineConfig } from "vite";
 import preact from "@preact/preset-vite";
 
-// Points at the FastAPI dev server (`findajob start` / `uvicorn findajob.web.app:app`),
-// which defaults to 127.0.0.1:8000. Override it if that port is taken.
-const apiProxyTarget = process.env.FIND_A_JOB_API_PROXY || "http://127.0.0.1:8000";
+// Start the backend separately with `uv run findajob start --dev`.
+const apiProxyTarget = process.env.FIND_A_JOB_API_PROXY || "http://127.0.0.1:8010";
 
 export default defineConfig(({ command }) => ({
   root: "findajob/web/frontend-src",
@@ -17,6 +16,8 @@ export default defineConfig(({ command }) => ({
     emptyOutDir: true,
   },
   server: {
+    host: "127.0.0.1",
+    strictPort: true,
     proxy: {
       "/api": apiProxyTarget,
     },

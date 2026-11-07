@@ -46,7 +46,7 @@ home is temporary; the development environment is preserved. A cold cache may
 require network access for the build backend and locked dependencies.
 
 For changes to visible behavior, also exercise the affected flow in a browser.
-Read [Browser checks](references/browser-checks.md) for an isolated local server
+Read [Browser checks](references/browser-checks.md) for the persistent dev application
 and the sandbox fallback. Run browser commands with `npx --yes @playwright/cli`
 and use the available [Playwright CLI skill](../playwright-cli/SKILL.md) for command
 syntax. Its `playwright-cli` examples name the executable; substitute

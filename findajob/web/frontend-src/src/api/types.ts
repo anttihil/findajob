@@ -191,7 +191,7 @@ export interface GeneratedResumeRecord {
 // GET /api/meta
 export interface Meta {
   countries: [string, string][];
-  locations: { id: string; label: string; enabled: boolean }[];
+  locations: { id: string; label: string }[];
   search_queries: string[];
   verdicts?: [string, string][];
 }
@@ -571,6 +571,7 @@ export interface TargetQuery {
   query: string;
   enabled: number | boolean;
   sources: string[];
+  location_ids: string[];
 }
 
 export interface TargetLocation {
@@ -581,12 +582,12 @@ export interface TargetLocation {
   indeed_country: string;
   is_remote: number | boolean;
   distance: number;
-  enabled: number | boolean;
+  last_used_at: string | null;
 }
 
 export interface TargetCapacity {
   active_queries: number;
-  active_locations: number;
+  locations_in_use: number;
   search_pairs: number;
   total_cells: number;
   runs_per_day: number;

@@ -54,28 +54,45 @@ uv run findajob start --port 8010
 
 Alternatively, `make setup` installs dependencies and `make build` builds the frontend.
 
-For an isolated development preview, use `make dev`. It starts Vite with hot
-frontend updates at <http://127.0.0.1:5173> and a reloading API on port 8011.
-The frontend proxies API requests to that backend. Both use a temporary home
-printed at startup, with an empty database, no inherited credentials, and no
-startup seeding or scheduler. Stop the launcher with Ctrl+C to stop both servers.
-The temporary home remains available for inspection and synthetic data.
-
-Choose a different port pair when running multiple worktrees:
+Run the development backend and Vite in two terminals (or separate execution sessions):
 
 ```bash
-make dev DEV_PORT=5174 DEV_API_PORT=8012
+uv run findajob start --dev
 ```
 
-The launcher also accepts these ports directly:
-`python3 scripts/dev.py --port 5174 --api-port 8012`.
+```bash
+npm run dev
+```
 
-Codex's repository-local `.codex/config.toml` enables networking inside the
-workspace-write sandbox for trusted sessions, including outbound traffic, while
-retaining filesystem restrictions. Start a fresh session after this setting
-changes; a running session retains its old policy, and higher-priority runtime
-restrictions can override it. Normal `make dev` starts then need no per-launch
-approval. See the [Codex configuration reference](https://learn.chatgpt.com/docs/config-file/config-reference).
+Open <http://127.0.0.1:5173>; Vite provides hot frontend updates and proxies `/api`
+to the backend at `127.0.0.1:8010`. `make dev` is shorthand for the backend command.
+Both servers stay in the foreground; stop each with Ctrl+C. Backend autoreload is
+optional: `uv run findajob start --dev --reload`.
+
+Dev mode keeps its database at `.dev/data/jobs.db` across restarts. On first start
+it seeds from the checkout's `prod_jobs.db` if present, using SQLite's read-only
+backup API; otherwise it creates an empty database. Existing dev data is never
+replaced. Application and Uvicorn logs (including requests) append to `.dev/dev.log`.
+Config overrides, graph checkpoints, status, and resumes also stay under `.dev/`,
+which is ignored by Git. The tracked `config.yaml` still supplies defaults;
+local overrides go in `.dev/config/config.local.yaml` and dev credentials can go
+in `.dev/config/.env`. Inherited `FIND_A_JOB_*` settings are cleared before loading
+the dev app, so production paths and dashboard authentication are not reused.
+Other inherited provider credentials remain available. Automatic scheduling starts
+disabled on every dev launch; enable it in the dev dashboard only when needed.
+The normal startup seeding and live dashboard updates still run.
+
+For another worktree or an occupied port, use a matching API port override:
+
+```bash
+uv run findajob start --dev --port 8012
+FIND_A_JOB_API_PROXY=http://127.0.0.1:8012 npm run dev -- --port 5174
+```
+
+Vite fails if its port is occupied instead of silently choosing another one.
+Codex's repository-local `.codex/config.toml` enables sandbox networking for this
+trusted checkout. Start both servers inside the normal sandbox to exercise that
+setting; keep their session handles so they can be stopped individually.
 
 ### Docker
 
@@ -110,9 +127,21 @@ Configure and inspect search targets:
 
 ```bash
 findajob target list
-findajob target add "Platform Engineer,Site Reliability Engineer"
+findajob target add "Platform Engineer,Site Reliability Engineer" --location us_remote
 findajob search seed-cells
 ```
+
+Each query chooses its own locations. In Search Settings, add or edit a query and
+select recent locations, a preset, or a custom location. New queries start with
+nothing selected. Location choices are saved for reuse; saving a location never
+adds it to other queries. Recent choices persist across browsers. Query pause
+and crawler-source controls determine which assigned cells run.
+
+CLI creation requires at least one `--location` ID from `target list`; repeat the
+flag for multiple locations. `target edit ID --location us_remote` replaces that
+query's locations. Deselecting locations disables their cells while retaining
+scrape history. Existing installations retain coverage for formerly enabled
+locations; formerly paused locations remain available to select.
 
 Run the pipeline manually. `run` searches and then scores the resulting backlog:
 

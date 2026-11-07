@@ -13,7 +13,7 @@ from findajob.core.logger import get_logger
 
 logger = get_logger()
 
-SCHEMA_VERSION = 41
+SCHEMA_VERSION = 42
 
 
 def _v1_baseline(cursor: sqlite3.Cursor) -> None:
@@ -2495,6 +2495,31 @@ def _v41_proxy_failure_class(cursor: sqlite3.Cursor) -> None:
     cursor.execute("ALTER TABLE proxy_state ADD COLUMN failure_class TEXT")
 
 
+def _v42_query_locations(cursor: sqlite3.Cursor) -> None:
+    """Replace global location activation with explicit per-query assignments."""
+    # executescript commits pending work; keep DDL and assignments in one transaction
+    # so a failed upgrade can be retried against the unchanged v41 schema.
+    cursor.execute("SAVEPOINT query_locations")
+    cursor.execute("""
+        CREATE TABLE search_query_locations (
+            query_id INTEGER NOT NULL REFERENCES search_queries(id) ON DELETE CASCADE,
+            location_id TEXT NOT NULL REFERENCES search_locations(id) ON DELETE CASCADE,
+            PRIMARY KEY (query_id, location_id)
+        )
+    """)
+    cursor.execute(
+        "CREATE INDEX idx_query_locations_location ON search_query_locations(location_id)"
+    )
+    cursor.execute("""
+        INSERT INTO search_query_locations (query_id, location_id)
+        SELECT q.id, l.id FROM search_queries q CROSS JOIN search_locations l
+        WHERE l.enabled = 1
+    """)
+    cursor.execute("ALTER TABLE search_locations ADD COLUMN last_used_at TEXT")
+    cursor.execute("ALTER TABLE search_locations DROP COLUMN enabled")
+    cursor.execute("RELEASE query_locations")
+
+
 MIGRATIONS: list[tuple[int, str, Callable[[sqlite3.Cursor], None]]] = [
     (1, "baseline jobs table", _v1_baseline),
     (2, "market analytics: cells, observations, skills, stats", _v2_analytics),
@@ -2597,6 +2622,7 @@ MIGRATIONS: list[tuple[int, str, Callable[[sqlite3.Cursor], None]]] = [
     (39, "LinkedIn detail freshness and page-budget accounting", _v39_linkedin_detail_reuse),
     (40, "per-proxy health and backoff state", _v40_proxy_state),
     (41, "proxy failure category", _v41_proxy_failure_class),
+    (42, "per-query locations and reusable recent choices", _v42_query_locations),
 ]
 
 

@@ -113,7 +113,6 @@ export function FilterSidebar({
           {meta?.locations.map((location) => (
             <option key={location.id} value={location.id}>
               {location.label}
-              {location.enabled ? "" : " (disabled)"}
             </option>
           ))}
         </select>

@@ -234,7 +234,7 @@ def test_search_proxies_inspects_and_resets_state(
         ["search", "proxies"],
         ["search", "run"],
         ["search", "query", "--query", "Engineer", "--location", "Helsinki"],
-        ["target", "add", "Engineer"],
+        ["target", "add", "Engineer", "--location", "us_remote"],
         ["target", "edit", "1"],
         ["jobs", "list"],
     ],

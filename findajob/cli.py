@@ -224,11 +224,12 @@ def _cmd_target(args: argparse.Namespace) -> int:
     from findajob.core.config import load_config
     from findajob.core.paths import DB_PATH
     from findajob.search import targets as target_repo
-    from findajob.search.capacity import calculate_capacity
+    from findajob.search.capacity import capacity_for_targets
 
     sub = args.subcommand
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA foreign_keys=ON")
     try:
         if sub == "list":
             queries = target_repo.get_queries(conn)
@@ -236,23 +237,27 @@ def _cmd_target(args: argparse.Namespace) -> int:
             if not queries:
                 print("No search queries configured.")
             else:
-                print(f"{'Id':<6} {'Status':<10} {'Sources':<20} {'Query'}")
+                print(f"{'Id':<6} {'Status':<10} {'Sources':<20} {'Locations':<28} {'Query'}")
                 print("-" * 60)
                 for q in queries:
                     status = "ACTIVE" if q["enabled"] else "PAUSED"
-                    print(f"{q['id']:<6} {status:<10} {', '.join(q['sources']):<20} {q['query']}")
+                    print(
+                        f"{q['id']:<6} {status:<10} {', '.join(q['sources']):<20} "
+                        f"{', '.join(q['location_ids']):<28} {q['query']}"
+                    )
             print()
-            print(f"{'Id':<16} {'Status':<10} {'Search label'}")
+            print(f"{'Id':<16} {'Search label'}")
             print("-" * 60)
             for loc in locs:
-                status = "ACTIVE" if loc["enabled"] else "PAUSED"
-                print(f"{loc['id']:<16} {status:<10} {loc['search_label']}")
+                print(f"{loc['id']:<16} {loc['search_label']}")
             return 0
 
         if sub == "add":
             queries = [q.strip() for q in args.queries.split(",") if q.strip()]
             for query in queries:
-                target_repo.add_query(conn, query_term=query, sources=args.sources)
+                target_repo.add_query(
+                    conn, query_term=query, sources=args.sources, location_ids=args.locations
+                )
             print(f"Added {len(queries)} search queries.")
             _reseed_cells()
             return 0
@@ -270,6 +275,7 @@ def _cmd_target(args: argparse.Namespace) -> int:
                 query_id=args.id,
                 query_term=args.query,
                 sources=args.sources,
+                location_ids=args.locations,
             )
             print(f"Updated search query {args.id}.")
             _reseed_cells()
@@ -282,12 +288,9 @@ def _cmd_target(args: argparse.Namespace) -> int:
             return 0
 
         if sub == "status":
-            queries = target_repo.get_queries(conn, enabled_only=True)
-            locs = target_repo.get_locations(conn, enabled_only=True)
-            cfg = load_config()
-            cap = calculate_capacity(len(queries), len(locs), cfg)
-            print(f"Active Queries:   {len(queries)}")
-            print(f"Active Locations: {len(locs)}")
+            cap = capacity_for_targets(target_repo.load_targets(conn=conn), load_config())
+            print(f"Active Queries:   {cap['active_queries']}")
+            print(f"Locations in Use: {cap['locations_in_use']}")
             print(f"Search Pairs:     {cap['search_pairs']} ({cap['total_cells']} total cells)")
             print(f"Cycle Duration:   ~{cap['cycle_hours']}h ({cap['cycle_days']} days)")
             print(f"Capacity Zone:    [{cap['zone'].upper()}]")
@@ -498,14 +501,78 @@ def _cmd_llm(args: argparse.Namespace) -> int:
     return 0
 
 
+def _prepare_dev() -> str:
+    """Select persistent development paths before importing application modules."""
+    import os
+    import sqlite3
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parent.parent
+    home = (root if (root / "pyproject.toml").exists() else Path.cwd()) / ".dev"
+    # Inherited production paths and authentication must not leak into the dev app.
+    for name in tuple(os.environ):
+        if name.startswith("FIND_A_JOB_"):
+            os.environ.pop(name)
+    os.environ["FIND_A_JOB_HOME"] = str(home)
+    os.environ["FIND_A_JOB_LOG_PATH"] = str(home / "dev.log")
+    if (root / "config.yaml").exists():
+        os.environ["FIND_A_JOB_CONFIG_PATH"] = str(root / "config.yaml")
+
+    from findajob.core.paths import DB_PATH, LOG_PATH
+
+    snapshot = root / "prod_jobs.db"
+    database = Path(DB_PATH)
+    if not database.exists() and snapshot.exists():
+        # SQLite backup includes committed WAL contents and opens the snapshot read-only.
+        temporary = database.with_suffix(".seed.db")
+        with (
+            contextlib.closing(sqlite3.connect(f"{snapshot.as_uri()}?mode=ro", uri=True)) as source,
+            contextlib.closing(sqlite3.connect(temporary)) as destination,
+        ):
+            source.backup(destination)
+        temporary.replace(database)
+
+    from findajob.core.database import Database
+    from findajob.core.scheduler_preferences import update_scheduler_preferences
+
+    db = Database()
+    try:
+        # A production snapshot may have automatic scraping/scoring enabled.
+        update_scheduler_preferences(db.conn, enabled=False)
+    finally:
+        db.close()
+    print(f"Dev database: {DB_PATH}\nDev log: {LOG_PATH}", flush=True)
+    return LOG_PATH
+
+
 def _cmd_start(args: argparse.Namespace) -> int:
     import uvicorn
+    from uvicorn.config import LOGGING_CONFIG
+
+    log_config = LOGGING_CONFIG
+    if args.dev:
+        from copy import deepcopy
+
+        log_path = _prepare_dev()
+        log_config = deepcopy(log_config)
+        log_config["formatters"]["dev"] = {
+            "format": "%(asctime)s %(levelname)s %(name)s: %(message)s"
+        }
+        log_config["handlers"]["dev"] = {
+            "class": "logging.FileHandler",
+            "filename": log_path,
+            "encoding": "utf-8",
+            "formatter": "dev",
+        }
+        log_config["loggers"]["uvicorn"]["handlers"].append("dev")
+        log_config["loggers"]["uvicorn.access"]["handlers"].append("dev")
 
     uvicorn.run(
         "findajob.web.app:app",
         host=args.host,
         port=args.port,
         reload=args.reload,
+        log_config=log_config,
         timeout_graceful_shutdown=5,
     )
     return 0
@@ -520,6 +587,11 @@ def build_parser() -> argparse.ArgumentParser:
     st_parser = sub.add_parser("start", help="start the web dashboard (and enabled scheduler)")
     st_parser.add_argument("--host", default="127.0.0.1")
     st_parser.add_argument("--port", type=int, default=8010)
+    st_parser.add_argument(
+        "--dev",
+        action="store_true",
+        help="use persistent .dev data and logs; start with scheduler off",
+    )
     st_parser.add_argument("--reload", action="store_true", help="development autoreload")
     st_parser.set_defaults(func=_cmd_start)
 
@@ -644,7 +716,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     tar = sub.add_parser(
         "target",
-        help="manage search queries and check capacity (edit locations in the dashboard)",
+        help="manage search queries, their locations, and capacity",
     )
     tar_sub = tar.add_subparsers(dest="subcommand", required=True)
 
@@ -652,6 +724,13 @@ def build_parser() -> argparse.ArgumentParser:
 
     tar_add = tar_sub.add_parser("add", help="add search queries")
     tar_add.add_argument("queries", help="comma-separated search queries")
+    tar_add.add_argument(
+        "--location",
+        dest="locations",
+        action="append",
+        required=True,
+        help="location ID (repeat for multiple; see target list)",
+    )
     tar_add.add_argument(
         "--source",
         dest="sources",
@@ -663,6 +742,12 @@ def build_parser() -> argparse.ArgumentParser:
     tar_edit = tar_sub.add_parser("edit", help="edit a query term or its board scope")
     tar_edit.add_argument("id", type=int, help="search query id (see 'target list')")
     tar_edit.add_argument("--query", help="replacement query term")
+    tar_edit.add_argument(
+        "--location",
+        dest="locations",
+        action="append",
+        help="replacement location IDs (repeat for multiple)",
+    )
     tar_edit.add_argument(
         "--source",
         dest="sources",

@@ -29,9 +29,10 @@ def test_targets_list_and_capacity(client: TestClient) -> None:
 
 
 def test_target_query_crud(client: TestClient) -> None:
+    client.post("/api/targets/locations", json={"id": "remote", "label": "Remote"})
     add_res = client.post(
         "/api/targets/queries",
-        json={"query": "Test AI Agent Specialist", "enabled": True},
+        json={"query": "Test AI Agent Specialist", "enabled": True, "location_ids": ["remote"]},
     )
     assert add_res.status_code == 200
     qid: int = add_res.json()["id"]
@@ -72,7 +73,6 @@ def test_target_location_crud(client: TestClient) -> None:
             "indeed_country": "usa",
             "is_remote": False,
             "distance": 25,
-            "enabled": True,
         },
     )
     assert add_res.status_code == 200
@@ -86,13 +86,6 @@ def test_target_location_crud(client: TestClient) -> None:
         json={"distance": 40},
     )
     assert up_res.status_code == 200
-
-    tog_res = client.put(
-        f"/api/targets/locations/{loc_id}/toggle",
-        json={"enabled": False},
-    )
-    assert tog_res.status_code == 200
-    assert tog_res.json()["enabled"] is False
 
     del_res = client.delete(f"/api/targets/locations/{loc_id}")
     assert del_res.status_code == 200
@@ -113,8 +106,8 @@ def test_capacity_and_refresh_share_source_scoped_estimates(
     path = str(tmp_path / "capacity.db")
     db = Database(path)
     targets.save_location(db.conn, loc_id="remote", label="Remote")
-    targets.add_query(db.conn, "Indeed role", sources=["indeed"])
-    targets.add_query(db.conn, "LinkedIn role", sources=["linkedin"])
+    targets.add_query(db.conn, "Indeed role", sources=["indeed"], location_ids=["remote"])
+    targets.add_query(db.conn, "LinkedIn role", sources=["linkedin"], location_ids=["remote"])
     db.close()
     monkeypatch.setattr(web, "get_db", lambda: Database(path))
     monkeypatch.setattr(
@@ -158,8 +151,10 @@ def test_google_assignment_and_filtering(
     Database(path).close()
     monkeypatch.setattr(web, "get_db", lambda: Database(path))
     monkeypatch.setattr(web, "_sync_target_cells", lambda: None)
+    client.post("/api/targets/locations", json={"id": "remote", "label": "Remote"})
     response = client.post(
-        "/api/targets/queries", json={"query": "Google engineer", "sources": ["google"]}
+        "/api/targets/queries",
+        json={"query": "Google engineer", "sources": ["google"], "location_ids": ["remote"]},
     )
     assert response.status_code == 200
     query_id = response.json()["id"]

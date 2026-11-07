@@ -10,7 +10,6 @@ from findajob.search.targets import (
     get_locations,
     get_queries,
     save_location,
-    toggle_location,
     toggle_query,
 )
 
@@ -52,7 +51,7 @@ def test_migration_v24_target_schema():
         "indeed_country",
         "is_remote",
         "distance",
-        "enabled",
+        "last_used_at",
     ):
         assert col in locs_cols, f"Missing {col} in search_locations"
 
@@ -85,10 +84,11 @@ def test_migration_v24_unique_key_is_source_location_query():
 def test_search_queries_crud():
     conn = _migrated()
 
-    qid = add_query(conn, query_term="Backend Engineer")
+    save_location(conn, loc_id="remote", label="Remote")
+    qid = add_query(conn, query_term="Backend Engineer", location_ids=["remote"])
     assert qid > 0
     # The query text is the key: adding it twice re-uses the row.
-    assert add_query(conn, query_term="Backend Engineer") == qid
+    assert add_query(conn, query_term="Backend Engineer", location_ids=["remote"]) == qid
     assert any(q["query"] == "Backend Engineer" for q in get_queries(conn))
 
     toggle_query(conn, qid, enabled=False)
@@ -110,15 +110,11 @@ def test_search_locations_crud():
         indeed_country="finland",
         is_remote=False,
         distance=50,
-        enabled=True,
     )
 
     hel = next((loc for loc in get_locations(conn) if loc["id"] == "helsinki"), None)
     assert hel is not None
     assert hel["country"] == "FI"
-
-    toggle_location(conn, "helsinki", enabled=False)
-    assert not any(loc["id"] == "helsinki" for loc in get_locations(conn, enabled_only=True))
 
     delete_location(conn, "helsinki")
     assert not any(loc["id"] == "helsinki" for loc in get_locations(conn))

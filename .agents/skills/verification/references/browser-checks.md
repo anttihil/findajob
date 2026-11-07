@@ -1,54 +1,67 @@
-# Browser checks with an isolated application server
+# Browser checks with the development application
 
 Use this workflow to check changed UI behavior against the real frontend and
 backend. It supplements `make verify` when visible application behavior changes.
 
-## Start an isolated server
+## Start the backend and Vite directly
 
-Run from the repository root after installing dependencies:
+Run from the repository root after installing dependencies, in two separate
+long-lived execution sessions:
 
 ```sh
-make dev
+uv run findajob start --dev
 ```
 
-This starts Vite at `http://127.0.0.1:5173` with hot frontend updates, proxies
-`/api` to a reloading FastAPI server at `127.0.0.1:8011`, and initializes an
-isolated database. No production frontend build is needed. The launcher prints
-its temporary application home, clears inherited config/auth/provider variables,
-and gives both servers an isolated user home. Keep that path for synthetic data
-and diagnostic artifacts; it is retained after shutdown.
+```sh
+npm run dev
+```
+
+Vite serves `http://127.0.0.1:5173` with hot frontend updates and proxies `/api`
+to the application at `127.0.0.1:8010`. No production frontend build or wrapper
+script is needed. `make dev` is shorthand for starting only the backend.
+Backend autoreload is optional (`uv run findajob start --dev --reload`); leave it
+off for browser checks to avoid an extra reload supervisor process.
+
+Dev mode prints its database and log paths. Data persists at `.dev/data/jobs.db`;
+the first start uses a read-only SQLite backup of `prod_jobs.db` when available,
+or creates an empty database. Existing dev data is never replaced. Config overrides,
+graph checkpoints, status, and resumes also stay under the ignored `.dev/` directory.
+Defaults come from the tracked `config.yaml`; dev overrides and credentials go in
+`.dev/config/config.local.yaml` and `.dev/config/.env`. Inherited `FIND_A_JOB_*`
+settings are cleared before application imports. Other provider credentials remain
+available, so mock AI providers for flows that should not make live calls.
+Application, Uvicorn, and request logs append to `.dev/dev.log`.
 
 For another worktree, choose a different frontend/API port pair:
 
 ```sh
-make dev DEV_PORT=5174 DEV_API_PORT=8012
+uv run findajob start --dev --port 8012
+FIND_A_JOB_API_PROXY=http://127.0.0.1:8012 npm run dev -- --port 5174
 ```
 
-Or run `python3 scripts/dev.py --port 5174 --api-port 8012` directly.
-
-Run in a long-lived execution session and retain its session handle. Wait for
+Retain both execution session handles. Wait for
 successful responses from `/` and `/api/meta` on the frontend port before browser
 interaction; Vite can become ready before the API. If a port is occupied, choose
-another pair rather than stopping an unrelated listener. Either server exiting
-stops its companion, so a failed API cannot leave an apparently working preview.
+another pair rather than stopping an unrelated listener. Vite fails on an occupied
+port instead of silently choosing another one. These are independent foreground
+servers: if either fails, inspect its output and `.dev/dev.log`, then stop or restart
+that session explicitly. A Vite page alone does not establish backend readiness.
 
-Seed synthetic records relevant to the changed flow using the printed home and
-a clean environment, before importing application modules:
+When synthetic records are needed, use the dev home before application imports:
 
 ```sh
-env -i PATH="$PATH" HOME=/tmp/careerradar-ui-example/user \
-  FIND_A_JOB_HOME=/tmp/careerradar-ui-example \
-  .venv/bin/python -c 'from findajob.core.database import Database; Database().close()'
+FIND_A_JOB_HOME="$PWD/.dev" FIND_A_JOB_LOG_PATH="$PWD/.dev/dev.log" \
+  uv run python -c 'from findajob.core.database import Database; Database().close()'
 ```
 
-Replace both paths with the actual home. Do not point browser interactions at a
-production database or its diagnostic snapshot.
+Clear any inherited path overrides when using this snippet. Do not point browser
+interactions at a production database or its diagnostic snapshot. Preserve existing
+dev records and use distinct synthetic identifiers.
 
-`--lifespan off` prevents startup seeding and the background scheduler from
-running scrapes or scoring. Keep automatic updates off in the UI. This setup
-does not verify application startup or scheduler behavior; use a purpose-built
-isolated test when those are the subject of the change. Flows that invoke AI
-need a deterministic mock for the relevant provider rather than live calls.
+Dev mode uses the normal application lifespan, including startup cell seeding and
+live updates. It disables the persisted scheduler preference at every launch so a
+production snapshot cannot trigger automatic scraping or scoring. Keep automatic
+updates off in the UI unless scheduler behavior is what you are testing.
 
 ## Handle sandbox restrictions at the execution boundary
 
@@ -59,7 +72,7 @@ only localhost. See the [official configuration reference](https://learn.chatgpt
 Start a fresh session after changing the config: it cannot change a running
 session's policy, and higher-priority runtime restrictions may override it.
 
-Start `make dev` normally inside that sandbox. Do not request escalation for
+Start both direct commands normally inside that sandbox. Do not request escalation for
 every server start, enable global full access, or disguise the command as an
 already-approved unrelated server. If socket creation/binding is still denied,
 report the actual policy restriction and that a fresh session with project
@@ -105,11 +118,12 @@ part of the behavior.
 Inspect screenshots at desktop and narrow widths for layout changes. A page
 with no console errors can still have overlapping or inaccessible controls;
 report such failures even when DOM assertions pass. Keep screenshots or traces
-in the temporary home or ignored `test-results/` directory when they help explain
+under `.dev/` or the ignored `test-results/` directory when they help explain
 the result.
 
 Close only the named browser session with
-`npx --yes @playwright/cli -s=careerradar-check close` and stop the server using its
-execution session handle. Preserve diagnostic artifacts if useful; do not kill
+`npx --yes @playwright/cli -s=careerradar-check close` and stop **both** servers with
+Ctrl+C through their execution session handles. Confirm both sessions exit and
+their ports no longer respond. Preserve `.dev/` and diagnostic artifacts; do not kill
 unrelated browser sessions or listeners. Report the flows and viewports checked, the
 automated verification result, and any remaining failures or unavailable checks.

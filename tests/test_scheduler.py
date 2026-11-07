@@ -61,7 +61,6 @@ SCHEDULER_TEST_TARGETS_SPEC = {
             "indeed_country": "usa",
             "is_remote": True,
             "distance": 50,
-            "enabled": True,
         },
         {
             "id": "us_nat",
@@ -71,7 +70,6 @@ SCHEDULER_TEST_TARGETS_SPEC = {
             "indeed_country": "usa",
             "is_remote": False,
             "distance": 50,
-            "enabled": True,
         },
         {
             "id": "los_angeles",
@@ -81,7 +79,6 @@ SCHEDULER_TEST_TARGETS_SPEC = {
             "indeed_country": "usa",
             "is_remote": False,
             "distance": 50,
-            "enabled": True,
         },
         {
             "id": "helsinki",
@@ -91,7 +88,6 @@ SCHEDULER_TEST_TARGETS_SPEC = {
             "indeed_country": "finland",
             "is_remote": False,
             "distance": 50,
-            "enabled": True,
         },
         {
             "id": "stockholm",
@@ -101,7 +97,6 @@ SCHEDULER_TEST_TARGETS_SPEC = {
             "indeed_country": "sweden",
             "is_remote": False,
             "distance": 50,
-            "enabled": True,
         },
         {
             "id": "oslo",
@@ -111,7 +106,6 @@ SCHEDULER_TEST_TARGETS_SPEC = {
             "indeed_country": "norway",
             "is_remote": False,
             "distance": 50,
-            "enabled": True,
         },
         {
             "id": "copenhagen",
@@ -121,7 +115,6 @@ SCHEDULER_TEST_TARGETS_SPEC = {
             "indeed_country": "denmark",
             "is_remote": False,
             "distance": 50,
-            "enabled": True,
         },
     ],
 }

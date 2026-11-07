@@ -72,13 +72,13 @@ class PlanHashTests(unittest.TestCase):
         base = SearchTargets.from_spec(
             {
                 "queries": ["Backend Engineer"],
-                "locations": [{"id": "remote", "label": "Remote", "enabled": True}],
+                "locations": [{"id": "remote", "label": "Remote"}],
             }
         )
         changed = SearchTargets.from_spec(
             {
                 "queries": ["Platform Engineer"],
-                "locations": [{"id": "remote", "label": "Remote", "enabled": True}],
+                "locations": [{"id": "remote", "label": "Remote"}],
             }
         )
         self.assertNotEqual(plan_hash(base, config), plan_hash(changed, config))

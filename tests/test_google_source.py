@@ -279,8 +279,8 @@ def test_google_scheduler_resolves_explicit_scope(db: Database):
     from findajob.search.targets import add_query, load_targets, save_location
 
     save_location(db.conn, "fi", "Helsinki", country="FI", indeed_country="finland")
-    add_query(db.conn, "Legacy engineer")
-    add_query(db.conn, "Google engineer", sources=["google"])
+    add_query(db.conn, "Legacy engineer", location_ids=["fi"])
+    add_query(db.conn, "Google engineer", sources=["google"], location_ids=["fi"])
     db.seed_cells(load_targets(conn=db.conn).cell_specs())
     tasks = scrape_tasks(db, DEFAULT_CONFIG, "google")
     assert len(tasks) == 1

@@ -12,15 +12,13 @@ lists is what gets searched.
 
 from findajob.core.config import load_config
 from findajob.core.database import Database
+from findajob.core.search_schedule import search_schedules
 from findajob.search.targets import load_targets
 
 
 def seed_cells(prune: bool = False) -> int:
     config = load_config()
-    scraper = config.get("scraper", {})
-    enabled_sources = tuple(name for name, on in (scraper.get("sources") or {}).items() if on) or (
-        "indeed",
-    )
+    enabled_sources = tuple(search_schedules(config))
 
     targets = load_targets()
     problems = targets.validate()
@@ -55,10 +53,10 @@ def seed_cells(prune: bool = False) -> int:
         from findajob.search.capacity import capacity_for_targets
 
         active_queries = len(targets.queries)
-        active_locations = sum(1 for loc in targets.locations.values() if loc.enabled)
+        locations_in_use = len({loc_id for _, loc_id in targets.search_pairs})
         cap = capacity_for_targets(targets, config)
         print(
-            f"\nmatrix: {active_queries} queries x {active_locations} locations "
+            f"\nmatrix: {active_queries} queries, {locations_in_use} locations in use: "
             f"= {cap['search_pairs']} query-location combinations ({cap['total_cells']} cells)"
         )
         for source, estimate in cap["sources"].items():

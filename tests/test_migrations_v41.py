@@ -37,11 +37,13 @@ def test_upgrade_preserves_existing_proxy_state_and_leaves_categories_unknown() 
         conn.commit()
         before = conn.execute("SELECT * FROM proxy_state ORDER BY proxy_id, source").fetchall()
 
-        assert migrations.migrate(conn) == 1
+        with patch.object(migrations, "MIGRATIONS", migrations.MIGRATIONS[:41]):
+            assert migrations.migrate(conn) == 1
         assert migrations.current_version(conn) == 41
         after = conn.execute("SELECT * FROM proxy_state ORDER BY proxy_id, source").fetchall()
         assert after == [(*row, None) for row in before]
-        assert migrations.migrate(conn) == 0
+        with patch.object(migrations, "MIGRATIONS", migrations.MIGRATIONS[:41]):
+            assert migrations.migrate(conn) == 0
         assert conn.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
         assert conn.execute("PRAGMA foreign_key_check").fetchall() == []
     finally:

@@ -35,18 +35,20 @@ def capacity_for_targets(targets: "SearchTargets", config: dict[str, Any]) -> di
     counts = dict(Counter(spec["source"] for spec in targets.cell_specs(sources=tuple(schedules))))
     return calculate_capacity(
         len(targets.queries),
-        sum(loc.enabled for loc in targets.locations.values()),
+        len({loc_id for _, loc_id in targets.search_pairs}),
         config,
         cells_by_source=counts,
+        search_pairs_count=len(targets.search_pairs),
     )
 
 
 def calculate_capacity(
     active_queries_count: int,
-    active_locations_count: int,
+    locations_in_use_count: int,
     config: dict[str, Any] | None = None,
     scheduled_cells: int | None = None,
     cells_by_source: dict[str, int] | None = None,
+    search_pairs_count: int | None = None,
 ) -> dict[str, Any]:
     """Forecast full rotation time assuming a cold cache and full result sets.
 
@@ -57,7 +59,11 @@ def calculate_capacity(
     scraper = config["scraper"]
     endpoints = max(1, len(load_proxies(config)))
     schedules = search_schedules(config)
-    search_pairs = active_queries_count * active_locations_count
+    search_pairs = (
+        active_queries_count * locations_in_use_count
+        if search_pairs_count is None
+        else search_pairs_count
+    )
     sources = {}
     for source, schedule in schedules.items():
         cells = (
@@ -102,10 +108,13 @@ def calculate_capacity(
     elif cycle_hours <= BALANCED_THRESHOLD_HOURS:
         zone, message = "balanced", "Every enabled source's matrix is swept within two days."
     else:
-        zone, message = "overloaded", "Consider pausing low-yield queries or locations."
+        zone, message = (
+            "overloaded",
+            "Consider pausing low-yield queries or removing their locations.",
+        )
     return {
         "active_queries": active_queries_count,
-        "active_locations": active_locations_count,
+        "locations_in_use": locations_in_use_count,
         "search_pairs": search_pairs,
         "total_cells": total_cells,
         "runs_per_day": min((row["runs_per_day"] for row in active), default=0),

@@ -42,8 +42,8 @@ def test_migration_backfills_existing_queries_to_both_sources() -> None:
 def test_source_scopes_generate_and_prune_only_their_own_cells() -> None:
     conn = _migrated()
     save_location(conn, loc_id="remote", label="Remote")
-    indeed_id = add_query(conn, "Agentic AI Engineer", sources=["indeed"])
-    add_query(conn, "Broad Engineer", sources=["linkedin"])
+    indeed_id = add_query(conn, "Agentic AI Engineer", sources=["indeed"], location_ids=["remote"])
+    add_query(conn, "Broad Engineer", sources=["linkedin"], location_ids=["remote"])
     _seed(conn)
 
     active = conn.execute(
@@ -78,7 +78,7 @@ def test_source_scopes_generate_and_prune_only_their_own_cells() -> None:
 def test_global_source_switch_intersects_query_scope() -> None:
     conn = _migrated()
     save_location(conn, loc_id="remote", label="Remote")
-    add_query(conn, "Platform Engineer", sources=["indeed", "linkedin"])
+    add_query(conn, "Platform Engineer", sources=["indeed", "linkedin"], location_ids=["remote"])
     _seed(conn, sources=("indeed",))
     rows = conn.execute("SELECT source FROM scrape_cells WHERE enabled = 1").fetchall()
     assert [row["source"] for row in rows] == ["indeed"]
@@ -87,8 +87,8 @@ def test_global_source_switch_intersects_query_scope() -> None:
 def test_google_requires_explicit_assignment_and_prunes_without_losing_history() -> None:
     conn = _migrated()
     save_location(conn, loc_id="fi", label="Helsinki")
-    add_query(conn, "Legacy")
-    google_id = add_query(conn, "Google role", sources=["google"])
+    add_query(conn, "Legacy", location_ids=["fi"])
+    google_id = add_query(conn, "Google role", sources=["google"], location_ids=["fi"])
     specs = load_targets(conn=conn).cell_specs()
     assert {(s["query"], s["source"]) for s in specs} == {
         ("Legacy", "indeed"),
